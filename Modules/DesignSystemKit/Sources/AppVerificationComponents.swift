@@ -78,6 +78,8 @@ private struct VerificationCodeField: UIViewRepresentable {
     static func dismantleUIView(_ field: CodeTextField, coordinator: Coordinator) {
         NotificationCenter.default.removeObserver(coordinator, name: UITextField.textDidChangeNotification, object: field)
         field.delegate = nil
+        field.shouldFocus = false
+        field.resignFirstResponder()
     }
 
     final class CodeTextField: UITextField {
@@ -114,13 +116,16 @@ private struct VerificationCodeField: UIViewRepresentable {
         }
 
         @objc func textChanged(_ notification: Notification) {
-            guard let field = notification.object as? UITextField else { return }
+            guard let field = notification.object as? CodeTextField else { return }
             let insertion = insertedText
             insertedText = ""
             let digits = AppVerificationCode.normalize(field.text ?? "")
             if field.text != digits { field.text = digits }
             parent.code = digits
             if AppVerificationCode.shouldSubmitAutomatically(insertedText: insertion, code: digits) {
+                field.shouldFocus = false
+                parent.isFocused = false
+                field.resignFirstResponder()
                 parent.onAutomaticSubmit(digits)
             }
         }

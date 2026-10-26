@@ -186,11 +186,20 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         fillVerificationCode("123456", in: code)
         assertUI(textElement("加权平均分、92.00").appears(timeout: 5), "横屏成绩应展示已加载记录的统计。")
         assertUI(app.navigationBars["短信验证"].disappears(timeout: 5), "成绩截图应在验证面板完全收起后采样。")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
+        }, on: app, timeout: 5), "短信验证结束后应释放键盘焦点。")
         capture("成绩")
         app.mainTab("日程").tapBriefly()
         let calendarWeek = app.buttons["第1周"]
         assertUI(calendarWeek.appears(timeout: 5) && calendarWeek.isHittable, "横屏应完整展示课表周次。")
         assertUI(app.buttons["添加待办"].isHittable, "课表与单列 DDL 应同时提供入口。")
+        let surface = app.descendants(matching: .any)["schedule.section-surface"]
+        let window = app.windows.firstMatch
+        if let safeArea = window.scrollGestureFrame(in: window.frame) {
+            assertUI(waitUntil(NSPredicate { _, _ in surface.frame.maxY >= safeArea.maxY - 1 }, on: app, timeout: 5),
+                "日程应填满窗口安全区：内容 \(surface.frame)，安全区 \(safeArea)。")
+        }
         capture("课表与DDL")
         tapHeader(app.segmentedControls.buttons["空教室"])
         assertPanes("classroom.sidebar", "interaction.FreeClassroomTabView.list")
