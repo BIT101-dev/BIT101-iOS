@@ -4,7 +4,7 @@ import Foundation
 import Network
 import os
 import Testing
-import TransportCore
+@testable import TransportCore
 
 private nonisolated final class InterruptedResponseProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -71,6 +71,18 @@ private nonisolated final class InterruptedResponseServer: Sendable {
 
 @MainActor
 struct HTTPResponseValidationTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "vpn"])
+    func usableRouteChangesPublishRecoveryEvents(kind: String) async throws {
+        let path = NetworkPathState(snapshot: .init(status: kind == "connection" ? .disconnected : .connected, interfaces: [.wifi]))
+        let recoveries = path.connectionRecoveries()
+        var received = 0
+        let consumer = Task { for await _ in recoveries { received += 1 } }
+        defer { consumer.cancel() }
+        path.update(snapshot: .init(status: .connected, interfaces: kind == "interface" ? [.cellular] : [.wifi],
+            virtualNetworkLikely: kind == "vpn"))
+        try await waitForTestEvent { received == 1 }
+    }
+
     private struct Transport: HTTPTransport {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
