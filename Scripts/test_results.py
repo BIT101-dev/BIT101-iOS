@@ -128,7 +128,8 @@ def report_test_results(arguments: list[str]) -> None:
             screenshots = {}
             def collect(value):
                 if isinstance(value, dict):
-                    if str(value.get('name', '')).startswith(('失败时的界面截图', '界面截图')) and value.get('payloadId'):
+                    name = str(value.get('name', ''))
+                    if (name.startswith(('失败时的界面截图', '界面截图')) or name.endswith('.web.screen')) and value.get('payloadId'):
                         screenshots[value['payloadId']] = value['name']
                     for child in value.values(): collect(child)
                 elif isinstance(value, list):
@@ -155,7 +156,7 @@ def report_test_results(arguments: list[str]) -> None:
             if isinstance(value, dict):
                 name, identifier = str(value.get('name', '')), value.get('payloadId')
                 if identifier and (name.startswith(('失败时的界面元素树', 'App UI hierarchy for', 'Debug description for', 'Crash Log ', 'score_'))
-                    or name.startswith('gallery_') and name.endswith('.web.runtime')):
+                    or name.endswith('.web.runtime')):
                     selected.setdefault(identifier, name)
                 for child in value.values(): collect_attachments(child)
             elif isinstance(value, list):

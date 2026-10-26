@@ -42,8 +42,10 @@ def test_result_boundary_findings() -> list[str]:
             assert json.loads(output.getvalue()) == {'nativeBatch': True}
     first = dict(name='界面截图', payloadId='first')
     second = dict(name='失败时的界面截图', payloadId='second')
+    web = dict(name='gallery.web.screen', payloadId='web')
     for activities, selected, expected in (([], '', None), ([first], 'missing', None),
-            ([first, second], '', None), ([first, first], '', 'first'), ([first, second], 'second', 'second')):
+            ([first, second], '', None), ([first, first], '', 'first'), ([first, second], 'second', 'second'),
+            ([web], '', 'web'), ([first, web], 'web', 'web')):
         with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'exists', return_value=False), \
                 patch.object(Path, 'mkdir'), patch.object(Path, 'replace') as replaced, \
                 patch.object(Path, 'unlink') as cleared, patch.object(subprocess, 'run') as exported, \
@@ -58,8 +60,33 @@ def test_result_boundary_findings() -> list[str]:
                 assert cleared.call_count == 2
             else:
                 exported.assert_not_called(); replaced.assert_not_called(); cleared.assert_not_called()
+    web_attachment_report_self_test()
     module_failure_report_self_test()
     return []
+
+
+def web_attachment_report_self_test() -> None:
+    from test_results import report_test_results
+    scripts = Path(__file__).resolve().parent
+    fixture = scripts.parent / '.build/static-audit/test-results-self-test'
+    shutil.rmtree(fixture, ignore_errors=True)
+    fixture.mkdir(parents=True)
+    try:
+        bundle = fixture / 'test-results.xcresult'; bundle.mkdir()
+        attachments = [dict(name=name, payloadId=str(index)) for index, name in enumerate(
+            ('gallery.web.runtime', 'gallery_contract.web.runtime'))]
+        def export(arguments, **kwargs):
+            identifier = arguments[arguments.index('--id') + 1]
+            Path(arguments[-1]).write_text('runtime ' + identifier)
+            return subprocess.CompletedProcess(arguments, 0)
+        with patch('validation_performance.result_bundle_complete', return_value=True), \
+                patch.object(subprocess, 'check_output', return_value=json.dumps(attachments)), \
+                patch.object(subprocess, 'run', side_effect=export) as exported, redirect_stdout(StringIO()):
+            try: report_test_results([str(bundle), 'Fixture/test()', 'report', str(scripts)])
+            except SystemExit as status: assert status.code == 0
+        report = (fixture / 'failure-hierarchy.txt').read_text()
+        assert exported.call_count == 2 and all(item['name'] in report and 'runtime ' + item['payloadId'] in report for item in attachments)
+    finally: shutil.rmtree(fixture, ignore_errors=True)
 
 
 def failure_summary_self_test() -> None:
