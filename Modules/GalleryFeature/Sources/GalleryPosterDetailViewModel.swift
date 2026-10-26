@@ -145,10 +145,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             }
         }
         let likeRevisionAtStart = commentState.likeRevision
+        let initialPage = commentState.nextPage
+        var sourcePage = initialPage
         let result = await CommunityDetailTasks.loadResult { [self] in
             var progress = CommunityPageProgress<Int>()
-            let initialPage = commentState.nextPage
-            var sourcePage = initialPage
             while true {
                 let batch = try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: sourcePage)
                 try Task.checkCancellation()
@@ -162,9 +162,10 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             }
         }
 
+        guard commentRefreshGeneration == generation else { return }
+        commentState.nextPage = sourcePage
         switch result {
         case let .success(batch):
-            guard commentRefreshGeneration == generation else { return }
             commentState.needsContinuation = batch.canLoadMore && batch.items.allSatisfy { commentState.pagedItems.ids.contains($0.id) }
             commentState.confirmRead(in: batch.items)
             commentState.appendPage(commentState.applyingLocalChanges(to: batch.items, since: likeRevisionAtStart))
@@ -172,7 +173,6 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.canLoadMore = batch.canLoadMore
             commentState.paginationError = nil
         case let .failure(error):
-            guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
                 return
             }

@@ -79,6 +79,7 @@ struct GalleryStateContractTests {
         var writes = 0
         var readFailure: (any Error)?
         var comments: [CommunityComment] = []
+        var commentPages: [Int: GalleryPageBatch<CommunityComment>] = [:]
         var commentFailure: (any Error)?
         var creationFailure: any Error = URLError(.unsupportedURL)
         var commentRequests = 0
@@ -98,6 +99,7 @@ struct GalleryStateContractTests {
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
             commentRequests += 1
             if let commentFailure { throw commentFailure }
+            if let batch = commentPages[page ?? 0] { return batch }
             return .init(items: comments, nextSourcePage: 0, canLoadMore: false)
         }
         func like(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
@@ -228,6 +230,7 @@ struct GalleryStateContractTests {
         var recommendRequests: [Int] = []
         var searchRequests: [Int] = []
         var searchPages: [Int: GalleryPageBatch<CommunityPoster>] = [:]
+        var sourcePages: [Int: GalleryPageBatch<CommunityPoster>] = [:]
         var failedSearchPage: Int?
         var beforeSearch: (() async throws -> Void)?
         var totalPages: Int?
@@ -235,6 +238,7 @@ struct GalleryStateContractTests {
         var decodesIndependentBodies = false
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             let page = page ?? 0
+            if let batch = sourcePages[page] { return batch }
             if let totalPages {
                 let items = try (page * 100 + 1 ... (page + 1) * 100).map { id in
                     if decodesIndependentBodies {
@@ -311,6 +315,44 @@ struct GalleryStateContractTests {
         await model.performSearch()
         #expect(model.displayedQueryDescription == nil)
         #expect(!model.searchState.needsRefresh)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func duplicateSourcePagesKeepTheFeedAndSearchRetryCursor(search: Bool) async {
+        let service = Feed()
+        for page in 0...5 {
+            service.sourcePages[page] = .init(items: [listPoster(page == 5 ? 2 : 1)],
+                nextSourcePage: page + 1, canLoadMore: page < 5)
+        }
+        let model = GalleryViewModel(service: service)
+        if search { await model.performSearch() } else { await model.refresh(feed: .newest) }
+        func state() -> GalleryFeedState { search ? model.searchState : model.state(for: .newest) }
+        func next() async {
+            if search { await model.loadMoreSearchResultsIfNeeded(currentPoster: state().posters.last) }
+            else { await model.loadMoreIfNeeded(for: .newest, currentPoster: state().posters.last) }
+        }
+        await next()
+        #expect(state().posters.map(\.id) == [1] && state().nextPage == 4 && state().paginationError != nil)
+        await next()
+        #expect(state().posters.map(\.id) == [1, 2] && state().nextPage == 6 && state().paginationError == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func duplicateCommentPagesKeepTheirRetryCursor() async {
+        let service = SubscriptionDetails()
+        let user = listUser(1)
+        for page in 0...5 {
+            let comment = CommunityComment(id: page == 5 ? 2 : 1, obj: "poster1", images: [], user: user,
+                anonymous: false, createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0,
+                own: false, rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
+            service.commentPages[page] = .init(items: [comment], nextSourcePage: page + 1, canLoadMore: page < 5)
+        }
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        await model.refreshComments()
+        await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+        #expect(model.commentState.items.map(\.id) == [1] && model.commentState.nextPage == 4 && model.commentState.paginationError != nil)
+        await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+        #expect(model.commentState.items.map(\.id) == [1, 2] && model.commentState.nextPage == 6 && model.commentState.paginationError == nil)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -422,14 +464,15 @@ struct GalleryStateContractTests {
         model.searchQuery.text = "搜索"
         await model.performSearch()
         await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(1))
-        #expect(model.searchState.posters.map(\.id) == [1] && model.searchState.nextPage == 1)
+        let retryPage = scenario == "repeated" ? 4 : scenario == "failed" ? 2 : 1
+        #expect(model.searchState.posters.map(\.id) == [1] && model.searchState.nextPage == retryPage)
         #expect(!model.searchState.isLoadingMore && model.searchState.canLoadMore && model.alert != nil)
         #expect(service.searchRequests == (scenario == "repeated" ? [0, 1, 2, 3, 4] : scenario == "stalled" ? [0, 1] : [0, 1, 2]))
         service.failedSearchPage = nil
-        service.searchPages[1] = .init(items: [Self.poster(2)], nextSourcePage: 2, canLoadMore: false)
+        service.searchPages[retryPage] = .init(items: [Self.poster(2)], nextSourcePage: retryPage + 1, canLoadMore: false)
         await model.loadMoreSearchResultsIfNeeded(currentPoster: Self.poster(1))
-        #expect(model.searchState.posters.map(\.id) == [1, 2] && model.searchState.nextPage == 2)
-        #expect(service.searchRequests.last == 1 && !model.searchState.canLoadMore && !model.searchState.isLoadingMore)
+        #expect(model.searchState.posters.map(\.id) == [1, 2] && model.searchState.nextPage == retryPage + 1)
+        #expect(service.searchRequests.last == retryPage && !model.searchState.canLoadMore && !model.searchState.isLoadingMore)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -440,8 +483,13 @@ struct GalleryStateContractTests {
         await model.refresh(feed: .recommend)
         await model.loadMoreIfNeeded(for: .recommend, currentPoster: Self.poster(1))
         let state = model.state(for: .recommend)
-        #expect(state.posters.map(\.id) == [1] && state.isLoadingMore == false && state.nextPage == 1)
+        #expect(state.posters.map(\.id) == [1] && state.isLoadingMore == false && state.nextPage == 4)
         #expect(model.alert != nil && service.recommendRequests.allSatisfy { $0 <= 4 })
+        service.repeated = false
+        await model.loadMoreIfNeeded(for: .recommend, currentPoster: Self.poster(1))
+        #expect(model.state(for: .recommend).posters.map(\.id) == [1, 6] && model.state(for: .recommend).nextPage == 6)
+        #expect(model.state(for: .recommend).paginationError == nil)
+        #expect(service.recommendRequests.filter { $0 < 4 } == [0, 1, 2, 3])
         model.cancelPendingOperations()
     }
 

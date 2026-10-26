@@ -412,9 +412,10 @@ final class GalleryViewModel: ObservableObject {
         }
 
         setState(for: feed) { $0.isLoadingMore = true }
+        var sourcePage = state(for: feed).nextPage
 
         do {
-            let batch = try await nextVisibleBatch(startPage: state(for: feed).nextPage,
+            let batch = try await nextVisibleBatch(sourcePage: &sourcePage,
                 knownIDs: state(for: feed).posterIDs, stopAfterOne: feed.isBotFeed,
                 skipsEmptyPages: feed == .recommend) { page in
                 let batch: GalleryPageBatch<CommunityPoster>
@@ -436,6 +437,7 @@ final class GalleryViewModel: ObservableObject {
 
         } catch {
             guard refreshGenerations[feed] == generation else { return }
+            setState(for: feed) { $0.nextPage = sourcePage }
             if TaskCancellation.matches(error) {
                 setState(for: feed) { $0.isLoadingMore = false }
                 return
@@ -507,9 +509,10 @@ final class GalleryViewModel: ObservableObject {
         }
 
         searchState.isLoadingMore = true
+        var sourcePage = searchState.nextPage
 
         do {
-            let batch = try await nextVisibleBatch(startPage: searchState.nextPage, knownIDs: searchState.posterIDs) { page in
+            let batch = try await nextVisibleBatch(sourcePage: &sourcePage, knownIDs: searchState.posterIDs) { page in
                 let batch = try await self.service.searchPosters(query: query, page: page)
                 guard self.searchGeneration == generation else { throw CancellationError() }
                 return batch
@@ -518,6 +521,7 @@ final class GalleryViewModel: ObservableObject {
             Self.commit(batch, into: &searchState)
         } catch {
             guard searchGeneration == generation else { return }
+            searchState.nextPage = sourcePage
             if TaskCancellation.matches(error) {
                 searchState.isLoadingMore = false
                 return
@@ -547,25 +551,25 @@ final class GalleryViewModel: ObservableObject {
     }
 
     /// 请求阶段积累新增页，完成后释放读取快照并一次性提交。
-    private func nextVisibleBatch(startPage: Int, knownIDs: Set<Int>, stopAfterOne: Bool = false,
+    private func nextVisibleBatch(sourcePage: inout Int, knownIDs: Set<Int>, stopAfterOne: Bool = false,
         skipsEmptyPages: Bool = false,
         fetch: (Int) async throws -> GalleryPageBatch<CommunityPoster>) async throws -> GalleryPageBatch<CommunityPoster> {
-        var page = startPage
+        let startPage = sourcePage
         var pending = CommunityPagedItems<CommunityPoster>()
         var progress = CommunityPageProgress(knownIDs: knownIDs)
         var canLoadMore: Bool
         repeat {
-            let batch = try await fetch(page)
+            let batch = try await fetch(sourcePage)
             try Task.checkCancellation()
-            guard !batch.canLoadMore || (batch.nextSourcePage > page && !batch.sourceIDs.isEmpty)
+            guard !batch.canLoadMore || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
             else { throw GalleryServiceError.invalidResponse }
             try progress.record(batch.sourceIDs)
             pending.append(batch.items.filter { !knownIDs.contains($0.id) })
-            page = batch.nextSourcePage
+            sourcePage = batch.nextSourcePage
             canLoadMore = batch.canLoadMore
             if stopAfterOne || batch.items.isEmpty && !skipsEmptyPages { break }
-        } while canLoadMore && pending.items.isEmpty && page - startPage < GalleryPaging.maximumSourcePages
-        return .init(items: pending.items, nextSourcePage: page, canLoadMore: canLoadMore)
+        } while canLoadMore && pending.items.isEmpty && sourcePage - startPage < GalleryPaging.maximumSourcePages
+        return .init(items: pending.items, nextSourcePage: sourcePage, canLoadMore: canLoadMore)
     }
 
     private static func commit(_ batch: GalleryPageBatch<CommunityPoster>, into state: inout GalleryFeedState) {
