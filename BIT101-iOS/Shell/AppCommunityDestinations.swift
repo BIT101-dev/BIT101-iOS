@@ -166,7 +166,9 @@ final class AppCommunityDependencies {
         course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, networkPath: networkPath, loadCourseCredits: loadCourseCredits)
         let paperService = PaperService(session: session)
         paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, drafts: drafts,
-            networkPath: networkPath, currentIdentity: { session.currentCredentials.identity })
+            networkPath: networkPath, currentIdentity: { session.currentCredentials.identity },
+            hasAuthenticationCredentials: { !session.fakeCookie.isEmpty },
+            authenticationChanges: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher())
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
         mine = MineDependencies(
             overview: mineService, profile: mineService,

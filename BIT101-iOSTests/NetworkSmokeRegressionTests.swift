@@ -123,6 +123,35 @@ import Testing
 @Suite("Network smoke regression contracts")
 @MainActor
 struct NetworkSmokeRegressionContractTests {
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["mailto:reader@example.invalid", "tel:+8610000", "https://bit101.cn/paper/17", "https://example.invalid/reader"])
+    func galleryWebUserLinksReachTheirSystemOrCurrentWindow(address: String) async throws {
+        var external: [URL] = []
+        let coordinator = GalleryWebCoordinator(credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()),
+            openExternal: { external.append($0) })
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        let webView = BootstrapWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 480), configuration: configuration)
+        webView.navigationDelegate = coordinator; webView.uiDelegate = coordinator
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene), controller = UIViewController()
+        controller.view = webView; window.rootViewController = controller; window.makeKeyAndVisible()
+        defer { webView.stopLoading(); window.isHidden = true; window.rootViewController = nil }
+        let original = AppURL.required("https://bit101.cn/gallery")
+        coordinator.start(in: webView, url: original)
+        try await waitForAsyncTestEvent { (try? await webView.evaluateJavaScript("window.initialCredential")) as? String == "fixture" }
+        let link = "<a id='target' href='\(address)' target='_blank'>open</a>"
+        let encoded = String(decoding: try JSONEncoder().encode(link), as: UTF8.self)
+        _ = try await webView.evaluateJavaScript("document.body.innerHTML=\(encoded); document.getElementById('target').click()")
+        let target = AppURL.required(address)
+        if GalleryWebRequestFactory.isTrustedPage(target) {
+            try await waitForTestEvent { webView.request?.url == target }
+            #expect(external.isEmpty)
+        } else {
+            try await waitForTestEvent { external == [target] }
+            #expect(webView.request?.url == original)
+        }
+    }
+
     private final class BootstrapWebView: WKWebView {
         var request: URLRequest?
         override func load(_ request: URLRequest) -> WKNavigation? {
@@ -144,9 +173,13 @@ struct NetworkSmokeRegressionContractTests {
         webView.navigationDelegate = coordinator
         let current = AppURL.required("https://bit101.cn/gallery/1")
         let failed = AppURL.required("https://bit101.cn/gallery/2?source=reading")
-        webView.loadHTMLString("<script>localStorage.setItem('store', JSON.stringify({fake_cookie:'fixture'}))</script><body style='height:3000px'><input id='editor' value='保留内容'></body>", baseURL: current)
-        try await waitForAsyncTestEvent { (try? await webView.evaluateJavaScript("document.getElementById('editor')?.value")) as? String == "保留内容" }
+        webView.loadHTMLString("<meta name='viewport' content='width=device-width, initial-scale=1'><script>localStorage.setItem('store', JSON.stringify({fake_cookie:'fixture'}))</script><body style='height:3000px'><input id='editor' value='保留内容'></body>", baseURL: current)
+        try await waitForAsyncTestEvent {
+            guard !webView.isLoading else { return false }
+            return (try? await webView.evaluateJavaScript("document.readyState")) as? String == "complete"
+        }
         _ = try await webView.evaluateJavaScript("window.scrollTo(0, 200); localStorage.setItem('store', JSON.stringify({fake_cookie:'fixture'}))")
+        try await waitForAsyncTestEvent { (try? await webView.evaluateJavaScript("window.scrollY")) as? Double == 200 }
         coordinator.webView(webView, didFinish: nil)
         let offset = try await webView.evaluateJavaScript("window.scrollY") as? Double
         if path == "credentials" {
@@ -158,7 +191,7 @@ struct NetworkSmokeRegressionContractTests {
         }
         try await waitForTestEvent { presenter.presentedViewController is UIAlertController }
         #expect(try await webView.evaluateJavaScript("document.getElementById('editor')?.value") as? String == "保留内容")
-        #expect(try await webView.evaluateJavaScript("window.scrollY") as? Double == offset)
+        #expect(try await webView.evaluateJavaScript("window.scrollY") as? Double == offset, "path=\(path), initial scroll=\(String(describing: offset))")
         if path == "navigation" {
             coordinator.retryLastFailure(in: webView)
             #expect(webView.request?.url == failed)

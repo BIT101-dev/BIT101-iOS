@@ -8,14 +8,16 @@ import SwiftUI
 
 extension View {
     public func communityReadRecovery(networkPath: NetworkPathState, isEnabled: Bool = true,
+        retryRevision: Int = 0,
         retry: @escaping @MainActor () async -> Void) -> some View {
-        modifier(CommunityReadRecoveryModifier(networkPath: networkPath, isEnabled: isEnabled, retry: retry))
+        modifier(CommunityReadRecoveryModifier(networkPath: networkPath, isEnabled: isEnabled, retryRevision: retryRevision, retry: retry))
     }
 }
 
 private struct CommunityReadRecoveryModifier: ViewModifier {
     let networkPath: NetworkPathState
     let isEnabled: Bool
+    let retryRevision: Int
     let retry: @MainActor () async -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var isVisible = false
@@ -41,12 +43,16 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
             }
             .onChange(of: scenePhase) { recover() }
             .onChange(of: isEnabled) { recover() }
+            .onChange(of: retryRevision) { recover() }
     }
     private func recover() {
         recoveryTask?.cancel()
         recoveryTask = nil
         guard isVisible, isEnabled, scenePhase == .active, networkPath.snapshot.status == .connected else { return }
-        recoveryTask = Task { await retry() }
+        recoveryTask = Task {
+            guard !Task.isCancelled else { return }
+            await retry()
+        }
     }
 }
 

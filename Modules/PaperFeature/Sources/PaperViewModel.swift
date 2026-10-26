@@ -397,6 +397,11 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     var isPaperLiked: Bool { latestLikeResult?.like ?? paper?.like ?? false }
+    var hasPublicContent: Bool {
+        paper?.isViewerAuthenticated == false || commentState.items.contains {
+                !$0.isViewerAuthenticated || $0.flattenedReplies.contains { !$0.isViewerAuthenticated }
+            }
+    }
     var hasKnownLikeState: Bool { paper?.isViewerAuthenticated == true || latestLikeResult != nil }
     var likeStateMessage: String { paper?.isViewerAuthenticated == false ? "社区认证后可点赞" : "点赞状态待获取" }
     var resolvedLikeNum: Int { latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum }

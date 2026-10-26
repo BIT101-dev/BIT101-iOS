@@ -4,6 +4,7 @@ import TransportCore
 import MediaKit
 import CommunityCore
 import DesignSystemKit
+import Combine
 //
 //  PaperDetailView.swift
 //  BIT101-iOS
@@ -40,6 +41,7 @@ private struct PaperDetailViewScene: View {
     @State private var editingPaper: PaperDetail?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var isShowingDeleteConfirmation = false
+    @State private var authenticationRevision = 0
     @Environment(\.dismiss) private var dismiss
 
     init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void) {
@@ -267,7 +269,13 @@ private struct PaperDetailViewScene: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .communityReadRecovery(networkPath: networkObserver) { await retryDetailIfNeeded() }
+        .onReceive(dependencies.authenticationChanges.receive(on: DispatchQueue.main)) { _ in
+            authenticationRevision &+= 1
+        }
+        .onChange(of: viewModel.hasPublicContent) { _, isPublic in
+            if isPublic, authenticationRevision != 0, dependencies.hasAuthenticationCredentials() { authenticationRevision &+= 1 }
+        }
+        .communityReadRecovery(networkPath: networkObserver, retryRevision: authenticationRevision) { await retryDetailIfNeeded() }
         .onDisappear { viewModel.cancelPendingOperations() }
         .diagnosticAlert(item: $viewModel.alert)
     }
@@ -349,9 +357,13 @@ private struct PaperDetailViewScene: View {
         }
     }
 
-    /// 文章正文或评论处于失败态时，在网络恢复或回到前台后重新请求。
+    /// 文章、评论与认证交互状态沿连接和凭据恢复重新读取。
     private func retryDetailIfNeeded() async {
         guard networkObserver.isReachable else { return }
+        if dependencies.hasAuthenticationCredentials(), viewModel.hasPublicContent {
+            await viewModel.refreshAll()
+            return
+        }
 
         let shouldRetryPaper: Bool
         if case .failed = viewModel.paperStatus {

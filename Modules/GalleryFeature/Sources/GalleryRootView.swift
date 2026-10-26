@@ -213,6 +213,7 @@ private struct GalleryRootViewScene: View {
             configuration.websiteDataStore = .nonPersistent()
             let webView = WKWebView(frame: .zero, configuration: configuration)
             webView.navigationDelegate = context.coordinator
+            webView.uiDelegate = context.coordinator
             webView.allowsBackForwardNavigationGestures = true
             context.coordinator.start(in: webView, url: url)
             return webView
@@ -438,7 +439,7 @@ private struct GalleryRootViewScene: View {
 
 }
 
-final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
+final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private static let logger = Logger(subsystem: "BIT101-iOS", category: "GalleryWeb")
     let credentials: GalleryWebCredentials
     let openExternal: (URL) -> Void
@@ -469,6 +470,11 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         if isShowingFailure, navigationAction.request.url?.absoluteString == "about:blank" { return .allow }
+        if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url,
+           ["mailto", "tel"].contains(url.scheme?.lowercased() ?? "") {
+            openExternal(url)
+            return .cancel
+        }
         if navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url, GalleryWebRequestFactory.isTrustedPage(url) { retryURL = url }
         if navigationAction.navigationType == .linkActivated,
@@ -482,6 +488,14 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
             openExternal(url)
         }
         return .cancel
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if navigationAction.targetFrame == nil, GalleryWebRequestFactory.isTrustedPage(navigationAction.request.url) {
+            webView.load(navigationAction.request)
+        }
+        return nil
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {

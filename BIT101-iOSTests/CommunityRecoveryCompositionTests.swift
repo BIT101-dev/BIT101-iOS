@@ -20,6 +20,95 @@ import UIKit
 @MainActor
 @Suite(.serialized)
 struct CommunityRecoveryCompositionTests {
+    private final class AuthenticationPaperReads: PaperDetailServicing {
+        var authenticated = false, pausePublicPaper = false
+        var paperReads: [Bool] = [], commentReads: [Bool] = []
+        private var pendingPublicPaper: CheckedContinuation<Void, Never>?
+        func releasePublicPaper() { pendingPublicPaper?.resume(); pendingPublicPaper = nil }
+        func fetchPaper(id: Int) async throws -> PaperDetail {
+            let ready = authenticated
+            paperReads.append(ready)
+            if !ready, pausePublicPaper { await withCheckedContinuation { pendingPublicPaper = $0 } }
+            return PaperDetail(isViewerAuthenticated: ready, id: id, title: ready ? "已认证文章" : "公开文章", intro: "", content: "正文",
+                createTime: "", updateTime: "", updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false,
+                likeNum: 0, commentNum: 1, publicEdit: false, like: false, own: ready)
+        }
+        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+            if page != nil { return [] }
+            commentReads.append(authenticated)
+            return [.init(id: 1, obj: "paper\(paperID)", images: [], user: .placeholder(id: 1, nickname: "读者"), anonymous: false,
+                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: authenticated, rate: 0,
+                replyUser: .placeholder(id: 0, nickname: ""), replyObj: "", text: "评论", sub: [], isViewerAuthenticated: authenticated)]
+        }
+        func likePaper(id: Int) async throws -> CommunityLikeResult { .init(like: true, likeNum: 1) }
+        func sendLike(objectID: String) async throws -> CommunityLikeResult { .init(like: true, likeNum: 1) }
+        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
+        func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws { throw URLError(.unsupportedURL) }
+        func deletePaper(id: Int) async throws { throw URLError(.unsupportedURL) }
+    }
+
+    private var paperSummary: PaperSummary { .init(id: 17, title: "文章", intro: "", likeNum: 0, commentNum: 1, updateTime: "") }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["loaded", "early", "coalesced", "path"])
+    func paperAuthenticationRecoveryRefreshesPublicContentThroughEitherCompletionOrder(phase: String) async throws {
+        let reads = AuthenticationPaperReads(), changes = PassthroughSubject<Void, Never>()
+        let path = NetworkPathState(snapshot: .init(status: .connected))
+        var hasCredentials = false
+        reads.pausePublicPaper = phase == "early"
+        let selectedSession = session(), service = PaperService(session: selectedSession)
+        let dependencies = PaperDependencies(list: service, detail: reads, composer: service,
+            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-auth-recovery"),
+                session: { AppStorageSession(accountIdentifier: "paper-auth-recovery") }, prepareImageData: { $0 }),
+            networkPath: path, currentIdentity: { selectedSession.currentCredentials.identity },
+            hasAuthenticationCredentials: { hasCredentials },
+            authenticationChanges: changes.eraseToAnyPublisher())
+        let selectedMedia = media()
+        let (window, _) = try window(NavigationStack {
+            PaperDetailView(dependencies: dependencies, media: selectedMedia, initialPaper: paperSummary, onChanged: {})
+        })
+        defer { reads.releasePublicPaper(); window.isHidden = true; window.rootViewController = nil }
+        func wait(_ stage: String, for condition: () -> Bool) async throws {
+            do { try await waitForTestEvent(condition) }
+            catch { Issue.record("\(phase) · \(stage)：正文=\(reads.paperReads)，评论=\(reads.commentReads)"); throw error }
+        }
+        try await wait("公开读取", for: { reads.paperReads == [false] && reads.commentReads == [false] })
+        try await render()
+        if phase == "coalesced" {
+            hasCredentials = true
+            changes.send()
+            try await wait("待重试的认证读取", for: { reads.paperReads == [false, false] && reads.commentReads == [false, false] })
+            try await render()
+        }
+        reads.authenticated = true
+        if phase == "coalesced" { hasCredentials = false; changes.send() }
+        hasCredentials = true
+        if phase == "path" { path.update(snapshot: .init(status: .connected)) }
+        else { changes.send() }
+        let expected = Array(repeating: false, count: phase == "coalesced" ? 2 : 1) + [true]
+        try await wait("恢复认证读取", for: { reads.paperReads == expected && reads.commentReads == expected })
+        reads.releasePublicPaper()
+        try await render()
+        hasCredentials = false; changes.send()
+        try await render()
+        hasCredentials = true; changes.send()
+        try await render()
+        #expect(reads.paperReads == expected && reads.commentReads == expected)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func latePublicPaperResponsesKeepTheRecoveredPermissions() async throws {
+        let reads = AuthenticationPaperReads(); reads.pausePublicPaper = true
+        let model = PaperDetailViewModel(initialPaper: paperSummary, service: reads)
+        let first = Task { await model.refreshAll() }
+        defer { reads.releasePublicPaper(); first.cancel() }
+        try await waitForTestEvent { reads.paperReads == [false] && reads.commentReads == [false] }
+        reads.authenticated = true
+        await model.refreshAll()
+        #expect(model.paper?.own == true && model.hasKnownLikeState && !model.hasPublicContent)
+        reads.releasePublicPaper()
+        await first.value
+        #expect(model.paper?.isViewerAuthenticated == true && model.commentState.items.allSatisfy(\.isViewerAuthenticated))
+    }
+
     private final class MineReads: MineOverviewServicing, UserProfileServicing {
         var offline = true, suspended = false
         var requests = 0, cancellations = 0, successes = 0
