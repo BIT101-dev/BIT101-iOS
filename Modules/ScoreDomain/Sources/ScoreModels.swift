@@ -118,11 +118,14 @@ public nonisolated enum ScoreRowComparison {
 
     public static func retainingDetailedFields(_ briefRows: [ScoreRow], from cachedRows: [ScoreRow]) -> [ScoreRow] {
         guard !briefRows.isEmpty else { return briefRows }
-        let keys = comparableKeys(from: briefRows)
-        let cached = Dictionary(grouping: cachedRows) { signatures(for: [$0], keys: keys)[0] }
+        var indexes: [Set<String>: [String: [ScoreRow]]] = [:]
         return briefRows.map { row in
+            let keys = comparableKeys(from: [row])
+            if indexes[keys] == nil {
+                indexes[keys] = Dictionary(grouping: cachedRows) { signatures(for: [$0], keys: keys)[0] }
+            }
             let signature = signatures(for: [row], keys: keys)[0]
-            guard let matches = cached[signature], matches.count == 1 else { return row }
+            guard let matches = indexes[keys]?[signature], matches.count == 1 else { return row }
             let present = Set(row.values.map(\.key)).union(ignoredBriefKeys)
             return ScoreRow(id: row.id, values: row.values + matches[0].values.filter { !present.contains($0.key) })
         }

@@ -429,7 +429,7 @@ public final class ScoreViewModel: ObservableObject {
             }
             if error is ScorePersistenceError { throw error }
             if let partial = error as? PartialScoreResult {
-                let available = partial.rows.flatMap { ScoreRowComparison.retainingDetailedFields([$0], from: previousRows) }
+                let available = ScoreRowComparison.retainingDetailedFields(partial.rows, from: previousRows)
                 applyRows(available)
                 let updatedAt = try await saveCurrentRows(available, detail: false, session: session, generation: generation)
                 guard isCurrent(session, generation: generation) else { return }
