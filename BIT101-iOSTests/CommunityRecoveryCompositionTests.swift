@@ -63,6 +63,19 @@ struct CommunityRecoveryCompositionTests {
         #expect(reads.queries.last == "新查询")
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedRefreshRetainsItsRecoveryAfterContentWasLoaded() async {
+        let reads = CourseReads(); reads.offline = false
+        let model = CourseListViewModel(service: reads)
+        await model.bootstrapIfNeeded()
+        reads.offline = true
+        await model.refresh()
+        #expect(model.state.status == .loaded && model.alert != nil)
+        reads.offline = false
+        await model.retryAfterConnectivityRecovery()
+        #expect(reads.queries.count == 3 && model.state.status == .loaded && model.alert == nil)
+    }
+
     private final class PaperReads: PaperListServicing {
         var calls = 0, offline = true
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
@@ -112,7 +125,7 @@ struct CommunityRecoveryCompositionTests {
 
     private func window<V: View>(_ view: V) throws -> (UIWindow, UIHostingController<AnyView>) {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: AnyView(view))
+        let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: AnyView(view.environment(\.scenePhase, .active)))
         window.rootViewController = controller; window.makeKeyAndVisible(); window.layoutIfNeeded()
         return (window, controller)
     }
@@ -131,7 +144,7 @@ struct CommunityRecoveryCompositionTests {
         let paperSession = session()
         let details = PaperService(session: paperSession)
         let dependencies = PaperDependencies(list: service, detail: details, composer: details, drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition-recovery") }, prepareImageData: { $0 }), networkPath: path, currentIdentity: { paperSession.currentCredentials.identity })
-        let (window, _) = try window(NavigationStack { PaperRootView(dependencies: dependencies, media: media()) })
+        let (window, _) = try window(PaperRootView(dependencies: dependencies, media: media()))
         defer { window.isHidden = true; window.rootViewController = nil }
         try await waitForTestEvent { service.calls == 1 }
         path.update(snapshot: .init(status: .requiresConnection))

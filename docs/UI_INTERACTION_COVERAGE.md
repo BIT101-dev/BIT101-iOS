@@ -378,6 +378,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `BIT101-iOS/Shell/AppShellView.swift:AppWideNavigation` | `{"AppSegmentedPicker":1}` | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards` |
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppBrowserLayout` | `{"AppEmptyState":1}` | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards` |
 
+| `Modules/GalleryFeature/Sources/GalleryRootView.swift:GalleryPosterDestination` | `{"AppFailureState":1}` | `CommunityRecoveryUITests/testPosterDeepLinkKeepsItsTargetAfterAnInitialFailure` |
+
 ## UI 性能场景
 
 | 用例 | 验收内容 |

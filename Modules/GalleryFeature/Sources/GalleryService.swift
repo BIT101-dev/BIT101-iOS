@@ -321,7 +321,7 @@ public struct GalleryService {
     ///
     /// claim 驱动发帖页的声明选项；编辑器保留默认声明并提供加载重试。
     public func fetchClaims() async throws -> [CommunityClaim] {
-        try await api.request(path: "posters/claims")
+        try await api.request(path: "posters/claims", authentication: .none)
     }
 
     public func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] {
@@ -430,7 +430,7 @@ public struct GalleryService {
 
     /// 获取社区内容举报类型。
     public func fetchReportTypes() async throws -> [GalleryReportType] {
-        let types: [GalleryReportType] = try await api.request(path: "manage/report_types")
+        let types: [GalleryReportType] = try await api.request(path: "manage/report_types", authentication: .none)
         return GalleryReportType.usableOptions(types)
     }
 

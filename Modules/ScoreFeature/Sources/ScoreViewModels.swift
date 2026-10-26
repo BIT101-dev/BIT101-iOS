@@ -16,7 +16,7 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
 @MainActor
 public final class ScoreViewModel: ObservableObject {
     /// 全量成绩数据。
-    @Published private(set) var rows: [ScoreRow] = []
+    @Published private(set) var rows: [ScoreRow] = [] { didSet { invalidateProjection() } }
     /// 页面加载状态。
     @Published private(set) var state: ScoreLoadState = .idle
     /// 当前可选学期列表。
@@ -24,15 +24,15 @@ public final class ScoreViewModel: ObservableObject {
     /// 按实际成绩动态生成的课程性质列表。
     @Published private(set) var availableCourseTypes: [String] = []
     /// 当前选中的学期集合。
-    @Published private(set) var selectedTerms: Set<String> = []
+    @Published private(set) var selectedTerms: Set<String> = [] { didSet { invalidateProjection() } }
     /// 当前选中的课程性质集合。
-    @Published private(set) var selectedCourseTypes: Set<String> = []
+    @Published private(set) var selectedCourseTypes: Set<String> = [] { didSet { invalidateProjection() } }
     @Published private(set) var allowsDiagnostics = true
     @Published private(set) var failureCause: (any Error)?
     /// 当前成绩列表排序索引。
-    @Published private(set) var sortIndex: ScoreSortIndex = .courseName
+    @Published private(set) var sortIndex: ScoreSortIndex = .courseName { didSet { visibleProjection = nil } }
     /// 当前成绩列表排序方向。
-    @Published private(set) var sortOrder: ScoreSortOrder = .ascending
+    @Published private(set) var sortOrder: ScoreSortOrder = .ascending { didSet { visibleProjection = nil } }
     /// 是否正在同步基础成绩列表。
     enum RefreshPhase {
         case idle, authenticating, awaitingVerification, summary, details
@@ -475,18 +475,22 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// 成绩列表和统计摘要均基于这份过滤结果，全量 `rows` 作为原始数据源。
     var filteredRows: [ScoreRow] {
-        rows.filter { row in
+        if let filteredProjection { return filteredProjection }
+        let values = rows.filter { row in
             let matchesTerm = selectedTerms.contains(normalizedFilterValue(row.term))
             let matchesType = matchesSelectedCourseType(row.courseType)
             return matchesTerm && matchesType
         }
+        filteredProjection = values
+        return values
     }
 
     /// 当前筛选与排序条件下实际展示的成绩。
     var visibleRows: [ScoreRow] {
+        if let visibleProjection { return visibleProjection }
         let rowsForDisplay = filteredRows
 
-        return rowsForDisplay.enumerated()
+        let values = rowsForDisplay.enumerated()
             .sorted { lhs, rhs in
                 let lhsMissingValue = sortIndex.isMissingValue(in: lhs.element)
                 let rhsMissingValue = sortIndex.isMissingValue(in: rhs.element)
@@ -508,11 +512,25 @@ public final class ScoreViewModel: ObservableObject {
                 }
             }
             .map(\.element)
+        visibleProjection = values
+        return values
     }
 
     /// 当前筛选结果对应的统计摘要。
     var summary: ScoreSummary {
-        ScoreSummary.make(from: filteredRows)
+        if let summaryProjection { return summaryProjection }
+        let value = ScoreSummary.make(from: filteredRows)
+        summaryProjection = value
+        return value
+    }
+
+    private var filteredProjection: [ScoreRow]?
+    private var visibleProjection: [ScoreRow]?
+    private var summaryProjection: ScoreSummary?
+    private func invalidateProjection() {
+        filteredProjection = nil
+        visibleProjection = nil
+        summaryProjection = nil
     }
 
     /// 根据本机已缓存的同学期课表，估算仍未出分的去重课程数。

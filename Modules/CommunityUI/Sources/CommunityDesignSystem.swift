@@ -20,23 +20,24 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isVisible = false
     @State private var hasAppeared = false
-    @State private var revision = 0
+    @State private var recoveryTask: Task<Void, Never>?
     func body(content: Content) -> some View {
         content
             .onAppear {
                 isVisible = true
-                if hasAppeared { revision &+= 1 }
+                if hasAppeared { recover() }
                 hasAppeared = true
             }
-            .onDisappear { isVisible = false; revision &+= 1 }
-            .onChange(of: networkPath.snapshot.status) { revision &+= 1 }
-            .onChange(of: scenePhase) { revision &+= 1 }
-            .onChange(of: isEnabled) { revision &+= 1 }
-            .task(id: revision) {
-                guard revision > 0, isVisible, isEnabled, scenePhase == .active,
-                      networkPath.snapshot.status == .connected, !Task.isCancelled else { return }
-                await retry()
-            }
+            .onDisappear { isVisible = false; recoveryTask?.cancel(); recoveryTask = nil }
+            .onChange(of: networkPath.snapshot.status) { recover() }
+            .onChange(of: scenePhase) { recover() }
+            .onChange(of: isEnabled) { recover() }
+    }
+    private func recover() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        guard isVisible, isEnabled, scenePhase == .active, networkPath.snapshot.status == .connected else { return }
+        recoveryTask = Task { await retry() }
     }
 }
 

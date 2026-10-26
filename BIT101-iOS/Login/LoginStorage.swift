@@ -69,7 +69,9 @@ final class LoginStorage: SchoolCredentialsProviding {
     }
 
     var communityCredentials: CommunityCredentials {
-        CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: currentStudentID, generation: sessionGeneration), cookie: fakeCookie)
+        CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: currentStudentID, generation: sessionGeneration),
+            cookie: fakeCookie, allowsSilentRestoration: fakeCookie.isEmpty && hasCachedSession
+                && !defaults.bool(forKey: DefaultsKey.communityAuthenticationRequired))
     }
 
     init(defaults: UserDefaults, credentials: any LoginCredentialsStoring, clearSchoolCookies: @escaping () -> Void,

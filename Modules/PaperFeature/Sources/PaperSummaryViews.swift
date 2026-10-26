@@ -57,7 +57,6 @@ struct PaperSummaryCard: View {
                 Label("\(paper.likeNum)", systemImage: "hand.thumbsup")
                 Label("\(paper.commentNum)", systemImage: "text.bubble")
                 Spacer(minLength: AppDesignSystem.Spacing.content)
-                Text(AppDateText.dayText(from: paper.updateTime))
             }
             .font(AppDesignSystem.Typography.caption)
             .foregroundStyle(AppDesignSystem.Foreground.secondary)

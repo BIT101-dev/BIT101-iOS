@@ -137,6 +137,7 @@ def run_command(arguments: list[str]) -> int:
     summary_count = summary_tests = 0
     summary = ""
     dependency_warning_count = 0
+    cache_warning_count = 0
     dependency_example = ""
     temporary_results = set()
     with report_path.open("w", encoding="utf-8") as report:
@@ -157,6 +158,9 @@ def run_command(arguments: list[str]) -> int:
                 if dependency := re.match(r"warning: '(.+)' is missing a dependency on '(.+)' because dependency scan of Swift module", line):
                     dependency_warning_count += 1
                     if not dependency_example: dependency_example = f'{dependency[1]} → {dependency[2]}'
+                    continue
+                elif re.match(r"warning: (?:failed to load CAS object: unknown object|.*llvmcas://.*: No such file or directory)", line):
+                    cache_warning_count += 1
                     continue
                 elif diagnostics.add(line):
                     diagnostic_count += 1
@@ -181,6 +185,9 @@ def run_command(arguments: list[str]) -> int:
             shutil.rmtree(path, ignore_errors=True)
     if dependency_warning_count and not exit_code:
         diagnostics.add(f'[依赖扫描] {dependency_warning_count} 条提示 · {dependency_example} · 完整日志：{report_path}\n')
+        diagnostic_count += 1
+    if cache_warning_count and not exit_code:
+        diagnostics.add(f'[编译缓存] {cache_warning_count} 条已回收条目提示 · 完整日志：{report_path}\n')
         diagnostic_count += 1
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count

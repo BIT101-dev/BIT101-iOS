@@ -16,10 +16,12 @@ public nonisolated struct CommunitySessionIdentity: Equatable, Sendable {
 public nonisolated struct CommunityCredentials: Equatable, Sendable {
     public let identity: CommunitySessionIdentity
     public let cookie: String
+    public let allowsSilentRestoration: Bool
 
-    public init(identity: CommunitySessionIdentity, cookie: String) {
+    public init(identity: CommunitySessionIdentity, cookie: String, allowsSilentRestoration: Bool = false) {
         self.identity = identity
         self.cookie = cookie
+        self.allowsSilentRestoration = allowsSilentRestoration
     }
 }
 
@@ -87,6 +89,9 @@ public final class CommunitySessionRefreshCoordinator {
         try Task.checkCancellation()
         guard current().identity == observed.identity else { throw CancellationError() }
         guard current().cookie == observed.cookie else { return }
+        guard !observed.allowsSilentRestoration || current().allowsSilentRestoration else {
+            throw CommunitySessionRestorationError.credentialsRejected
+        }
         try await refresh(identity: observed.identity, restore: restore)
         guard current().identity == observed.identity else { throw CancellationError() }
     }

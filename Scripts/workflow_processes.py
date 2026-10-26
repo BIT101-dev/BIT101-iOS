@@ -30,7 +30,7 @@ def group_members(groups: set[int]) -> dict[int, tuple[str, bool]]:
 
 def active_member_states(groups: set[int], *, workers_only: bool = False) -> dict[int, str]:
     return {pid: state for pid, (state, supervisor) in group_members(groups).items()
-        if not workers_only or pid != os.getpid() and not supervisor}
+        if pid != os.getpid() and (not workers_only or not supervisor)}
 
 
 def active_members(groups: set[int], *, workers_only: bool = False) -> set[int]:

@@ -285,9 +285,12 @@ def artifact_lock_self_test(module) -> None:
                 patch.object(os, 'walk', return_value=[]), \
                 patch.object(fcntl, 'flock', side_effect=BlockingIOError), redirect_stdout(StringIO()):
             status = 0
-            try: exec(compile(source, 'validation_artifacts.py', 'exec'), {'__name__': '__main__'})
+            namespace = {'__name__': 'artifact_cleanup_fixture'}
+            try:
+                exec(compile(source, 'validation_artifacts.py', 'exec'), namespace)
+                namespace['clear_diagnostic_exports'](diagnostics)
             except SystemExit as error: status = error.code
-            assert status == 0 and retained == set(names) - {'exported.log'}, '产物门禁清理导出副本并保留原始编译失败包'
+            assert status == 0 and retained == set(names) - {'exported.log'}, '诊断导出清理保留原始编译失败包'
     definition = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "committed_children")
     harness = "from pathlib import Path\nimport fcntl, sys\n" + ast.get_source_segment(source, definition)
     harness += '\nprint("ready", flush=True)\nchildren = committed_children(Path(sys.argv[1]))\nassert all(path.suffix != ".incoming" for path in children)\nprint("committed", flush=True)\n'

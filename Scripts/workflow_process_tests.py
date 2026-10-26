@@ -31,6 +31,11 @@ def workflow_lock_boundary_findings() -> list[str]:
                 patch.object(subject.os, 'kill') as killed:
             subject.signal_groups({10}, signum, workers_only=workers_only)
             killed.assert_called_once_with(expected, signum)
+    with patch.object(subject, 'group_members', return_value={os.getpid(): ('Ss', True)}), \
+            patch.object(subject, 'signal_groups') as signals:
+        assert subject.active_member_states({os.getpgrp()}) == {}
+        subject.stop_groups({os.getpgrp()}, grace_seconds=0)
+        signals.assert_not_called()
     with patch.object(subject, 'active_members', side_effect=[{123}, {123}, {123}, {123}, set()]), \
             patch.object(subject, 'active_member_states', return_value={123: 'U'}), \
             patch.object(subject, 'signal_groups') as signals, patch.object(subject.time, 'monotonic', return_value=0), \

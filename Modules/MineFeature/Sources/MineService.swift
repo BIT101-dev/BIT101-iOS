@@ -57,7 +57,7 @@ public struct MineService {
 
     /// 获取指定用户的公开资料卡信息。
     public func fetchUserInfo(id: Int) async throws -> MineUserInfo {
-        try await api.request(path: "user/info/\(id)", validate: { info in
+        try await api.request(path: "user/info/\(id)", authentication: .optional, validate: { info in
             guard id > 0, info.user.id == id else { throw MineServiceError.invalidResponse }
         })
     }

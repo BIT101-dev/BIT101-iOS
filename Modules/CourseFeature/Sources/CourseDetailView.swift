@@ -38,7 +38,6 @@ private struct CourseDetailViewScene: View {
     let initialCourse: CourseSummary
 
     @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: CourseDetailViewModel
     @ObservedObject private var appSettings: CommunityPreferences
     @State private var composerTarget: CommunityCommentComposerTarget?
@@ -137,24 +136,16 @@ private struct CourseDetailViewScene: View {
             .id(target.id)
         }
         .systemImagePreview(item: $imageViewer)
-        .onChange(of: dependencies.networkPath.snapshot.status) { _, value in
-            if value == .connected { enqueueRecovery() }
-        }
-        .onChange(of: scenePhase) { _, value in
-            if value == .active { enqueueRecovery() }
-        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) { await retryDetailIfNeeded() }
         .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
-    private func enqueueRecovery() {
-        viewModel.pendingOperations.enqueue {
-            guard dependencies.networkPath.isReachable else { return }
-            let detailFailed: Bool = if case .failed = viewModel.status { true } else { false }
-            let commentsFailed: Bool = if case .failed = viewModel.commentState.status { true } else { false }
-            if detailFailed || commentsFailed { await viewModel.refresh() }
-            if case .failed = viewModel.historyGradeStatus { await viewModel.loadHistoryGradesIfNeeded() }
-        }
+    private func retryDetailIfNeeded() async {
+        let detailFailed: Bool = if case .failed = viewModel.status { true } else { viewModel.needsContentRefresh }
+        let commentsFailed: Bool = if case .failed = viewModel.commentState.status { true } else { false }
+        if detailFailed || commentsFailed { await viewModel.refresh() }
+        if case .failed = viewModel.historyGradeStatus { await viewModel.loadHistoryGradesIfNeeded() }
     }
 
     private var summarySection: some View {

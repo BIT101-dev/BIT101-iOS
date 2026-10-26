@@ -183,13 +183,24 @@ public enum PaperEditorContentBuilder {
             return [{ .paragraph(id: "text", text: AttributedString(trimmed)) }]
         }
 
-        guard rawBlocks.count <= PaperContentResourceLimits.maximumBlocks else {
-            return [{ .requiresOriginal(id: "block-resource-limit") }]
+        var dictionaries: [[String: Any]?] = []
+        var nodes = 0
+        var truncated = false
+        for rawBlock in rawBlocks {
+            let block = rawBlock as? [String: Any]
+            let count = block.map(PaperContentResourceLimits.renderNodes) ?? 1
+            guard dictionaries.count < PaperContentResourceLimits.maximumBlocks,
+                  nodes + count <= PaperContentResourceLimits.maximumRenderNodes else { truncated = true; break }
+            dictionaries.append(block)
+            nodes += count
         }
-        let dictionaries = rawBlocks.map { $0 as? [String: Any] }
-        guard dictionaries.compactMap({ $0 }).reduce(0, { $0 + PaperContentResourceLimits.renderNodes(in: $1) })
-            <= PaperContentResourceLimits.maximumRenderNodes else {
-            return [{ .requiresOriginal(id: "node-resource-limit") }]
+        if truncated {
+            while dictionaries.count >= PaperContentResourceLimits.maximumBlocks
+                || nodes + 1 > PaperContentResourceLimits.maximumRenderNodes {
+                let removed = dictionaries.removeLast()
+                nodes -= removed.map(PaperContentResourceLimits.renderNodes) ?? 1
+            }
+            dictionaries.append(nil)
         }
         let identifiers = dictionaries.compactMap { $0?["id"] as? String }
         let frequencies = Dictionary(identifiers.map { ($0, 1) }, uniquingKeysWith: { $0 + $1 })

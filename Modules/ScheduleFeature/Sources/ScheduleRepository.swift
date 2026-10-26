@@ -22,7 +22,7 @@ public final class ScheduleRepository: ObservableObject {
     private var loadedCache: ScheduleCache?
     private var loadedRevision = 0
     private(set) var accountGeneration = 0
-    private var revision = 0
+    private(set) var revision = 0
     private var loadGeneration = 0
     private var hasLoaded = false
     private var ownerSession: AppStorageSession

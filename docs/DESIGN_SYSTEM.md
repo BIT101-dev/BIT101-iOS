@@ -93,7 +93,7 @@
 
 `Scripts/run-static-audit.sh` 汇总既有检查入口。每条规则由所属检查维护，派生放在规则拥有者内部；执行范围依据用户明确指示。
 
-UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树。`COMPONENT_CONTRACTS` 登记页面角色；新增、改名或拆分相关页面时，同步角色登记和对应自测。固定几何、图表语义颜色及模块例外通过所属源码契约维护。
+UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树。页面角色表登记视图职责；新增、改名或拆分相关页面时，同步角色登记和对应自测。固定几何、图表语义颜色及模块例外通过所属源码契约维护。
 
 图片型 `Button`、`NavigationLink` 和 `Menu` 标签提供 `accessibilityLabel`。动态 SF Symbol 使用源码可枚举的有限字符串集合，菜单和操作按控件作用域判定。
 

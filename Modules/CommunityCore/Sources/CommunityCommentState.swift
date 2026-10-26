@@ -190,6 +190,29 @@ extension CommunityCommentState: PagedItemsState {}
 /// 详情页持有交互任务，页面退出时结束所属请求。
 @MainActor public final class CommunityDetailTasks {
     private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var bootstrapRevision = 0
+    private var bootstrapActive = false
+    private var hasBootstrapped = false
+
+    public func bootstrapIfNeeded(_ load: @MainActor () async -> Bool) async {
+        guard !hasBootstrapped, !Task.isCancelled else { return }
+        hasBootstrapped = true
+        bootstrapActive = true
+        let revision = bootstrapRevision
+        let completed = await load()
+        guard bootstrapRevision == revision else { return }
+        bootstrapActive = false
+        hasBootstrapped = completed
+    }
+
+    public static func loadResult<Value: Sendable>(_ operation: @MainActor () async throws -> Value) async -> Result<Value, Error> {
+        do {
+            try Task.checkCancellation()
+            let value = try await operation()
+            try Task.checkCancellation()
+            return .success(value)
+        } catch { return .failure(error) }
+    }
 
     public init() {}
 
@@ -208,6 +231,11 @@ extension CommunityCommentState: PagedItemsState {}
     }
 
     public func cancel() {
+        if bootstrapActive {
+            bootstrapRevision &+= 1
+            bootstrapActive = false
+            hasBootstrapped = false
+        }
         tasks.values.forEach { $0.cancel() }
         tasks.removeAll()
     }

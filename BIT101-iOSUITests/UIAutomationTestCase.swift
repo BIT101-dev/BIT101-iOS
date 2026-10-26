@@ -748,6 +748,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         courseLookupFailureOnce: Bool = false,
         resourceRoutes: Bool = false,
         failureOnce: Bool = false,
+        posterFailureOnce: Bool = false,
         claimsFailureOnce: Bool = false,
         reportFailureOnce: Bool = false,
         feedbackResponseLostOnce: Bool = false,
@@ -839,6 +840,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_POSTER_FAILURE_ONCE"] = posterFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] = claimsFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] = feedbackResponseLostOnce ? "1" : "0"

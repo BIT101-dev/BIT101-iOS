@@ -2,6 +2,20 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testPosterDeepLinkKeepsItsTargetAfterAnInitialFailure() throws {
+        XCUIDevice.shared.orientation = .portrait
+        app = configureApp(resetStorage: true, content: true, animations: true, posterFailureOnce: true, initialTab: "gallery")
+        defer { Self.endSharedSession() }
+        let application = try XCTUnwrap(app.native as? XCUIApplication)
+        application.open(try XCTUnwrap(URL(string: "bit101://gallery/1")))
+        UITestSnapshotReader.invalidate()
+        assertUI(textElement("无法打开话题").appears(timeout: 5), "目标读取失败应保留原位重试入口。")
+        tap("ui.app-failure-state.retry")
+        assertUI(app.buttons["评论帖子"].appears(timeout: 5), "重试应恢复原话题的完整详情。")
+        assertUI(textElement("自动化测试话题正文").exists, "恢复结果应属于原链接目标。")
+    }
+
+    @MainActor
     @objc func testPaperSearchRefreshKeepsItsQueryAndUsesTheOwnedRequest() {
         app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["文章"])

@@ -9,6 +9,7 @@ import Foundation
 @MainActor
 final class GalleryPosterDetailViewModel: ObservableObject {
     let pendingOperations = CommunityDetailTasks()
+    private(set) var needsContentRefresh = false
     /// 当前正在展示的帖子详情。
     @Published private(set) var poster: GalleryPosterDetail
     /// 帖子正文区域的加载状态。
@@ -41,7 +42,6 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private var latestLikeResult: CommunityLikeResult?
     private var refreshGeneration = 0
     private var commentRefreshGeneration = 0
-    private var hasBootstrapped = false
     private var contentFilter: GalleryCommentFilter?
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
@@ -65,11 +65,11 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ///
     /// 视图重复出现时保持单次请求，取消后为待加载区域恢复进入请求。
     func bootstrapIfNeeded() async {
-        guard !hasBootstrapped else { return }
-        hasBootstrapped = true
-        if posterStatus == .loaded { await refreshComments() }
-        else { await refreshAll() }
-        if posterStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
+        await pendingOperations.bootstrapIfNeeded {
+            if posterStatus == .loaded { await refreshComments() }
+            else { await refreshAll() }
+            return !Task.isCancelled && posterStatus != .idle && commentState.status != .idle
+        }
     }
 
     /// 并行刷新帖子详情和评论列表。
@@ -86,13 +86,13 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         resetCommentStateForRefresh()
 
         async let posterRefresh: Void = { @MainActor [self] in
-            let result = await loadResult { [self] in try await service.fetchPoster(id: posterID) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchPoster(id: posterID) }
             guard refreshGeneration == generation else { return }
             handlePosterResult(result, previousStatus: previousPosterStatus, likeRevisionAtStart: likeRevisionAtStart,
                 subscriptionRevisionAtStart: subscriptionRevisionAtStart)
         }()
         async let commentRefresh: Void = { @MainActor [self, commentOrder] in
-            let result = await loadResult { [self] in try await service.fetchComments(objectID: posterObjectID, order: commentOrder, page: nil) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchComments(objectID: posterObjectID, order: commentOrder, page: nil) }
             guard commentRefreshGeneration == commentsGeneration else { return }
             handleCommentRefreshResult(result, previousState: previousCommentState)
         }()
@@ -106,7 +106,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         let previousState = commentState
         resetCommentStateForRefresh()
 
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             try await self.service.fetchComments(objectID: self.posterObjectID, order: self.commentOrder, page: nil)
         }
         guard commentRefreshGeneration == generation else { return }
@@ -123,6 +123,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     }
 
     func retryFailedContentIfNeeded() async {
+        if needsContentRefresh { await refreshAll(); return }
         if case .failed = posterStatus { await refreshAll() }
         else if case .failed = commentState.status { await refreshComments() }
     }
@@ -144,7 +145,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             }
         }
         let likeRevisionAtStart = commentState.likeRevision
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             var progress = CommunityPageProgress<Int>()
             let initialPage = commentState.nextPage
             var sourcePage = initialPage
@@ -364,6 +365,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     ) {
         switch result {
         case let .success(poster):
+            needsContentRefresh = false
             hasKnownLikeState = true
             likeResultNeedsReview = false
             let previousSubscription = self.poster.subscription
@@ -382,6 +384,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
                 posterStatus = previousStatus == .loading ? .idle : previousStatus
                 return
             }
+            needsContentRefresh = true
             posterStatus = hasKnownLikeState ? .loaded : .failed(error.localizedDescription)
             alert = AppAlert(title: "加载帖子失败", error: error)
         }
@@ -420,15 +423,6 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     }
 
     /// 把抛错的异步操作包装为 `Result`，并行加载详情和评论时统一处理结果。
-    private func loadResult<T: Sendable>(_ operation: @MainActor () async throws -> T) async -> Result<T, Error> {
-        do {
-            try Task.checkCancellation()
-            let value = try await operation()
-            try Task.checkCancellation()
-            return .success(value)
-        } catch {
-            return .failure(error)
-        }
-    }
+
 
 }

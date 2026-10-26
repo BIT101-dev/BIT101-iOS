@@ -276,7 +276,6 @@ final class PaperDetailViewModel: ObservableObject {
     let initialPaper: PaperSummary
 
     private let service: any PaperDetailServicing
-    private var hasBootstrapped = false
     private var likeRevision = 0
     private var likeResultNeedsReview = false
     @Published private var latestLikeResult: CommunityLikeResult?
@@ -289,29 +288,24 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     func bootstrapIfNeeded() async {
-        guard !hasBootstrapped else { return }
-        hasBootstrapped = true
-        let restoredGeneration = refreshGeneration
-        if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled,
-           refreshGeneration == restoredGeneration {
-            await handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision, generation: refreshGeneration)
+        await pendingOperations.bootstrapIfNeeded {
+            let restoredGeneration = refreshGeneration
+            if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled,
+               refreshGeneration == restoredGeneration {
+                await handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision, generation: refreshGeneration)
+            }
+            guard refreshGeneration == restoredGeneration, !Task.isCancelled else { return false }
+            await refreshAll()
+            return !Task.isCancelled && paperStatus != .idle && commentState.status != .idle
         }
-        guard refreshGeneration == restoredGeneration else { return }
-        guard !Task.isCancelled else { hasBootstrapped = false; return }
-        let generation = refreshGeneration &+ 1
-        await refreshAll()
-        if refreshGeneration == generation,
-           Task.isCancelled || paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
     }
 
     func cancelPendingOperations() {
-        let interrupted = paperStatus != .loaded || commentState.status != .loaded
         pendingOperations.cancel()
         refreshGeneration &+= 1
         commentRefreshGeneration &+= 1
         if paperStatus == .loading { paperStatus = paper == nil ? .idle : .loaded }
         if commentState.status == .loading { commentState.status = commentState.items.isEmpty ? .idle : .loaded }
-        if interrupted { hasBootstrapped = false }
     }
 
     func refreshAll() async {
@@ -326,12 +320,12 @@ final class PaperDetailViewModel: ObservableObject {
         resetCommentStateForRefresh()
 
         async let paperRefresh: Void = { @MainActor [self] in
-            let result = await loadResult { [self] in try await service.fetchPaper(id: initialPaper.id) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchPaper(id: initialPaper.id) }
             guard refreshGeneration == generation else { return }
             await handlePaperResult(result, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart, generation: generation)
         }()
         async let commentRefresh: Void = { @MainActor [self, commentOrder] in
-            let result = await loadResult { [self] in try await service.fetchComments(paperID: initialPaper.id, order: commentOrder, page: nil) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchComments(paperID: initialPaper.id, order: commentOrder, page: nil) }
             guard commentRefreshGeneration == commentsGeneration else { return }
             handleCommentRefreshResult(result, previousState: previousCommentState)
         }()
@@ -343,7 +337,7 @@ final class PaperDetailViewModel: ObservableObject {
         let generation = commentRefreshGeneration
         let previousState = commentState
         resetCommentStateForRefresh()
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             try await self.service.fetchComments(paperID: self.initialPaper.id, order: self.commentOrder, page: nil)
         }
         guard commentRefreshGeneration == generation else { return }
@@ -366,7 +360,7 @@ final class PaperDetailViewModel: ObservableObject {
             }
         }
 
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             var progress = CommunityPageProgress<Int>()
             while true {
                 let comments = try await self.service.fetchComments(paperID: self.initialPaper.id, order: order, page: commentState.nextPage)
@@ -589,16 +583,7 @@ final class PaperDetailViewModel: ObservableObject {
         commentState.isLoadingMore = false
     }
 
-    private func loadResult<T: Sendable>(_ operation: @MainActor () async throws -> T) async -> Result<T, Error> {
-        do {
-            try Task.checkCancellation()
-            let value = try await operation()
-            try Task.checkCancellation()
-            return .success(value)
-        } catch {
-            return .failure(error)
-        }
-    }
+
 }
 
 

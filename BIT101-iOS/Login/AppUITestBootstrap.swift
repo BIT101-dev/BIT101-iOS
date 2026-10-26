@@ -358,6 +358,9 @@ final class UITestHTTPTransport: HTTPTransport {
            ["posters", "papers", "courses"].contains(path), failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
         }
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_POSTER_FAILURE_ONCE"] == "1",
+           path.hasPrefix("posters/"), Int(path.dropFirst("posters/".count)) != nil,
+           failedPaths.insert(path).inserted { throw URLError(.networkConnectionLost) }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] == "1",
            path == "posters/claims", failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)

@@ -78,6 +78,7 @@ private struct GalleryRootViewScene: View {
     @ObservedObject private var appSettings: CommunityPreferences
     private enum BrowserSelection: Hashable {
         case poster(CommunityPoster)
+        case posterID(Int)
         case course(Int)
     }
     @State private var selectedContent: BrowserSelection?
@@ -105,9 +106,6 @@ private struct GalleryRootViewScene: View {
         Binding(get: { selectedSurface }, set: { selectedSurface = $0 })
     }
     @State private var isShowingNativePaperRoute = false
-    @State private var deepLinkedPoster: GalleryPosterDetail?
-    @State private var deepLinkAlert: AppAlert?
-    private let posterService: any GalleryPosterDetailServicing
 
     init(
         dependencies: GalleryDependencies,
@@ -127,7 +125,6 @@ private struct GalleryRootViewScene: View {
         self.profiles = profiles
         self.destinations = papers
         self.courses = courses
-        self.posterService = dependencies.posterDetail
         _viewModel = StateObject(wrappedValue: GalleryViewModel(service: dependencies.feed))
         _messageViewModel = StateObject(wrappedValue: GalleryMessageViewModel(service: dependencies.messageService, readStore: dependencies.messages))
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
@@ -175,7 +172,7 @@ private struct GalleryRootViewScene: View {
             isShowingNativePaperRoute = newSurface == .paper
         }
         .task(id: requestedPosterID) {
-            await openRequestedPosterIfNeeded()
+            openRequestedPosterIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             viewModel.releaseInactiveFeeds()
@@ -192,10 +189,6 @@ private struct GalleryRootViewScene: View {
             if settings.galleryHideBotPosterInSearch && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
             viewModel.contentPreferencesDidChange()
         }
-        .onChange(of: selectedContent) { _, selection in
-            if selection == nil { deepLinkedPoster = nil }
-        }
-        .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)
     }
 
@@ -232,23 +225,11 @@ private struct GalleryRootViewScene: View {
 
     }
 
-    private func openRequestedPosterIfNeeded() async {
+    private func openRequestedPosterIfNeeded() {
         guard let posterID = requestedPosterID else { return }
         selectedSurface = .gallery
-        deepLinkAlert = nil
-        do {
-            let poster = try await posterService.fetchPoster(id: posterID)
-            guard !Task.isCancelled, requestedPosterID == posterID else { return }
-            deepLinkedPoster = poster
-            selectedContent = .poster(poster.asPoster)
-        } catch {
-            guard !TaskCancellation.matches(error), requestedPosterID == posterID else { return }
-            deepLinkAlert = AppAlert(title: "无法打开话题", error: error)
-        }
-        // 完成当前请求后消费链接，保持详情加载任务的生命周期。
-        if requestedPosterID == posterID {
-            requestedPosterID = nil
-        }
+        selectedContent = .posterID(posterID)
+        requestedPosterID = nil
     }
 
     private var galleryContent: some View {
@@ -258,13 +239,17 @@ private struct GalleryRootViewScene: View {
             switch selection {
             case let .poster(poster):
                 GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
-                    initialDetail: deepLinkedPoster?.id == poster.id ? deepLinkedPoster : nil,
                     onUpdated: { viewModel.enqueueRefresh(for: viewModel.selectedFeed) },
                     onDeleted: {
                         deletedFeedPosterIDs.insert(poster.id)
                         selectedContent = nil
                         viewModel.enqueueRefresh(for: viewModel.selectedFeed)
                     })
+            case let .posterID(id):
+                GalleryPosterDestination(id: id, dependencies: dependencies, media: media, profiles: profiles,
+                    onUpdated: { viewModel.enqueueRefresh(for: viewModel.selectedFeed) },
+                    onDeleted: { selectedContent = nil; deletedFeedPosterIDs.insert(id) })
+                    .id(id)
             case let .course(id): courses.course(id)
             }
         }
@@ -333,8 +318,11 @@ private struct GalleryRootViewScene: View {
     }
 
     private var selectedPosterID: Int? {
-        if case let .poster(poster) = selectedContent { return poster.id }
-        return nil
+        switch selectedContent {
+        case let .poster(poster): poster.id
+        case let .posterID(id): id
+        default: nil
+        }
     }
 
     private var galleryListContent: some View {
@@ -610,6 +598,48 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate {
             "<body style=\"font: \(AppDesignSystem.Typography.webBodyCSS); padding: \(padding)px;\">话廊网页加载失败。<p><a href=\"\(target)\">重新加载</a></p></body>",
             baseURL: nil
         )
+    }
+}
+
+private struct GalleryPosterDestination: View {
+    let id: Int
+    let dependencies: GalleryDependencies
+    let media: MediaEnvironment
+    let profiles: CommunityProfileDestination
+    let onUpdated: () -> Void
+    let onDeleted: () -> Void
+    @State private var detail: GalleryPosterDetail?
+    @State private var loadError: (any Error)?
+    @State private var attempt = 0
+
+    var body: some View {
+        Group {
+            if let detail {
+                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles,
+                    poster: detail.asPoster, initialDetail: detail, onUpdated: onUpdated, onDeleted: onDeleted)
+            } else if let loadError {
+                AppFailureState(title: "无法打开话题", systemImage: "bubble.left.and.bubble.right",
+                    message: loadError.localizedDescription, underlyingError: loadError,
+                    onRetry: { attempt &+= 1 })
+            } else { AppLoadingState(title: "正在加载话题") }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("帖子详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: attempt) {
+            loadError = nil
+            do {
+                let loaded = try await dependencies.posterDetail.fetchPoster(id: id)
+                try Task.checkCancellation()
+                detail = loaded
+            } catch {
+                guard !TaskCancellation.matches(error) else { return }
+                loadError = error
+            }
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            if loadError != nil { attempt &+= 1 }
+        }
     }
 }
 

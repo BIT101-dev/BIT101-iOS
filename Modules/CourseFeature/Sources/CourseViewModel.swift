@@ -23,6 +23,7 @@ public final class CourseListViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any CourseListServicing
+    private var needsRefresh = false
     private var hasBootstrapped = false
     private var refreshGeneration = 0
     private var pageSearch: String?
@@ -85,6 +86,7 @@ public final class CourseListViewModel: ObservableObject {
         searchText = query
         pageSearch = normalizedSearchText
         state.applyFirstPage(items)
+        needsRefresh = false
         state.status = .loaded
         alert = nil
     }
@@ -109,7 +111,8 @@ public final class CourseListViewModel: ObservableObject {
     }
 
     func retryAfterConnectivityRecovery() async {
-        if case .failed = state.status { await refresh() }
+        if needsRefresh { await refresh() }
+        else if case .failed = state.status { await refresh() }
         else if state.paginationError != nil { await loadMoreIfNeeded(currentCourse: state.items.last) }
     }
 
@@ -135,6 +138,7 @@ public final class CourseListViewModel: ObservableObject {
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
             state.applyFirstPage(items)
+            needsRefresh = false
             pageSearch = search
             state.status = .loaded
         } catch {
@@ -152,6 +156,7 @@ public final class CourseListViewModel: ObservableObject {
             }
 
             state.isLoadingMore = false
+            needsRefresh = true
 
             if hadCourses {
                 state.status = .loaded

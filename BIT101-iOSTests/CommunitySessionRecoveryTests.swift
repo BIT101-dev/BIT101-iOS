@@ -172,11 +172,13 @@ struct CommunitySessionRecoveryTests {
 
     private final class SharedRenewalResponses: HTTPTransport {
         var paths: [String] = []
+        var cookies: [String?] = []
         var outcome = "success"
         var beforeRenew: (() async throws -> Void)?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             paths.append(url.path)
+            cookies.append(request.value(forHTTPHeaderField: "fake-cookie"))
             var status = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie" ? 401 : 200
             var body = "{}"
             if url.path == "/user/login" {
@@ -187,6 +189,59 @@ struct CommunitySessionRecoveryTests {
             }
             return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
         }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func missingCommunityCookiesRestoreOnlyAuthorizedSchoolSessions(allowed: Bool) async throws {
+        let identity = CommunitySessionIdentity(accountIdentifier: "school-session")
+        var owner = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: allowed)
+        let transport = SharedRenewalResponses(), coordinator = CommunitySessionRefreshCoordinator()
+        var renewals = 0
+        let client = CommunityAPIClient<RefreshFailure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture", credentials: { owner },
+            refreshHandler: { observed in
+                try await coordinator.refresh(observed: observed, current: { owner }) {
+                    renewals += 1
+                    await Task.yield()
+                    owner = .init(identity: identity, cookie: "renewed-cookie")
+                }
+            })
+        if allowed {
+            let first = Task { let _: [String: String] = try await client.request(path: "private"); return true }
+            let second = Task { let _: [String: String] = try await client.request(path: "private"); return true }
+            let values = try await (first.value, second.value)
+            #expect(values.0 && values.1)
+            #expect(renewals == 1 && transport.cookies == ["renewed-cookie", "renewed-cookie"])
+        } else {
+            await #expect(throws: RefreshFailure.self) { let _: [String: String] = try await client.request(path: "private") }
+            #expect(renewals == 0 && transport.paths.isEmpty)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func publicReadsKeepTheirResponseWhileAnAuthorizedCookieRecovers() async throws {
+        let identity = CommunitySessionIdentity(accountIdentifier: "school-session")
+        var owner = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: true)
+        let transport = SharedRenewalResponses(), coordinator = CommunitySessionRefreshCoordinator()
+        var renewals = 0
+        let client = CommunityAPIClient<RefreshFailure>(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture", credentials: { owner },
+            backgroundRefresh: { observed in
+                coordinator.start(observed: observed) {
+                    renewals += 1
+                    owner = .init(identity: identity, cookie: "renewed-cookie")
+                }
+            })
+        let response: CommunityAPIResponse<[String: String]> = try await client.response(path: "public", authentication: .optional)
+        #expect(!response.isAuthenticated && transport.cookies == [nil])
+        try await waitForTestEvent { !owner.cookie.isEmpty }
+        #expect(renewals == 1)
+        let observed = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: true)
+        owner = .init(identity: identity, cookie: "")
+        await #expect(throws: CommunitySessionRestorationError.self) {
+            try await coordinator.refresh(observed: observed, current: { owner }) { renewals += 1 }
+        }
+        #expect(renewals == 1)
     }
 
     @Test(.timeLimit(.minutes(1)))

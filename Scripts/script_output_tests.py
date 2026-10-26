@@ -88,6 +88,13 @@ def log_output_boundary_findings() -> list[str]:
         with patch.object(Path, 'open', return_value=RetainedLog(line)), redirect_stdout(output := StringIO()):
             show_log(Path('/fixture/compiler.log'), True)
         assert line in output.getvalue()
+    cache_warning = "warning: failed to load CAS object: unknown object 'llvmcas://fixture'\n"
+    cache_missing = "warning: llvmcas://fixture: No such file or directory\n"
+    output, raw = captured_command([cache_warning, cache_missing] * 100, status=0, executable='xcodebuild')
+    assert raw == (cache_warning + cache_missing) * 100 and '[编译缓存] 200 条' in output
+    assert output.count('\n') == 2
+    output, raw = captured_command([cache_warning], status=7, executable='xcodebuild')
+    assert cache_warning in output and raw == cache_warning
     temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
     diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
     for status in (0, 7):

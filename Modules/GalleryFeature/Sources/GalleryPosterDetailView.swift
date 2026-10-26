@@ -37,7 +37,6 @@ public struct GalleryPosterDetailView: View {
 }
 
 private struct GalleryPosterDetailViewScene: View {
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
@@ -362,12 +361,7 @@ private struct GalleryPosterDetailViewScene: View {
         .sheet(item: $reportTarget) { target in
             GalleryReportSheet(target: target, service: dependencies.reporting) {}
         }
-        .onChange(of: dependencies.networkPath.snapshot.status) { _, value in
-            if value == .connected { enqueueRecovery() }
-        }
-        .onChange(of: scenePhase) { _, value in
-            if value == .active { enqueueRecovery() }
-        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) { await retryDetailIfNeeded() }
         .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
         .alert(
@@ -391,11 +385,8 @@ private struct GalleryPosterDetailViewScene: View {
         }
     }
 
-    private func enqueueRecovery() {
-        viewModel.pendingOperations.enqueue {
-            guard dependencies.networkPath.isReachable else { return }
-            await viewModel.retryFailedContentIfNeeded()
-        }
+    private func retryDetailIfNeeded() async {
+        await viewModel.retryFailedContentIfNeeded()
     }
 
     private var authorSummary: some View {

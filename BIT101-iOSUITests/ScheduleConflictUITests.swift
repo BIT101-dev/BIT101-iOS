@@ -117,7 +117,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var navigationWidth: CGFloat?
     @MainActor
     @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
-        app = configureApp(resetStorage: true, content: true, school: true, pagination: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true, pagination: true, initialTab: "mine")
         let traits = windowTraits()
         let isCompactPhone = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             && traits["horizontal"] == UIUserInterfaceSizeClass.compact.rawValue
@@ -128,6 +128,14 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             return
         }
         defer { XCUIDevice.shared.orientation = .portrait }
+        func showPortrait() {
+            XCUIDevice.shared.orientation = .portrait
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let window = self.app.native.windows.firstMatch.frame
+                return window.height > window.width
+            }, on: app, timeout: 10), "首次旋转检查应从实际竖屏窗口开始。")
+        }
+        showPortrait()
         app.mainTab("话廊").tapBriefly()
         func checkFirstRotation(firstID: String, title: String) {
             let first = app.descendants(matching: .any)[firstID]
@@ -136,14 +144,14 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             let sort = app.native.segmentedControls.containing(.button, identifier: "最新").firstMatch
             assertUI(waitUntil(NSPredicate { _, _ in
                 let window = self.app.native.windows.firstMatch.frame
-                return window.width > window.height && sort.exists && first.exists
+                return window.width > window.height && sort.exists && first.exists && first.frame.width < window.width / 2
                     && first.frame.minY >= sort.frame.maxY - 1
                     && first.frame.minY - sort.frame.maxY <= sort.frame.height
             }, on: app, timeout: 10), "首次旋转应让列表贴近顶部排序栏。")
             capture(title)
         }
         checkFirstRotation(firstID: "community.poster.card.1", title: "首次旋转话题")
-        XCUIDevice.shared.orientation = .portrait
+        showPortrait()
         tapHeader(app.segmentedControls.buttons["文章"])
         checkFirstRotation(firstID: "paper.summary.1", title: "首次旋转文章")
         app.mainTab("我的").tapBriefly()
@@ -170,6 +178,11 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         back()
         app.mainTab("成绩").tapBriefly()
         assertPanes("home.score-surface", "home.course-surface")
+        app.buttons["score.query"].tapBriefly()
+        let code = app.textFields["verification.code"]
+        assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
+        fillVerificationCode("123456", in: code)
+        assertUI(textElement("自动化测试课程").appears(timeout: 5), "横屏成绩应展示实际加载的记录。")
         capture("成绩")
         app.mainTab("日程").tapBriefly()
         let calendarWeek = app.buttons["第1周"]

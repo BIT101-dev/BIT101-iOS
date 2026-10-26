@@ -193,13 +193,23 @@ extension GalleryRecommendationPrefetchTests {
             let blocks = counts.map { ["type": "list", "data": ["items": Array(repeating: "x", count: $0)]] as [String: Any] }
             return String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": blocks]), as: UTF8.self)
         }
-        for counts in [[3_000], [128, 129], Array(repeating: 32, count: 9)] {
+        for (counts, retained) in [([3_000], 0), ([128, 129], 1), (Array(repeating: 32, count: 9), 7)] {
             let content = try raw(counts)
             #expect(content.utf8.count < PaperContentResourceLimits.maximumBodyBytes)
             let result = PaperContentRenderer.blocks(from: content)
-            #expect(result.count == 1)
-            if case .requiresOriginal = result[0] {} else { Issue.record("渲染节点超额需要原文入口") }
+            #expect(result.count == retained + 1)
+            for block in result.prefix(retained) {
+                if case .list = block {} else { Issue.record("预算内的列表应继续可读") }
+            }
+            if case .requiresOriginal? = result.last {} else { Issue.record("剩余内容应提供原文入口") }
         }
+        let paragraphs = (0...256).map { ["type": "paragraph", "data": ["text": "段落 \($0)"]] as [String: Any] }
+        let expanded = String(decoding: try JSONSerialization.data(withJSONObject: ["blocks": paragraphs]), as: UTF8.self)
+        let retained = PaperContentRenderer.blocks(from: expanded)
+        #expect(retained.count == PaperContentResourceLimits.maximumBlocks)
+        if case let .paragraph(_, text) = retained[0] { #expect(String(text.characters) == "段落 0") }
+        else { Issue.record("原文入口前应保留已有正文") }
+        #expect(!PaperEditorContentBuilder.canEditAsPlainText(expanded))
         let result = PaperContentRenderer.blocks(from: try raw([128, 128]))
         #expect(result.count == 2)
         for block in result {

@@ -9,6 +9,7 @@ import Foundation
 @MainActor
 final class CourseDetailViewModel: ObservableObject {
     let pendingOperations = CommunityDetailTasks()
+    private(set) var needsContentRefresh = false
     @Published private(set) var course: CourseDetail?
     @Published private(set) var status: CourseDetailLoadStatus = .idle
     @Published private(set) var isLikingCourse = false
@@ -23,7 +24,6 @@ final class CourseDetailViewModel: ObservableObject {
     let initialCourse: CourseSummary
 
     private let service: any CourseDetailServicing
-    private var hasBootstrapped = false
     private var likeRevision = 0
     private var likeResultNeedsReview = false
     private var latestLikeResult: CommunityLikeResult?
@@ -114,12 +114,13 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     func bootstrapIfNeeded() async {
-        guard !hasBootstrapped else { return }
-        hasBootstrapped = true
-        cachedCourseCredits = await loadCourseCredits()
-        if course != nil { await refreshComments() }
-        else { await refresh() }
-        if status == .idle || commentState.status == .idle { hasBootstrapped = false }
+        await pendingOperations.bootstrapIfNeeded {
+            cachedCourseCredits = await loadCourseCredits()
+            guard !Task.isCancelled else { return false }
+            if course != nil { await refreshComments() }
+            else { await refresh() }
+            return !Task.isCancelled && status != .idle && commentState.status != .idle
+        }
     }
 
     /// 并行刷新课程详情和评论首屏。
@@ -138,12 +139,12 @@ final class CourseDetailViewModel: ObservableObject {
         resetCommentStateForRefresh()
 
         async let courseRefresh: Void = { @MainActor [self] in
-            let result = await loadResult { [self] in try await service.fetchCourse(id: initialCourse.id) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchCourse(id: initialCourse.id) }
             guard refreshGeneration == generation else { return }
             handleCourseResult(result, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
         }()
         async let commentRefresh: Void = { @MainActor [self] in
-            let result = await loadResult { [self] in try await service.fetchComments(courseID: initialCourse.id, page: nil) }
+            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchComments(courseID: initialCourse.id, page: nil) }
             guard commentRefreshGeneration == commentsGeneration else { return }
             handleCommentRefreshResult(result, previousState: previousCommentState)
         }()
@@ -155,7 +156,7 @@ final class CourseDetailViewModel: ObservableObject {
         let generation = commentRefreshGeneration
         let previousState = commentState
         resetCommentStateForRefresh()
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             try await service.fetchComments(courseID: initialCourse.id, page: nil)
         }
         guard generation == commentRefreshGeneration else { return }
@@ -182,7 +183,7 @@ final class CourseDetailViewModel: ObservableObject {
             }
         }
 
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             var progress = CommunityPageProgress<Int>()
             while true {
                 let comments = try await self.service.fetchComments(courseID: self.initialCourse.id, page: commentState.nextPage)
@@ -236,7 +237,7 @@ final class CourseDetailViewModel: ObservableObject {
 
         historyGradesAllowsDiagnostics = true
         historyGradeStatus = .loading
-        let result = await loadResult { [self] in
+        let result = await CommunityDetailTasks.loadResult { [self] in
             try await self.service.fetchCourseHistories(number: number)
         }
 
@@ -366,6 +367,7 @@ final class CourseDetailViewModel: ObservableObject {
     private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
         switch result {
         case let .success(course):
+            needsContentRefresh = false
             likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
                 self.course = course.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
@@ -387,6 +389,7 @@ final class CourseDetailViewModel: ObservableObject {
                 return
             }
 
+            needsContentRefresh = true
             if course != nil {
                 status = .loaded
                 alert = AppAlert(title: "刷新课程详情失败", error: error)
@@ -437,14 +440,5 @@ final class CourseDetailViewModel: ObservableObject {
         return URL(string: "https://onedrive.bit101.cn/zh-CN/course/\(pathComponent)")
     }
 
-    private func loadResult<T: Sendable>(_ operation: @MainActor () async throws -> T) async -> Result<T, Error> {
-        do {
-            try Task.checkCancellation()
-            let value = try await operation()
-            try Task.checkCancellation()
-            return .success(value)
-        } catch {
-            return .failure(error)
-        }
-    }
+
 }

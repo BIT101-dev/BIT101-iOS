@@ -32,7 +32,6 @@ private struct PaperDetailViewScene: View {
     private let media: MediaEnvironment
     private let onChanged: () -> Void
     private let onDeleted: (() -> Void)?
-    @Environment(\.scenePhase) private var scenePhase
     let initialPaper: PaperSummary
 
     @StateObject private var viewModel: PaperDetailViewModel
@@ -268,18 +267,7 @@ private struct PaperDetailViewScene: View {
         .task {
             await viewModel.bootstrapIfNeeded()
         }
-        .onChange(of: networkObserver.snapshot.status) { _, newValue in
-            guard newValue == .connected else { return }
-            viewModel.pendingOperations.enqueue {
-                await retryDetailIfNeeded()
-            }
-        }
-        .onChange(of: scenePhase) { _, newValue in
-            guard newValue == .active else { return }
-            viewModel.pendingOperations.enqueue {
-                await retryDetailIfNeeded()
-            }
-        }
+        .communityReadRecovery(networkPath: networkObserver) { await retryDetailIfNeeded() }
         .onDisappear { viewModel.cancelPendingOperations() }
         .diagnosticAlert(item: $viewModel.alert)
     }

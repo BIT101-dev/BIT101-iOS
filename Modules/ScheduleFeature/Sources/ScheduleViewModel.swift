@@ -66,6 +66,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         }
     }
 
+    private var courseScheduleProjection: (revision: Int, values: [CourseScheduleVariant])?
+
     /// 当前选中的一级分栏。
     @Published public var selectedSection: ScheduleSection = .courses
     /// 是否正在同步课表/考试。
@@ -201,23 +203,26 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     ///
     /// 顺序固定为：我的课表在前，导入的分享课表依次排在后面。
     var courseSchedules: [CourseScheduleVariant] {
+        let revision = repository.revision
+        if let courseScheduleProjection, courseScheduleProjection.revision == revision { return courseScheduleProjection.values }
+        let state = courseState
         let primary = CourseScheduleVariant(
             id: "__primary__",
-            title: courseState.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            title: state.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? "课表"
-                : courseState.primaryScheduleTitle,
+                : state.primaryScheduleTitle,
             isPrimary: true,
             importedAt: nil,
             sharedAt: nil,
-            currentTerm: courseState.currentTerm,
-            firstDayString: courseState.firstDayString,
-            timeTable: courseState.timeTable,
-            courses: courseState.courses,
-            exams: courseState.exams,
-            customSchedules: courseState.customSchedules
+            currentTerm: state.currentTerm,
+            firstDayString: state.firstDayString,
+            timeTable: state.timeTable,
+            courses: state.courses,
+            exams: state.exams,
+            customSchedules: state.customSchedules
         )
 
-        let shared = courseState.sharedSchedules.map { record in
+        let shared = state.sharedSchedules.map { record in
             CourseScheduleVariant(
                 id: record.id,
                 title: record.title,
@@ -233,14 +238,15 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
             )
         }
 
-        return [primary] + shared
+        let values = [primary] + shared
+        courseScheduleProjection = (revision, values)
+        return values
     }
 
     /// 当前正在展示的那一份课表。
     var activeCourseSchedule: CourseScheduleVariant {
         let variants = courseSchedules
-        let normalizedIndex = min(max(selectedCourseScheduleIndex, 0), variants.count - 1)
-        return variants[normalizedIndex]
+        return variants.first { $0.id == selectedCourseScheduleID } ?? variants[0]
     }
 
     /// 首次进入日程页时从本地磁盘恢复缓存。

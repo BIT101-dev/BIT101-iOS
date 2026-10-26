@@ -297,8 +297,18 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
 
         try Task.checkCancellation()
-        let observed = credentials()
+        var observed = credentials()
         let identity = authentication == .none ? nil : observed.identity
+        var effectiveRetryPolicy = retryPolicy
+        if authentication == .required, observed.cookie.isEmpty, observed.allowsSilentRestoration,
+           retryPolicy == .afterCredentialRefresh, !CommunityCredentialRefreshContext.isRestoring {
+            do {
+                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
+            } catch is CommunitySessionRestorationError { throw Failure.communityNotLoggedIn }
+            try validateIdentity(identity)
+            observed = credentials()
+            effectiveRetryPolicy = .never
+        }
         switch authentication {
         case .required:
             let fakeCookie = observed.cookie
@@ -317,8 +327,14 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
 
         do {
-            return try await sendWithCredentialRecovery(request, observed: observed, identity: identity,
-                authentication: authentication, retryPolicy: retryPolicy)
+            let result = try await sendWithCredentialRecovery(request, observed: observed, identity: identity,
+                authentication: authentication, retryPolicy: effectiveRetryPolicy)
+            if authentication == .optional, observed.cookie.isEmpty, observed.allowsSilentRestoration,
+               retryPolicy == .afterCredentialRefresh, !CommunityCredentialRefreshContext.isRestoring,
+               credentials() == observed, let backgroundRefresh {
+                CommunityCredentialRefreshContext.$isRestoring.withValue(true) { backgroundRefresh(observed) }
+            }
+            return result
         } catch let HTTPClientError.unacceptableStatus(code, message) {
             try validateIdentity(identity)
             if code == 401 { throw Failure.communityNotLoggedIn }
