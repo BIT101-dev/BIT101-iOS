@@ -206,7 +206,9 @@ def cache_space_report(root: Path) -> dict:
         'buildBytes': sum(size(name) for name in ('.build/extended-automation/Build', '.build/extended-automation/out',
             'build/DeviceInstall', '.build/release-network-smoke/Build',
             '.build/icloud-cross-device-smoke/Phone/Build', '.build/icloud-cross-device-smoke/Mac/Build')),
-        'auditBytes': size('.build/static-audit'), 'diagnosticBytes': size('.build/extended-automation/diagnostics'),
+        'auditBytes': size('.build/static-audit'),
+        'diagnosticBytes': sum(size(name) for name in ('.build/extended-automation/diagnostics',
+            '.build/extended-automation/test-results.xcresult', '.build/icloud-cross-device-smoke/test-results.xcresult')),
         'casGenerationLimitBytes': CAS_GENERATION_LIMIT}
 
 

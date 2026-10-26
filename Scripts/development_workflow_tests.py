@@ -357,6 +357,11 @@ def cache_and_ui_products(fixture: Path) -> None:
     after = sample_after_build()
     assert after['buildBytes'] > before['buildBytes'] and after['projectBytes'] > before['projectBytes']
     assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text()) == after
+    for name in ('.build/extended-automation/test-results.xcresult', '.build/icloud-cross-device-smoke/test-results.xcresult'):
+        result = fixture / name / 'result'
+        result.parent.mkdir(parents=True, exist_ok=True)
+        result.write_bytes(b'result' * 4096)
+    assert sample_after_build()['diagnosticBytes'] > after['diagnosticBytes']
     from compiler_cache import cache_layout_ready
     from validation_artifacts import cache_names
     derived = fixture / 'ready'; derived.mkdir()
