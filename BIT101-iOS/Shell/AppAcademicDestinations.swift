@@ -84,7 +84,6 @@ private struct ScoreRootScene: View {
                 .accessibilityIdentifier("home.course-surface")
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("academic.surfaces")
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !layout.isLandscape { surfaceTabs }

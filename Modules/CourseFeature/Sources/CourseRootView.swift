@@ -7,6 +7,7 @@ import SwiftUI
 
 /// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
 public struct CoursePageContent: View {
+    @Environment(\.appPageIsVisible) private var isVisible
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: CourseDependencies
     private let media: MediaEnvironment
@@ -33,13 +34,14 @@ public struct CoursePageContent: View {
             interactionEvidence?("interaction.CoursePageContent.refreshable", "refresh")
             await viewModel.refresh()
         }
-        .task {
+        .task(id: isVisible) {
+            guard isVisible else { viewModel.cancelRefreshOperations(); return }
             await viewModel.bootstrapIfNeeded()
         }
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
-        .communityReadRecovery(networkPath: dependencies.networkPath) {
+        .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: isVisible) {
             await viewModel.retryAfterConnectivityRecovery()
         }
         .onDisappear { viewModel.cancelRefreshOperations() }

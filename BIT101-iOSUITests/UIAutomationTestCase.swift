@@ -137,11 +137,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard let snapshot = try? app.snapshot() else { return nil }
         let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
             .filter { !$0.frame.isEmpty && snapshot.frame.intersects($0.frame) }
-        let identifier = element.identifier, label = element.label, type = element.elementType
-        let owning = containers.filter { container in
-            container.firstSnapshot { target in
-                target.elementType == type && (identifier.isEmpty ? target.label == label : target.identifier == identifier)
-            } != nil
+        var owning: [any XCUIElementSnapshot] = []
+        if element.exists {
+            let identifier = element.identifier, label = element.label, type = element.elementType
+            owning = containers.filter { container in
+                container.firstSnapshot { target in
+                    target.elementType == type && (identifier.isEmpty ? target.label == label : target.identifier == identifier)
+                } != nil
+            }
         }
         let target = element.exists ? element.frame : CGRect.null
         guard let selected = owning.last ?? containers.last(where: { !target.isNull && !target.isEmpty

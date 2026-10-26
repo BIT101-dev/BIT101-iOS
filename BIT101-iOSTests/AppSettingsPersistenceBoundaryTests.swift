@@ -188,6 +188,7 @@ struct AccountSettingsTests {
         var failsWrites = false
         var writes: [(String?, String?, String?)] = []
         var beforeUpdate: () -> Void = {}
+        var beforeCheck: () -> Void = {}
         var read: (() async -> MineUserInfo)?
         let image = CommunityImage(mid: "new-avatar", url: "https://fixture.invalid/avatar", lowUrl: "")
         func fetchMyInfo() async throws -> MineUserInfo {
@@ -202,7 +203,16 @@ struct AccountSettingsTests {
             stored = stored.updatingUser(nickname: nickname, motto: motto, avatar: avatarMid == image.mid ? image : nil)
         }
         func uploadAvatar(data: Data, filename: String) async throws -> CommunityImage { image }
-        func checkLogin() async throws -> Bool { true }
+        func checkLogin() async throws -> Bool { beforeCheck(); return true }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func recoveredCommunityCredentialsPopulateTheAccountProfile() async {
+        let service = Service(), restored = credentials()
+        var owner = CommunityCredentials(identity: restored.identity, cookie: "")
+        let model = AccountSettingsModel(dependencies: .init(service: service, credentials: { owner }))
+        service.beforeCheck = { owner = restored }
+        await model.checkLogin()
+        #expect(model.isLoggedIn && model.profile?.user.nickname == "昵称 A" && model.profileLoadError == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func anEarlierProfileReadKeepsTheLaterConfirmedEdit() async throws {

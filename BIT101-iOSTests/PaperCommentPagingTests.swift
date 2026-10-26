@@ -60,6 +60,30 @@ struct PaperCommentPagingTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func reopeningAnArticleRestartsItsInterruptedBootstrap() async throws {
+        let service = RevalidatingService()
+        let model = PaperDetailViewModel(initialPaper: .init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)
+        let first = Task { await model.bootstrapIfNeeded() }
+        try await waitForTestEvent { service.pending != nil }
+        var earlier = service.pending
+        service.pending = nil
+        first.cancel()
+        model.cancelPendingOperations()
+        let second = Task { await model.bootstrapIfNeeded() }
+        defer {
+            first.cancel(); second.cancel()
+            earlier?.resume(throwing: CancellationError())
+            service.pending?.resume(throwing: CancellationError()); service.pending = nil
+        }
+        try await waitForTestEvent { service.pending != nil }
+        earlier?.resume(returning: Self.revalidationPaper(1, title: "旧正文")); earlier = nil
+        await first.value
+        service.pending?.resume(returning: Self.revalidationPaper(1, title: "新正文")); service.pending = nil
+        await second.value
+        #expect(model.paper?.content == "新正文" && model.paperStatus == .loaded)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func publicArticleContentKeepsLikesPendingUntilAnAuthenticatedRead() async throws {
         let service = RevalidatingService()
         let model = PaperDetailViewModel(initialPaper: .init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: ""), service: service)

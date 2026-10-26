@@ -76,14 +76,17 @@ private struct GalleryRootViewScene: View {
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @ObservedObject private var appSettings: CommunityPreferences
-    @State private var selectedFeedPoster: CommunityPoster?
+    private enum BrowserSelection: Hashable {
+        case poster(CommunityPoster)
+        case course(Int)
+    }
+    @State private var selectedContent: BrowserSelection?
     @State private var feedScrollPositions: [GalleryFeedKind: Int] = [:]
     @State private var feedImageViewer: ImagePreviewRequest?
     @State private var deletedFeedPosterIDs: Set<Int> = []
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @State private var isShowingSubscriptions = false
-    @State private var selectedCourseID: Int?
     @State private var unreadRefreshGeneration = 0
     @State private var horizontalControlFrames: [CGRect] = []
     @Binding private var requestedPaperID: Int?
@@ -144,7 +147,7 @@ private struct GalleryRootViewScene: View {
                     }
                 }
             }
-            if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
+            if appSettings.galleryUseWebView && !isShowingNativePaperRoute && selectedContent == nil {
                 GalleryWebContentView()
             } else {
                 TabView(selection: surfaceSelection) {
@@ -180,6 +183,7 @@ private struct GalleryRootViewScene: View {
         .onChange(of: appSettings.snapshot) { previous, settings in
             if previous.galleryUseWebView != settings.galleryUseWebView {
                 isShowingNativePaperRoute = false
+                selectedContent = nil
                 selectedSurface = .gallery
             }
             guard previous.galleryHideBotPosterInSearch != settings.galleryHideBotPosterInSearch
@@ -188,8 +192,8 @@ private struct GalleryRootViewScene: View {
             if settings.galleryHideBotPosterInSearch && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
             viewModel.contentPreferencesDidChange()
         }
-        .navigationDestination(item: $deepLinkedPoster) { poster in
-            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster.asPoster, initialDetail: poster)
+        .onChange(of: selectedContent) { _, selection in
+            if selection == nil { deepLinkedPoster = nil }
         }
         .diagnosticAlert(item: $deepLinkAlert)
         .toolbar(.hidden, for: .navigationBar)
@@ -236,6 +240,7 @@ private struct GalleryRootViewScene: View {
             let poster = try await posterService.fetchPoster(id: posterID)
             guard !Task.isCancelled, requestedPosterID == posterID else { return }
             deepLinkedPoster = poster
+            selectedContent = .poster(poster.asPoster)
         } catch {
             guard !TaskCancellation.matches(error), requestedPosterID == posterID else { return }
             deepLinkAlert = AppAlert(title: "无法打开话题", error: error)
@@ -247,16 +252,21 @@ private struct GalleryRootViewScene: View {
     }
 
     private var galleryContent: some View {
-        AppBrowserLayout(selection: $selectedFeedPoster, title: "选择一个话题", symbol: "bubble.left.and.bubble.right") {
+        AppBrowserLayout(selection: $selectedContent, title: "选择一个话题", symbol: "bubble.left.and.bubble.right") {
             galleryListContent
-        } detail: { poster in
-            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
-                onUpdated: { viewModel.enqueueRefresh(for: viewModel.selectedFeed) },
-                onDeleted: {
-                    deletedFeedPosterIDs.insert(poster.id)
-                    selectedFeedPoster = nil
-                    viewModel.enqueueRefresh(for: viewModel.selectedFeed)
-                })
+        } detail: { selection in
+            switch selection {
+            case let .poster(poster):
+                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
+                    initialDetail: deepLinkedPoster?.id == poster.id ? deepLinkedPoster : nil,
+                    onUpdated: { viewModel.enqueueRefresh(for: viewModel.selectedFeed) },
+                    onDeleted: {
+                        deletedFeedPosterIDs.insert(poster.id)
+                        selectedContent = nil
+                        viewModel.enqueueRefresh(for: viewModel.selectedFeed)
+                    })
+            case let .course(id): courses.course(id)
+            }
         }
         .task {
             await viewModel.bootstrapIfNeeded()
@@ -280,7 +290,7 @@ private struct GalleryRootViewScene: View {
         }
         .communityReadRecovery(networkPath: networkObserver,
             isEnabled: selectedSurface == .gallery && !viewModel.isShowingSearch && !isShowingComposer
-                && !isShowingMessages && !isShowingSubscriptions && deepLinkedPoster == nil && selectedCourseID == nil) {
+                && !isShowingMessages && !isShowingSubscriptions && selectedContent == nil) {
             let state = viewModel.state(for: viewModel.selectedFeed)
             if case .failed = state.status { await viewModel.refresh(feed: viewModel.selectedFeed) }
             else if state.paginationError != nil {
@@ -308,12 +318,11 @@ private struct GalleryRootViewScene: View {
                         requestedPaperID = id
                     } else if kind == "course" {
                         isShowingSubscriptions = false
-                        selectedCourseID = id
+                        selectedContent = .course(id)
                     }
                 }
             }
         }
-        .navigationDestination(item: $selectedCourseID) { id in courses.course(id) }
         .sheet(isPresented: $isShowingComposer) {
             GalleryComposerView {
                 viewModel.enqueueNewestRefreshAfterComposer()
@@ -321,6 +330,11 @@ private struct GalleryRootViewScene: View {
         }
         .diagnosticAlert(item: $viewModel.alert)
         .onDisappear { viewModel.cancelPendingOperations() }
+    }
+
+    private var selectedPosterID: Int? {
+        if case let .poster(poster) = selectedContent { return poster.id }
+        return nil
     }
 
     private var galleryListContent: some View {
@@ -347,8 +361,8 @@ private struct GalleryRootViewScene: View {
                 onLoadMore: { poster in
                     viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
                 },
-                onSelectPoster: { selectedFeedPoster = $0 }, excludedPosterIDs: deletedFeedPosterIDs,
-                selectedPosterID: selectedFeedPoster?.id,
+                onSelectPoster: { selectedContent = .poster($0) }, excludedPosterIDs: deletedFeedPosterIDs,
+                selectedPosterID: selectedPosterID,
                 scrollPosition: Binding(get: { feedScrollPositions[viewModel.selectedFeed] },
                     set: { if let value = $0 { feedScrollPositions[viewModel.selectedFeed] = value } }),
                 onPreview: { feedImageViewer = $0 }

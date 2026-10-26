@@ -29,6 +29,7 @@ private struct AppWindowLayoutKey: EnvironmentKey {
 
 extension EnvironmentValues {
     @Entry public var appExpandedNavigation = false
+    @Entry public var appPageIsVisible = true
     public var appWindowLayout: AppWindowLayout {
         get { self[AppWindowLayoutKey.self] }
         set { self[AppWindowLayoutKey.self] = newValue }
@@ -59,6 +60,7 @@ public struct AppPairedPages<First: View, Second: View>: View {
     }
     private func pane(_ content: some View, visible: Bool) -> some View {
         content.environment(\.appWindowLayout, layout.singleColumn)
+            .environment(\.appPageIsVisible, visible)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(width: visible ? nil : 0)
             .clipped().allowsHitTesting(visible).accessibilityHidden(!visible)

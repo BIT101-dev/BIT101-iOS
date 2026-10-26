@@ -485,7 +485,7 @@ struct FeatureCompositionTests {
         let media: MediaEnvironment
         var body: some View {
             TabView(selection: $route.selection) {
-                NavigationStack { PaperRootView(dependencies: dependencies, media: media) }
+                PaperRootView(dependencies: dependencies, media: media)
                     .onDisappear { route.paperDisappeared = true }
                     .tabItem { Text("文章") }.tag(0)
                 Text("其他页面").onAppear { route.otherAppeared = true }

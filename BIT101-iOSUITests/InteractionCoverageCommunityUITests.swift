@@ -63,6 +63,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         assertUI(summary.performAccessibilityAction(named: "打开文章"), "文章卡片应提供可执行的 VoiceOver 动作。")
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "VoiceOver 动作应打开文章详情。")
         let richText = app.textViews.matching(identifier: "paper.body.rich-text").firstMatch
+        assertUI(richText.appears(timeout: 5), "文章正文加载完成后应提供原生富文本内容。")
         reveal(richText)
         richText.tapBriefly()
         assertUI(app.navigationBars["文章详情"].exists, "富文本正文应保留文章详情上下文。")
@@ -75,7 +76,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
         closeImagePreview()
         tapLink("阅读完整原文")
-        assertOpenedURL("paper/1")
+        assertOpenedURL("https://bit101.cn/paper/1", exact: true)
         let footerLike = app.buttons["paper.detail.footer-like"]
         reveal(footerLike)
         footerLike.tapBriefly()
@@ -748,13 +749,13 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
-    func assertOpenedURL(_ target: String) {
+    func assertOpenedURL(_ target: String, exact: Bool = false) {
         var openedURL = ""
         assertUI(waitUntil(NSPredicate { _, _ in
             openedURL = UITestControlClient.request(["command": "consume-opened-url"]) ?? ""
             return !openedURL.isEmpty
         }, on: app), "链接操作应发出页面选定的地址。")
-        assertUI(openedURL.contains(target), "链接地址应匹配\(target)，实际地址：\(openedURL)。")
+        assertUI(exact ? openedURL == target : openedURL.contains(target), "链接地址应匹配\(target)，实际地址：\(openedURL)。")
     }
 
     @MainActor

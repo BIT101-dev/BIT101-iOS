@@ -280,7 +280,7 @@ private struct PaperDetailViewScene: View {
                 await retryDetailIfNeeded()
             }
         }
-        .onDisappear { viewModel.pendingOperations.cancel() }
+        .onDisappear { viewModel.cancelPendingOperations() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -331,7 +331,7 @@ private struct PaperDetailViewScene: View {
                     )
                 }
                 if contentBlocks.contains(where: { if case .requiresOriginal = $0 { return true }; return false }) {
-                    Link("阅读完整原文", destination: paperShareURL)
+                    Link("阅读完整原文", destination: AppURL.required("https://bit101.cn/paper/\(initialPaper.id)"))
                         .font(AppDesignSystem.Typography.body)
                         .accessibilityIdentifier("ui.paper-content.original")
                 }

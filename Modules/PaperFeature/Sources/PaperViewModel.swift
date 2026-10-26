@@ -291,12 +291,27 @@ final class PaperDetailViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
-        if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled {
+        let restoredGeneration = refreshGeneration
+        if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled,
+           refreshGeneration == restoredGeneration {
             await handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision, generation: refreshGeneration)
         }
+        guard refreshGeneration == restoredGeneration else { return }
         guard !Task.isCancelled else { hasBootstrapped = false; return }
+        let generation = refreshGeneration &+ 1
         await refreshAll()
-        if Task.isCancelled || paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
+        if refreshGeneration == generation,
+           Task.isCancelled || paperStatus == .idle || commentState.status == .idle { hasBootstrapped = false }
+    }
+
+    func cancelPendingOperations() {
+        let interrupted = paperStatus != .loaded || commentState.status != .loaded
+        pendingOperations.cancel()
+        refreshGeneration &+= 1
+        commentRefreshGeneration &+= 1
+        if paperStatus == .loading { paperStatus = paper == nil ? .idle : .loaded }
+        if commentState.status == .loading { commentState.status = commentState.items.isEmpty ? .idle : .loaded }
+        if interrupted { hasBootstrapped = false }
     }
 
     func refreshAll() async {

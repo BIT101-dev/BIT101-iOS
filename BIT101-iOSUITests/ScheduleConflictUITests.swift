@@ -127,8 +127,26 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             assertUI(app.mainTab("我的").isHittable, "竖向窗口保留主导航。")
             return
         }
-        XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
+        app.mainTab("话廊").tapBriefly()
+        func checkFirstRotation(firstID: String, title: String) {
+            let first = app.descendants(matching: .any)[firstID]
+            assertUI(first.appears(timeout: 5), "竖屏应显示浏览列表。")
+            XCUIDevice.shared.orientation = .landscapeLeft
+            let sort = app.native.segmentedControls.containing(.button, identifier: "最新").firstMatch
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let window = self.app.native.windows.firstMatch.frame
+                return window.width > window.height && sort.exists && first.exists
+                    && first.frame.minY >= sort.frame.maxY - 1
+                    && first.frame.minY - sort.frame.maxY <= sort.frame.height
+            }, on: app, timeout: 10), "首次旋转应让列表贴近顶部排序栏。")
+            capture(title)
+        }
+        checkFirstRotation(firstID: "community.poster.card.1", title: "首次旋转话题")
+        XCUIDevice.shared.orientation = .portrait
+        tapHeader(app.segmentedControls.buttons["文章"])
+        checkFirstRotation(firstID: "paper.summary.1", title: "首次旋转文章")
+        app.mainTab("我的").tapBriefly()
         assertUI(waitUntil(NSPredicate { _, _ in
             let window = self.app.native.windows.firstMatch.frame
             return window.width > window.height

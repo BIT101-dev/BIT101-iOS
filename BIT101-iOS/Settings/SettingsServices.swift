@@ -133,7 +133,7 @@ final class AccountSettingsModel: ObservableObject {
             let loggedIn = try await dependencies.service.checkLogin()
             guard dependencies.acceptsLoginCheck(loggedIn, for: owner), !Task.isCancelled else { return }
             isLoggedIn = loggedIn
-            if loggedIn { await loadProfile(for: owner) }
+            if loggedIn { await loadProfile(for: dependencies.credentials()) }
             else { profile = nil; profileOwner = nil }
         } catch {
             guard presents(error, for: owner) else { return }

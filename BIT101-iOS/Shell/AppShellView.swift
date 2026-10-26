@@ -231,47 +231,9 @@ struct AppShellView: View {
     private var mainTabs: some View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
-                NavigationStack {
-                    switch tab {
-                    case .schedule:
-                        ScheduleRootView(
-                            viewModel: scheduleViewModel,
-                            requestedSection: $requestedScheduleSection,
-                            destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
-                                selectTab(.score)
-                                requestedCourse = request
-                            },
-                            onOpenCourseLocation: { request in
-                                requestedMapLocation = request
-                                selectTab(.map)
-                            })
-                        )
-                    case .map:
-                        TimelineView(.everyMinute) { context in
-                            CampusMapScreen(
-                                nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot, now: context.date),
-                                requestedLocation: requestedMapLocation
-                            )
-                        }
-                        .task { await scheduleViewModel.loadIfNeeded() }
-                    case .score:
-                        ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse, selection: $scoreSurface)
-                    case .gallery:
-                        GalleryRootView(
-                            dependencies: community.gallery, media: destinations.media,
-                            profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
-                            requestedPaperID: $requestedPaperID,
-                            requestedPosterID: $requestedPosterID, selection: $gallerySurface
-                        )
-                    case .mine:
-                        MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
-#if BIT101_UI_TESTING
-                            .navigationDestination(item: $uiTestSettingsRoute) { route in
-                                SettingsRootView(initialRoute: route, studentID: studentID, onLogout: onLogout,
-                                                 dependencies: destinations.settingsDependencies)
-                            }
-#endif
-                    }
+                Group {
+                    if tab == .gallery { tabContent(tab) }
+                    else { NavigationStack { tabContent(tab) } }
                 }
                 .toolbar(layout.usesExpandedNavigation ? .hidden : .visible, for: .tabBar)
                 .tag(tab)
@@ -323,6 +285,49 @@ struct AppShellView: View {
         .onReceive(scheduleViewModel.$notice.compactMap { $0 }) { notice in
             scheduleViewModel.dismissNotice()
             AppErrorPresenter.shared.present(notice)
+        }
+    }
+
+    @ViewBuilder private func tabContent(_ tab: AppTab) -> some View {
+        switch tab {
+        case .schedule:
+            ScheduleRootView(
+                viewModel: scheduleViewModel,
+                requestedSection: $requestedScheduleSection,
+                destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
+                    selectTab(.score)
+                    requestedCourse = request
+                },
+                onOpenCourseLocation: { request in
+                    requestedMapLocation = request
+                    selectTab(.map)
+                })
+            )
+        case .map:
+            TimelineView(.everyMinute) { context in
+                CampusMapScreen(
+                    nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot, now: context.date),
+                    requestedLocation: requestedMapLocation
+                )
+            }
+            .task { await scheduleViewModel.loadIfNeeded() }
+        case .score:
+            ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse, selection: $scoreSurface)
+        case .gallery:
+            GalleryRootView(
+                dependencies: community.gallery, media: destinations.media,
+                profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
+                requestedPaperID: $requestedPaperID,
+                requestedPosterID: $requestedPosterID, selection: $gallerySurface
+            )
+        case .mine:
+            MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
+#if BIT101_UI_TESTING
+                .navigationDestination(item: $uiTestSettingsRoute) { route in
+                    SettingsRootView(initialRoute: route, studentID: studentID, onLogout: onLogout,
+                                     dependencies: destinations.settingsDependencies)
+                }
+#endif
         }
     }
 
