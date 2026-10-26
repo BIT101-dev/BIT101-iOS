@@ -203,6 +203,7 @@ enum UITestAccessibilityActions {
                 values["scrollInstance"] = String(describing: ObjectIdentifier(scroll))
                 values["hasRefreshControl"] = scroll.refreshControl != nil
                 values["refreshing"] = scroll.refreshControl?.isRefreshing ?? false
+                values["scrolling"] = scroll.isDragging || scroll.isDecelerating || scroll.isTracking
                 values["bounces"] = scroll.bounces
                 values["alwaysBounceVertical"] = scroll.alwaysBounceVertical
                 let viewport = scroll.convert(scroll.bounds.inset(by: scroll.adjustedContentInset), to: window)

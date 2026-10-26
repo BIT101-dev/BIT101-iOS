@@ -183,10 +183,8 @@ final class CachedRemoteImageLoader {
         }
         for url in urls {
             do {
-                let response = try await media.downloads.response(for: url, source: .avatar)
-                guard await isCurrent() else { return }
-                guard let downloadedImage = await media.avatars.storeAndDecode(response.data, for: url,
-                    generation: generation, maximumPixelSize: maximumPixelSize) else { continue }
+                guard let downloadedImage = try await media.avatars.loadImage(for: url,
+                    maximumPixelSize: maximumPixelSize) else { continue }
                 guard await isCurrent() else { return }
                 display(downloadedImage, media: media)
                 return
@@ -197,152 +195,96 @@ final class CachedRemoteImageLoader {
     }
 }
 
+/// 头像解码共享原始资源缓存与租约，位图沿头像展示预算复用。
 actor CachedRemoteImageStore {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
-    /// 原始图片数据的内存缓存。
-    private let memoryCache: NSCache<NSString, NSData> = {
-        let cache = NSCache<NSString, NSData>()
-        cache.countLimit = 160
-        cache.totalCostLimit = 32 * 1_024 * 1_024
-        return cache
-    }()
-    /// 已准备显示的位图内存缓存。
     private let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 160
         cache.totalCostLimit = 24 * 1_024 * 1_024
         return cache
     }()
-    private(set) var cacheGeneration: UInt64 = 0
     private let files: any AppFileService
-    private let quota: ImageCacheDiskQuota
-    private var activeFileUses: Set<UUID> = []
-    /// 磁盘缓存根目录。
-    private let directoryURL: URL
+    private let resources: RemoteImageCache
+    private let download: (@Sendable (URL) async throws -> HTTPResponse)?
+    private var decodedGeneration: UInt64 = 0
+    var cacheGeneration: UInt64 { get async { await resources.cacheGeneration } }
 
-    /// 初始化缓存目录。
-    ///
-    /// 缓存目录位于 `Caches`，系统可在空间不足时删除其中的内容。
-    init(files: any AppFileService, quota: ImageCacheDiskQuota) {
+    init(files: any AppFileService, resources: RemoteImageCache,
+        download: (@Sendable (URL) async throws -> HTTPResponse)? = nil) {
         self.files = files
-        self.quota = quota
-        let directoryURL = ImageCacheDirectories.avatars(using: files)
-        self.directoryURL = directoryURL
+        self.resources = resources
+        self.download = download
     }
 
-    /// 按“内存 -> 磁盘”顺序读取缓存数据。
     func data(for url: URL) async -> Data? {
-        let generation = cacheGeneration
-        let key = cacheKey(for: url)
-        let fileURL = directoryURL.appendingPathComponent(key)
-
-        if let cached = memoryCache.object(forKey: key as NSString) {
-            touchDiskEntry(for: key)
-            await quota.enforce(protecting: Set([fileURL]))
-            guard cacheGeneration == generation else { return nil }
-            return Data(referencing: cached)
-        }
-
-        guard let data = diskData(for: url) else {
-            await quota.enforce()
-            return nil
-        }
-        try? files.setModificationDate(Date(), at: fileURL)
-        await quota.enforce(protecting: Set([fileURL]))
-        guard cacheGeneration == generation else { return nil }
-        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
-        return data
+        let data = try? await resources.withCachedSource(for: url) { [files] source -> Data? in Self.bytes(from: source, using: files) }
+        return data ?? nil
     }
 
-    func diskData(for url: URL) -> Data? {
-        RemoteImageResourceLimits.cachedData(at: directoryURL.appendingPathComponent(cacheKey(for: url)), using: files)
+    func diskData(for url: URL) async -> Data? {
+        let data = try? await resources.withCachedFile(for: url) { [files] file -> Data? in RemoteImageResourceLimits.cachedData(at: file, using: files) }
+        return data ?? nil
     }
 
-    /// 读取缓存图片，并准备其显示位图。
     func image(for url: URL, maximumPixelSize: Int? = nil) async -> UIImage? {
-        let generation = cacheGeneration
-        let key = "\(cacheKey(for: url))|pixels:\(maximumPixelSize ?? 0)"
-        if let cached = imageCache.object(forKey: key as NSString) {
-            touchDiskEntry(for: cacheKey(for: url))
-            await quota.enforce(
-                protecting: Set([directoryURL.appendingPathComponent(cacheKey(for: url))])
-            )
-            guard cacheGeneration == generation else { return nil }
-            return cached
+        let generation = await cacheGeneration
+        if decodedGeneration != generation { clearDecoded(); decodedGeneration = generation }
+        let key = cacheKey(for: url, maximumPixelSize: maximumPixelSize)
+        if let image = imageCache.object(forKey: key) {
+            _ = try? await resources.withCachedSource(for: url) { _ in true }
+            guard await cacheGeneration == generation, !Task.isCancelled else { return nil }
+            return image
         }
-        guard let data = await data(for: url),
-              let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,
-                                                          maximumPixelSize: maximumPixelSize)
-        else { return nil }
-        guard cacheGeneration == generation else { return nil }
-        imageCache.setObject(decoded, forKey: key as NSString, cost: MediaDisplayBudget.pixelBytes(decoded))
-        return decoded
+        guard let data = await data(for: url) else { return nil }
+        return await decode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize)
     }
 
-    /// 将图片数据写入内存缓存和磁盘。
-    func store(_ data: Data, for url: URL) async {
-        guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes else { return }
-        let key = cacheKey(for: url)
-        memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
-        let fileURL = directoryURL.appendingPathComponent(key)
-        let use = UUID()
-        do {
-            try quota.beginFileUse(fileURL, owner: use) { [files, directoryURL] in
-                try files.createDirectory(at: directoryURL)
-                try files.writeData(data, to: fileURL, options: [.atomic])
-                try? files.setModificationDate(Date(), at: fileURL)
-            }
-        } catch { return }
-        activeFileUses.insert(use)
-        defer { activeFileUses.remove(use); quota.endFileUse(use) }
-        await quota.didWrite(fileURL)
+    func loadImage(for url: URL, maximumPixelSize: Int? = nil) async throws -> UIImage? {
+        let generation = await cacheGeneration
+        let data = try await resources.withSource(for: url, download: download) { [files] in Self.bytes(from: $0, using: files) }
+        guard let data else { return nil }
+        return await decode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize)
     }
 
-    /// 写入下载数据，并缓存准备显示的位图。
-    func storeAndDecode(_ data: Data, for url: URL, generation expected: UInt64? = nil, maximumPixelSize: Int? = nil) async -> UIImage? {
-        let generation = expected ?? cacheGeneration
-        guard cacheGeneration == generation, !Task.isCancelled,
-              data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
-              let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,
-                                                          maximumPixelSize: maximumPixelSize) else { return nil }
+    func store(_ data: Data, for url: URL) async { await resources.store(data, for: url) }
+
+    func storeAndDecode(_ data: Data, for url: URL, generation expected: UInt64? = nil,
+        maximumPixelSize: Int? = nil) async -> UIImage? {
+        let generation = await cacheGeneration
+        guard expected == nil || expected == generation else { return nil }
+        guard let image = await decode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize) else { return nil }
         await store(data, for: url)
-        guard cacheGeneration == generation, !Task.isCancelled else { return nil }
-        let key = "\(cacheKey(for: url))|pixels:\(maximumPixelSize ?? 0)" as NSString
-        imageCache.setObject(decoded, forKey: key, cost: MediaDisplayBudget.pixelBytes(decoded))
-        return decoded
+        guard await cacheGeneration == generation, !Task.isCancelled else { return nil }
+        return image
     }
 
-    /// 清空当前进程的内存缓存和磁盘中的远程图片缓存。
+    private func decode(_ data: Data, for url: URL, generation: UInt64, maximumPixelSize: Int?) async -> UIImage? {
+        guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
+              let image = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,
+                  maximumPixelSize: maximumPixelSize), await cacheGeneration == generation, !Task.isCancelled else { return nil }
+        if decodedGeneration != generation { clearDecoded(); decodedGeneration = generation }
+        imageCache.setObject(image, forKey: cacheKey(for: url, maximumPixelSize: maximumPixelSize), cost: MediaDisplayBudget.pixelBytes(image))
+        return image
+    }
+
     @discardableResult func clearAll() async -> Bool {
-        cacheGeneration &+= 1
-        clearMemory()
-        for use in activeFileUses { quota.endFileUse(use) }
-        activeFileUses.removeAll()
-
-        return await quota.clearDirectory(directoryURL)
+        clearDecoded()
+        return await resources.clearAll()
     }
 
-    func clearMemory() {
-        memoryCache.removeAllObjects()
-        imageCache.removeAllObjects()
+    func clearMemory() async { clearDecoded(); await resources.clearMemory() }
+    private func clearDecoded() { imageCache.removeAllObjects() }
+    private func cacheKey(for url: URL, maximumPixelSize: Int?) -> NSString {
+        "\(HTTPSURLUpgrade.upgradedURL(from: url).absoluteString)|pixels:\(maximumPixelSize ?? 0)" as NSString
     }
-
-    /// 使用 URL 的稳定短标识生成文件名，保持缓存文件名安全且紧凑。
-    private func cacheKey(for url: URL) -> String {
-        var value: UInt64 = 14_695_981_039_346_656_037
-        for byte in url.absoluteString.utf8 {
-            value ^= UInt64(byte)
-            value = value &* 1_099_511_628_211
+    private nonisolated static func bytes(from source: RemoteImageSource, using files: any AppFileService) -> Data? {
+        switch source {
+        case .file(let file): RemoteImageResourceLimits.cachedData(at: file, using: files)
+        case .memory(let data, _): data
         }
-        return String(value, radix: 16)
     }
-
-    private func touchDiskEntry(for key: String) {
-        let fileURL = directoryURL.appendingPathComponent(key)
-        try? files.setModificationDate(Date(), at: fileURL)
-    }
-
 }
 
 #endif

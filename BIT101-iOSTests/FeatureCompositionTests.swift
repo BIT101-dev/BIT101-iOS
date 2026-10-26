@@ -331,7 +331,7 @@ struct FeatureCompositionTests {
     private func mine(_ transport: TraceTransport) -> MineDependencies {
         let preferences = preferences()
         let service = MineService(session: session(transport), preferences: { preferences.snapshot })
-        return MineDependencies(overview: service, profile: service, deletePoster: { _ in })
+        return MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: .init(snapshot: .init(status: .connected)))
     }
 
     private func host<V: View>(_ view: V, operation: () async throws -> Void) async throws {

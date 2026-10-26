@@ -98,6 +98,10 @@ struct GallerySubscriptionsView: View {
             }
         }
         .task { await viewModel.bootstrapIfNeeded() }
+        .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPoster == nil) {
+            if case .failed = viewModel.status { await viewModel.refresh() }
+            else if viewModel.paginationError != nil { await viewModel.loadMore() }
+        }
         .refreshable {
             interactionEvidence?("interaction.GallerySubscriptionsView.refreshable", "refresh")
             await viewModel.refresh()

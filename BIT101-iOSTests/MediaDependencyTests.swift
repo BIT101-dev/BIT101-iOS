@@ -23,8 +23,8 @@ struct MediaDependencyTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["success", "gallery", "avatar", "cache"])
-    func productionImageProbeUsesBothClientsAndVerifiesDiskCaches(stage: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["success", "gallery", "cache"])
+    func productionImageProbeReusesTheSharedResourceForBothDecoders(stage: String) async throws {
         let files = PreferenceMemoryFiles()
         let bytes = try png(width: 2)
         let gallery = Images(bytes: stage == "gallery" ? Data("damaged".utf8) : bytes)
@@ -36,9 +36,10 @@ struct MediaDependencyTests {
         let url = AppURL.required("https://example.invalid/probe.png")
         if stage == "success" {
             #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
-            #expect(gallery.requests == 1 && avatar.requests == 1)
+            #expect(gallery.requests == 1 && avatar.requests == 0)
             #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
-            #expect(gallery.requests == 1 && avatar.requests == 1)
+            #expect(gallery.requests == 1 && avatar.requests == 0)
+            #expect(try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: []).count == 1)
         } else {
             await #expect(throws: (any Error).self) { try await media.verifyRemoteImage(at: url) }
         }
@@ -135,12 +136,14 @@ struct MediaDependencyTests {
         let first = CachedRemoteImageLoader(), second = CachedRemoteImageLoader()
         let cancelled = Task { await first.load(url: url, media: media) }
         let remaining = Task { await second.load(url: url, media: media) }
-        try await waitForTestEvent { !(media.downloads.waitingConsumerCount < 2) }
+        defer { cancelled.cancel(); remaining.cancel(); transport.pending?.resume(); transport.pending = nil }
+        try await waitForAsyncTestEvent { await media.images.waitingConsumerCount == 2 }
         try await waitForTestEvent { !(transport.pending == nil) }
         #expect(transport.requests == 1)
         cancelled.cancel()
         await cancelled.value
         transport.pending?.resume()
+        transport.pending = nil
         await remaining.value
         #expect(first.image == nil && second.image?.size.width == 2)
         #expect(transport.requests == 1)
@@ -148,58 +151,6 @@ struct MediaDependencyTests {
         #expect(media.displayBudget.usedBytes == 0)
     }
 
-    private final class CountedDownloads: HTTPTransport {
-        var requests: [URL] = []
-        var pending: [URL: CheckedContinuation<Void, Never>] = [:]
-        var active = 0
-        var peak = 0
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-            let url = try #require(request.url)
-            requests.append(url)
-            active += 1
-            peak = max(peak, active)
-            defer { active -= 1 }
-            await withCheckedContinuation { pending[url] = $0 }
-            try Task.checkCancellation()
-            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
-        }
-        func release() {
-            let retained = pending.values
-            pending.removeAll()
-            for continuation in retained { continuation.resume() }
-        }
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func distinctMediaDownloadsStayWithinTheSharedLimitAndCancelQueuedWork() async throws {
-        let transport = CountedDownloads()
-        let client = HTTPClient(transport: transport, observer: nil)
-        let coordinator = MediaDownloadCoordinator(avatarClient: client, galleryClient: client)
-        let started = (0..<MediaDownloadCoordinator.maximumConcurrentDownloads).map { index in
-            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
-                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
-        }
-        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
-        let queued = (MediaDownloadCoordinator.maximumConcurrentDownloads..<8).map { index in
-            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
-                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
-        }
-        let tasks = started + queued
-        try await waitForTestEvent { !(coordinator.waitingConsumerCount < tasks.count) }
-        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
-        #expect(transport.active == MediaDownloadCoordinator.maximumConcurrentDownloads)
-        tasks[7].cancel()
-        await #expect(throws: CancellationError.self) { try await tasks[7].value }
-        try await waitForTestEvent {
-            if transport.requests.count >= tasks.count - 1 { return true }
-            transport.release()
-            return false
-        }
-        transport.release()
-        for task in tasks.dropLast() { _ = try await task.value }
-        #expect(transport.peak == MediaDownloadCoordinator.maximumConcurrentDownloads)
-        #expect(transport.requests.count == tasks.count - 1 && coordinator.waitingConsumerCount == 0)
-    }
     @Test(.timeLimit(.minutes(1))) func stillImagesDownsampleWithinTheDecodeBudgetAndPreserveAspectRatio() async throws {
         let data = try png(width: 256, height: 128)
         let files = PreferenceMemoryFiles()
@@ -445,15 +396,16 @@ struct MediaDependencyTests {
         let original = try await media.images.file(for: url)
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         await media.clearCaches()
+        #expect(!files.fileExists(at: original))
         _ = await media.avatars.storeAndDecode(bytes, for: url)
         let reopened = environment(files: files, previewFiles: files, transport: transport)
         #expect(await reopened.avatars.data(for: url) == bytes)
         #expect(await reopened.avatars.image(for: url)?.size.width == 2)
-        #expect(!files.fileExists(at: original))
+        #expect(files.fileExists(at: original))
         let downloaded = try await media.images.file(for: url)
         #expect(try await media.previewFile(at: downloaded) == downloaded)
         #expect(try files.readData(at: downloaded) == bytes)
-        #expect(transport.requests == 2)
+        #expect(transport.requests == 0)
 
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         let owner = UUID()
@@ -478,7 +430,7 @@ struct MediaDependencyTests {
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
         let images = RemoteImageCache(files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
-        let avatars = CachedRemoteImageStore(files: files, quota: quota)
+        let avatars = CachedRemoteImageStore(files: files, resources: images)
         for index in 0..<3 {
             let url = AppURL.required("https://example.invalid/image\(index).png")
             if avatar {
@@ -721,7 +673,7 @@ struct MediaDependencyTests {
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
         let cache = RemoteImageCache(files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
-        let avatars = CachedRemoteImageStore(files: files, quota: quota)
+        let avatars = CachedRemoteImageStore(files: files, resources: cache)
         let first = Task {
             let file = try await cache.file(for: AppURL.required("https://example.invalid/first.png"))
             return try files.readData(at: file)
@@ -785,7 +737,7 @@ struct MediaDependencyTests {
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let url = AppURL.required("https://example.invalid/quota.png")
         if avatar {
-            let avatars = CachedRemoteImageStore(files: files, quota: quota)
+            let avatars = CachedRemoteImageStore(files: files, resources: cache)
             let preparation = Task { await avatars.storeAndDecode(bytes, for: url) }
             try await waitForTestEvent { limit.pending != nil }
             #expect(await avatars.clearAll())

@@ -21,6 +21,7 @@ struct GalleryPublicationReviewView: View {
 }
 
 struct GallerySearchView: View {
+    @Environment(GalleryDependencies.self) private var dependencies
     @ObservedObject var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(MediaEnvironment.self) private var media
@@ -67,6 +68,12 @@ struct GallerySearchView: View {
         }
         .task {
             await viewModel.bootstrapSearchIfNeeded()
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            if case .failed = viewModel.searchState.status { await viewModel.enqueueSearch().value }
+            else if viewModel.searchState.paginationError != nil {
+                await viewModel.enqueueSearchLoadMore(currentPoster: viewModel.searchState.posters.last).value
+            }
         }
         .onChange(of: viewModel.searchQuery.order) { _, _ in
             triggerSearch()

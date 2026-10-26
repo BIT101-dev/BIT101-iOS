@@ -24,6 +24,7 @@ public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Senda
 
     /// 图片资源的稳定标识。
     public var id: String { mid }
+    public var hasResourceIdentity: Bool { !mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     public var thumbnailURL: URL? { Self.remoteURL(lowUrl) ?? Self.remoteURL(url) }
     public var originalURL: URL? { Self.remoteURL(url) ?? Self.remoteURL(lowUrl) }
@@ -127,7 +128,7 @@ public nonisolated struct CommunityClaim: Codable, Hashable, Identifiable, Senda
 
 /// 信息流帖子卡片模型。
 ///
-/// 模型包含列表渲染所需字段，详情状态由对应业务功能维护。
+/// 模型按列表预览预算保留正文，完整正文由详情请求承接。
 public nonisolated struct CommunityPoster: Decodable, Identifiable, Hashable, Sendable {
     public init(anonymous: Bool, claim: CommunityClaim, commentNum: Int, createTime: String, editTime: String, id: Int, images: [CommunityImage], likeNum: Int, `public`: Bool, tags: [String], text: String, title: String, updateTime: String, user: CommunityUser) {
         self.anonymous = anonymous
@@ -140,7 +141,7 @@ public nonisolated struct CommunityPoster: Decodable, Identifiable, Hashable, Se
         self.likeNum = likeNum
         self.`public` = `public`
         self.tags = tags
-        self.text = text
+        self.text = CommunityTextLimits.displayText(text, preview: true)
         self.title = title
         self.updateTime = updateTime
         self.user = user
@@ -160,6 +161,37 @@ public nonisolated struct CommunityPoster: Decodable, Identifiable, Hashable, Se
     public let title: String
     public let updateTime: String
     public let user: CommunityUser
+
+    private enum CodingKeys: String, CodingKey {
+        case anonymous, claim, commentNum, createTime, editTime, id, images, likeNum, `public`, tags, text, title, updateTime, user
+    }
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        id = try fields.decode(Int.self, forKey: .id)
+        guard id > 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .id, in: fields, debugDescription: "帖子需要有效的资源编号。")
+        }
+        anonymous = try fields.decode(Bool.self, forKey: .anonymous)
+        claim = (try? fields.decode(CommunityClaim.self, forKey: .claim)) ?? .init(id: 0, text: "")
+        commentNum = (try? fields.decode(Int.self, forKey: .commentNum)) ?? 0
+        createTime = (try? fields.decode(String.self, forKey: .createTime)) ?? ""
+        editTime = (try? fields.decode(String.self, forKey: .editTime)) ?? ""
+        images = (try? fields.decode([CommunityImage].self, forKey: .images)) ?? []
+        likeNum = (try? fields.decode(Int.self, forKey: .likeNum)) ?? 0
+        self.public = (try? fields.decode(Bool.self, forKey: .public)) ?? false
+        tags = (try? fields.decode([String].self, forKey: .tags)) ?? []
+        text = CommunityTextLimits.displayText((try? fields.decode(String.self, forKey: .text)) ?? "", preview: true)
+        title = (try? fields.decode(String.self, forKey: .title)) ?? ""
+        updateTime = (try? fields.decode(String.self, forKey: .updateTime)) ?? ""
+        if anonymous {
+            user = (try? fields.decode(CommunityUser.self, forKey: .user)) ?? .placeholder(nickname: "匿名用户")
+        } else {
+            user = try fields.decode(CommunityUser.self, forKey: .user)
+            guard user.id > 0 else {
+                throw DecodingError.dataCorruptedError(forKey: .user, in: fields, debugDescription: "公开作者需要有效的用户编号。")
+            }
+        }
+    }
 }
 
 
@@ -343,7 +375,7 @@ private extension CommunityIdentity {
 
 extension CommunityUser {
     /// 构造消息页跳转帖子详情时使用的占位用户。
-    public static func placeholder(id: Int = 0, nickname: String = "加载中") -> CommunityUser {
+    public nonisolated static func placeholder(id: Int = 0, nickname: String = "加载中") -> CommunityUser {
         CommunityUser(
             id: id,
             createTime: "",

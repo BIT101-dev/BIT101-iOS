@@ -13,13 +13,14 @@ nonisolated func mediaImageURLs(_ values: [URL?]) -> [URL] {
     return result
 }
 
-/// 头像和话廊共享传输名额；同一来源和 URL 的消费者共用在途响应。
+/// 头像和话廊共享传输名额，同一 URL 的消费者共用在途响应。
 @MainActor
 final class MediaDownloadCoordinator {
     enum Source: Hashable, Sendable { case avatar, gallery }
-    private struct Key: Hashable { let url: URL; let source: Source }
+    private typealias Key = URL
     private struct Operation {
         let id: UUID
+        let source: Source
         var task: Task<Void, Never>?
         var waiters: [UUID: CheckedContinuation<HTTPResponse, any Error>]
     }
@@ -38,7 +39,7 @@ final class MediaDownloadCoordinator {
 
     func response(for url: URL, source: Source) async throws -> HTTPResponse {
         try Task.checkCancellation()
-        let key = Key(url: HTTPSURLUpgrade.upgradedURL(from: url), source: source)
+        let key = HTTPSURLUpgrade.upgradedURL(from: url)
         let waiter = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -47,7 +48,7 @@ final class MediaDownloadCoordinator {
                     operation.waiters[waiter] = continuation
                     operations[key] = operation
                 } else {
-                    operations[key] = Operation(id: UUID(), waiters: [waiter: continuation])
+                    operations[key] = Operation(id: UUID(), source: source, waiters: [waiter: continuation])
                     queued.append(key)
                 }
                 startQueuedDownloads()
@@ -63,10 +64,10 @@ final class MediaDownloadCoordinator {
             guard var operation = operations[key] else { continue }
             let id = operation.id
             activeTasks.insert(id)
-            let client = key.source == .avatar ? avatarClient : galleryClient
+            let client = operation.source == .avatar ? avatarClient : galleryClient
             operation.task = Task {
                 let result: Result<HTTPResponse, any Error>
-                do { result = .success(try await client.send(URLRequest(url: key.url), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)) }
+                do { result = .success(try await client.send(URLRequest(url: key), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)) }
                 catch { result = .failure(error) }
                 self.finish(result, key: key, id: id)
             }

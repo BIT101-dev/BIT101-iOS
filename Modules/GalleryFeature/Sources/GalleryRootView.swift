@@ -302,14 +302,21 @@ private struct GalleryRootViewScene: View {
         }
         .onChange(of: networkObserver.snapshot.status) { _, newValue in
             guard newValue == .connected else { return }
-            viewModel.enqueueRetry(for: viewModel.selectedFeed)
             unreadRefreshGeneration &+= 1
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             guard networkObserver.isReachable else { return }
-            viewModel.enqueueRetry(for: viewModel.selectedFeed)
             unreadRefreshGeneration &+= 1
+        }
+        .communityReadRecovery(networkPath: networkObserver,
+            isEnabled: selectedSurface == .gallery && !viewModel.isShowingSearch && !isShowingComposer
+                && !isShowingMessages && !isShowingSubscriptions && deepLinkedPoster == nil && selectedCourseID == nil) {
+            let state = viewModel.state(for: viewModel.selectedFeed)
+            if case .failed = state.status { await viewModel.refresh(feed: viewModel.selectedFeed) }
+            else if state.paginationError != nil {
+                await viewModel.loadMoreIfNeeded(for: viewModel.selectedFeed, currentPoster: state.posters.last)
+            }
         }
         .sheet(isPresented: $viewModel.isShowingSearch) {
             NavigationStack {

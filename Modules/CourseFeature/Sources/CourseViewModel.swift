@@ -108,9 +108,9 @@ public final class CourseListViewModel: ObservableObject {
         await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
 
-    func retryAfterConnectivityRecovery() {
-        guard case .failed = state.status, state.items.isEmpty else { return }
-        enqueueRefresh()
+    func retryAfterConnectivityRecovery() async {
+        if case .failed = state.status { await refresh() }
+        else if state.paginationError != nil { await loadMoreIfNeeded(currentCourse: state.items.last) }
     }
 
     private func performRefresh() async {

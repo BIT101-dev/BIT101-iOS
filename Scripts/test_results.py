@@ -98,10 +98,13 @@ def report_test_results(arguments: list[str]) -> None:
         raise SystemExit(0)
 
     if cli_arguments[2]:
-        activities = json.loads(subprocess.check_output([
-            "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", str(bundle),
-            "--test-id", cli_arguments[2],
-        ], text=True))
+        try:
+            activities = json.loads(subprocess.check_output([
+                "xcrun", "xcresulttool", "get", "test-results", "activities", "--path", str(bundle),
+                "--test-id", cli_arguments[2],
+            ], text=True))
+        except subprocess.CalledProcessError:
+            raise SystemExit('读取该测试的记录失败；请通过 report json 核对完整测试标识，例如 测试类/方法()。') from None
         if cli_arguments[3] == "activities":
             if cli_arguments[5] == "json":
                 print(json.dumps(activities, ensure_ascii=False))

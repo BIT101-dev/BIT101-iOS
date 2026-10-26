@@ -11,7 +11,7 @@ import Testing
 @Suite("Paper search state machine")
 struct PaperSearchViewModelTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
-    func refreshReusesAuthorsUntilTheArticleVersionChanges(search: Bool) async throws {
+    func refreshRevalidatesAuthorsWhileKeepingTheDisplayedMetadata(search: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-a")
         let service = ServiceStub(result: .success([paper]))
         let model: PaperCollectionViewModel = search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
@@ -22,16 +22,23 @@ struct PaperSearchViewModelTests {
         }
         await model.refresh(); await model.loadPreviewMetadataIfNeeded(for: paper)
         let author = try #require(model.previewMetadata(for: paper.id))
-        await model.refresh(); await model.loadPreviewMetadataIfNeeded(for: paper)
-        #expect(model.previewMetadata(for: paper.id) == author && service.metadataRequests == 1)
-        service.result = .failure(URLError(.timedOut))
+        service.metadata = { _ in
+            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "version-a",
+                updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        }
         await model.refresh()
         #expect(model.previewMetadata(for: paper.id) == author)
+        await model.loadPreviewMetadataIfNeeded(for: paper)
+        let updatedAuthor = try #require(model.previewMetadata(for: paper.id))
+        #expect(updatedAuthor != author && service.metadataRequests == 2)
+        service.result = .failure(URLError(.timedOut))
+        await model.refresh()
+        #expect(model.previewMetadata(for: paper.id) == updatedAuthor)
         service.result = .success([.init(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-b")])
         await model.refresh()
         #expect(model.previewMetadata(for: paper.id) == nil)
         await model.loadPreviewMetadataIfNeeded(for: paper)
-        #expect(service.metadataRequests == 2)
+        #expect(service.metadataRequests == 3)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
@@ -52,6 +59,7 @@ struct PaperSearchViewModelTests {
         let refreshing = Task { await model.refresh() }
         try await gate.waitUntilRequested()
         #expect(model.previewMetadata(for: paper.id) == author)
+        #expect(model.state.items == [paper])
         await model.loadPreviewMetadataIfNeeded(for: paper)
         #expect(service.metadataRequests == 1)
         gate.finish([paper])

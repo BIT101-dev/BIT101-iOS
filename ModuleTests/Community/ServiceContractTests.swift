@@ -964,6 +964,18 @@ struct ServiceContractTests {
         #expect(try query(transport.requests[6]) == ["obj": "course42", "order": "new"])
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["like_num", "comment_num", "rate"])
+    func courseDetailsValidateTheSameStatisticsAsTheirList(field: String) async throws {
+        var value = try #require(JSONSerialization.jsonObject(with: Data(course.utf8)) as? [String: Any])
+        value[field] = field == "rate" ? 11 : -1
+        value["like"] = false
+        let data = try JSONSerialization.data(withJSONObject: value)
+        let observer = ResponseObserver()
+        let service = CourseService(session: session(Transport([(200, String(decoding: data, as: UTF8.self))]), observer: observer))
+        await #expect(throws: CourseServiceError.self) { try await service.fetchCourse(id: 42) }
+        #expect(observer.failures == 1)
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancelledCourseAndPaperRequestsFinishBeforeTransportAdmission() async {
         let transport = Transport([])
         let shared = session(transport)

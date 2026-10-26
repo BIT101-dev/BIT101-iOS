@@ -379,27 +379,6 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
 @MainActor
 @Suite(.serialized)
 struct AppLocalDataOwnershipTests {
-    @Test(.timeLimit(.minutes(1)))
-    func loginChecksPublishTheSharedBusyStateBeforeSchedulingAndReleaseItForProfileEdits() async throws {
-        let mutation = AccountProfileMutation()
-        var pending: CheckedContinuation<Void, Never>?
-        var writes: [String] = []
-        #expect(mutation.start {
-            await withCheckedContinuation { pending = $0 }
-        })
-        #expect(mutation.isBusy && !mutation.isUpdating)
-        #expect(mutation.start { writes.append("overlap") } == false)
-        try await waitForTestEvent { pending != nil }
-        #expect(mutation.isBusy && !mutation.isUpdating)
-        pending?.resume()
-        try await waitForTestEvent { !mutation.isBusy }
-        #expect(mutation.start {
-            try? await mutation.perform { writes.append("profile") }
-        })
-        #expect(mutation.isBusy)
-        try await waitForTestEvent { !mutation.isBusy }
-        #expect(writes == ["profile"])
-    }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func pendingOnlineRecoveryProtectsCredentialsAndJournalBeforeReset(legacy: Bool) async throws {
         let selected = LocalDataActionsSpy(), files = PreferenceMemoryFiles()
@@ -418,57 +397,7 @@ struct AppLocalDataOwnershipTests {
         #expect(service.resetFailureMessage == nil && selected.events.last == "logout")
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func profileMutationsKeepOneOwnerThroughSuccessFailureAndRetry(fails: Bool) async throws {
-        let mutation = AccountProfileMutation()
-        var pending: CheckedContinuation<Void, Never>?
-        var writes: [String] = []
-        let first = Task {
-            do {
-                try await mutation.perform {
-                    writes.append("first")
-                    await withCheckedContinuation { pending = $0 }
-                    if fails { throw URLError(.timedOut) }
-                }
-                return !fails
-            } catch { return fails && (error as? URLError)?.code == .timedOut }
-        }
-        try await waitForTestEvent { !(pending == nil) }
-        #expect(mutation.isUpdating && mutation.isBusy)
-        #expect(mutation.start { writes.append("overlap") } == false)
-        try await mutation.perform { writes.append("duplicate") }
-        #expect(mutation.isUpdating && writes == ["first"])
-        pending?.resume()
-        #expect(await first.value)
-        #expect(!mutation.isUpdating)
-        try await mutation.perform { writes.append("retry") }
-        #expect(writes == ["first", "retry"] && !mutation.isUpdating)
-    }
 
-    @Test(.timeLimit(.minutes(1))) func leavingAProfilePageCancelsItsTaskAndRetainsTheSharedMutationLock() async throws {
-        let mutation = AccountProfileMutation()
-        var pending: CheckedContinuation<Void, Never>?
-        var finished = false, rebound = false
-        mutation.start {
-            do {
-                try await mutation.perform {
-                    await withCheckedContinuation { pending = $0 }
-                    try Task.checkCancellation()
-                    rebound = true
-                }
-            } catch { #expect(error is CancellationError) }
-            finished = true
-        }
-        try await waitForTestEvent { pending != nil }
-        mutation.cancel()
-        mutation.start { rebound = true }
-        #expect(mutation.isUpdating)
-        pending?.resume()
-        try await waitForTestEvent { finished }
-        #expect(!mutation.isUpdating && !rebound)
-        mutation.start { rebound = true }
-        try await waitForTestEvent { rebound }
-    }
 
     @Test(.timeLimit(.minutes(1))) func resetUsesEverySelectedActionAndAggregatesFailure() async throws {
         let selected = LocalDataActionsSpy(), surrounding = LocalDataActionsSpy()

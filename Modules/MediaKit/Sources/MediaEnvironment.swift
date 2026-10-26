@@ -96,9 +96,11 @@ public final class MediaEnvironment {
         self.downloads = downloads
         stillDecoder = GalleryThumbnailDecoder(files: files)
         animatedDecoder = RemoteAnimatedImageDecoder(files: files)
-        images = RemoteImageCache(files: files, quota: quota, httpClient: imageHTTPClient,
+        let images = RemoteImageCache(files: files, quota: quota, httpClient: imageHTTPClient,
             download: { try await downloads.response(for: $0, source: .gallery) })
-        avatars = CachedRemoteImageStore(files: files, quota: quota)
+        self.images = images
+        avatars = CachedRemoteImageStore(files: files, resources: images,
+            download: { try await downloads.response(for: $0, source: .avatar) })
         Task { await Self.removeReleasedLocalPreviews(files: previewFiles, ownership: ownership) }
         memoryWarningTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: UIApplication.didReceiveMemoryWarningNotification) {
@@ -130,7 +132,6 @@ public final class MediaEnvironment {
     }
 
     func releaseCachedImages() async {
-        await images.clearMemory()
         await avatars.clearMemory()
         await stillDecoder.clear()
         await animatedDecoder.clear()
@@ -275,12 +276,11 @@ public final class MediaEnvironment {
 
     @discardableResult public func clearCaches() async -> Bool {
         downloads.clear()
-        let imagesCleared = await images.clearAll()
         let avatarsCleared = await avatars.clearAll()
         let previewsCleared = await previewQuota.clearDirectory(ImageCacheDirectories.previews(using: previewFiles))
         await stillDecoder.clear()
         await animatedDecoder.clear()
-        return imagesCleared && avatarsCleared && previewsCleared
+        return avatarsCleared && previewsCleared
     }
 }
 

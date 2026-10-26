@@ -775,7 +775,7 @@ struct CommunityDependencyBoundaryTests {
         let overview = RecordingMineOverview()
         let dependencies = MineDependencies(
             overview: overview, profile: MineService(session: session, preferences: { self.preferences.snapshot }),
-            deletePoster: { _ in }
+            deletePoster: { _ in }, networkPath: .init(snapshot: .init(status: .connected))
         )
         let viewModel = MineViewModel(service: dependencies.overview)
         await viewModel.bootstrapIfNeeded()
@@ -792,7 +792,7 @@ struct CommunityDependencyBoundaryTests {
         let dependencies = MineDependencies(
             overview: RecordingMineOverview(),
             profile: MineService(session: session, preferences: { self.preferences.snapshot }),
-            deletePoster: { deletedIDs.append($0) }
+            deletePoster: { deletedIDs.append($0) }, networkPath: .init(snapshot: .init(status: .connected))
         )
         try await dependencies.deletePoster(42)
         #expect(deletedIDs == [42])

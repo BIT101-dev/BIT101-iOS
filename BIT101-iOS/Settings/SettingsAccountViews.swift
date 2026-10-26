@@ -20,9 +20,10 @@ struct AccountSettingsPage: View {
     let studentID: String
     let onLogout: () -> Void
 
-    @State private var profile: MineUserInfo?
-    @State private var isCheckingLogin = false
-    @State private var isLoggedIn: Bool
+    @StateObject private var model: AccountSettingsModel
+    private var profile: MineUserInfo? { model.profile }
+    private var isCheckingLogin: Bool { model.isCheckingLogin }
+    private var isLoggedIn: Bool { model.isLoggedIn }
     @StateObject private var profileMutation: AccountProfileMutation
     private var isBusy: Bool { profileMutation.isBusy }
     @State private var showNicknameEditor = false
@@ -34,15 +35,12 @@ struct AccountSettingsPage: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var imagePreparer = ComposerImagePreparer()
     @State private var isShowingPhotoPicker = false
-    @State private var alert: AppAlert?
-
-    private var service: any AccountSettingsServicing { dependencies.service }
 
     init(dependencies: SettingsAccountDependencies, studentID: String, onLogout: @escaping () -> Void) {
         self.dependencies = dependencies
         self.studentID = studentID
         self.onLogout = onLogout
-        _isLoggedIn = State(initialValue: !dependencies.credentials().cookie.isEmpty)
+        _model = StateObject(wrappedValue: AccountSettingsModel(dependencies: dependencies))
         _profileMutation = StateObject(wrappedValue: dependencies.profileMutation)
     }
 
@@ -106,9 +104,21 @@ struct AccountSettingsPage: View {
                 }
             }
 
+            if profile == nil, model.isLoadingProfile || model.profileLoadError != nil {
+                Section("个人信息") {
+                    if model.isLoadingProfile {
+                        AppInlineLoadingState("正在加载个人信息")
+                    } else if let error = model.profileLoadError {
+                        AppFailureState(title: "个人信息加载失败", systemImage: "person.crop.circle.badge.exclamationmark",
+                            message: error.localizedDescription,
+                            onRetry: { profileMutation.start { await model.loadProfile() } })
+                    }
+                }
+            }
+
             Section("登录状态") {
                 Button {
-                    profileMutation.start { await checkLogin() }
+                    profileMutation.start { await model.checkLogin() }
                 } label: {
                     HStack(spacing: AppDesignSystem.Spacing.regular) {
                         Text("登录状态检查")
@@ -133,12 +143,10 @@ struct AccountSettingsPage: View {
         }
         .accessibilityIdentifier("interaction.AccountSettingsPage.list")
         .appGroupedListStyle()
-        .task {
-            guard !dependencies.credentials().cookie.isEmpty else {
-                isLoggedIn = false
-                return
-            }
-            await loadProfile()
+        .task { await model.loadProfile() }
+        .communityReadRecovery(networkPath: AppNetworkPath.state) {
+            guard model.profileLoadError != nil, !profileMutation.isBusy else { return }
+            await model.loadProfile()
         }
         .onChange(of: selectedPhoto) { _, newValue in
             guard let newValue else { return }
@@ -165,126 +173,27 @@ struct AccountSettingsPage: View {
                 }
             )
         }
-        .diagnosticAlert(item: $alert)
+        .diagnosticAlert(item: $model.alert)
         .onDisappear { profileMutation.cancel() }
     }
 
-    /// 页面加载当前登录用户资料卡。
-    private func loadProfile(for expectedCredentials: CommunityCredentials? = nil) async {
-        let credentials = expectedCredentials ?? dependencies.credentials()
-        guard !credentials.cookie.isEmpty else {
-            isLoggedIn = false
-            profile = nil
-            return
-        }
-        do {
-            let loadedProfile = try await service.fetchMyInfo()
-            guard isCurrentSession(credentials) else { return }
-            profile = loadedProfile
-            isLoggedIn = true
-        } catch {
-            guard shouldPresentError(error, for: credentials) else { return }
-            if let settingsError = error as? SettingsServiceError,
-               case .notLoggedIn = settingsError {
-                isLoggedIn = false
-                profile = nil
-            }
-            alert = AppAlert(title: "加载失败", error: error)
-        }
-    }
-
-    /// 用户操作触发一次显式登录状态检查。
-    private func checkLogin() async {
-        let credentials = dependencies.credentials()
-        isCheckingLogin = true
-        defer { isCheckingLogin = false }
-        do {
-            let loginState = try await service.checkLogin()
-            guard dependencies.acceptsLoginCheck(loginState, for: credentials) else { return }
-            isLoggedIn = loginState
-            if !loginState {
-                profile = nil
-            }
-        } catch {
-            guard !TaskCancellation.matches(error), dependencies.credentials().identity == credentials.identity else { return }
-            if dependencies.credentials().cookie.isEmpty { isLoggedIn = false; profile = nil }
-            alert = AppAlert(title: "检查失败", error: error)
-        }
-    }
-
-    /// 服务提交昵称或签名。
-    ///
-    /// 接口要求整份资料一起提交，页面沿用当前资料中的未修改字段。
     private func updateProfile(nickname: String?, motto: String?) async {
-        guard let profile else { return }
-        let credentials = dependencies.credentials()
-        guard !credentials.cookie.isEmpty else {
-            isLoggedIn = false
-            self.profile = nil
-            return
-        }
-        do {
-            try await profileMutation.perform {
-                try await service.updateUser(
-                    nickname: nickname ?? profile.user.nickname,
-                    motto: motto ?? profile.user.motto,
-                    avatarMid: profile.user.avatar.mid
-                )
-                guard isCurrentSession(credentials) else { return }
-                await loadProfile(for: credentials)
-                guard isCurrentSession(credentials) else { return }
-                showNicknameEditor = false
-                showMottoEditor = false
-            }
-        } catch {
-            guard shouldPresentError(error, for: credentials) else { return }
-            alert = AppAlert(title: "更新失败", error: error)
+        if await model.updateProfile(nickname: nickname, motto: motto) {
+            showNicknameEditor = false
+            showMottoEditor = false
         }
     }
 
-    /// 服务上传并绑定新头像。
     private func updateAvatar(with item: PhotosPickerItem) async {
         defer { selectedPhoto = nil }
-        guard let profile else { return }
-        let credentials = dependencies.credentials()
-        guard !credentials.cookie.isEmpty else {
-            isLoggedIn = false
-            self.profile = nil
-            return
-        }
-        do {
-            try await profileMutation.perform {
-                guard let data = try await media.loadBoundedImageData(from: item) else {
-                    throw SettingsServiceError.uploadFailed
-                }
-                guard isCurrentSession(credentials) else { return }
-                let prepared = try await imagePreparer.prepare(data)
-                guard isCurrentSession(credentials), !Task.isCancelled else { return }
-                let image = try await service.uploadAvatar(data: prepared, filename: "avatar.jpg")
-                guard isCurrentSession(credentials) else { return }
-                try await service.updateUser(
-                    nickname: profile.user.nickname,
-                    motto: profile.user.motto,
-                    avatarMid: image.mid
-                )
-                guard isCurrentSession(credentials) else { return }
-                await loadProfile(for: credentials)
+        await model.updateAvatar {
+            guard let data = try await media.loadBoundedImageData(from: item) else {
+                throw SettingsServiceError.uploadFailed
             }
-        } catch {
-            guard shouldPresentError(error, for: credentials) else { return }
-            alert = AppAlert(title: "头像更新失败", error: error)
+            return try await imagePreparer.prepare(data)
         }
     }
 
-    /// 页面在当前账号且请求未取消时展示请求错误。
-    private func shouldPresentError(_ error: Error, for credentials: CommunityCredentials) -> Bool {
-        !TaskCancellation.matches(error) && dependencies.credentials().identity == credentials.identity
-    }
-
-    private func isCurrentSession(_ credentials: CommunityCredentials) -> Bool {
-        let current = dependencies.credentials()
-        return !Task.isCancelled && current.identity == credentials.identity && !current.cookie.isEmpty
-    }
 }
 
 /// 设置页按需显示学号、UID 等敏感标识。

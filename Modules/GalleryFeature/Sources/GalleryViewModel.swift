@@ -19,6 +19,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
     @Published private(set) var status: CommunityLoadStatus = .idle
     @Published private(set) var isLoadingMore = false
     @Published private(set) var canLoadMore = true
+    @Published private(set) var paginationError: String?
     @Published var alert: AppAlert?
     private let service: any GallerySubscriptionServicing
     private var nextPage = 0
@@ -43,6 +44,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             pagedItems.replace(with: result)
             nextPage = 1
             canLoadMore = !result.isEmpty
+            paginationError = nil
             status = .loaded
         } catch {
             guard generation == requestGeneration else { return }
@@ -65,10 +67,12 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             pagedItems.append(result)
             nextPage = request.sourcePage + 1
             canLoadMore = !result.isEmpty
+            paginationError = nil
         } catch {
             guard generation == requestGeneration else { return }
             nextPage = request.sourcePage
             guard !TaskCancellation.matches(error) else { return }
+            paginationError = error.localizedDescription
             alert = AppAlert(title: "加载收藏失败", error: error)
         }
     }
@@ -163,7 +167,7 @@ final class GalleryViewModel: ObservableObject {
     func releaseInactiveFeeds() {
         for feed in GalleryFeedKind.allCases where feed != selectedFeed {
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
-            for key in ["refresh:\(feed.rawValue)", "load-more:\(feed.rawValue)", "prefetch:\(feed.rawValue)", "retry:\(feed.rawValue)"] {
+            for key in ["refresh:\(feed.rawValue)", "load-more:\(feed.rawValue)", "prefetch:\(feed.rawValue)"] {
                 interactionTasks[key]?.cancel()
                 interactionTasks[key] = nil
                 interactionTaskTokens[key] = nil
@@ -203,15 +207,6 @@ final class GalleryViewModel: ObservableObject {
     func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) -> Task<Void, Never> {
         return enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
             await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
-        }
-    }
-
-    func enqueueRetry(for feed: GalleryFeedKind) {
-        enqueueInteractionTask(key: "retry:\(feed.rawValue)") { [weak self] in
-            guard let self else { return }
-            let state = self.state(for: feed)
-            guard case .failed = state.status, state.posters.isEmpty else { return }
-            await self.refresh(feed: feed)
         }
     }
 

@@ -144,6 +144,13 @@ private struct PaperSearchScene: View {
             viewModel.enqueueSearch()
         }
         .onDisappear { viewModel.cancelSearchOperations() }
+        .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPaper == nil) {
+            if case .failed = viewModel.state.status { await viewModel.refresh() }
+            else if viewModel.state.paginationError != nil {
+                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+            }
+            viewModel.retryFailedPreviews()
+        }
         .task {
             if viewModel.state.status == .idle, !viewModel.searchText.isEmpty { await viewModel.performSearch() }
         }

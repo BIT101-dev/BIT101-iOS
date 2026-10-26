@@ -229,10 +229,18 @@ struct GalleryStateContractTests {
         var failedSearchPage: Int?
         var totalPages: Int?
         var body = ""
+        var decodesIndependentBodies = false
         func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
             let page = page ?? 0
             if let totalPages {
-                let items = (page * 100 + 1 ... (page + 1) * 100).map { GalleryStateContractTests.poster($0, text: body) }
+                let items = try (page * 100 + 1 ... (page + 1) * 100).map { id in
+                    if decodesIndependentBodies {
+                        let data = try JSONSerialization.data(withJSONObject: ["id": id, "anonymous": false,
+                            "text": body + "\(id)", "user": ["id": 1]])
+                        return try JSONDecoder().decode(CommunityPoster.self, from: data)
+                    }
+                    return GalleryStateContractTests.poster(id, text: body)
+                }
                 return .init(items: items, nextSourcePage: page + 1, canLoadMore: page + 1 < totalPages)
             }
             return .init(items: [GalleryStateContractTests.poster(page + 1)], nextSourcePage: page + 1, canLoadMore: true)
@@ -300,10 +308,11 @@ struct GalleryStateContractTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func feedAndSearchAppendLongBodiesThroughTheirActualViewModel(search: Bool) async {
+    func feedAndSearchKeepLongBrowsingHistoryWithinTheTextPreviewBudget(search: Bool) async {
         let service = Feed()
         service.totalPages = 200
         service.body = String(repeating: "正文", count: 4_096)
+        service.decodesIndependentBodies = true
         let model = GalleryViewModel(service: service)
         if search { await model.performSearch() }
         else { await model.refresh(feed: .newest) }
@@ -314,7 +323,22 @@ struct GalleryStateContractTests {
         let state = search ? model.searchState : model.state(for: .newest)
         #expect(state.posters.map(\.id) == Array(1...20_000))
         #expect(state.nextPage == 200 && !state.canLoadMore && !state.isLoadingMore && model.alert == nil)
-        #expect(state.posters.first?.text == service.body && state.posters.last?.text == service.body)
+        let retainedBytes = state.posters.reduce(0) { $0 + $1.text.utf8.count }
+        #expect(retainedBytes <= state.posters.count * CommunityTextLimits.maximumPreviewBytes)
+        #expect(state.posters.first?.text == CommunityTextLimits.displayText(service.body, preview: true))
+        #expect(state.posters.last?.text == state.posters.first?.text)
+    }
+
+    @Test(arguments: [0, -1, 1])
+    func posterListsPreserveDisplayFieldsAndRequireResourceIdentity(id: Int) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["id": id, "anonymous": true, "title": "可读标题", "text": "可读正文"])
+        if id > 0 {
+            let poster = try JSONDecoder().decode(CommunityPoster.self, from: data)
+            #expect(poster.title == "可读标题" && poster.text == "可读正文" && poster.anonymous)
+            #expect(poster.tags.isEmpty && poster.images.isEmpty && poster.createTime.isEmpty)
+        } else {
+            #expect(throws: DecodingError.self) { try JSONDecoder().decode(CommunityPoster.self, from: data) }
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

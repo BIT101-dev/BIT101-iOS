@@ -57,8 +57,8 @@ public struct CourseService {
         }
 
         return try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
-            guard courses.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 && (0...10).contains($0.rate) }) else {
-                throw CourseServiceError.invalidResponse
+            for course in courses {
+                try Self.validateCourseFields(id: course.id, likeNum: course.likeNum, commentNum: course.commentNum, rate: course.rate)
             }
         })
     }
@@ -67,7 +67,14 @@ public struct CourseService {
     public func fetchCourse(id: Int) async throws -> CourseDetail {
         try await api.request(path: "courses/\(id)", validate: { detail in
             guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
+            try Self.validateCourseFields(id: detail.id, likeNum: detail.likeNum, commentNum: detail.commentNum, rate: detail.rate)
         })
+    }
+
+    private nonisolated static func validateCourseFields(id: Int, likeNum: Int, commentNum: Int, rate: Double) throws {
+        guard id > 0, likeNum >= 0, commentNum >= 0, (0...10).contains(rate) else {
+            throw CourseServiceError.invalidResponse
+        }
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。

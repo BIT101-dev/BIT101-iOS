@@ -28,10 +28,12 @@ NETWORK_FOUNDATION_API = {
         'presentPendingIfPossible(from:HostViewController)', 'previewControllerDidDismiss(:QLPreviewController)', 'cancel()',
         'prepareInitialItems(for:ImagePreviewRequest,media:MediaEnvironment)', 'retryCurrentImage()', 'closePreview()'},
     'MediaKit.CachedRemoteImageLoader': {'load(url:URL?,fallbackURL:URL?,media:MediaEnvironment,maximumPixelSize:Int?)'},
+    'MediaKit.CachedRemoteImageStore': {'data(for:URL)', 'image(for:URL,maximumPixelSize:Int?)',
+        'loadImage(for:URL,maximumPixelSize:Int?)'},
     'MediaKit.RemoteStillImageLoader': {'load(thumbnailURL:URL?,originalURL:URL?,loadsOriginal:Bool,media:MediaEnvironment,pixelSize:Int,onAspectRatioResolved:((CGFloat)->Void)?)'},
     'MediaKit.RemoteImageCache': {'init(files:anyAppFileService,quota:ImageCacheDiskQuota,httpClient:HTTPClient,download:(@Sendable(URL)asyncthrows->HTTPResponse)?)',
         'file(for:URL)', 'withFile(for:URL,operation:@Sendable(URL)asyncthrows->Value)',
-        'withSource(for:URL,operation:@Sendable(RemoteImageSource)asyncthrows->Value)'},
+        'withSource(for:URL,download:(@Sendable(URL)asyncthrows->HTTPResponse)?,operation:@Sendable(RemoteImageSource)asyncthrows->Value)'},
     'BIT101-iOS.AppScheduleSchoolSessionRestorer': {'restoreSchoolSessionIfNeeded()'},
     'BIT101-iOS.AppNativeSchoolAuthentication': {'static make(state:TeachingCenterSessionState,productionPolicy:Bool)'},
 }

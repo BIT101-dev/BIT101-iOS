@@ -344,7 +344,7 @@ public struct GalleryService {
             body: multipart.body,
             contentType: multipart.contentType,
             validate: { image in
-                guard !image.mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                guard image.hasResourceIdentity else {
                     throw GalleryServiceError.invalidResponse
                 }
             }
@@ -617,6 +617,10 @@ public struct GalleryService {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
 
-        return try await api.request(path: "posters", queryItems: queryItems)
+        return try await api.request(path: "posters", queryItems: queryItems, validate: { posters in
+            guard posters.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 }) else {
+                throw GalleryServiceError.invalidResponse
+            }
+        })
     }
 }

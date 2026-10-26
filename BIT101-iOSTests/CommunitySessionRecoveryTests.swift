@@ -1,4 +1,4 @@
-import TransportCore
+@testable import TransportCore
 import ClientCore
 import Foundation
 import CommunityTransport
@@ -13,6 +13,88 @@ import CommunityUI
 
 @MainActor
 struct CommunitySessionRecoveryTests {
+    private final class RecoveryProbe: ObservableObject {
+        @Published var visible = true
+        @Published var enabled = true
+        @Published var phase = ScenePhase.active
+        var events = 0
+        var requests = 0
+        var cancellations = 0
+        var failed = true
+        var pending: CheckedContinuation<Void, Never>?
+        var mounted = false
+        func retry() async {
+            events += 1
+            guard failed else { return }
+            requests += 1
+            do {
+                try await withTaskCancellationHandler {
+                    await withCheckedContinuation { pending = $0 }
+                    try Task.checkCancellation()
+                    failed = false
+                } onCancel: { Task { @MainActor in self.cancellations += 1 } }
+            } catch { #expect(error is CancellationError) }
+        }
+    }
+    private struct RecoveryView: View {
+        @ObservedObject var probe: RecoveryProbe
+        let path: NetworkPathState
+        var body: some View {
+            Group {
+                if probe.visible {
+                    Text("恢复读取")
+                        .communityReadRecovery(networkPath: path, isEnabled: probe.enabled) { await probe.retry() }
+                        .onAppear { probe.mounted = true }
+                        .onDisappear { probe.mounted = false }
+                }
+            }
+            .environment(\.scenePhase, probe.phase)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func readRecoveryRespectsConnectionVisibilityAndCancellation() async throws {
+        let path = NetworkPathState(snapshot: .init(status: .disconnected)), probe = RecoveryProbe()
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: RecoveryView(probe: probe, path: path))
+        window.makeKeyAndVisible(); window.layoutIfNeeded()
+        defer { window.isHidden = true; window.rootViewController = nil; probe.pending?.resume(); probe.pending = nil }
+        var stage = "mount"
+        defer {
+            if stage != "complete" { Issue.record("读取恢复阶段：\(stage)，事件 \(probe.events)，请求 \(probe.requests)，取消 \(probe.cancellations)") }
+        }
+        try await waitForTestEvent { probe.mounted }
+        stage = "connected"
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { probe.requests == 1 && probe.pending != nil }
+        probe.enabled = false
+        stage = "cancel"
+        try await waitForTestEvent { probe.cancellations == 1 }
+        probe.pending?.resume(); probe.pending = nil
+        probe.phase = .inactive
+        probe.phase = .active
+        probe.enabled = true
+        stage = "enabled"
+        try await waitForTestEvent { probe.requests == 2 && probe.pending != nil }
+        probe.pending?.resume(); probe.pending = nil
+        try await waitForTestEvent { !probe.failed }
+        probe.visible = false
+        stage = "disappear"
+        try await waitForTestEvent { !probe.mounted }
+        path.update(snapshot: .init(status: .disconnected))
+        path.update(snapshot: .init(status: .connected))
+        probe.phase = .background
+        probe.visible = true
+        stage = "appear"
+        try await waitForTestEvent { probe.mounted }
+        probe.phase = .active
+        stage = "active"
+        try await waitForTestEvent { probe.events > 2 }
+        #expect(probe.requests == 2)
+        stage = "complete"
+    }
+
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
     func expiredCommunityCredentialsKeepMineAndProfileInsideTheLocalSession(profile: Bool) async throws {
         let domain = "BIT101Tests.community-page-recovery"
@@ -31,7 +113,7 @@ struct CommunitySessionRecoveryTests {
         let service = MineService(session: session, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in })
+        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: .init(snapshot: .init(status: .connected)))
         let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),
             imageHTTPClient: http, avatarHTTPClient: http)
         let poster = CommunityPosterDestination { _ in AnyView(Text("poster")) }

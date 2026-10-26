@@ -337,6 +337,7 @@ actor RemoteImageCache {
     private var downloads: [String: DownloadOperation] = [:]
     private var activeFileUses: Set<UUID> = []
     private var generation: UInt64 = 0
+    var cacheGeneration: UInt64 { generation }
     private let validatedFiles: NSCache<NSURL, NSString> = {
         let cache = NSCache<NSURL, NSString>()
         cache.countLimit = 80
@@ -353,11 +354,13 @@ actor RemoteImageCache {
         Task { await self.removeLegacyFiles() }
     }
 
-    private func removeLegacyFiles() {
+    private func removeLegacyFiles() async {
         for file in (try? files.contentsOfDirectory(at: directory, options: [])) ?? []
             where file.lastPathComponent.hasPrefix("low-") || file.lastPathComponent.hasPrefix("high-") {
             try? files.removeItem(at: file)
         }
+        let avatars = ImageCacheDirectories.avatars(using: files)
+        if files.fileExists(at: avatars) { _ = await quota.clearDirectory(avatars) }
     }
 
     func clearMemory() { transientImages.removeAllObjects() }
@@ -404,8 +407,9 @@ actor RemoteImageCache {
         return try await operation(lease.url)
     }
 
-    func withSource<Value: Sendable>(for remoteURL: URL, operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value {
-        let lease = try await acquireResource(for: remoteURL)
+    func withSource<Value: Sendable>(for remoteURL: URL, download: (@Sendable (URL) async throws -> HTTPResponse)? = nil,
+        operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value {
+        let lease = try await acquireResource(for: remoteURL, downloader: download)
         defer { withExtendedLifetime(lease) {} }
         try Task.checkCancellation()
         return try await operation(lease.source)
@@ -449,7 +453,7 @@ actor RemoteImageCache {
         return try RemoteImageLease(url: lease.url, files: files, quota: quota)
     }
 
-    private func acquireResource(for requestURL: URL) async throws -> RemoteImageLease {
+    private func acquireResource(for requestURL: URL, downloader: (@Sendable (URL) async throws -> HTTPResponse)? = nil) async throws -> RemoteImageLease {
         let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
         try Task.checkCancellation()
         let owner = generation
@@ -470,10 +474,11 @@ actor RemoteImageCache {
                     return
                 }
                 let id = UUID()
-                let task = Task { [download] in
+                let selectedDownload = downloader ?? download
+                let task = Task { [selectedDownload] in
                     let result: Result<DownloadResult, any Error>
                     do {
-                        let response = try await download(remoteURL)
+                        let response = try await selectedDownload(remoteURL)
                         result = .success(DownloadResult(data: response.data, mimeType: response.response.mimeType))
                     } catch { result = .failure(error) }
                     await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL)
@@ -492,23 +497,38 @@ actor RemoteImageCache {
         let completed: Result<RemoteImageLease, any Error>
         do {
             let result = try result.get()
-            guard isDecodableImage(data: result.data) else { throw CocoaError(.fileReadCorruptFile) }
-            let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
-            let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
-            do {
-                try await write(result.data, to: target, owner: id)
-                guard downloads[key]?.id == id else { return }
-                completed = .success(try RemoteImageLease(url: target, files: files, quota: quota))
-            } catch {
-                guard downloads[key]?.id == id else { return }
-                if TaskCancellation.matches(error) { throw error }
-                let memory = MemoryImageEntry(data: result.data, target: target)
-                transientImages.setObject(memory, forKey: remoteURL as NSURL, cost: result.data.count)
-                completed = .success(RemoteImageLease(memory: memory))
-            }
+            completed = .success(try await persist(result, for: remoteURL, owner: id,
+                isCurrent: { self.downloads[key]?.id == id }))
         } catch { completed = .failure(error) }
         guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }
         for continuation in operation.waiters.values { continuation.resume(with: completed) }
+    }
+
+    func store(_ data: Data, for requestURL: URL) async {
+        let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
+        let version = generation, owner = UUID()
+        defer { activeFileUses.remove(owner); quota.endFileUse(owner) }
+        _ = try? await persist(.init(data: data, mimeType: nil), for: remoteURL, owner: owner,
+            isCurrent: { self.generation == version && !Task.isCancelled })
+    }
+
+    private func persist(_ result: DownloadResult, for remoteURL: URL, owner: UUID,
+        isCurrent: () -> Bool) async throws -> RemoteImageLease {
+        guard isCurrent() else { throw CancellationError() }
+        guard result.data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
+              isDecodableImage(data: result.data) else { throw CocoaError(.fileReadCorruptFile) }
+        let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
+        let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
+        do {
+            try await write(result.data, to: target, owner: owner)
+            guard isCurrent() else { throw CancellationError() }
+            return try RemoteImageLease(url: target, files: files, quota: quota)
+        } catch {
+            guard isCurrent(), !TaskCancellation.matches(error) else { throw CancellationError() }
+            let memory = MemoryImageEntry(data: result.data, target: target)
+            transientImages.setObject(memory, forKey: remoteURL as NSURL, cost: result.data.count)
+            return RemoteImageLease(memory: memory)
+        }
     }
 
     private func cancelWaiter(_ waiter: UUID, key: String) {

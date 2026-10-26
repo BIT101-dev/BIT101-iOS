@@ -11,7 +11,7 @@ import SwiftUI
 
 /// 文章模块根视图。
 ///
-/// 这里承接底部栏里的“文章”入口，负责文章列表、搜索和详情跳转。
+/// 话廊中的文章场景，负责文章列表、搜索和详情跳转。
 public struct PaperRootView: View {
     private let scene: PaperRootViewScene
     private let identity: [ObjectIdentifier]
@@ -34,9 +34,7 @@ private struct PaperRootViewScene: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
-    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var viewModel: PaperListViewModel
-    private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
@@ -186,13 +184,13 @@ private struct PaperRootViewScene: View {
             guard oldValue != newValue else { return }
             viewModel.enqueueRefresh()
         }
-        .onChange(of: networkObserver.snapshot.status) { _, newValue in
-            guard newValue == .connected else { return }
-            retryListIfNeeded()
-        }
-        .onChange(of: scenePhase) { _, newValue in
-            guard newValue == .active else { return }
-            retryListIfNeeded()
+        .communityReadRecovery(networkPath: dependencies.networkPath,
+            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil && deepLinkedPaper == nil) {
+            if case .failed = viewModel.state.status { await viewModel.refresh() }
+            else if viewModel.state.paginationError != nil {
+                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+            }
+            viewModel.retryFailedPreviews()
         }
         .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
@@ -209,14 +207,6 @@ private struct PaperRootViewScene: View {
             updateTime: ""
         )
         requestedPaperID = nil
-    }
-
-    /// 文章列表停在失败空态时，在网络恢复或回前台后自动补拉一次。
-    private func retryListIfNeeded() {
-        guard networkObserver.isReachable else { return }
-        let state = viewModel.state
-        guard case .failed = state.status, state.items.isEmpty else { return }
-        viewModel.enqueueRefresh()
     }
 
     /// 发文成功后统一切回默认列表条件，并重新拉文章列表。

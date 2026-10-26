@@ -753,6 +753,14 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testAccountProfileSaveLoginCheckAndLogout() {
+        app = configureApp(resetStorage: true, initialTab: "mine")
+        openSettings("account")
+        assertUI(app.alerts["加载资料失败"].appears(timeout: 5), "资料首读失败应提供明确提示。")
+        closeAlertIfPresent()
+        assertUI(textElement("个人信息加载失败").appears(timeout: 5), "账号页应保留资料重试入口。")
+        tap("重试")
+        assertUI(app.alerts["加载资料失败"].appears(timeout: 5), "原位重试应重新执行资料读取。")
+        closeAlertIfPresent()
         app = configureApp(resetStorage: true, content: true, initialTab: "mine")
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人主页应先完成资料加载。")
         openSettings("account")
@@ -905,83 +913,4 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
 
-}
-
-nonisolated final class MineInteractionUITests: UIAutomationTestCase {
-    @MainActor
-    @objc func testMinePublicProfileFollowAndPostDeletion() {
-        app = configureApp(resetStorage: true, initialTab: "mine")
-        assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true, minePagingFailureOnce: true, initialTab: "mine")
-        func retryPageInPlace() {
-            let failure = textElement("加载更多失败")
-            reveal(failure, description: "分页恢复")
-            assertUI(failure.appears(timeout: 5), "分页故障应展示原位重试。")
-            tap("重试")
-            assertUI(failure.disappears(timeout: 5), "重试应完成当前页并保留已加载内容。")
-        }
-        assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人页应加载账号资料。")
-        tap("粉丝")
-        assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "粉丝统计应打开粉丝列表。")
-        retryPageInPlace()
-        pullToRefresh()
-        assertUI(textElement("自动化测试用户").exists, "粉丝刷新应恢复用户。")
-        tap("自动化测试用户")
-        assertUI(app.buttons["关注"].appears(timeout: 5), "粉丝用户行应进入公开主页。")
-        retryPageInPlace()
-        back()
-        assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "返回应恢复粉丝列表。")
-        back()
-        tap("关注")
-        assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "关注统计应打开关注列表。")
-        retryPageInPlace()
-        pullToRefresh()
-        assertUI(textElement("自动化测试用户").exists, "关注刷新应恢复用户。")
-        tap("自动化测试用户")
-        tap("关注")
-        let followed = app.buttons["取消关注"]
-        assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
-        followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
-        tap("查看头像")
-        _ = imagePreviewCloseButton()
-        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        UITestSnapshotReader.invalidate()
-        assertUI(waitForImagePreview(visible: true, timeout: 5), "点击预览画布应保留当前头像预览。")
-        app.native.images.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).tap()
-        UITestSnapshotReader.invalidate()
-        closeImagePreview()
-        for route in ["粉丝", "关注", "帖子"] {
-            assertUI(textElement(route).exists, "公开主页应显示\(route)统计。")
-        }
-        pullToRefresh()
-        tap("自动化测试话题")
-        let detail = app.navigationBars["帖子详情"]
-        assertUI(detail.appears(timeout: 5), "公开主页帖子应打开详情。")
-        dismissPosterSheet(returningTo: "自动化测试用户")
-        back()
-        assertUI(app.navigationBars["我的关注"].appears(timeout: 5), "返回应恢复关注列表。")
-        back()
-        tap("帖子")
-        assertUI(app.navigationBars["我的帖子"].appears(timeout: 5), "帖子统计应打开帖子列表。")
-        retryPageInPlace()
-        pullToRefresh()
-        assertUI(textElement("自动化测试话题").exists, "个人帖子刷新应恢复记录。")
-        tap("自动化测试话题")
-        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "个人帖子行应打开详情。")
-        tap("编辑帖子")
-        replaceText("个人列表更新后的话题", in: app.textFields["标题"])
-        dismissKeyboard()
-        tap("保存")
-        assertUI(textElement("个人列表更新后的话题").appears(timeout: 5), "编辑应刷新话题详情。")
-        dismissPosterSheet(returningTo: "我的帖子")
-        assertUI(textElement("个人列表更新后的话题").appears(timeout: 5), "个人列表应同步编辑结果。")
-        tap("更多操作")
-        tap("删除帖子")
-        app.alerts.buttons["取消"].tapBriefly()
-        tap("更多操作")
-        tap("删除帖子")
-        app.alerts.buttons["删除"].tapBriefly()
-        let poster = textElement("自动化测试话题")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "个人列表删除应移除帖子。")
-    }
 }

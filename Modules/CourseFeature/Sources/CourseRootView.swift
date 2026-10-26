@@ -12,7 +12,6 @@ public struct CoursePageContent: View {
     private let media: MediaEnvironment
     private let profiles: CommunityProfileDestination
     @ObservedObject var viewModel: CourseListViewModel
-    @Environment(\.scenePhase) private var scenePhase
 
     public var body: some View {
         content.environment(dependencies)
@@ -41,11 +40,8 @@ public struct CoursePageContent: View {
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
-        .onChange(of: dependencies.networkPath.snapshot.status) { _, value in
-            if value == .connected { retryListIfNeeded() }
-        }
-        .onChange(of: scenePhase) { _, value in
-            if value == .active { retryListIfNeeded() }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            await viewModel.retryAfterConnectivityRecovery()
         }
         .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
@@ -65,11 +61,6 @@ public struct CoursePageContent: View {
         default:
             courseResults
         }
-    }
-
-    private func retryListIfNeeded() {
-        guard dependencies.networkPath.isReachable else { return }
-        viewModel.retryAfterConnectivityRecovery()
     }
 
     @ViewBuilder

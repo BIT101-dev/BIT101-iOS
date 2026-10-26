@@ -8,17 +8,16 @@ import TransportCore
 
 @MainActor
 struct PaperDetailRequestTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["same", "changed", "unknown"])
-    func firstPageVersionsControlPreviewReuse(version: String) async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func refreshingTheFirstPageRevalidatesAuthorMetadata() async throws {
         let store = PaperDetailRequestStore()
         let value = Self.detail(1, updateTime: "2026-10-01T08:00:00Z")
         var loads = 0
         func load() async throws -> PaperDetail { loads += 1; return value }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
-        let time = version == "same" ? value.updateTime : version == "changed" ? "2026-10-02T08:00:00Z" : ""
-        store.invalidateChangedPapers([.init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: time)])
+        store.invalidate(ids: [1])
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
-        #expect(loads == (version == "same" ? 1 : 2))
+        #expect(loads == 2)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "conflict", "unchanged"])

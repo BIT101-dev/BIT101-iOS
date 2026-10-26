@@ -73,16 +73,6 @@ final class PaperDetailRequestStore {
         discardUnusedEpochs()
     }
 
-    func invalidateChangedPapers(_ papers: [PaperSummary]) {
-        let changed = papers.filter { paper in
-            let entries = cache.filter { $0.key.id == paper.id }
-            return paper.updateTime.isEmpty || entries.isEmpty
-                || entries.values.contains(where: { $0.updateTime != paper.updateTime })
-                || operations.keys.contains(where: { $0.id == paper.id })
-        }
-        if !changed.isEmpty { invalidate(ids: Set(changed.map(\.id))) }
-    }
-
     private func discardUnusedEpochs() {
         let retained = Set(cache.keys.map(\.id)).union(operations.keys.map(\.id))
         epochs = epochs.filter { retained.contains($0.key) }

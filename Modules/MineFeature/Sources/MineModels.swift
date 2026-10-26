@@ -26,6 +26,13 @@ public nonisolated struct MineUserInfo: Decodable, Sendable {
     /// 该资料页属于当前登录用户时为 `true`。
     public let own: Bool
 
+    public func updatingUser(nickname: String? = nil, motto: String? = nil, avatar: CommunityImage? = nil) -> Self {
+        let updated = CommunityUser(id: user.id, createTime: user.createTime, nickname: nickname ?? user.nickname,
+            avatar: avatar ?? user.avatar, motto: motto ?? user.motto, identity: user.identity)
+        return MineUserInfo(user: updated, followingNum: followingNum, followerNum: followerNum,
+            following: following, follower: follower, own: own)
+    }
+
     public func updatingFollow(_ result: MineFollowResult) -> Self {
         MineUserInfo(
             user: user,

@@ -15,6 +15,68 @@ extension RemoteImageCache {
 }
 
 extension MediaDependencyTests {
+    private final class CountedDownloads: HTTPTransport {
+        var requests: [URL] = []
+        var pending: [URL: CheckedContinuation<Void, Never>] = [:]
+        var active = 0
+        var peak = 0
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            requests.append(url)
+            active += 1
+            peak = max(peak, active)
+            defer { active -= 1 }
+            await withCheckedContinuation { pending[url] = $0 }
+            try Task.checkCancellation()
+            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+        func release() {
+            let retained = pending.values
+            pending.removeAll()
+            for continuation in retained { continuation.resume() }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func distinctMediaDownloadsStayWithinTheSharedLimitAndCancelQueuedWork() async throws {
+        let transport = CountedDownloads()
+        let client = HTTPClient(transport: transport, observer: nil)
+        let coordinator = MediaDownloadCoordinator(avatarClient: client, galleryClient: client)
+        let sharedURL = AppURL.required("https://example.invalid/shared")
+        let first = Task { try await coordinator.response(for: sharedURL, source: .avatar) }
+        try await waitForTestEvent { transport.requests.count == 1 }
+        let second = Task { try await coordinator.response(for: sharedURL, source: .gallery) }
+        try await waitForTestEvent { coordinator.waitingConsumerCount == 2 }
+        transport.release()
+        _ = try await first.value; _ = try await second.value
+        #expect(transport.requests == [sharedURL])
+        transport.requests = []; transport.peak = 0
+        let started = (0..<MediaDownloadCoordinator.maximumConcurrentDownloads).map { index in
+            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
+                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
+        }
+        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
+        let queued = (MediaDownloadCoordinator.maximumConcurrentDownloads..<8).map { index in
+            Task { try await coordinator.response(for: AppURL.required("https://example.invalid/\(index)"),
+                                                  source: index.isMultiple(of: 2) ? .avatar : .gallery) }
+        }
+        let tasks = started + queued
+        try await waitForTestEvent { !(coordinator.waitingConsumerCount < tasks.count) }
+        try await waitForTestEvent { !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads) }
+        #expect(transport.active == MediaDownloadCoordinator.maximumConcurrentDownloads)
+        tasks[7].cancel()
+        await #expect(throws: CancellationError.self) { try await tasks[7].value }
+        try await waitForTestEvent {
+            if transport.requests.count >= tasks.count - 1 { return true }
+            transport.release()
+            return false
+        }
+        transport.release()
+        for task in tasks.dropLast() { _ = try await task.value }
+        #expect(transport.peak == MediaDownloadCoordinator.maximumConcurrentDownloads)
+        #expect(transport.requests.count == tasks.count - 1 && coordinator.waitingConsumerCount == 0)
+    }
+
     final class Images: HTTPTransport {
         let bytes: Data
         private(set) var requests = 0

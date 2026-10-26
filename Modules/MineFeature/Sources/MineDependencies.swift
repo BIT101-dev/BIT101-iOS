@@ -1,4 +1,5 @@
 import CommunityCore
+import TransportCore
 import Observation
 
 /// 个人主页消费账号概览与用户资料服务。
@@ -8,14 +9,17 @@ public final class MineDependencies {
     let overview: any MineOverviewServicing
     let profile: any UserProfileServicing
     let deletePoster: (Int) async throws -> Void
+    let networkPath: NetworkPathState
 
     public init(
         overview: any MineOverviewServicing,
         profile: any UserProfileServicing,
-        deletePoster: @escaping (Int) async throws -> Void
+        deletePoster: @escaping (Int) async throws -> Void,
+        networkPath: NetworkPathState
     ) {
         self.overview = overview
         self.profile = profile
         self.deletePoster = deletePoster
+        self.networkPath = networkPath
     }
 }

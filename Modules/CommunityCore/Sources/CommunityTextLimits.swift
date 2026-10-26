@@ -1,6 +1,6 @@
 import Foundation
 
-/// 正文展示按 UTF-8 字节裁剪，原始模型继续承接编辑和分享。
+/// 正文按 UTF-8 字节适配预览与阅读，详情原始正文承接编辑和分享。
 public nonisolated enum CommunityTextLimits {
     public static let maximumDisplayBytes = 64 * 1_024
     public static let maximumPreviewBytes = 1_024

@@ -170,7 +170,7 @@ final class AppCommunityDependencies {
         let mineService = MineService(session: session, preferences: { preferences.snapshot })
         mine = MineDependencies(
             overview: mineService, profile: mineService,
-            deletePoster: { try await galleryService.deletePoster(id: $0) }
+            deletePoster: { try await galleryService.deletePoster(id: $0) }, networkPath: networkPath
         )
         settings.$snapshot.combineLatest(settings.$hidesCourseHistoryMakeupOutliers)
             .sink { snapshot, hideMakeup in

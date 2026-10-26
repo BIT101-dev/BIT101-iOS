@@ -104,7 +104,7 @@ public struct PaperService {
                     throw PaperServiceError.invalidResponse
                 }
             })
-        if page == 0 { details.invalidateChangedPapers(papers) }
+        if page == 0 { details.invalidate(ids: Set(papers.map(\.id))) }
         return papers
     }
 

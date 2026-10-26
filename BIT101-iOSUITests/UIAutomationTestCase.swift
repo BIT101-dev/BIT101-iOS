@@ -111,28 +111,31 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             print("UI scroll reveal")
             return
         }
-        guard let frame = app.scrollGestureFrame(in: interactionScrollFrame() ?? app.frame) else { return }
+        let container = interactionScrollContainer() ?? app
+        guard let frame = app.scrollGestureFrame(in: container.frame) else { return }
         let origin = app.coordinate(withNormalizedOffset: .zero)
-        let verticalX = frame.minX + frame.width * 0.03
         for attempt in 0..<16 {
             let target = element.exists ? element.frame : CGRect.null
             let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
             let upward = target.isNull ? (attempt < 8) != searchFromTop : target.minY >= window.midY
-            let start = origin.withOffset(CGVector(dx: horizontal ? frame.midX : verticalX, dy: frame.midY))
-            let end = origin.withOffset(CGVector(dx: horizontal ? frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9) : verticalX,
-                                                dy: horizontal ? frame.midY : frame.minY + frame.height * (upward ? 0.1 : 0.9)))
-            start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
+            if horizontal {
+                let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9), dy: frame.midY))
+                start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
+            } else if upward { container.swipeUp() }
+            else { container.swipeDown() }
             if isVisible() { return }
         }
-        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(element.native.exists ? "\(element.native.frame) · 可触达 \(element.native.isHittable)" : "缺失")，窗口：\(app.windows.firstMatch.frame)，滚动区：\(frame)。")
+        assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(element.native.exists ? "\(element.native.frame) · 可触达 \(element.native.isHittable)" : "缺失")，窗口：\(app.windows.firstMatch.frame)，滚动区：\(frame)，容器：\(UITestControlClient.request(["command": "scroll-inventory"]) ?? "缺失")。")
     }
 
     @MainActor
-    func interactionScrollFrame() -> CGRect? {
+    func interactionScrollContainer() -> UIElement? {
         guard let snapshot = try? app.snapshot() else { return nil }
-        return (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
+        guard let selected = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
             .last(where: { $0.frame.height >= snapshot.frame.height / 2
-                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) })?.frame
+                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }), !selected.identifier.isEmpty else { return nil }
+        return app.descendants(matching: selected.elementType)[selected.identifier]
     }
 
     @MainActor

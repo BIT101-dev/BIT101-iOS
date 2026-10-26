@@ -1,9 +1,44 @@
 import CommunityCore
+import TransportCore
 import Foundation
 
 #if os(iOS)
 import DesignSystemKit
 import SwiftUI
+
+extension View {
+    public func communityReadRecovery(networkPath: NetworkPathState, isEnabled: Bool = true,
+        retry: @escaping @MainActor () async -> Void) -> some View {
+        modifier(CommunityReadRecoveryModifier(networkPath: networkPath, isEnabled: isEnabled, retry: retry))
+    }
+}
+
+private struct CommunityReadRecoveryModifier: ViewModifier {
+    let networkPath: NetworkPathState
+    let isEnabled: Bool
+    let retry: @MainActor () async -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var isVisible = false
+    @State private var hasAppeared = false
+    @State private var revision = 0
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                isVisible = true
+                if hasAppeared { revision &+= 1 }
+                hasAppeared = true
+            }
+            .onDisappear { isVisible = false; revision &+= 1 }
+            .onChange(of: networkPath.snapshot.status) { revision &+= 1 }
+            .onChange(of: scenePhase) { revision &+= 1 }
+            .onChange(of: isEnabled) { revision &+= 1 }
+            .task(id: revision) {
+                guard revision > 0, isVisible, isEnabled, scenePhase == .active,
+                      networkPath.snapshot.status == .connected, !Task.isCancelled else { return }
+                await retry()
+            }
+    }
+}
 
 public struct CommunityIdentityBadge: View {
     private let identity: CommunityIdentity

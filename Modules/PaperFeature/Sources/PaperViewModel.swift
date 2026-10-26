@@ -39,6 +39,7 @@ class PaperCollectionViewModel: ObservableObject {
         return "\(pageQuery.search.map { "“\($0)”的文章" } ?? "全部文章") · \(pageQuery.order.title)"
     }
     private var previewLoadingIDs: Set<Int> = []
+    private var previewRevalidationIDs: Set<Int> = []
     @Published private(set) var refreshGeneration = 0
     @Published private(set) var previewGeneration = 0
     private var refreshTask: Task<Void, Never>?
@@ -107,7 +108,7 @@ class PaperCollectionViewModel: ObservableObject {
                 previewGeneration &+= 1
             }
         }
-        if requiresSearchText || state.items.isEmpty {
+        if state.items.isEmpty {
             state.prepareForRefresh()
         } else {
             state.status = .loading
@@ -127,6 +128,7 @@ class PaperCollectionViewModel: ObservableObject {
             let previousVersions = Dictionary(uniqueKeysWithValues: previousState.items.map { ($0.id, $0.updateTime) })
             let unchanged = Set(papers.filter { !$0.updateTime.isEmpty && previousVersions[$0.id] == $0.updateTime }.map(\.id))
             previewMetadataByPaperID = previousMetadata.filter { unchanged.contains($0.key) }
+            previewRevalidationIDs = Set(previewMetadataByPaperID.keys)
             previewFailedIDs = []
             previewLoadingIDs = []
             state.applyFirstPage(papers)
@@ -192,7 +194,7 @@ class PaperCollectionViewModel: ObservableObject {
     /// 文章作者信息由详情接口提供；文章行展示前请求详情，并将成功返回的作者预览信息缓存在内存中。
     func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
         guard state.status == .loaded else { return }
-        guard previewMetadataByPaperID[paper.id] == nil else { return }
+        guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id) else { return }
         guard !previewLoadingIDs.contains(paper.id) else { return }
         let generation = refreshGeneration
         previewLoadingIDs.insert(paper.id)
@@ -204,6 +206,7 @@ class PaperCollectionViewModel: ObservableObject {
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
             previewMetadataByPaperID[paper.id] = metadata
+            previewRevalidationIDs.remove(paper.id)
         } catch {
             guard refreshGeneration == generation, !TaskCancellation.matches(error) else { return }
             previewFailedIDs.insert(paper.id)
@@ -214,11 +217,16 @@ class PaperCollectionViewModel: ObservableObject {
         previewMetadataByPaperID[paperID]
     }
 
+    func retryFailedPreviews() {
+        if !previewFailedIDs.isEmpty { previewGeneration &+= 1 }
+    }
+
     func reset() {
         cancelRefreshOperations()
         previewMetadataByPaperID = [:]
         previewFailedIDs = []
         previewLoadingIDs = []
+        previewRevalidationIDs = []
         state = PaperListState()
         pageQuery = nil
     }

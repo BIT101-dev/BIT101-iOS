@@ -812,6 +812,13 @@ extension UIAutomationTestCase {
         let start = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.2))
         let end = origin.withOffset(CGVector(dx: bounds.minX + bounds.width * 0.03, dy: bounds.minY + bounds.height * 0.9))
         start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
+        assertUI(waitUntil(NSPredicate { _, _ in
+            guard let value = UITestControlClient.request(["command": "scroll-inventory"]),
+                  let data = value.data(using: .utf8),
+                  let views = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let scroll = views.last(where: { $0["hasRefreshControl"] as? Bool == true }) else { return false }
+            return scroll["refreshing"] as? Bool == false && scroll["scrolling"] as? Bool == false
+        }, on: app), "下拉刷新完成并停止滚动后应继续交互。")
     }
 
     @MainActor

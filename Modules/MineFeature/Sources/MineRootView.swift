@@ -155,6 +155,11 @@ private struct MineRootViewScene: View {
             interactionEvidence?("interaction.MineRootViewScene.refreshable", "refresh")
             await viewModel.refreshAll()
         }
+        .communityReadRecovery(networkPath: dependencies.networkPath,
+            isEnabled: route == nil && settingsRoute == nil && !isShowingSuggestion && selectedUserID == nil) {
+            if case .failed = viewModel.profileStatus { await viewModel.refreshProfile() }
+            if case .failed = viewModel.posterState.status { await viewModel.refreshPosters() }
+        }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
@@ -274,6 +279,13 @@ private struct UserProfileRootViewScene: View {
         .refreshable {
             interactionEvidence?("interaction.UserProfileRootViewScene.refreshable", "refresh")
             await viewModel.refreshAll()
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            if case .failed = viewModel.profileStatus { await viewModel.refreshProfile() }
+            if case .failed = viewModel.posterState.status { await viewModel.refreshPosters() }
+            else if viewModel.posterState.loadMoreError != nil {
+                await viewModel.loadMorePostersIfNeeded(currentPoster: viewModel.posterState.items.last)
+            }
         }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -506,6 +518,7 @@ private struct MineProfileCard: View {
 /// 页面展示一类用户数组，刷新和分页操作由上层 ViewModel 传入。
 private struct MineUserListView: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
+    @Environment(MineDependencies.self) private var dependencies
     let title: String
     let users: [CommunityUser]
     let status: MineLoadStatus
@@ -558,6 +571,7 @@ private struct MineUserListView: View {
                                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                 }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -594,6 +608,10 @@ private struct MineUserListView: View {
                 guard !Task.isCancelled else { return }
                 isRefreshRequested = false
             }
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            if case .failed = status { await onRefresh() }
+            else if loadMoreError != nil { await onLoadMore(users.last) }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -638,22 +656,22 @@ private struct MinePosterListView: View {
     }
 
     var body: some View {
-        Group {
+        ScrollView {
             if isInitialLoading {
-                AppLoadingState(title: "正在加载帖子")
+                AppScrollStateContainer { AppLoadingState(title: "正在加载帖子") }
             } else if case let .failed(message) = status, visiblePosters.isEmpty {
-                AppFailureState(
+                AppScrollStateContainer { AppFailureState(
                     title: "帖子加载失败",
                     systemImage: "text.bubble",
                     message: message,
                     onRetry: {
                         isRefreshRequested = true
                     }
-                )
+                ) }
             } else if visiblePosters.isEmpty {
-                AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble")
+                AppScrollStateContainer { AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble") }
             } else {
-                ScrollView {
+                Group {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
                             AppFeedRow(isLast: index == visiblePosters.count - 1) {
@@ -681,13 +699,16 @@ private struct MinePosterListView: View {
                         }
                     }
                 }
-                .accessibilityIdentifier("interaction.MinePosterListView.scroll")
-                .refreshable {
-                    interactionEvidence?("interaction.MinePosterListView.refreshable", "refresh")
-
-                    await onRefresh()
-                }
             }
+        }
+        .accessibilityIdentifier("interaction.MinePosterListView.scroll")
+        .refreshable {
+            interactionEvidence?("interaction.MinePosterListView.refreshable", "refresh")
+            await onRefresh()
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPoster == nil && deletingPoster == nil) {
+            if case .failed = status { await onRefresh() }
+            else if loadMoreError != nil { await onLoadMore(visiblePosters.last) }
         }
         .task(id: isRefreshRequested) {
             if status == .idle || isRefreshRequested {
