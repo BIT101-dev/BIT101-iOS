@@ -29,7 +29,6 @@ fixed_children = {
         "validation-evidence.json", "validation-evidence.lock", "ci-validation-result.json", "ci-diagnostics.txt", "manual-scenarios.json", "performance-measurements.json",
         "release-receipt.json", "simulator-device.json", "simulator.log", "restore.log", "worker.log", "worker.lock"} | {name + ".log" for name in TEST_GROUPS}
         | {"build-" + name + ".log" for name in BUILD_HOSTS},
-    ".build/extended-automation/diagnostics": {"test-results.xcresult"},
     ".build/icloud-cross-device-smoke": {"Phone", "Mac", "test-results.xcresult", "report.json", "report.lock", "signing.entitlements",
         "build.log", "mac-build.log", "mac-receive.log", "mac-cleanup.log", "testPhoneRoundTrip.log", "testCleanup.log"},
     ".build/release-network-smoke": derived_names | {"build.log", "console.log", "report", "community-configuration.json"},
@@ -99,8 +98,6 @@ def self_test() -> None:
     assert artifact_name_allowed(".build/compiler-cache", "Index.noindex")
     assert artifact_name_allowed(".build/release-network-smoke/report", "release-network-smoke.json")
     assert artifact_name_allowed(".build/release-network-smoke", "community-configuration.json")
-    assert artifact_name_allowed(".build/extended-automation/diagnostics", "test-results.xcresult")
-    assert not artifact_name_allowed(".build/extended-automation/diagnostics", "exported.log")
     assert compressed_artifact("cache/diagnostics.ZIP")
     assert not compressed_artifact("cache/module.pcm")
     from unittest.mock import mock_open, patch
@@ -183,7 +180,6 @@ def main(root: Path) -> None:
     recover_self_test_artifacts(root)
     for name in ("swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"):
         (root / '.build/static-audit' / name).unlink(missing_ok=True)
-    clear_diagnostic_exports(root / '.build/extended-automation/diagnostics')
     self_test()
     allowed_root_files = {
       ".build/extended-automation.lock",

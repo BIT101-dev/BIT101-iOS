@@ -89,7 +89,7 @@ else:
     reusable = [row for row in data['devices'].get(runtime['identifier'], []) if row.get('isAvailable')
         and (row.get('deviceTypeIdentifier') == phone['identifier'] if hosted or requested_type else row['name'] == 'BIT101')]
     if reusable:
-        device = min(reusable, key=lambda row: (row['state'] != 'Booted', row['udid']))
+        device = min(reusable, key=lambda row: (row['name'] != 'BIT101', row['state'] != 'Booted', row['udid']))
         identifier = device['udid']
     else:
         if not hosted and not requested_type: phone = next(row for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone'))

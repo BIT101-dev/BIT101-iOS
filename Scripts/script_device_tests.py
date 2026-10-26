@@ -124,12 +124,13 @@ def simulator_requested_type_boundary_findings(program: str) -> list[str]:
         'isAvailable': True, 'supportedDeviceTypes': [phone]}
     compatible = dict(runtime, identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-1', version='27.1', supportedDeviceTypes=[duo])
     old = dict(udid='old', name='BIT101', state='Booted', isAvailable=True, deviceTypeIdentifier='phone-type')
-    ready = dict(old, udid='duo', name='Existing Duo', deviceTypeIdentifier='duo-type')
+    ready = dict(old, udid='duo', name='BIT101', state='Shutdown', deviceTypeIdentifier='duo-type')
+    external = dict(ready, udid='aaa', name='Existing Duo', state='Booted')
     for requested, present, owned_duo, reuse in [('iPhone Duo', True, False, True), ('duo-type', True, True, True),
             ('iPhone Duo', False, False, False), ('Unknown phone', True, False, False)]:
         def inventory(include):
             return dict(devicetypes=[phone, duo], runtimes=[runtime] + ([compatible] if include else []),
-                devices={runtime['identifier']: [old], compatible['identifier']: [ready] if reuse else []})
+                devices={runtime['identifier']: [old], compatible['identifier']: [ready, external] if reuse else []})
         commands, saved = [], []
         inventories = iter([inventory(present), inventory(True)])
         def output(command, **kwargs):

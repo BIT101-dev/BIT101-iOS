@@ -45,6 +45,28 @@ struct FeatureCompositionTests {
         #expect(!AppWindowLayout(size: CGSize(width: 834, height: 1_194), isRegularWidth: true).isLandscape)
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: false).isLandscape)
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, usesAccessibilityText: true).isLandscape)
+        #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 540).isLandscape)
+        #expect(AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 760).gridColumns.count == 2)
+    }
+
+    @Test func compactScheduleCardsKeepTheTitleAndReadableText() throws {
+        for height: CGFloat in [18, 40, 120] {
+            for font in [UIFont.preferredFont(forTextStyle: .caption1), UIFont.preferredFont(forTextStyle: .title1)] {
+                let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: height))
+                view.configure(title: "计算机网络", location: String(repeating: "文萃楼 A101 ", count: 8),
+                    contentMode: .nameAndLocation, font: font, textColor: .label)
+                view.layoutIfNeeded()
+                let labels = view.subviews.compactMap { $0 as? UILabel }
+                let title = try #require(labels.first)
+                #expect(!title.isHidden && title.text == "计算机网络" && title.frame.height > 0)
+                #expect(view.bounds.contains(title.frame) && title.font.pointSize == font.pointSize)
+                for location in labels.dropFirst().filter({ !$0.isHidden }) {
+                    #expect(location.font.pointSize == font.pointSize && location.numberOfLines > 0)
+                    #expect(title.frame.maxY <= location.frame.minY && view.bounds.contains(location.frame))
+                }
+                #expect(view.accessibilityLabel == "计算机网络" && view.accessibilityValue?.contains("文萃楼") == true)
+            }
+        }
     }
 
     @Test func fixedColumnRowsContainScaledBodyText() {

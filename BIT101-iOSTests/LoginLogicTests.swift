@@ -384,17 +384,42 @@ extension LoginLogicTests {
         try await waitForTestEvent { inspectedExisting }
         #expect(controller.presentedViewController === existing)
         existing.dismiss(animated: true)
-        try await waitForTestEvent { controller.presentedViewController is UIAlertController && controller.presentedViewController !== existing }
-        let alert = try #require(controller.presentedViewController as? UIAlertController)
-        let field = try #require(alert.textFields?.first)
-        #expect(field.isSecureTextEntry == !sms && field.accessibilityIdentifier == (sms ? "school.sms.code" : "school.credentials.password"))
-        #expect(alert.preferredAction?.isEnabled == false)
-        field.text = "school-password"
-        field.sendActions(for: .editingChanged)
-        #expect(alert.preferredAction?.isEnabled == true)
-        pending.cancel()
-        do { _ = try await pending.value; Issue.record("Canceled input must resume the waiting request") }
-        catch { #expect(error is CancellationError) }
-        #expect(controller.presentedViewController == nil && field.text?.isEmpty == true)
+        try await waitForTestEvent { controller.presentedViewController != nil && controller.presentedViewController !== existing }
+        func codeField(in view: UIView) -> UITextField? {
+            if let field = view as? UITextField { return field }
+            return view.subviews.lazy.compactMap { codeField(in: $0) }.first
+        }
+        if sms {
+            let sheet = try #require(controller.presentedViewController)
+            try await waitForTestEvent { codeField(in: sheet.view) != nil }
+            let field = try #require(codeField(in: sheet.view))
+            #expect(field.accessibilityIdentifier == "verification.code" && !field.isSecureTextEntry)
+            field.insertText("abc１２３")
+            #expect(field.text == "123")
+            pending.cancel()
+            do { _ = try await pending.value; Issue.record("已取消的短信输入应结束等待") }
+            catch { #expect(error is CancellationError) }
+            #expect(controller.presentedViewController == nil)
+            let pasted = Task { try await code.requestCode(.init(maskedPhone: "123****4567", purpose: "fixture")) }
+            try await waitForTestEvent { controller.presentedViewController != nil }
+            let nextSheet = try #require(controller.presentedViewController)
+            try await waitForTestEvent { codeField(in: nextSheet.view) != nil }
+            let input = try #require(codeField(in: nextSheet.view))
+            input.insertText("６５４３２１")
+            try await waitForTestEvent { controller.presentedViewController == nil }
+            #expect(try await pasted.value == "654321")
+        } else {
+            let alert = try #require(controller.presentedViewController as? UIAlertController)
+            let field = try #require(alert.textFields?.first)
+            #expect(field.isSecureTextEntry && field.accessibilityIdentifier == "school.credentials.password")
+            #expect(alert.preferredAction?.isEnabled == false)
+            field.text = "school-password"
+            field.sendActions(for: .editingChanged)
+            #expect(alert.preferredAction?.isEnabled == true)
+            pending.cancel()
+            do { _ = try await pending.value; Issue.record("已取消的学校密码输入应结束等待") }
+            catch { #expect(error is CancellationError) }
+            #expect(controller.presentedViewController == nil && field.text?.isEmpty == true)
+        }
     }
 }

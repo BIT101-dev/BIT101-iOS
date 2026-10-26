@@ -80,6 +80,7 @@ struct GallerySearchView: View {
         }
         .onDisappear { viewModel.cancelSearchOperations() }
         .navigationTitle("搜索")
+        .appWindowLayout()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

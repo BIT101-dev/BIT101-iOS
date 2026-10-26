@@ -89,8 +89,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
                 addSubview(label)
             }
             titleLabel.lineBreakMode = .byTruncatingTail
-            locationLabel.lineBreakMode = .byCharWrapping
-            locationLabel.numberOfLines = 0
+            locationLabel.lineBreakMode = .byTruncatingTail
         }
 
         required init?(coder: NSCoder) {
@@ -148,21 +147,22 @@ struct ScheduleCardTextView: UIViewRepresentable {
             }
 
             let gap = AppDesignSystem.Schedule.Grid.cellSpacing
-            let locationFont = fittingFont(
-                text: location,
-                width: bounds.width,
-                maximumHeight: bounds.height
-            )
+            let availableLocationHeight = max(bounds.height - baseFont.lineHeight - gap, 0)
+            guard availableLocationHeight >= baseFont.lineHeight else {
+                layoutTitle(text: title, in: bounds)
+                hideLocation()
+                return
+            }
             let locationHeight = min(
-                measuredHeight(text: location, font: locationFont, width: bounds.width),
-                bounds.height
+                measuredHeight(text: location, font: baseFont, width: bounds.width),
+                floor(availableLocationHeight / baseFont.lineHeight) * baseFont.lineHeight
             )
             let titleAvailableHeight = max(bounds.height - locationHeight - gap, 0)
             _ = layoutTitle(
                 text: title,
                 in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight)
             )
-            configureLocationLabel(text: location, font: locationFont)
+            configureLocationLabel(text: location, height: locationHeight)
             locationLabel.frame = CGRect(
                 x: 0,
                 y: bounds.height - locationHeight,
@@ -173,7 +173,7 @@ struct ScheduleCardTextView: UIViewRepresentable {
 
         @discardableResult
         private func layoutTitle(text: String, in rect: CGRect) -> CGFloat {
-            guard !text.isEmpty, rect.height >= baseFont.lineHeight else {
+            guard !text.isEmpty, rect.height > 0 else {
                 hideTitle()
                 return 0
             }
@@ -203,9 +203,8 @@ struct ScheduleCardTextView: UIViewRepresentable {
                 return
             }
             locationLabel.textAlignment = .center
-            let font = fittingFont(text: text, width: rect.width, maximumHeight: rect.height)
-            configureLocationLabel(text: text, font: font)
-            let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
+            let height = min(measuredHeight(text: text, font: baseFont, width: rect.width), rect.height)
+            configureLocationLabel(text: text, height: height)
             locationLabel.frame = CGRect(
                 x: rect.minX,
                 y: verticallyCentered
@@ -216,31 +215,12 @@ struct ScheduleCardTextView: UIViewRepresentable {
             )
         }
 
-        private func configureLocationLabel(text: String, font: UIFont) {
+        private func configureLocationLabel(text: String, height: CGFloat) {
             locationLabel.isHidden = false
             locationLabel.text = text
-            locationLabel.font = font
+            locationLabel.font = baseFont
+            locationLabel.numberOfLines = max(Int(floor(height / baseFont.lineHeight)), 1)
             locationLabel.preferredMaxLayoutWidth = bounds.width
-        }
-
-        private func fittingFont(text: String, width: CGFloat, maximumHeight: CGFloat) -> UIFont {
-            guard maximumHeight > 0 else { return baseFont }
-            if measuredHeight(text: text, font: baseFont, width: width) <= maximumHeight {
-                return baseFont
-            }
-
-            var lowerBound: CGFloat = 1
-            var upperBound = baseFont.pointSize
-            for _ in 0 ..< 10 {
-                let candidateSize = (lowerBound + upperBound) / 2
-                let candidate = baseFont.withSize(candidateSize)
-                if measuredHeight(text: text, font: candidate, width: width) <= maximumHeight {
-                    lowerBound = candidateSize
-                } else {
-                    upperBound = candidateSize
-                }
-            }
-            return baseFont.withSize(lowerBound)
         }
 
         private func measuredHeight(text: String, font: UIFont, width: CGFloat) -> CGFloat {

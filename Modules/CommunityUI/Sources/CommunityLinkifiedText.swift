@@ -22,17 +22,19 @@ private actor CommunityLinkifiedTextCache {
     }()
 
     func value(for text: String) -> AttributedString {
+        guard !Task.isCancelled else { return AttributedString(text) }
         let key = text as NSString
         if let cached = values.object(forKey: key) { return cached.value }
         let rendered = NSMutableAttributedString(string: text)
         guard let detector else { return AttributedString(text) }
         let matches = detector.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text))
+        guard !Task.isCancelled else { return AttributedString(text) }
         for match in matches {
             if let url = match.url { rendered.addAttribute(NSAttributedString.Key("NSLink"), value: url, range: match.range) }
         }
         let result = (try? AttributedString(rendered, including: \.foundation)) ?? AttributedString(text)
         let cost = key.length * 4 + matches.reduce(0) { $0 + ($1.url?.absoluteString.utf16.count ?? 0) * 2 + MemoryLayout<NSRange>.stride }
-        values.setObject(CommunityAttributedStringBox(result), forKey: key, cost: cost)
+        if !Task.isCancelled { values.setObject(CommunityAttributedStringBox(result), forKey: key, cost: cost) }
         return result
     }
 }

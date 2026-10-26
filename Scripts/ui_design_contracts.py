@@ -35,10 +35,6 @@ FIXED_GEOMETRY_CONTRACTS = (
         "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift",
         "max(proxy.size.height - headerHeight, 1)",
     ),
-    (
-        "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift",
-        "lowerBound: CGFloat = 1",
-    ),
 )
 
 
@@ -134,7 +130,6 @@ VISUAL_CONTRACT_OWNERS = {
     "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (("CourseHistoryGradesChart",), None),
     "Modules/MediaKit/Sources/ImageDataCompressor.swift": (("ImageDataCompressor",), "render"),
     "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift": (("LinearScheduleCalendarView",), None),
-    "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift": (("ScheduleCardTextView", "AdaptiveCardTextView"), "fittingFont"),
     "Modules/MapFeature/Sources/CampusMapScreen.swift": (("AppDesignSystem", "Map"), "tabAccent"),
 }
 

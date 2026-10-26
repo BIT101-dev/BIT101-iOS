@@ -4,6 +4,8 @@ import ScheduleInfrastructure
 import SchedulePorts
 import TransportCore
 import UIKit
+import SwiftUI
+import DesignSystemKit
 
 struct SchoolIdentityVerification {
     let studentID: String
@@ -99,7 +101,7 @@ enum AppNativeSchoolAuthentication {
 final class SchoolSMSPrompt {
     static let shared = SchoolSMSPrompt()
     private let presenter: @MainActor () -> UIViewController?
-    private var active: (id: UUID, alert: UIAlertController, continuation: CheckedContinuation<String, Error>)?
+    private var active: (id: UUID, controller: UIViewController, continuation: CheckedContinuation<String, Error>)?
 
     init(presenter: @escaping @MainActor () -> UIViewController? = AppErrorPresenter.topViewController) {
         self.presenter = presenter
@@ -115,27 +117,14 @@ final class SchoolSMSPrompt {
                     continuation.resume(throwing: NativeSchoolAuthenticationError.additionalVerification)
                     return
                 }
-                let alert = UIAlertController(title: "学校短信验证", message: "验证码已发送至 \(request.maskedPhone)", preferredStyle: .alert)
-                alert.addTextField { field in
-                    field.placeholder = "短信验证码"
-                    field.keyboardType = .numberPad
-                    field.textContentType = .oneTimeCode
-                    field.accessibilityIdentifier = "school.sms.code"
-                }
-                alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
-                    self?.finish(id, .failure(CancellationError()))
-                })
-                let submit = UIAlertAction(title: "验证并继续", style: .default) { [weak self, weak alert] _ in
-                    self?.finish(id, .success(alert?.textFields?.first?.text ?? ""))
-                }
-                submit.isEnabled = false
-                alert.addAction(submit)
-                alert.preferredAction = submit
-                alert.textFields?.first?.addAction(UIAction { [weak alert, weak submit] _ in
-                    submit?.isEnabled = alert?.textFields?.first?.text?.isEmpty == false
-                }, for: .editingChanged)
-                active = (id, alert, continuation)
-                controller.present(alert, animated: true)
+                let sheet = UIHostingController(rootView: AppSchoolSMSVerificationSheet(
+                    maskedPhone: request.maskedPhone,
+                    onCancel: { [weak self] in self?.finish(id, .failure(CancellationError())) },
+                    onSubmit: { [weak self] code in self?.finish(id, .success(code)) }
+                ).appReadableContent().appWindowLayout())
+                sheet.isModalInPresentation = true
+                active = (id, sheet, continuation)
+                controller.present(sheet, animated: true)
             }
         } onCancel: {
             Task { @MainActor [weak self] in self?.finish(id, .failure(CancellationError())) }
@@ -145,7 +134,7 @@ final class SchoolSMSPrompt {
     private func finish(_ id: UUID, _ result: Result<String, Error>) {
         guard let current = active, current.id == id else { return }
         active = nil
-        current.alert.textFields?.first?.text = ""
-        current.alert.dismiss(animated: true) { current.continuation.resume(with: result) }
+        current.controller.view.endEditing(true)
+        current.controller.dismiss(animated: true) { current.continuation.resume(with: result) }
     }
 }

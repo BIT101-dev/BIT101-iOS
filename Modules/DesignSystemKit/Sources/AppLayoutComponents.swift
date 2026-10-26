@@ -6,10 +6,15 @@ public struct AppWindowLayout: Equatable {
     public var size: CGSize = .zero
     public var isRegularWidth = false
     public var usesAccessibilityText = false
-    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false) {
+    public var availableWidth: CGFloat?
+    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false, availableWidth: CGFloat? = nil) {
         self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
+        self.availableWidth = availableWidth
     }
-    public var isLandscape: Bool { isRegularWidth && size.width > size.height && !usesAccessibilityText }
+    public var isLandscape: Bool {
+        isRegularWidth && size.width > size.height && !usesAccessibilityText
+            && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
+    }
     public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
 }
 
@@ -28,22 +33,25 @@ private struct AppWindowLayoutModifier: ViewModifier {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var size = CGSize.zero
+    @State private var availableWidth: CGFloat = 0
     func body(content: Content) -> some View {
         content
-            .background(AppWindowSizeReader(onChange: { size = $0 }))
+            .background(AppWindowSizeReader(onChange: { size = $0; availableWidth = $1 }))
             .environment(\.appWindowLayout, AppWindowLayout(size: size,
-                isRegularWidth: horizontalSizeClass == .regular, usesAccessibilityText: dynamicTypeSize.isAccessibilitySize))
+                isRegularWidth: horizontalSizeClass == .regular, usesAccessibilityText: dynamicTypeSize.isAccessibilitySize,
+                availableWidth: availableWidth))
     }
 }
 
 private struct AppWindowSizeReader: UIViewRepresentable {
-    let onChange: (CGSize) -> Void
+    let onChange: (CGSize, CGFloat) -> Void
     func makeUIView(context: Context) -> ProbeView { ProbeView(onChange: onChange) }
     func updateUIView(_ view: ProbeView, context: Context) { view.onChange = onChange; view.measure() }
     final class ProbeView: UIView {
-        var onChange: (CGSize) -> Void
+        var onChange: (CGSize, CGFloat) -> Void
         private var lastSize = CGSize.zero
-        init(onChange: @escaping (CGSize) -> Void) {
+        private var lastWidth: CGFloat = 0
+        init(onChange: @escaping (CGSize, CGFloat) -> Void) {
             self.onChange = onChange
             super.init(frame: .zero)
             isUserInteractionEnabled = false
@@ -52,11 +60,13 @@ private struct AppWindowSizeReader: UIViewRepresentable {
         override func didMoveToWindow() { super.didMoveToWindow(); measure() }
         override func layoutSubviews() { super.layoutSubviews(); measure() }
         func measure() {
-            guard let size = window?.bounds.size, size != lastSize else { return }
-            lastSize = size
+            guard let size = window?.bounds.size, bounds.width > 0 else { return }
+            let width = bounds.width
+            guard size != lastSize || width != lastWidth else { return }
+            lastSize = size; lastWidth = width
             Task { @MainActor [weak self] in
-                guard let self, lastSize == size else { return }
-                onChange(size)
+                guard let self, lastSize == size, lastWidth == width else { return }
+                onChange(size, width)
             }
         }
     }
