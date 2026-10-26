@@ -142,10 +142,10 @@ final class ScheduleLiveActivityManager {
         guard context.isSessionResolved() else { return }
         logger.debug("refreshFromCurrentCache trigger=\(trigger, privacy: .public)")
 
-        // 课表提醒依赖有效 fake-cookie 会话；账号凭据与课表缓存按各自持久化策略管理。
+        // 课表提醒依赖已恢复的本地账号；账号凭据与课表缓存按各自持久化策略管理。
         let session = context.currentSession()
         guard session.signedIn else {
-            logger.debug("fake-cookie missing; treating session as signed out and ending all activities")
+            logger.debug("local session resolved as signed out; ending all activities")
             await clearFallbackNotifications()
             guard !Task.isCancelled else { return }
             await endAllActivities(invalidateRefresh: false)

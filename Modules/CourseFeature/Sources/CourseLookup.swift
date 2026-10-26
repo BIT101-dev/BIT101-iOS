@@ -120,7 +120,17 @@ public struct CourseEvaluationLookupResult: Sendable {
     public let searchResults: [CourseSummary]
 }
 
+nonisolated struct CourseEvaluationSearchRecovery: LocalizedError {
+    let query: String
+    let items: [CourseSummary]
+    let underlying: any Error
+    var errorDescription: String? { underlying.localizedDescription }
+}
+
 public struct CourseEvaluationResolver {
+    @MainActor private final class SearchProgress {
+        var firstPages: [String: [CourseSummary]] = [:]
+    }
     private struct Candidates: Sendable {
         let firstPage: [CourseSummary]
         let all: [CourseSummary]
@@ -152,27 +162,36 @@ public struct CourseEvaluationResolver {
         guard !name.isEmpty || !number.isEmpty else { return nil }
 
         let deadline = ContinuousClock.now.advanced(by: .seconds(URLSessionConfiguration.default.timeoutIntervalForRequest))
+        let progress = SearchProgress()
         let operation: @MainActor @Sendable () async throws -> CourseEvaluationLookupResult? = {
-            try await lookup(name: name, number: number, teacher: teacher, deadline: deadline)
+            try await lookup(name: name, number: number, teacher: teacher, deadline: deadline, progress: progress)
         }
-        return try await withThrowingTaskGroup(of: CourseEvaluationLookupResult?.self) { group in
-            group.addTask { try await operation() }
-            group.addTask { [waitForDeadline] in
-                try await waitForDeadline(deadline)
-                throw CourseEvaluationLookupLimit.reached
+        do {
+            return try await withThrowingTaskGroup(of: CourseEvaluationLookupResult?.self) { group in
+                group.addTask { try await operation() }
+                group.addTask { [waitForDeadline] in
+                    try await waitForDeadline(deadline)
+                    throw CourseEvaluationLookupLimit.reached
+                }
+                defer { group.cancelAll() }
+                guard let result = try await group.next() else { throw CancellationError() }
+                try Task.checkCancellation()
+                return result
             }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else { throw CancellationError() }
-            try Task.checkCancellation()
-            return result
+        } catch {
+            guard !Task.isCancelled, !TaskCancellation.matches(error),
+                  let query = [name, number].first(where: { progress.firstPages[$0]?.isEmpty == false }),
+                  let items = progress.firstPages[query] else { throw error }
+            throw CourseEvaluationSearchRecovery(query: query, items: items, underlying: error)
         }
     }
 
-    private func lookup(name: String, number: String, teacher: String, deadline: ContinuousClock.Instant) async throws -> CourseEvaluationLookupResult? {
+    private func lookup(name: String, number: String, teacher: String, deadline: ContinuousClock.Instant,
+        progress: SearchProgress) async throws -> CourseEvaluationLookupResult? {
         var queries: [String] = []
         for query in [number, name] where !query.isEmpty && !queries.contains(query) { queries.append(query) }
         let load: @MainActor @Sendable (String) async throws -> Candidates = { query in
-            try await fetchCandidates(for: query, name: name, number: number, teacher: teacher, deadline: deadline)
+            try await fetchCandidates(for: query, name: name, number: number, teacher: teacher, deadline: deadline, progress: progress)
         }
         return try await withThrowingTaskGroup(of: SearchResult.self) { group in
             for query in queries {
@@ -218,18 +237,18 @@ public struct CourseEvaluationResolver {
     }
 
     private func fetchCandidates(for search: String, name: String, number: String, teacher: String,
-        deadline: ContinuousClock.Instant) async throws -> Candidates {
+        deadline: ContinuousClock.Instant, progress: SearchProgress) async throws -> Candidates {
         var results: [CourseSummary] = [], firstPage: [CourseSummary] = []
         var candidateBytes = 0
-        var known = Set<Int>(), progress = CommunityPageProgress<Int>(), page = 0
+        var known = Set<Int>(), pageProgress = CommunityPageProgress<Int>(), page = 0
         while true {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
             let incoming = try await service.fetchCourses(search: search, page: page)
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
-            try progress.record(incoming.map(\.id), knownIDs: known)
-            if page == 0 { firstPage = deduplicating(incoming) }
+            try pageProgress.record(incoming.map(\.id), knownIDs: known)
+            if page == 0 { firstPage = deduplicating(incoming); progress.firstPages[search] = firstPage }
             if incoming.isEmpty { return Candidates(firstPage: firstPage, all: results) }
             for course in incoming where known.insert(course.id).inserted {
                 let bytes = MemoryLayout<CourseSummary>.stride + course.name.utf8.count + course.number.utf8.count

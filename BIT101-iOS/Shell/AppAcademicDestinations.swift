@@ -101,7 +101,8 @@ private struct ScoreRootScene: View {
             guard let requestedCourse else { return }
             selectedSurface = .course
             if requestedCourse.isSearchRequest, let query = requestedCourse.searchQuery {
-                await courseViewModel.search(for: query)
+                if requestedCourse.searchResults != nil { prepareCourseSurface(requestedCourse) }
+                else { await courseViewModel.search(for: query) }
                 if self.requestedCourse?.id == requestedCourse.id { self.requestedCourse = nil }
             } else {
                 prepareCourseSurface(requestedCourse)

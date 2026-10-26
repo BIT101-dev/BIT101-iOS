@@ -55,16 +55,23 @@ struct CommunityRecoveryCompositionTests {
                 fallbackStudentID: "fixture", onLogout: {}))
         let (window, _) = try window(NavigationStack { view })
         defer { window.isHidden = true; window.rootViewController = nil }
-        try await waitForTestEvent { service.requests == 1 }
+        func wait(_ stage: String, for condition: () -> Bool) async throws {
+            do { try await waitForTestEvent(condition) }
+            catch {
+                Issue.record("\(stage)：profile=\(profile)，请求=\(service.requests)，取消=\(service.cancellations)，成功=\(service.successes)")
+                throw error
+            }
+        }
+        try await wait("初次加载", for: { service.requests == 1 })
         try await render()
         service.offline = false; service.suspended = true
         path.update(snapshot: .init(status: .connected))
-        try await waitForTestEvent { service.requests == 2 }
+        try await wait("连接恢复", for: { service.requests == 2 })
         path.update(snapshot: .init(status: .disconnected))
-        try await waitForTestEvent { service.cancellations == 1 }
+        try await wait("断网取消", for: { service.cancellations == 1 })
         service.suspended = false
         path.update(snapshot: .init(status: .connected))
-        try await waitForTestEvent { service.successes == 1 }
+        try await wait("再次恢复", for: { service.successes == 1 })
         #expect(service.requests == 3)
     }
     private final class CourseReads: CourseListServicing {

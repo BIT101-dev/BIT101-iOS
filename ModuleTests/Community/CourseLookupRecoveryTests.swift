@@ -1,5 +1,6 @@
 import CommunityCore
 import CommunityTransport
+import BIT101TestSupport
 import Foundation
 import Testing
 import TransportCore
@@ -88,5 +89,69 @@ struct CourseLookupRecoveryTests {
         let result = try #require(await CourseEvaluationResolver(service: service).resolve(
             courseName: "课程", courseNumber: "school-code", teacher: "教师"))
         #expect(result.selectedCourse.id == 42 && service.numberPages == [0, 1])
+    }
+
+    private final class InterruptedSearch: CourseListServicing {
+        var pages: [Int] = []
+        var suspended = false
+        var recovered = false
+        var enteredLaterPage = false
+        let first = CourseSummary(detail: CourseDetail(id: 1, name: "候选课程", number: "C1", credit: 1,
+            likeNum: 0, commentNum: 0, rate: 0, teachersName: "教师", teachersNumber: "T1", like: false))
+
+        func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+            pages.append(page)
+            if page == 0 { return [first] }
+            enteredLaterPage = true
+            if suspended { try await Task.sleep(for: .seconds(30)) }
+            if !recovered { throw URLError(.notConnectedToInternet) }
+            return []
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func failedLaterPageKeepsTheFirstPageForManualSearch() async throws {
+        let service = InterruptedSearch()
+        do {
+            _ = try await CourseEvaluationResolver(service: service).resolve(courseName: "课程", courseNumber: "")
+            Issue.record("后页故障需要保留首屏供手动选择")
+        } catch {
+            let recovery = try #require(error as? CourseEvaluationSearchRecovery)
+            #expect(recovery.query == "课程" && recovery.items == [service.first])
+            #expect((recovery.underlying as? URLError)?.code == .notConnectedToInternet)
+            let model = CourseListViewModel(service: service)
+            model.applyPreparedSearch(query: recovery.query, items: recovery.items)
+            await model.bootstrapIfNeeded()
+            #expect(model.state.items == [service.first] && service.pages == [0, 1])
+            service.recovered = true
+            await model.loadMoreIfNeeded(currentCourse: service.first)
+            #expect(model.state.items == [service.first] && !model.state.canLoadMore)
+            #expect(service.pages == [0, 1, 1])
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func interruptedLookupSeparatesDeadlineRecoveryFromCallerCancellation(cancelled: Bool) async throws {
+        let service = InterruptedSearch()
+        service.suspended = true
+        let deadline = AsyncStream<Void>.makeStream()
+        let resolver = CourseEvaluationResolver(service: service, waitForDeadline: { _ in
+            for await _ in deadline.stream { break }
+            try Task.checkCancellation()
+        })
+        let task = Task { try await resolver.resolve(courseName: "课程", courseNumber: "") }
+        defer { task.cancel(); deadline.continuation.finish() }
+        try await waitForTestEvent { service.enteredLaterPage }
+        if cancelled { task.cancel() }
+        else { deadline.continuation.yield(()) }
+        do {
+            _ = try await task.value
+            Issue.record("中断需要结束自动匹配")
+        } catch {
+            if cancelled { #expect(TaskCancellation.matches(error)) }
+            else {
+                let recovery = try #require(error as? CourseEvaluationSearchRecovery)
+                #expect(recovery.query == "课程" && recovery.items == [service.first])
+            }
+        }
     }
 }

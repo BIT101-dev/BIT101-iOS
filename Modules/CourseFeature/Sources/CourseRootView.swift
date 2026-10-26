@@ -140,6 +140,7 @@ private struct CourseEvaluationLinkScene: View {
     @State private var alert: AppAlert?
     @State private var diagnosticAlert: AppAlert?
     @State private var canSearch = false
+    @State private var searchRecovery: CourseNavigationRequest?
 
     init(
         dependencies: CourseDependencies,
@@ -176,6 +177,7 @@ private struct CourseEvaluationLinkScene: View {
             .accessibilityIdentifier("ui.course-evaluation-link.open")
             if canSearch {
                 Button("搜索课程") {
+                    if let searchRecovery { onResolved(searchRecovery); return }
                     let name = request.lookupCourseName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     onResolved(.search(query: name.isEmpty ? (request.lookupCourseNumber ?? "") : name))
                 }
@@ -187,6 +189,7 @@ private struct CourseEvaluationLinkScene: View {
 
     private func resolveAndNavigate() async {
         defer { isResolving = false }
+        searchRecovery = nil
 
         do {
             let resolved = try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request)
@@ -195,10 +198,14 @@ private struct CourseEvaluationLinkScene: View {
         } catch {
             if Task.isCancelled || TaskCancellation.matches(error) { return }
             canSearch = request.hasLookupIdentity
+            if let recovery = error as? CourseEvaluationSearchRecovery {
+                searchRecovery = CourseNavigationRequest(courseID: 0, searchQuery: recovery.query, searchResults: recovery.items)
+            }
             if error is CourseEvaluationError {
                 alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
             } else {
-                diagnosticAlert = AppAlert(title: "课程评价加载失败", error: error)
+                diagnosticAlert = AppAlert(title: "课程评价加载失败",
+                    error: (error as? CourseEvaluationSearchRecovery)?.underlying ?? error)
             }
         }
     }

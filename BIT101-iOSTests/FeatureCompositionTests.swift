@@ -784,8 +784,13 @@ struct CourseLookupMatcherTests {
         #expect(result.selectedCourse.id == 3 && result.searchQuery == "C1")
         #expect(result.searchResults.map(\.id) == [3, 1, 2])
         service.repeatsFirstPage = true
-        await #expect(throws: URLError.self) {
-            try await CourseEvaluationResolver(service: service).resolve(courseName: "", courseNumber: "C1", teacher: "李")
+        do {
+            _ = try await CourseEvaluationResolver(service: service).resolve(courseName: "", courseNumber: "C1", teacher: "李")
+            Issue.record("重复后页需要保留首屏和协议错误")
+        } catch {
+            let recovery = try #require(error as? CourseEvaluationSearchRecovery)
+            #expect(recovery.items.map(\.id) == [1, 2])
+            #expect((recovery.underlying as? URLError)?.code == .badServerResponse)
         }
     }
 

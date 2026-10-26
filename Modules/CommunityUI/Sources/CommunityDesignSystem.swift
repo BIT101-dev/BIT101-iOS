@@ -29,7 +29,16 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
                 hasAppeared = true
             }
             .onDisappear { isVisible = false; recoveryTask?.cancel(); recoveryTask = nil }
-            .onChange(of: networkPath.snapshot.status) { recover() }
+            .onChange(of: networkPath.snapshot.status) {
+                if networkPath.snapshot.status != .connected { recoveryTask?.cancel(); recoveryTask = nil }
+            }
+            .task(id: scenePhase == .active && isEnabled) {
+                guard scenePhase == .active, isEnabled else { return }
+                for await _ in networkPath.connectionRecoveries() {
+                    guard !Task.isCancelled else { return }
+                    recover()
+                }
+            }
             .onChange(of: scenePhase) { recover() }
             .onChange(of: isEnabled) { recover() }
     }
