@@ -100,7 +100,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         continuation?.resume(throwing: CancellationError())
     }
 
-    /// DDL 列表默认向前展示的天数。
+    /// DDL 临近截止时的变色天数。
     public var beforeDay: Int { min(max(cache.ddlBeforeDay, 0), 30) }
     /// DDL 列表默认向后保留的天数。
     public var afterDay: Int { min(max(cache.ddlAfterDay, 0), 30) }

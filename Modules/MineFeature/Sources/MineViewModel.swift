@@ -346,6 +346,7 @@ final class UserProfileViewModel: ObservableObject {
         guard let userInfo, !userInfo.own, !isFollowingUser else { return }
         isFollowingUser = true
         defer { isFollowingUser = false }
+        guard userInfo.isViewerAuthenticated else { await refreshProfile(); return }
 
         do {
             let result = try await service.followUser(id: userID)

@@ -13,6 +13,7 @@ public nonisolated struct RemotePreviewImage: Equatable, Sendable {
 
 #if os(iOS)
 import DesignSystemKit
+import TransportCore
 import QuickLook
 import OSLog
 import os
@@ -90,9 +91,19 @@ extension LocalImageTile where Overlay == EmptyView {
 
 /// 一次系统图片预览请求。
 public struct ImagePreviewRequest: Identifiable {
+    fileprivate enum LocalImage {
+        case encoded(Data)
+        case decoded(UIImage)
+        func file(media: MediaEnvironment, owner: UUID) async throws -> URL {
+            switch self {
+            case let .encoded(data): try await media.localPreviewFile(data: data, owner: owner)
+            case let .decoded(image): try await media.localPreviewFile(image: image, owner: owner)
+            }
+        }
+    }
     fileprivate enum Source {
         case remote([RemotePreviewImage])
-        case local([UIImage])
+        case local([LocalImage])
     }
 
     public let id = UUID()
@@ -105,7 +116,12 @@ public struct ImagePreviewRequest: Identifiable {
     }
 
     public init(localImages: [UIImage], initialIndex: Int) {
-        source = .local(localImages)
+        source = .local(localImages.map(LocalImage.decoded))
+        self.initialIndex = initialIndex
+    }
+
+    public init(localImageData: [Data], initialIndex: Int) {
+        source = .local(localImageData.map(LocalImage.encoded))
         self.initialIndex = initialIndex
     }
 }
@@ -235,6 +251,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     let prepared = try await prepareInitialItems(for: request, media: media)
                     guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
                     items = prepared.items
+                    if let failure = prepared.failure { recordFailure(failure, at: prepared.initialIndex) }
 
                     let controller = makePreviewController()
                     controller.dataSource = self
@@ -335,16 +352,22 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         func prepareInitialItems(
             for request: ImagePreviewRequest,
             media: MediaEnvironment
-        ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int) {
+        ) async throws -> (items: [MutableQuickLookItem], initialIndex: Int, failure: (any Error)?) {
             let count: Int
             let initialIndex: Int
             let file: URL?
+            var failure: (any Error)?
             switch request.source {
             case let .local(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
                 count = images.count
                 initialIndex = min(max(request.initialIndex, 0), images.count - 1)
-                file = try await media.localPreviewFile(image: images[initialIndex], owner: request.id)
+                do { file = try await images[initialIndex].file(media: media, owner: request.id) }
+                catch {
+                    if Task.isCancelled || TaskCancellation.matches(error) { throw error }
+                    file = nil
+                    failure = error
+                }
             case let .remote(images):
                 guard !images.isEmpty else { throw QuickLookPreparationError.noImages }
                 count = images.count
@@ -372,7 +395,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 MutableQuickLookItem(url: index == initialIndex ? file ?? placeholderURL : placeholderURL,
                     title: index == initialIndex && file != nil ? "图片 \(index + 1)" : "正在加载图片")
             }
-            return (prepared, initialIndex)
+            return (prepared, initialIndex, failure)
         }
 
         private func prepareRemainingLocalItems(for request: ImagePreviewRequest, initialIndex: Int, media: MediaEnvironment) async {
@@ -380,7 +403,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             for index in images.indices where index != initialIndex {
                 guard !Task.isCancelled, requestID == request.id, self.media === media else { return }
                 do {
-                    let file = try await media.localPreviewFile(image: images[index], owner: request.id)
+                    let file = try await images[index].file(media: media, owner: request.id)
                     guard !Task.isCancelled, requestID == request.id, items.indices.contains(index), self.media === media else { return }
                     updateItem(at: index, to: file)
                 } catch {
@@ -534,7 +557,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                     let clearsFailure: Bool
                     switch request.source {
                     case let .local(images):
-                        file = try await media.localPreviewFile(image: images[index], owner: request.id)
+                        file = try await images[index].file(media: media, owner: request.id)
                         clearsFailure = true
                     case let .remote(images):
                         let image = images[index]

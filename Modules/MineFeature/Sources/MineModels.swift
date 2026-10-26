@@ -13,6 +13,8 @@ import Foundation
 /// `MineUserInfo` 服务于“我的主页”和他人主页的资料卡。
 /// 模型包含基础用户信息、关注关系和是否本人这些关系态字段。
 public nonisolated struct MineUserInfo: Decodable, Sendable {
+    public var isViewerAuthenticated = true
+    private enum CodingKeys: String, CodingKey { case user, followingNum, followerNum, following, follower, own }
     /// 当前主页主体用户。
     public let user: CommunityUser
     /// 当前主页用户关注的人数。
@@ -29,12 +31,13 @@ public nonisolated struct MineUserInfo: Decodable, Sendable {
     public func updatingUser(nickname: String? = nil, motto: String? = nil, avatar: CommunityImage? = nil) -> Self {
         let updated = CommunityUser(id: user.id, createTime: user.createTime, nickname: nickname ?? user.nickname,
             avatar: avatar ?? user.avatar, motto: motto ?? user.motto, identity: user.identity)
-        return MineUserInfo(user: updated, followingNum: followingNum, followerNum: followerNum,
+        return MineUserInfo(isViewerAuthenticated: isViewerAuthenticated, user: updated, followingNum: followingNum, followerNum: followerNum,
             following: following, follower: follower, own: own)
     }
 
     public func updatingFollow(_ result: MineFollowResult) -> Self {
         MineUserInfo(
+            isViewerAuthenticated: isViewerAuthenticated,
             user: user,
             followingNum: result.followingNum,
             followerNum: result.followerNum,

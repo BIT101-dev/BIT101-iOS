@@ -847,17 +847,18 @@ struct ServiceContractTests {
         #expect(observer.failures == 4)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18, 17])
-    func publicProfileResponseMatchesTheRequestedUser(returnedID: Int) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [0, -1, 18, 17], [false, true])
+    func publicProfileResponseMatchesTheRequestedUser(returnedID: Int, authenticated: Bool) async throws {
         let returnedUser = user.replacingOccurrences(of: "\"id\":1", with: "\"id\":\(returnedID)")
         let profile = #"{"user":\#(returnedUser),"followingNum":2,"followerNum":3,"following":false,"follower":false,"own":false}"#
         let transport = Transport([(200, profile)])
         let observer = ResponseObserver()
-        let service = MineService(session: session(transport, observer: observer), preferences: {
+        let service = MineService(session: session(transport, cookie: authenticated ? "fixture-cookie" : "", observer: observer), preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
         if returnedID == 17 {
-            #expect(try await service.fetchUserInfo(id: 17).user.id == 17)
+            let info = try await service.fetchUserInfo(id: 17)
+            #expect(info.user.id == 17 && info.isViewerAuthenticated == authenticated)
         } else {
             await #expect(throws: MineServiceError.self) { try await service.fetchUserInfo(id: 17) }
         }

@@ -321,8 +321,7 @@ struct GalleryCommentComposerSheet: View {
 
     private func openImage(id: UUID) {
         guard let index = imageUploads.drafts.firstIndex(where: { $0.id == id }) else { return }
-        let images = imageUploads.drafts.compactMap { UIImage(data: $0.previewData) }
-        imageViewer = ImagePreviewRequest(localImages: images, initialIndex: index)
+        imageViewer = ImagePreviewRequest(localImageData: imageUploads.drafts.map(\.previewData), initialIndex: index)
     }
 }
 

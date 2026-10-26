@@ -181,6 +181,9 @@ public final class MediaEnvironment {
             throw CancellationError()
         }
         temporaryPreviewFiles[owner, default: []].insert(file)
+        await previewQuota.didWrite(file)
+        try Task.checkCancellation()
+        guard previewOwnership.contains(owner) else { throw CancellationError() }
         return file
     }
 
@@ -188,8 +191,13 @@ public final class MediaEnvironment {
     private static func materializeLocalPreview(data: Data, files: any AppFileService,
                                                ownership: PreviewFileOwnership, owner: UUID) async throws -> URL {
         try Task.checkCancellation()
+        guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes else { throw HTTPClientError.responseTooLarge }
+        guard let source = RemoteImageResourceLimits.completeImageSource(from: data),
+              let type = CGImageSourceGetType(source), let suffix = UTType(type as String)?.preferredFilenameExtension else {
+            throw URLError(.cannotDecodeContentData)
+        }
         let directory = ImageCacheDirectories.previews(using: files)
-        let file = directory.appendingPathComponent("preview-local-\(SHA256.hash(data: data).hexString).png")
+        let file = directory.appendingPathComponent("preview-local-\(SHA256.hash(data: data).hexString).\(suffix)")
         try ownership.materializeAndPin(file, using: files, owner: owner) {
             try files.createDirectory(at: directory)
             if !files.fileExists(at: file) { try files.writeData(data, to: file, options: [.atomic, .completeFileProtection]) }

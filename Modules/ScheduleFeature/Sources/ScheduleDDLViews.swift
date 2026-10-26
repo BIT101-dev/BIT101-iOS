@@ -409,7 +409,7 @@ private struct DDLImageStrip: View {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
                     LocalImageTile(data: image.data, identifier: "ddl.image.\(image.id)",
                         pointSize: onRemove == nil ? AppDesignSystem.Size.Media.attachment : AppDesignSystem.Size.Media.draft,
-                        onOpen: { onPreview(ImagePreviewRequest(localImages: images.compactMap { UIImage(data: $0.data) }, initialIndex: index)) },
+                        onOpen: { onPreview(ImagePreviewRequest(localImageData: images.map(\.data), initialIndex: index)) },
                         onRemove: onRemove.map { remove in { remove(image.id) } }, previewLabel: "预览 DDL 图片")
                 }
             }

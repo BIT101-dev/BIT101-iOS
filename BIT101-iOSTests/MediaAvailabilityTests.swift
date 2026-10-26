@@ -9,6 +9,48 @@ import os
 
 @MainActor
 struct MediaAvailabilityTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
+    func encodedLocalPreviewsKeepJPEGBytesAndAttachmentPositions(selected: Int) async throws {
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let media = helper.environment(files: files, previewFiles: files, transport: MediaDependencyTests.Images(bytes: Data()))
+        let pages = [Data("damaged".utf8), try #require(UIImage(data: helper.png(width: 2))?.jpegData(compressionQuality: 0.9)),
+            try #require(UIImage(data: helper.png(width: 3))?.jpegData(compressionQuality: 0.9))]
+        let request = ImagePreviewRequest(localImageData: pages, initialIndex: selected)
+        media.beginPreview(owner: request.id)
+        let prepared = try await ImageQuickLookPresenter.Coordinator(media: media).prepareInitialItems(for: request, media: media)
+        #expect(prepared.initialIndex == selected && prepared.items.count == pages.count)
+        if selected == 0 { #expect(prepared.failure != nil) }
+        else {
+            let file = try #require(prepared.items[selected].url)
+            #expect(file.pathExtension == "jpeg")
+            #expect(try files.readData(at: file) == pages[selected])
+            #expect(UIImage(data: try files.readData(at: file))?.size.width == CGFloat(selected + 1))
+        }
+        await media.endPreview(owner: request.id).value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func localPreviewWritesEnforceTheSharedDiskBudget() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.local-preview-quota"))
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.local-preview-quota") }
+        let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()
+        let client = HTTPClient(transport: MediaDependencyTests.Images(bytes: Data()), observer: nil)
+        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
+            imageHTTPClient: client, avatarHTTPClient: client)
+        media.cacheLimitMB = 1
+        let bytes = try helper.png(width: 2) + Data(repeating: 0, count: 600_000)
+        let old = ImageCacheDirectories.gallery(using: files).appending(path: "old.png")
+        try files.writeData(bytes, to: old, options: [])
+        await media.enforceCurrentLimit()
+        let owner = UUID()
+        media.beginPreview(owner: owner)
+        let active = try await media.localPreviewFile(data: bytes, owner: owner)
+        #expect(files.fileExists(at: active) && !files.fileExists(at: old))
+        #expect(await media.usedBytes() <= 1_048_576)
+        await media.endPreview(owner: owner).value
+        #expect(!files.fileExists(at: active))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func closingPreviewsReusesTheQuotaInventory() async throws {
         let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()

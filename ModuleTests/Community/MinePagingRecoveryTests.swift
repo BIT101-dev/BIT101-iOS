@@ -163,6 +163,28 @@ final class PagingMineService: MineOverviewServicing, UserProfileServicing {
 
 @MainActor
 struct MineLifecycleTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func publicFollowActionReadsTheAuthenticatedStateBeforeOfferingTheToggle(readFails: Bool) async {
+        let service = PagingMineService()
+        var guest = MineUserInfo(user: listUser(1), followingNum: 1, followerNum: 2, following: false, follower: false, own: false)
+        guest.isViewerAuthenticated = false
+        service.profile = { guest }
+        let model = UserProfileViewModel(userID: 1, service: service)
+        await model.bootstrapIfNeeded()
+        #expect(model.userInfo?.updatingUser(nickname: "更新").isViewerAuthenticated == false)
+        if readFails {
+            service.profile = { throw URLError(.notConnectedToInternet) }
+            await model.followUser()
+            #expect(service.followingRequests == 0 && model.userInfo?.isViewerAuthenticated == false && model.alert != nil)
+        }
+        service.profile = { MineUserInfo(user: listUser(1), followingNum: 1, followerNum: 2, following: true, follower: false, own: false) }
+        await model.followUser()
+        #expect(service.followingRequests == 0 && model.userInfo?.following == true && model.userInfo?.isViewerAuthenticated == true)
+        service.follow = { .init(following: false, follower: false, followingNum: 1, followerNum: 1) }
+        await model.followUser()
+        #expect(service.followingRequests == 1 && model.userInfo?.following == false)
+    }
+
     @Test(.timeLimit(.minutes(1))) func explicitOverviewRefreshRecoversTheFailedPosterSummary() async {
         let service = PagingMineService()
         service.posters = { _ in throw URLError(.notConnectedToInternet) }

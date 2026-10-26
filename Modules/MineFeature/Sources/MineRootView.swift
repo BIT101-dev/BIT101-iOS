@@ -491,12 +491,12 @@ private struct MineProfileCard: View {
 
             if let onFollow, !info.own {
                 Button(action: onFollow) {
-                    Text(info.following ? (info.follower ? "互相关注" : "已关注") : "关注")
+                    Text(info.isViewerAuthenticated ? (info.following ? (info.follower ? "互相关注" : "已关注") : "关注") : "获取关注状态")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isFollowRequestInFlight)
-                .accessibilityLabel(info.following ? "取消关注" : "关注")
+                .accessibilityLabel(info.isViewerAuthenticated ? (info.following ? "取消关注" : "关注") : "获取关注状态")
                 .padding(.top, AppDesignSystem.Spacing.regular)
                     .accessibilityIdentifier("ui.mine-profile-card.follow")
             }

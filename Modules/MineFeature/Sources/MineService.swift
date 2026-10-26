@@ -57,9 +57,12 @@ public struct MineService {
 
     /// 获取指定用户的公开资料卡信息。
     public func fetchUserInfo(id: Int) async throws -> MineUserInfo {
-        try await api.request(path: "user/info/\(id)", authentication: .optional, validate: { info in
+        let response: CommunityAPIResponse<MineUserInfo> = try await api.response(path: "user/info/\(id)", authentication: .optional, validate: { info in
             guard id > 0, info.user.id == id else { throw MineServiceError.invalidResponse }
         })
+        var info = response.value
+        info.isViewerAuthenticated = response.isAuthenticated
+        return info
     }
 
     public func followUser(id: Int) async throws -> MineFollowResult {
