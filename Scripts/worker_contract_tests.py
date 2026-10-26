@@ -11,6 +11,13 @@ def emergency_notice_identity_self_test() -> None:
     from io import StringIO
     from unittest.mock import patch
     source = (ROOT / 'Cloudflare/EmergencyUpdateWorker/Scripts/publish-emergency-update.sh').read_text()
+    stub = source.replace('source "$ROOT_DIR/../../Scripts/script-support.sh"', 'bit101_acquire_script_lock() { exit 91; }')
+    for arguments, expected in [(['--help'], 0), ([], 64), (['-1', 'title', 'body'], 64),
+            (['1', ' ', 'body'], 64), (['9007199254740992', 'title', 'body'], 64),
+            (['--disable'], 91), (['1', 'title', 'body'], 91)]:
+        result = subprocess.run(['zsh', '-c', stub, str(ROOT / 'Cloudflare/EmergencyUpdateWorker/Scripts/publish-emergency-update.sh'),
+            *arguments], capture_output=True, text=True, timeout=5)
+        assert result.returncode == expected, (arguments, result.stderr)
     body = source.split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
     identities = []
     for build, title, message in [('41', '公告', '正文'), ('41', '公告', '正文'),

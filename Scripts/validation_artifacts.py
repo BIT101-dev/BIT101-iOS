@@ -195,7 +195,7 @@ def prune_compilation_cache(shared: Path, compiler: Path | None = None) -> tuple
 
 def cache_space_report(root: Path) -> dict:
     values = {}
-    for line in subprocess.check_output(['du', '-k', '-d', '3', str(root)], text=True).splitlines():
+    for line in subprocess.check_output(['du', '-k', '-d', '4', str(root)], text=True).splitlines():
         size, name = line.split('\t', 1)
         values[Path(name).relative_to(root).as_posix()] = int(size) * 1024
     def size(name): return values.get(name, 0)
@@ -203,22 +203,16 @@ def cache_space_report(root: Path) -> dict:
     return {'projectBytes': size('.'), 'casBytes': size(shared + 'CompilationCache.noindex'),
         'sdkBytes': size(shared + 'SDKExplicitPrecompiledModules') + size(shared + 'SDKStatCaches.noindex'),
         'modulesBytes': size(shared + 'ModuleCache.noindex'), 'indexBytes': size(shared + 'Index.noindex'),
-        'buildBytes': size('.build/extended-automation/Build') + size('.build/extended-automation/out') + size('build/DeviceInstall'),
+        'buildBytes': sum(size(name) for name in ('.build/extended-automation/Build', '.build/extended-automation/out',
+            'build/DeviceInstall', '.build/release-network-smoke/Build',
+            '.build/icloud-cross-device-smoke/Phone/Build', '.build/icloud-cross-device-smoke/Mac/Build')),
         'auditBytes': size('.build/static-audit'), 'diagnosticBytes': size('.build/extended-automation/diagnostics'),
         'casGenerationLimitBytes': CAS_GENERATION_LIMIT}
 
 
-def record_cache_space(root: Path, cas_bytes: int | None = None) -> dict:
+def record_cache_space(root: Path) -> dict:
     output = root / '.build/compiler-cache/compilation-cache.json'
-    databases = (root / '.build/extended-automation/Build/Intermediates.noindex/XCBuildData/build.db',
-        root / 'build/DeviceInstall/Build/Intermediates.noindex/XCBuildData/build.db')
-    signature = [cas_bytes, *(path.stat().st_blocks if path.exists() else 0 for path in databases)]
-    if cas_bytes is not None and output.is_file():
-        try: previous = json.loads(output.read_text())
-        except (ValueError, UnicodeError): previous = {}
-        if previous.get('monitorSignature') == signature: return previous
     report = cache_space_report(root)
-    report['monitorSignature'] = signature
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     return report
 

@@ -61,7 +61,7 @@ def normalize_ci_runs(arguments):
         'headBranch': 'head_branch', 'headSha': 'head_sha', 'createdAt': 'created_at',
         'updatedAt': 'updated_at', 'url': 'html_url'}
     runs = [{key: run.get(remote) for key, remote in fields.items()}
-        for page in json.loads(path.read_text()) for run in page['workflow_runs']]
+        for run in json.loads(path.read_text())['workflow_runs']]
     path.write_text(json.dumps(runs, ensure_ascii=False) + '\n')
 
 
@@ -320,7 +320,7 @@ def publish_summary(arguments):
 
     lines = [f"GitHub Issues：{len(issues)} · {issues_state}"]
     for issue in issues:
-        lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue['url']}")
+        lines.append(f"  #{issue['number']} [{issue['state']}] {issue['title']}  {issue.get('html_url') or issue['url']}")
     lines.append("")
     lines.append(f"GitHub CI：{len(ci_runs)} 条失败运行 · {ci_state}")
     for run in ci_runs:

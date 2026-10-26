@@ -12,7 +12,7 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    from report_inbox import archive_reports, normalize_github_issues, normalize_ci_runs, latest_failed_ci_runs
+    from report_inbox import archive_reports, normalize_github_issues, normalize_ci_runs, latest_failed_ci_runs, publish_summary
     from workflow_processes import capture_command, active_members
     captured = capture_command([sys.executable, '-c', 'import sys; print("body"); print("detail", file=sys.stderr); sys.exit(3)'])
     assert captured.returncode == 3 and captured.stdout == 'body\n' and captured.stderr == 'detail\n'
@@ -55,14 +55,21 @@ def report_inbox_boundary_findings() -> list[str]:
         namespace_configuration_self_test(source, fixture)
         deletion_boundary_self_test(source, fixture)
         issues_path = fixture / 'github-issues.json'
-        issues_path.write_text(json.dumps([[dict(number=1), dict(number=2, pull_request={})], [dict(number=3, pull_request=None)]]))
+        issue = dict(number=1, state='open', title='Issue', url='https://api.github.com/repos/owner/repo/issues/1',
+            html_url='https://github.com/owner/repo/issues/1')
+        issues_path.write_text(json.dumps([[issue, dict(number=2, pull_request={})], [dict(issue, number=3, pull_request=None)]]))
         normalize_github_issues([str(issues_path)])
         assert [item['number'] for item in json.loads(issues_path.read_text())] == [1, 3]
         ci_path = fixture / 'ci-runs.json'
-        ci_path.write_text(json.dumps([{'workflow_runs': [dict(id=index, workflow_id=1, status='completed', conclusion='success', head_branch='main', event='push') for index in range(30, 10, -1)]},
-            {'workflow_runs': [dict(id=9, workflow_id=2, status='completed', conclusion='failure', head_branch='feature', event='push')]}]))
+        ci_path.write_text(json.dumps({'workflow_runs': [dict(id=index, workflow_id=2 if index == 29 else 1,
+            status='completed', conclusion='failure' if index == 29 else 'success', head_branch='main', event='push')
+            for index in range(30, 10, -1)]}))
         normalize_ci_runs([str(ci_path)])
-        assert [item['databaseId'] for item in latest_failed_ci_runs(json.loads(ci_path.read_text()))] == [9]
+        assert [item['databaseId'] for item in latest_failed_ci_runs(json.loads(ci_path.read_text()))] == [29]
+        summary_path = fixture / 'summary.txt'
+        with redirect_stdout(StringIO()):
+            publish_summary([str(issues_path), str(fixture), str(summary_path), '0', str(ci_path), 'success', 'success', 'success'])
+        assert issue['html_url'] in summary_path.read_text() and issue['url'] not in summary_path.read_text()
         assert execute() == 2
         saved = {path.relative_to(fixture): path.read_bytes() for path in fixture.glob("*/*/*") if path.is_file()}
         attachment = next(fixture.glob("*/*/*_附件/*.jpg"))
@@ -147,9 +154,10 @@ if [[ "$1" == api ]]; then
   if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then print -ru2 'incompatible flags'; exit 64; fi
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 17; fi
   if [[ "$2" == *"/actions/runs?"* ]]; then
+    [[ "$2" == *"?per_page=20" && " $* " != *" --paginate "* ]] || exit 64
     if [[ "$INBOX_SELF_TEST_MODE" == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then
-      print '[{"workflow_runs":[{"id":1,"workflow_id":1,"event":"push","head_branch":"main","status":"completed","conclusion":"failure","updated_at":"new","head_sha":"head"}]}]'
-    else print '[]'; fi
+      print '{"workflow_runs":[{"id":1,"workflow_id":1,"event":"push","head_branch":"main","status":"completed","conclusion":"failure","updated_at":"new","head_sha":"head"}]}'
+    else print '{"workflow_runs":[]}'; fi
     exit 0
   fi
   print '[]'

@@ -196,7 +196,7 @@ else
   FETCH_STATUS=1
 fi
 
-if remote gh api "repos/$REPO/actions/runs?per_page=100" --paginate --slurp \
+if remote gh api "repos/$REPO/actions/runs?per_page=20" \
   > "$CI_RUNS_PATH" && python3 "$ROOT_DIR/Scripts/report_inbox.py" ci-runs "$CI_RUNS_PATH"; then
 
 if python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" "$ROOT_DIR/Scripts" <<'PY'

@@ -339,6 +339,24 @@ def cache_and_ui_products(fixture: Path) -> None:
     from validation_artifacts import cache_space_report
     measured = cache_space_report(fixture)
     assert measured['projectBytes'] > 0 and measured['casGenerationLimitBytes'] == CAS_GENERATION_LIMIT
+    original_run = subprocess.run
+    def sample_after_build():
+        def execute(command, **kwargs):
+            return subprocess.CompletedProcess(command, 0) if command[0] == 'zsh' else original_run(command, **kwargs)
+        with patch.object(subprocess, 'run', side_effect=execute), \
+                patch('validation_artifacts.prune_compilation_cache', return_value=(0, 0)):
+            try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
+            except SystemExit as status: assert status.code == 0
+        return json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())
+    before = sample_after_build()
+    for name in ('.build/release-network-smoke/Build', '.build/icloud-cross-device-smoke/Phone/Build',
+                 '.build/icloud-cross-device-smoke/Mac/Build'):
+        product = fixture / name / 'product'
+        product.parent.mkdir(parents=True, exist_ok=True)
+        product.write_bytes(b'product' * 4096)
+    after = sample_after_build()
+    assert after['buildBytes'] > before['buildBytes'] and after['projectBytes'] > before['projectBytes']
+    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text()) == after
     from compiler_cache import cache_layout_ready
     from validation_artifacts import cache_names
     derived = fixture / 'ready'; derived.mkdir()

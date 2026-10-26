@@ -12,6 +12,7 @@ import argparse
 import json
 import re
 import warnings
+from contextlib import closing
 from pathlib import Path
 from validation_provenance import report_lock
 
@@ -28,27 +29,30 @@ TIME_PATTERN = re.compile(
 def extract_unique_locations(path: Path) -> list[tuple[str, str]]:
     from openpyxl import load_workbook
     warnings.filterwarnings("ignore", message="Workbook contains no default style")
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook.active
-    sheet.reset_dimensions()  # 教务导出偶尔错误地把 dimension 标成 A1。
-    rows = sheet.iter_rows(values_only=True)
-    headers = next(rows)
-    columns = {name: index for index, name in enumerate(headers)}
-    required = {"学校校区", "已排时间地点"}
-    if not required.issubset(columns):
-        raise ValueError(f"工作簿缺少列：{', '.join(sorted(required - columns.keys()))}")
+    with closing(load_workbook(path, read_only=True, data_only=True)) as workbook:
+        sheet = workbook.active
+        sheet.reset_dimensions()  # 教务导出偶尔错误地把 dimension 标成 A1。
+        rows = sheet.iter_rows(values_only=True)
+        headers = next(rows)
+        columns = {name: index for index, name in enumerate(headers)}
+        required = {"学校校区", "已排时间地点"}
+        if not required.issubset(columns):
+            raise ValueError(f"工作簿缺少列：{', '.join(sorted(required - columns.keys()))}")
 
-    locations: set[tuple[str, str]] = set()
-    for row in rows:
-        campus = str(row[columns["学校校区"]] or "").strip()
-        schedule = row[columns["已排时间地点"]]
-        if campus not in SUPPORTED_CAMPUSES or not schedule:
-            continue
-        for match in TIME_PATTERN.finditer(str(schedule)):
-            classroom = match.group(1).strip(" \t,，;；")
-            if classroom:
-                locations.add((campus, classroom))
-    return sorted(locations)
+        locations: set[tuple[str, str]] = set()
+        required_width = max(columns[name] for name in required) + 1
+        for row in rows:
+            if len(row) < required_width:
+                continue
+            campus = str(row[columns["学校校区"]] or "").strip()
+            schedule = row[columns["已排时间地点"]]
+            if campus not in SUPPORTED_CAMPUSES or not schedule:
+                continue
+            for match in TIME_PATTERN.finditer(str(schedule)):
+                classroom = match.group(1).strip(" \t,，;；")
+                if classroom:
+                    locations.add((campus, classroom))
+        return sorted(locations)
 
 
 def merge_locations(old_rows: list[dict], locations: list[tuple[str, str]]) -> list[dict]:

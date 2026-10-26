@@ -27,6 +27,13 @@ from code_quality_rules import (
 def campus_fixture_self_test() -> None:
     import generate_campus_map_fixture as subject
     from generate_campus_map_fixture import merge_locations, FIXTURE_PATH
+    sheet = Mock()
+    sheet.iter_rows.return_value = iter([('学校校区', '课程', '已排时间地点'), (), ('良乡校区',),
+        ('良乡校区', '课程', '星期一第1节 理教楼101')])
+    workbook = Mock(active=sheet)
+    with patch.dict(sys.modules, openpyxl=Mock(load_workbook=Mock(return_value=workbook))):
+        assert subject.extract_unique_locations(Path('/fixture/courses.xlsx')) == [('良乡校区', '理教楼101')]
+    workbook.close.assert_called_once()
     reviewed = [
         {"campus": "中关村校区", "classroom": "历史楼", "expected": "历史楼", "review": "mapped"},
         {"campus": "良乡校区", "classroom": "校外", "expected": None, "review": "excluded"},

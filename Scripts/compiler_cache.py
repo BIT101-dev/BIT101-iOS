@@ -205,7 +205,7 @@ def run_cache(arguments: list[str]) -> None:
             else:
                 try:
                     before_cas, after_cas = prune_compilation_cache(shared)
-                    report = record_cache_space(root, after_cas)
+                    report = record_cache_space(root)
                     if before_cas - after_cas >= 64 * 1024 ** 2:
                         print(f"自动缓存回收：释放 {(before_cas - after_cas) / 1024 ** 3:.2f} GiB；项目 {report['projectBytes'] / 1024 ** 3:.2f} GiB")
                 except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
