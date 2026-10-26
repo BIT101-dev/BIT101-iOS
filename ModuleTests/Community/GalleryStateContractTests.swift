@@ -55,10 +55,12 @@ struct GalleryStateContractTests {
     private final class Subscriptions: GallerySubscriptionServicing {
         var pages: [Int: [GallerySubscription]] = [:]
         var failedPage: Int?
+        var failure: (any Error)?
         var gate: ListRequestGate<[GallerySubscription]>?
         var requests: [Int] = []
         func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] {
             requests.append(page)
+            if let failure { throw failure }
             if failedPage == page { throw URLError(.notConnectedToInternet) }
             if page > 0, let gate { return try await gate.request() }
             return pages[page] ?? []
@@ -227,6 +229,7 @@ struct GalleryStateContractTests {
         var searchRequests: [Int] = []
         var searchPages: [Int: GalleryPageBatch<CommunityPoster>] = [:]
         var failedSearchPage: Int?
+        var beforeSearch: (() async throws -> Void)?
         var totalPages: Int?
         var body = ""
         var decodesIndependentBodies = false
@@ -256,6 +259,7 @@ struct GalleryStateContractTests {
             queryLog.append(query)
             let sourcePage = page ?? 0
             searchRequests.append(sourcePage)
+            try await beforeSearch?()
             if failed || failedSearchPage == sourcePage { throw URLError(.notConnectedToInternet) }
             if let batch = searchPages[sourcePage] { return batch }
             return try await fetchFeed(kind: .newest, page: page)
@@ -298,6 +302,7 @@ struct GalleryStateContractTests {
         service.failed = true
         await model.performSearch()
         #expect(model.searchState.posters == previous.posters && model.searchState.status == .loaded)
+        #expect(model.searchState.needsRefresh)
         #expect(model.displayedQueryDescription == "“原查询”的话题 · 最新")
         #expect(model.searchState.nextPage == previous.nextPage && model.searchState.canLoadMore)
         service.failed = false
@@ -305,6 +310,52 @@ struct GalleryStateContractTests {
         #expect(service.queryLog.last?.text == "原查询" && model.searchState.posters.map(\.id) == [1, 2])
         await model.performSearch()
         #expect(model.displayedQueryDescription == nil)
+        #expect(!model.searchState.needsRefresh)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func subscriptionRecoveryRetainsItsIntentThroughCancellation(loaded: Bool) async {
+        let service = Subscriptions()
+        let recovering = GallerySubscriptionsViewModel(service: service)
+        if loaded { service.pages[0] = [subscription(1)]; await recovering.refresh() }
+        service.failure = URLError(.notConnectedToInternet)
+        await recovering.refresh()
+        let status = recovering.status
+        service.failure = CancellationError()
+        await recovering.refresh()
+        #expect(recovering.status == status && recovering.needsRefresh)
+        service.failure = nil
+        await recovering.refresh()
+        #expect(recovering.status == .loaded && !recovering.needsRefresh)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func cancellingSearchRecoveryStopsItsOwnedRequest(pagination: Bool) async throws {
+        let service = Feed()
+        let recovering = GalleryViewModel(service: service)
+        await recovering.search()
+        service.failed = true
+        if pagination { await recovering.loadMoreSearch(currentPoster: recovering.searchState.posters.last) }
+        else { await recovering.search() }
+        service.failed = false
+        var started = false, cancelled = false
+        service.beforeSearch = {
+            started = true
+            do { try await Task.sleep(for: .seconds(60)) }
+            catch { cancelled = true; throw error }
+        }
+        let task = Task {
+            if pagination { await recovering.loadMoreSearch(currentPoster: recovering.searchState.posters.last) }
+            else { await recovering.search() }
+        }
+        try await waitForTestEvent { started }
+        task.cancel(); await task.value
+        #expect(cancelled && recovering.searchState.posters.map(\.id) == [1])
+        #expect(pagination ? recovering.searchState.paginationError != nil : recovering.searchState.needsRefresh)
+        service.beforeSearch = nil
+        if pagination { await recovering.loadMoreSearch(currentPoster: recovering.searchState.posters.last) }
+        else { await recovering.search() }
+        #expect(pagination ? recovering.searchState.paginationError == nil : !recovering.searchState.needsRefresh)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

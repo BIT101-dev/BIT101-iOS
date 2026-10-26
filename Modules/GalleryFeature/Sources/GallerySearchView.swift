@@ -38,7 +38,7 @@ struct GallerySearchView: View {
             onRefresh: triggerSearch,
             onPullToRefresh: {
                 media.retryFailedImages()
-                await viewModel.enqueueSearch().value
+                await viewModel.search()
             },
             onPrefetch: { _ in },
             onLoadMore: { poster in
@@ -70,9 +70,9 @@ struct GallerySearchView: View {
             await viewModel.bootstrapSearchIfNeeded()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
-            if case .failed = viewModel.searchState.status { await viewModel.enqueueSearch().value }
+            if viewModel.searchState.needsRefresh { await viewModel.search() }
             else if viewModel.searchState.paginationError != nil {
-                await viewModel.enqueueSearchLoadMore(currentPoster: viewModel.searchState.posters.last).value
+                await viewModel.loadMoreSearch(currentPoster: viewModel.searchState.posters.last)
             }
         }
         .onChange(of: viewModel.searchQuery.order) { _, _ in

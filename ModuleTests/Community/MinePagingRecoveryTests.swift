@@ -29,8 +29,22 @@ struct MinePagingRecoveryTests {
         }
         #expect(await refresh() == .failed(failure.localizedDescription))
         #expect(mine.alert == nil && profile.alert == nil)
+        service.profile = { throw CancellationError() }
+        service.users = { _ in throw CancellationError() }
+        service.posters = { _ in throw CancellationError() }
+        #expect(await refresh() == .failed(failure.localizedDescription))
         service.profile = profileRequest; service.users = userRequest; service.posters = posterRequest
         #expect(await refresh() == .loaded)
+        service.profile = { throw failure }; service.users = { _ in throw failure }; service.posters = { _ in throw failure }
+        #expect(await refresh() == .loaded)
+        switch scene {
+        case "mine-profile": #expect(mine.profileNeedsRefresh)
+        case "user-profile": #expect(profile.profileNeedsRefresh)
+        case "mine-posters": #expect(mine.posterState.needsRefresh)
+        case "user-posters": #expect(profile.posterState.needsRefresh)
+        case "followers": #expect(mine.followerState.needsRefresh)
+        default: #expect(mine.followingState.needsRefresh)
+        }
     }
 
     private func user(_ id: Int) -> CommunityUser { .placeholder(id: id, nickname: "用户") }
@@ -81,6 +95,16 @@ struct MinePagingRecoveryTests {
             default: message = profile.posterState.loadMoreError
             }
             #expect(message != nil)
+            service.users = { _ in throw CancellationError() }
+            service.posters = { _ in throw CancellationError() }
+            await next()
+            let retainedError: String? = switch scene {
+            case "followers": mine.followerState.loadMoreError
+            case "followings": mine.followingState.loadMoreError
+            case "mine": mine.posterState.loadMoreError
+            default: profile.posterState.loadMoreError
+            }
+            #expect(retainedError == message)
             service.users = { _ in [user(2)] }
             service.posters = { _ in [poster(2)] }
             await next()

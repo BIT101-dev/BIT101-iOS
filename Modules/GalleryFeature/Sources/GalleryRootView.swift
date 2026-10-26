@@ -277,7 +277,7 @@ private struct GalleryRootViewScene: View {
             isEnabled: selectedSurface == .gallery && !viewModel.isShowingSearch && !isShowingComposer
                 && !isShowingMessages && !isShowingSubscriptions && selectedContent == nil) {
             let state = viewModel.state(for: viewModel.selectedFeed)
-            if case .failed = state.status { await viewModel.refresh(feed: viewModel.selectedFeed) }
+            if state.needsRefresh { await viewModel.refresh(feed: viewModel.selectedFeed) }
             else if state.paginationError != nil {
                 await viewModel.loadMoreIfNeeded(for: viewModel.selectedFeed, currentPoster: state.posters.last)
             }

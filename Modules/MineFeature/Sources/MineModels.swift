@@ -68,6 +68,7 @@ enum MineLoadStatus: Equatable {
 /// 关注列表、粉丝列表和帖子列表使用不同的元素类型，分页语义保持一致。
 /// `PagedItemsState` 提供页码和列表更新；`MineLoadStatus` 保留我的模块的页面状态。
 struct MinePagedState<Item: Identifiable> {
+    var needsRefresh = false
     /// 当前已加载的列表项。
     var pagedItems = CommunityPagedItems<Item>()
     /// 列表整体加载状态。

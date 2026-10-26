@@ -256,6 +256,7 @@ extension GalleryPosterDetail {
 ///
 /// 分页加载状态由 `GalleryFeedState.isLoadingMore` 管理。
 struct GalleryFeedState {
+    var needsRefresh = false
     var paginationError: String?
     /// 当前已经加载到客户端的帖子列表。
     var pagedItems = CommunityPagedItems<CommunityPoster>()

@@ -183,6 +183,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
         fillVerificationCode("123456", in: code)
         assertUI(textElement("自动化测试课程").appears(timeout: 5), "横屏成绩应展示实际加载的记录。")
+        assertUI(app.navigationBars["短信验证"].disappears(timeout: 5), "成绩截图应在验证面板完全收起后采样。")
         capture("成绩")
         app.mainTab("日程").tapBriefly()
         let calendarWeek = app.buttons["第1周"]

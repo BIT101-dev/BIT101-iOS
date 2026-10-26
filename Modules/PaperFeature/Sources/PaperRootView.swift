@@ -89,7 +89,7 @@ private struct PaperRootViewScene: View {
         }
         .communityReadRecovery(networkPath: dependencies.networkPath,
             isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil) {
-            if case .failed = viewModel.state.status { await viewModel.refresh() }
+            if viewModel.needsRefresh { await viewModel.refresh() }
             else if viewModel.state.paginationError != nil {
                 await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
             }

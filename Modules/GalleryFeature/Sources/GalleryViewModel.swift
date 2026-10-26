@@ -17,6 +17,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
     @Published private var pagedItems = CommunityPagedItems<GallerySubscription>()
     var items: [GallerySubscription] { pagedItems.items }
     @Published private(set) var status: CommunityLoadStatus = .idle
+    @Published private(set) var needsRefresh = false
     @Published private(set) var isLoadingMore = false
     @Published private(set) var canLoadMore = true
     @Published private(set) var paginationError: String?
@@ -35,6 +36,7 @@ final class GallerySubscriptionsViewModel: ObservableObject {
     func refresh() async {
         generation &+= 1
         let requestGeneration = generation
+        let previousStatus = status == .loading ? .idle : status
         status = .loading
         isLoadingMore = false
         do {
@@ -46,10 +48,12 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             canLoadMore = !result.isEmpty
             paginationError = nil
             status = .loaded
+            needsRefresh = false
         } catch {
             guard generation == requestGeneration else { return }
-            if TaskCancellation.matches(error) { status = items.isEmpty ? .idle : .loaded }
-            else if items.isEmpty { status = .failed(error.localizedDescription) }
+            if TaskCancellation.matches(error) { status = items.isEmpty ? previousStatus : .loaded; return }
+            needsRefresh = true
+            if items.isEmpty { status = .failed(error.localizedDescription) }
             else { status = .loaded; alert = AppAlert(title: "刷新收藏失败", error: error) }
         }
     }
@@ -227,6 +231,16 @@ final class GalleryViewModel: ObservableObject {
         }
     }
 
+    func search() async {
+        let task = enqueueSearch()
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
+    func loadMoreSearch(currentPoster: CommunityPoster?) async {
+        let task = enqueueSearchLoadMore(currentPoster: currentPoster)
+        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+    }
+
     @discardableResult
     func enqueueSearchLoadMore(currentPoster: CommunityPoster?) -> Task<Void, Never> {
         enqueueInteractionTask(key: "search-load-more") { [weak self] in
@@ -345,12 +359,16 @@ final class GalleryViewModel: ObservableObject {
                     }
                 }
             }
+            setState(for: feed) { $0.needsRefresh = false }
         } catch {
             guard refreshGenerations[feed] == generation else { return }
             let cancelled = TaskCancellation.matches(error)
             setState(for: feed) {
                 $0.posters = previousState.posters
-                $0.status = previousState.posters.isEmpty ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
+                $0.needsRefresh = cancelled ? previousState.needsRefresh : true
+                $0.paginationError = previousState.paginationError
+                $0.status = cancelled ? (previousState.status == .loading ? (previousState.posters.isEmpty ? .idle : .loaded) : previousState.status)
+                    : (previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded)
                 $0.isLoadingMore = false
                 $0.nextPage = previousState.nextPage
                 $0.canLoadMore = previousState.canLoadMore && (cancelled || !previousState.posters.isEmpty)
@@ -453,6 +471,7 @@ final class GalleryViewModel: ObservableObject {
             searchState.canLoadMore = batch.canLoadMore
             searchState.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
             searchState.status = .loaded
+            searchState.needsRefresh = false
         } catch {
             guard searchGeneration == generation else { return }
             if TaskCancellation.matches(error) {
@@ -464,6 +483,7 @@ final class GalleryViewModel: ObservableObject {
                 return
             }
             searchState = previousState
+            searchState.needsRefresh = true
             searchState.status = previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded
             searchState.isLoadingMore = false
             if previousState.posters.isEmpty { searchState.canLoadMore = false }

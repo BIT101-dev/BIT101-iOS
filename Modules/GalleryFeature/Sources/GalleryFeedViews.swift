@@ -99,7 +99,7 @@ struct GallerySubscriptionsView: View {
         }
         .task { await viewModel.bootstrapIfNeeded() }
         .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPoster == nil) {
-            if case .failed = viewModel.status { await viewModel.refresh() }
+            if viewModel.needsRefresh { await viewModel.refresh() }
             else if viewModel.paginationError != nil { await viewModel.loadMore() }
         }
         .refreshable {

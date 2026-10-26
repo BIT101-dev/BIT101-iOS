@@ -24,6 +24,7 @@ private extension PaperListState {
 /// 文章集合统一维护刷新、分页、取消恢复与预览元数据。
 class PaperCollectionViewModel: ObservableObject {
     @Published private(set) var state = PaperListState()
+    @Published private(set) var needsRefresh = false
     @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
     @Published private(set) var previewFailedIDs: Set<Int> = []
     @Published var selectedOrder: PaperSortOrder = .newest
@@ -134,6 +135,7 @@ class PaperCollectionViewModel: ObservableObject {
             previewLoadingIDs = []
             state.applyFirstPage(papers)
             pageQuery = query
+            needsRefresh = false
             state.status = .loaded
         } catch {
             guard refreshGeneration == generation else { return }
@@ -150,6 +152,7 @@ class PaperCollectionViewModel: ObservableObject {
                 previewFailedIDs = previousFailures
                 return
             }
+            needsRefresh = true
             state = previousState
             previewMetadataByPaperID = previousMetadata
             previewFailedIDs = previousFailures
@@ -229,6 +232,7 @@ class PaperCollectionViewModel: ObservableObject {
         previewLoadingIDs = []
         previewRevalidationIDs = []
         state = PaperListState()
+        needsRefresh = false
         pageQuery = nil
     }
 

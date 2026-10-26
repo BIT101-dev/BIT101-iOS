@@ -622,7 +622,9 @@ def run_self_test(subject) -> int:
         for name in subject.LIVE_GROUPS & groups.keys():
             groups[name]['summary'].update(startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
         report = {'sourceDigest': 'source', 'groups': groups}
-        with patch('ui_rules.source_runtime_interaction_findings', return_value=[]):
+        with patch('ui_rules.source_runtime_interaction_findings', return_value=[]), \
+                patch('ui_source_facts.syntax_index', return_value={}), \
+                patch('ui_rules.documented_interactions', return_value=[]):
             findings = subject.release_findings(report, 'source')
             assert not findings, findings
             assert subject.complete_summary('ui', summaries['ui'])

@@ -15,10 +15,58 @@ import MediaKit
 import SwiftUI
 import Testing
 import UIKit
+@testable import MineFeature
 
 @MainActor
 @Suite(.serialized)
 struct CommunityRecoveryCompositionTests {
+    private final class MineReads: MineOverviewServicing, UserProfileServicing {
+        var offline = true, suspended = false
+        var requests = 0, cancellations = 0, successes = 0
+        func fetchMyInfo() async throws -> MineUserInfo {
+            requests += 1
+            if offline { throw URLError(.notConnectedToInternet) }
+            if suspended {
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { cancellations += 1; throw error }
+            }
+            successes += 1
+            return .init(user: .placeholder(id: 1, nickname: "恢复后的用户"), followingNum: 0, followerNum: 0,
+                following: false, follower: false, own: true)
+        }
+        func fetchUserInfo(id: Int) async throws -> MineUserInfo { try await fetchMyInfo() }
+        func fetchMyPosters(page: Int) async throws -> [CommunityPoster] { [] }
+        func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { [] }
+        func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
+        func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
+        func followUser(id: Int) async throws -> MineFollowResult { throw URLError(.unsupportedURL) }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func mineRecoveryRestartsAfterItsConnectedRequestIsCancelled(profile: Bool) async throws {
+        let service = MineReads(), path = NetworkPathState(snapshot: .init(status: .disconnected))
+        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: path)
+        let posters = CommunityPosterDestination { _ in AnyView(Text("帖子")) }
+        let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("设置")) },
+            suggestion: { AnyView(Text("反馈")) })
+        let view: AnyView = profile
+            ? AnyView(UserProfileRootView(dependencies: dependencies, media: media(), posters: posters, userID: 1))
+            : AnyView(MineRootView(dependencies: dependencies, media: media(), posters: posters, settings: settings,
+                fallbackStudentID: "fixture", onLogout: {}))
+        let (window, _) = try window(NavigationStack { view })
+        defer { window.isHidden = true; window.rootViewController = nil }
+        try await waitForTestEvent { service.requests == 1 }
+        try await render()
+        service.offline = false; service.suspended = true
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { service.requests == 2 }
+        path.update(snapshot: .init(status: .disconnected))
+        try await waitForTestEvent { service.cancellations == 1 }
+        service.suspended = false
+        path.update(snapshot: .init(status: .connected))
+        try await waitForTestEvent { service.successes == 1 }
+        #expect(service.requests == 3)
+    }
     private final class CourseReads: CourseListServicing {
         var queries: [String] = []
         var offline = true

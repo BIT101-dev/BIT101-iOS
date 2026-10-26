@@ -25,6 +25,7 @@ private func refreshMinePage<Item: Identifiable>(
         var state = read()
         state.applyFirstPage(items)
         state.status = .loaded
+        state.needsRefresh = false
         state.loadMoreError = nil
         write(state)
     } catch {
@@ -33,11 +34,12 @@ private func refreshMinePage<Item: Identifiable>(
         state.isLoadingMore = false
         let hadItems = !previous.items.isEmpty || previous.status == .loaded
         if TaskCancellation.matches(error) {
-            state.status = hadItems ? .loaded : .idle
+            state.status = previous.status == .loading ? (hadItems ? .loaded : .idle) : previous.status
             write(state)
             return
         }
         state.status = hadItems ? .loaded : .failed(error.localizedDescription)
+        state.needsRefresh = true
         if !hadItems { state.canLoadMore = false }
         write(state)
         if hadItems { onAlert(AppAlert(title: failureTitle, error: error)) }
@@ -52,6 +54,7 @@ private func loadMoreMinePage<Item: Identifiable>(
     guard let current else { return }
     var state = read()
     guard state.status == .loaded, state.shouldLoadMore(currentID: current.id) else { return }
+    let previousError = state.loadMoreError
     state.isLoadingMore = true
     state.loadMoreError = nil
     write(state)
@@ -68,7 +71,7 @@ private func loadMoreMinePage<Item: Identifiable>(
         state = read()
         state.nextPage = request.sourcePage
         state.isLoadingMore = false
-        if !TaskCancellation.matches(error) { state.loadMoreError = error.localizedDescription }
+        state.loadMoreError = TaskCancellation.matches(error) ? previousError : error.localizedDescription
         write(state)
     }
 }
@@ -94,6 +97,7 @@ final class MineViewModel: ObservableObject {
     @Published private(set) var userInfo: MineUserInfo?
     /// 资料卡加载状态。
     @Published private(set) var profileStatus: MineLoadStatus = .idle
+    @Published private(set) var profileNeedsRefresh = false
     /// 粉丝列表分页状态。
     @Published private(set) var followerState = MinePagedState<CommunityUser>()
     /// 关注列表分页状态。
@@ -149,6 +153,7 @@ final class MineViewModel: ObservableObject {
     ///
     /// 页面已有资料时，刷新失败保留已展示内容并弹出提示。
     func refreshProfile() async {
+        let previousStatus = profileStatus == .loading ? .idle : profileStatus
         profileGeneration &+= 1
         let generation = profileGeneration
         let hadUserInfo = userInfo != nil || profileStatus == .loaded
@@ -162,12 +167,14 @@ final class MineViewModel: ObservableObject {
             guard profileGeneration == generation else { return }
             userInfo = info
             profileStatus = .loaded
+            profileNeedsRefresh = false
         } catch {
             guard profileGeneration == generation else { return }
             if TaskCancellation.matches(error) {
-                profileStatus = hadUserInfo ? .loaded : .idle
+                profileStatus = hadUserInfo ? .loaded : previousStatus
                 return
             }
+            profileNeedsRefresh = true
             if hadUserInfo {
                 profileStatus = .loaded
                 alert = AppAlert(title: "刷新个人信息失败", error: error)
@@ -242,6 +249,7 @@ final class UserProfileViewModel: ObservableObject {
     @Published private(set) var userInfo: MineUserInfo?
     /// 资料卡加载状态。
     @Published private(set) var profileStatus: MineLoadStatus = .idle
+    @Published private(set) var profileNeedsRefresh = false
     /// 他人帖子列表分页状态。
     @Published private(set) var posterState = MinePagedState<CommunityPoster>()
     @Published private(set) var isFollowingUser = false
@@ -290,6 +298,7 @@ final class UserProfileViewModel: ObservableObject {
 
     /// 刷新指定用户资料卡。
     func refreshProfile() async {
+        let previousStatus = profileStatus == .loading ? .idle : profileStatus
         profileGeneration &+= 1
         let generation = profileGeneration
         let followRevisionAtStart = followRevision
@@ -309,13 +318,15 @@ final class UserProfileViewModel: ObservableObject {
                 latestFollowResult = nil
             }
             profileStatus = .loaded
+            profileNeedsRefresh = false
             followResultNeedsReview = false
         } catch {
             guard profileGeneration == generation else { return }
             if TaskCancellation.matches(error) {
-                profileStatus = hadUserInfo ? .loaded : .idle
+                profileStatus = hadUserInfo ? .loaded : previousStatus
                 return
             }
+            profileNeedsRefresh = true
             if hadUserInfo {
                 profileStatus = .loaded
                 alert = AppAlert(title: "刷新主页失败", error: error)

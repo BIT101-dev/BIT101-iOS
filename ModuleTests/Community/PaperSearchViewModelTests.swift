@@ -104,12 +104,17 @@ struct PaperSearchViewModelTests {
         service.result = .failure(URLError(.timedOut))
         await model.refresh()
         #expect(model.displayedQueryDescription == "“A”的文章 · 高赞")
+        #expect(model.needsRefresh)
+        service.result = .failure(CancellationError())
+        await model.refresh()
+        #expect(model.needsRefresh && model.state.items == [paper])
         service.result = .success([])
         await model.loadMoreIfNeeded(currentPaper: paper)
         #expect(service.requests.last?.search == "A" && service.requests.last?.order == .like)
         #expect(service.requests.last?.page == 1 && model.state.items == [paper])
         await model.refresh()
         #expect(model.displayedQueryDescription == nil)
+        #expect(!model.needsRefresh)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor

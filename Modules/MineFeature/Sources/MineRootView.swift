@@ -101,6 +101,7 @@ private struct MineRootViewScene: View {
                         title: "我的粉丝",
                         users: viewModel.followerState.items,
                         status: viewModel.followerState.status,
+                        needsRefresh: viewModel.followerState.needsRefresh,
                         nextPage: viewModel.followerState.nextPage,
                         isLoadingMore: viewModel.followerState.isLoadingMore,
                         loadMoreError: viewModel.followerState.loadMoreError,
@@ -113,6 +114,7 @@ private struct MineRootViewScene: View {
                         title: "我的关注",
                         users: viewModel.followingState.items,
                         status: viewModel.followingState.status,
+                        needsRefresh: viewModel.followingState.needsRefresh,
                         nextPage: viewModel.followingState.nextPage,
                         isLoadingMore: viewModel.followingState.isLoadingMore,
                         loadMoreError: viewModel.followingState.loadMoreError,
@@ -124,6 +126,7 @@ private struct MineRootViewScene: View {
                     MinePosterListView(
                         posters: viewModel.posterState.items,
                         status: viewModel.posterState.status,
+                        needsRefresh: viewModel.posterState.needsRefresh,
                         nextPage: viewModel.posterState.nextPage,
                         isLoadingMore: viewModel.posterState.isLoadingMore,
                         loadMoreError: viewModel.posterState.loadMoreError,
@@ -157,8 +160,8 @@ private struct MineRootViewScene: View {
         }
         .communityReadRecovery(networkPath: dependencies.networkPath,
             isEnabled: route == nil && settingsRoute == nil && !isShowingSuggestion && selectedUserID == nil) {
-            if case .failed = viewModel.profileStatus { await viewModel.refreshProfile() }
-            if case .failed = viewModel.posterState.status { await viewModel.refreshPosters() }
+            if viewModel.profileNeedsRefresh { await viewModel.refreshProfile() }
+            if viewModel.posterState.needsRefresh { await viewModel.refreshPosters() }
         }
         .diagnosticAlert(item: $viewModel.alert)
     }
@@ -282,8 +285,8 @@ private struct UserProfileRootViewScene: View {
             await viewModel.refreshAll()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
-            if case .failed = viewModel.profileStatus { await viewModel.refreshProfile() }
-            if case .failed = viewModel.posterState.status { await viewModel.refreshPosters() }
+            if viewModel.profileNeedsRefresh { await viewModel.refreshProfile() }
+            if viewModel.posterState.needsRefresh { await viewModel.refreshPosters() }
             else if viewModel.posterState.loadMoreError != nil {
                 await viewModel.loadMorePostersIfNeeded(currentPoster: viewModel.posterState.items.last)
             }
@@ -523,6 +526,7 @@ private struct MineUserListView: View {
     let title: String
     let users: [CommunityUser]
     let status: MineLoadStatus
+    let needsRefresh: Bool
     let nextPage: Int
     let isLoadingMore: Bool
     let loadMoreError: String?
@@ -611,7 +615,7 @@ private struct MineUserListView: View {
             }
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
-            if case .failed = status { await onRefresh() }
+            if needsRefresh { await onRefresh() }
             else if loadMoreError != nil { await onLoadMore(users.last) }
         }
         .navigationTitle(title)
@@ -635,6 +639,7 @@ private struct MinePosterListView: View {
     @Environment(CommunityPosterDestination.self) private var destinations
     let posters: [CommunityPoster]
     let status: MineLoadStatus
+    let needsRefresh: Bool
     let nextPage: Int
     let isLoadingMore: Bool
     let loadMoreError: String?
@@ -708,7 +713,7 @@ private struct MinePosterListView: View {
             await onRefresh()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPoster == nil && deletingPoster == nil) {
-            if case .failed = status { await onRefresh() }
+            if needsRefresh { await onRefresh() }
             else if loadMoreError != nil { await onLoadMore(visiblePosters.last) }
         }
         .task(id: isRefreshRequested) {
