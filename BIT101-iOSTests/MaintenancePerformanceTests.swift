@@ -587,7 +587,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                         XCTAssertTrue(display.set(image, budget: media.displayBudget))
                         displays.append(display)
                         let avatarURL = try XCTUnwrap(URL(string: "https://performance.invalid/avatar/\(index)"))
-                        await media.avatars.store(png, for: avatarURL)
+                        await media.images.store(png, for: avatarURL)
                         let avatar = await media.avatars.image(for: avatarURL, maximumPixelSize: avatarSide)
                         XCTAssertNotNil(avatar)
                         if index < animatedCount {

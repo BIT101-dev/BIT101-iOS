@@ -248,18 +248,6 @@ actor CachedRemoteImageStore {
         return await decode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize)
     }
 
-    func store(_ data: Data, for url: URL) async { await resources.store(data, for: url) }
-
-    func storeAndDecode(_ data: Data, for url: URL, generation expected: UInt64? = nil,
-        maximumPixelSize: Int? = nil) async -> UIImage? {
-        let generation = await cacheGeneration
-        guard expected == nil || expected == generation else { return nil }
-        guard let image = await decode(data, for: url, generation: generation, maximumPixelSize: maximumPixelSize) else { return nil }
-        await store(data, for: url)
-        guard await cacheGeneration == generation, !Task.isCancelled else { return nil }
-        return image
-    }
-
     private func decode(_ data: Data, for url: URL, generation: UInt64, maximumPixelSize: Int?) async -> UIImage? {
         guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
               let image = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: imageCache.totalCostLimit,

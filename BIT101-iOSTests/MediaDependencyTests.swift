@@ -392,12 +392,12 @@ struct MediaDependencyTests {
         let transport = Images(bytes: bytes)
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/image.png")
-        _ = await media.avatars.storeAndDecode(bytes, for: url)
+        _ = try await media.avatars.loadImage(for: url)
         let original = try await media.images.file(for: url)
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         await media.clearCaches()
         #expect(!files.fileExists(at: original))
-        _ = await media.avatars.storeAndDecode(bytes, for: url)
+        _ = try await media.avatars.loadImage(for: url)
         let reopened = environment(files: files, previewFiles: files, transport: transport)
         #expect(await reopened.avatars.data(for: url) == bytes)
         #expect(await reopened.avatars.image(for: url)?.size.width == 2)
@@ -405,7 +405,7 @@ struct MediaDependencyTests {
         let downloaded = try await media.images.file(for: url)
         #expect(try await media.previewFile(at: downloaded) == downloaded)
         #expect(try files.readData(at: downloaded) == bytes)
-        #expect(transport.requests == 0)
+        #expect(transport.requests == 2)
 
         #expect(files.removeContents(of: files.temporaryDirectoryURL))
         let owner = UUID()
@@ -434,7 +434,7 @@ struct MediaDependencyTests {
         for index in 0..<3 {
             let url = AppURL.required("https://example.invalid/image\(index).png")
             if avatar {
-                await avatars.store(bytes, for: url)
+                _ = try await avatars.loadImage(for: url)
                 #expect(await avatars.data(for: url) == bytes)
             } else {
                 let file = try await images.file(for: url)
@@ -630,7 +630,6 @@ struct MediaDependencyTests {
         let file = try await media.images.file(for: url)
         let still = try #require(await media.stillDecoder.image(at: file))
         let animated = try #require(await media.animatedDecoder.image(at: file, reduceMotion: true))
-        await media.avatars.store(bytes, for: url)
         let avatar = try #require(await media.avatars.image(for: url))
         let display = MediaDisplayedImage()
         #expect(display.set(still, budget: media.displayBudget))
@@ -681,7 +680,7 @@ struct MediaDependencyTests {
         let second = Task {
             let url = AppURL.required("https://example.invalid/second.png")
             if avatar {
-                let image = try #require(await avatars.storeAndDecode(bytes, for: url))
+                let image = try #require(try await avatars.loadImage(for: url))
                 #expect(image.size.width == 2)
                 return bytes
             }
@@ -734,11 +733,11 @@ struct MediaDependencyTests {
         let url = AppURL.required("https://example.invalid/quota.png")
         if avatar {
             let avatars = CachedRemoteImageStore(files: files, resources: cache)
-            let preparation = Task { await avatars.storeAndDecode(bytes, for: url) }
+            let preparation = Task { try await avatars.loadImage(for: url) }
             try await waitForTestEvent { limit.pending != nil }
             #expect(await avatars.clearAll())
             limit.pending?.resume(returning: 0)
-            #expect(await preparation.value == nil)
+            await #expect(throws: CancellationError.self) { try await preparation.value }
             #expect(await avatars.diskData(for: url) == nil)
         } else {
             let preparation = Task { try await cache.file(for: url) }
@@ -853,7 +852,7 @@ struct MediaDependencyTests {
         let url = AppURL.required("https://example.invalid/probe.gif")
         if damaged {
             #expect(BoundedStillImageDecoder.image(from: bytes) == nil)
-            #expect(await media.avatars.storeAndDecode(bytes, for: url) == nil)
+            await #expect(throws: (any Error).self) { try await media.avatars.loadImage(for: url) }
             #expect(await media.avatars.data(for: url) == nil)
             await #expect(throws: (any Error).self) { try await media.images.file(for: url) }
             #expect(await media.images.cachedFile(for: url) == nil)
