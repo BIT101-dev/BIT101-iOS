@@ -12,7 +12,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
-  echo "Scripts/run-extended-tests.sh cache               整理共享构建缓存"
+  echo "Scripts/run-extended-tests.sh cache [info]        缓存维护与分项占用查询"
   echo "性能：performance baseline 批准人；performance current；report performance-schema。"
   echo "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login、extensions、catalyst；组后可直接填写测试类/方法。"
   echo "宿主：release、release-runtime、ui、network-smoke、icloud-smoke、modules、catalyst、catalyst-release-runtime。"
@@ -33,7 +33,10 @@ if [[ "${1:-}" == simulator ]]; then
   exec zsh "$ROOT_DIR/Scripts/simulator-tests.sh" "${@:2}"
 fi
 if [[ "${1:-}" == cache ]]; then
-  [[ $# -eq 1 ]] || { echo "用法：Scripts/run-extended-tests.sh cache" >&2; exit 64; }
+  if [[ $# -eq 2 && "$2" == info ]]; then
+    exec python3 "$ROOT_DIR/Scripts/compiler_cache.py" "$ROOT_DIR" --info
+  fi
+  [[ $# -eq 1 ]] || { echo "用法：Scripts/run-extended-tests.sh cache [info]" >&2; exit 64; }
   bit101_acquire_artifact_lock "$0" "$@"
   bit101_build_cache --maintenance
   exit 0

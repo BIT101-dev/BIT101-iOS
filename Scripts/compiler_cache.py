@@ -10,16 +10,43 @@ import subprocess
 import sys
 import signal
 
+sys.dont_write_bytecode = True
+
+
+def cache_layout_ready(shared: Path, derived_roots: list[Path], command: list[str]) -> bool:
+    from validation_artifacts import cache_names
+    for option in ('-derivedDataPath', '--scratch-path'):
+        if option in command and not Path(command[command.index(option) + 1]).is_dir(): return False
+    if any(not (shared / name).is_dir() for name in cache_names): return False
+    for derived in derived_roots:
+        if not derived.is_dir(): continue
+        for name in cache_names:
+            source = derived / name
+            if not source.is_symlink() or source.resolve() != (shared / name).resolve(): return False
+        for framework in (derived / 'Build/Products').glob('*/PackageFrameworks/*.framework'):
+            if (framework.parent.parent / (framework.stem + '.swiftmodule')).is_dir(): return False
+    return True
+
+
+def report_cache_space(root: Path, report: dict) -> None:
+    names = {'projectBytes': '项目总计', 'casBytes': '历史编译缓存', 'sdkBytes': 'SDK 缓存',
+        'modulesBytes': '模块缓存', 'indexBytes': '索引', 'buildBytes': '增量构建与产物',
+        'auditBytes': '静态审计', 'diagnosticBytes': '诊断导出'}
+    print(' · '.join(f'{title} {report[name] / 1024 ** 3:.2f} GiB' for name, title in names.items()))
+
 
 def run_cache(arguments: list[str]) -> None:
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
     root = Path(arguments[0])
     sys.path.insert(0, str(root / "Scripts"))
-    from validation_artifacts import clear_diagnostic_exports, prune_native_storage
+    from validation_artifacts import clear_diagnostic_exports, prune_native_storage, prune_compilation_cache, cache_space_report, record_cache_space
     arguments = arguments[1:]
     maintenance = arguments == ["--maintenance"]
     shared = root / ".build/compiler-cache"
     shared.mkdir(parents=True, exist_ok=True)
+    if arguments == ['--info']:
+        report_cache_space(root, cache_space_report(root))
+        return
     cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex")
     derived_roots = [root / name for name in (
         ".build/extended-automation", "build/DeviceInstall", ".build/release-network-smoke",
@@ -72,7 +99,11 @@ def run_cache(arguments: list[str]) -> None:
             (shared / "cache.lock").open("a") as lock:
         if results_lock is not None:
             fcntl.flock(results_lock, fcntl.LOCK_EX)
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX if maintenance else fcntl.LOCK_SH)
+        owns_structure = maintenance
+        if not maintenance and not cache_layout_ready(shared, derived_roots, arguments[2:]):
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            owns_structure = True
         before = occupied_kib() if maintenance else 0
         if not maintenance:
             command = arguments[2:]
@@ -92,21 +123,22 @@ def run_cache(arguments: list[str]) -> None:
                     if requested not in derived_roots:
                         raise SystemExit(f"构建缓存入口需要登记：{requested}")
                     requested.mkdir(parents=True, exist_ok=True)
-                    if command[0] == "xcodebuild":
+                    if command[0] == "xcodebuild" and owns_structure:
                         # SwiftPM 的静态与框架布局共用中间产物，旧平面模块会遮蔽框架内的新模块。
                         for framework in (requested / "Build/Products").glob("*/PackageFrameworks/*.framework"):
                             flat_module = framework.parent.parent / f"{framework.stem}.swiftmodule"
                             if flat_module.is_dir():
                                 shutil.rmtree(flat_module)
                                 flat_module.with_suffix(".o").unlink(missing_ok=True)
-        for name in cache_names:
-            (shared / name).mkdir(exist_ok=True)
-        for derived in derived_roots:
-            if derived.is_dir():
-                for name in cache_names:
-                    share_cache(derived / name, shared / name)
-        for name in ("testPhoneUpload.log", "testPhoneVerifyAndCleanup.log"):
-            (root / ".build/icloud-cross-device-smoke" / name).unlink(missing_ok=True)
+        if owns_structure:
+            for name in cache_names:
+                (shared / name).mkdir(exist_ok=True)
+            for derived in derived_roots:
+                if derived.is_dir():
+                    for name in cache_names:
+                        share_cache(derived / name, shared / name)
+            for name in ("testPhoneUpload.log", "testPhoneVerifyAndCleanup.log"):
+                (root / ".build/icloud-cross-device-smoke" / name).unlink(missing_ok=True)
         if maintenance:
             shutil.rmtree(root / ".build/static-audit/package-build", ignore_errors=True)
             shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
@@ -159,11 +191,25 @@ def run_cache(arguments: list[str]) -> None:
             prune_native_storage(shared)
             after = occupied_kib()
             print(f"缓存整理：{before / 1048576:.2f} → {after / 1048576:.2f} GiB；释放 {(before - after) / 1048576:.2f} GiB")
+            report_cache_space(root, record_cache_space(root))
         else:
             fcntl.flock(lock, fcntl.LOCK_SH)
             result = subprocess.run(["zsh", "-c",
                 'ROOT_DIR="$1"; source "$ROOT_DIR/Scripts/script-support.sh"; shift; bit101_log_command "$@"',
                 "cache-build", str(root), *arguments])
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                try:
+                    before_cas, after_cas = prune_compilation_cache(shared)
+                    report = record_cache_space(root, after_cas)
+                    if before_cas - after_cas >= 64 * 1024 ** 2:
+                        print(f"自动缓存回收：释放 {(before_cas - after_cas) / 1024 ** 3:.2f} GiB；项目 {report['projectBytes'] / 1024 ** 3:.2f} GiB")
+                except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
+                    print(f'缓存回收待重试：{error}', file=sys.stderr)
             raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 
 

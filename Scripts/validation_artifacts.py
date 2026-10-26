@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import subprocess
+import json
 from contextlib import contextmanager, ExitStack
 from validation_policy import TEST_GROUPS, BUILD_HOSTS
 
@@ -141,17 +142,94 @@ def recover_self_test_artifacts(root: Path) -> None:
         elif path.is_dir(): shutil.rmtree(path)
 
 
+CAS_GENERATION_LIMIT = 2 * 1024 ** 3
+
+
+def prune_compilation_cache(shared: Path, compiler: Path | None = None) -> tuple[int, int]:
+    import ctypes
+    stores = [path for path in (shared / 'CompilationCache.noindex').iterdir()
+              if path.is_dir() and any(path.glob('v*'))] if (shared / 'CompilationCache.noindex').is_dir() else []
+    if not stores: return (0, 0)
+    compiler = compiler or Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
+    library = ctypes.CDLL(str(compiler.parent.parent / 'lib/swift/host/compiler/lib_InternalSwiftScan.dylib'))
+    class NativeString(ctypes.Structure):
+        _fields_ = [('data', ctypes.c_void_p), ('length', ctypes.c_size_t)]
+    for name, arguments, result in (
+        ('options_create', [], ctypes.c_void_p), ('options_dispose', [ctypes.c_void_p], None),
+        ('options_set_ondisk_path', [ctypes.c_void_p, ctypes.c_char_p], None),
+        ('create_from_options', [ctypes.c_void_p, ctypes.POINTER(NativeString)], ctypes.c_void_p),
+        ('get_ondisk_size', [ctypes.c_void_p, ctypes.POINTER(NativeString)], ctypes.c_int64),
+        ('set_ondisk_size_limit', [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(NativeString)], ctypes.c_bool),
+        ('dispose', [ctypes.c_void_p], None)):
+        function = getattr(library, 'swiftscan_cas_' + name)
+        function.argtypes = arguments; function.restype = result
+    library.swiftscan_string_dispose.argtypes = [NativeString]
+    library.swiftscan_string_dispose.restype = None
+    def failure(error):
+        message = ctypes.string_at(error.data, error.length).decode() if error.data else 'CAS 容量 API 返回错误'
+        library.swiftscan_string_dispose(error)
+        raise RuntimeError(message)
+    before = 0
+    for store in stores:
+        generic = store / 'generic'
+        created_generic = not generic.exists()
+        options = library.swiftscan_cas_options_create()
+        library.swiftscan_cas_options_set_ondisk_path(options, os.fsencode(store))
+        error = NativeString()
+        cas = library.swiftscan_cas_create_from_options(options, ctypes.byref(error))
+        library.swiftscan_cas_options_dispose(options)
+        if not cas: failure(error)
+        try:
+            size = library.swiftscan_cas_get_ondisk_size(cas, ctypes.byref(error))
+            if size < 0: failure(error)
+            before += size
+            if library.swiftscan_cas_set_ondisk_size_limit(cas, CAS_GENERATION_LIMIT, ctypes.byref(error)): failure(error)
+        finally:
+            library.swiftscan_cas_dispose(cas)
+            if created_generic and generic.exists(): shutil.rmtree(generic)
+        subprocess.run(['xcrun', 'llvm-cas', '--cas=' + str(store), '--prune'], check=True, stdout=subprocess.DEVNULL)
+    after = sum(int(line.split()[0]) * 1024 for line in subprocess.check_output(
+        ['du', '-sk', str(shared / 'CompilationCache.noindex')], text=True).splitlines())
+    return before, after
+
+
+def cache_space_report(root: Path) -> dict:
+    values = {}
+    for line in subprocess.check_output(['du', '-k', '-d', '3', str(root)], text=True).splitlines():
+        size, name = line.split('\t', 1)
+        values[Path(name).relative_to(root).as_posix()] = int(size) * 1024
+    def size(name): return values.get(name, 0)
+    shared = '.build/compiler-cache/'
+    return {'projectBytes': size('.'), 'casBytes': size(shared + 'CompilationCache.noindex'),
+        'sdkBytes': size(shared + 'SDKExplicitPrecompiledModules') + size(shared + 'SDKStatCaches.noindex'),
+        'modulesBytes': size(shared + 'ModuleCache.noindex'), 'indexBytes': size(shared + 'Index.noindex'),
+        'buildBytes': size('.build/extended-automation/Build') + size('.build/extended-automation/out') + size('build/DeviceInstall'),
+        'auditBytes': size('.build/static-audit'), 'diagnosticBytes': size('.build/extended-automation/diagnostics'),
+        'casGenerationLimitBytes': CAS_GENERATION_LIMIT}
+
+
+def record_cache_space(root: Path, cas_bytes: int | None = None) -> dict:
+    output = root / '.build/compiler-cache/compilation-cache.json'
+    databases = (root / '.build/extended-automation/Build/Intermediates.noindex/XCBuildData/build.db',
+        root / 'build/DeviceInstall/Build/Intermediates.noindex/XCBuildData/build.db')
+    signature = [cas_bytes, *(path.stat().st_blocks if path.exists() else 0 for path in databases)]
+    if cas_bytes is not None and output.is_file():
+        try: previous = json.loads(output.read_text())
+        except (ValueError, UnicodeError): previous = {}
+        if previous.get('monitorSignature') == signature: return previous
+    report = cache_space_report(root)
+    report['monitorSignature'] = signature
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    return report
+
+
 def prune_native_storage(shared: Path) -> None:
     # v<格式>.<代际> 的主代与上游代共享引用关系，交由原生工具沿父目录回收。
-    compilation = shared / 'CompilationCache.noindex'
-    for store in compilation.iterdir() if compilation.is_dir() else ():
-        if store.is_dir() and any(store.glob('v*')):
-            subprocess.run(['xcrun', 'llvm-cas', '--cas=' + str(store), '--prune'], check=True,
-                stdout=subprocess.DEVNULL)
+    compiler = Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
+    prune_compilation_cache(shared, compiler)
     index = shared / 'Index.noindex/DataStore'
     if index.is_dir():
         import ctypes
-        compiler = Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
         library = ctypes.CDLL(str(compiler.parent.parent / 'lib/libIndexStore.dylib'))
         library.indexstore_store_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
         library.indexstore_store_create.restype = ctypes.c_void_p
@@ -170,7 +248,9 @@ def maintain_native_storage(shared: Path) -> None:
     if not shared.is_dir(): return
     with (shared / 'cache.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        try: prune_native_storage(shared)
+        try:
+            prune_native_storage(shared)
+            record_cache_space(shared.parent.parent)
         except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
             print(f'缓存回收待重试：{error}', file=sys.stderr)
 

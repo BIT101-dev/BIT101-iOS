@@ -310,20 +310,42 @@ def cache_and_ui_products(fixture: Path) -> None:
     (cache / 'Index.noindex/DataStore').mkdir(parents=True)
     library = Mock()
     library.indexstore_store_create.return_value = 1
-    with patch.object(subprocess, 'run') as prune, patch.object(subprocess, 'check_output', return_value='/active/usr/bin/swiftc\n'), \
+    library.swiftscan_cas_options_create.return_value = 1
+    library.swiftscan_cas_create_from_options.return_value = 2
+    library.swiftscan_cas_get_ondisk_size.return_value = 1024
+    library.swiftscan_cas_set_ondisk_size_limit.return_value = False
+    def output(command, **kwargs):
+        return '/active/usr/bin/swiftc\n' if command[0] == 'xcrun' else '1\t' + str(native) + '\n'
+    with patch.object(subprocess, 'run') as prune, patch.object(subprocess, 'check_output', side_effect=output), \
             patch.object(ctypes, 'CDLL', return_value=library) as load:
         prune_native_storage(cache)
     prune.assert_called_once_with(['xcrun', 'llvm-cas', '--cas=' + str(native / 'generic'), '--prune'], check=True, stdout=subprocess.DEVNULL)
-    load.assert_called_once_with('/active/usr/lib/libIndexStore.dylib')
+    assert [entry.args[0] for entry in load.call_args_list] == [
+        '/active/usr/lib/swift/host/compiler/lib_InternalSwiftScan.dylib', '/active/usr/lib/libIndexStore.dylib']
+    from validation_artifacts import CAS_GENERATION_LIMIT
+    assert library.swiftscan_cas_set_ondisk_size_limit.call_args.args[1] == CAS_GENERATION_LIMIT
+    library.swiftscan_cas_dispose.assert_called_once_with(2)
     library.indexstore_store_purge_stale_data.assert_called_once_with(1)
     library.indexstore_store_dispose.assert_called_once_with(1)
     assert data.read_bytes() == b'active compilation records'
     from compiler_cache import run_cache
     with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+            patch('validation_artifacts.cache_space_report', return_value={'projectBytes': 1}), \
             patch('validation_artifacts.prune_native_storage') as automatic:
         try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
         except SystemExit as status: assert status.code == 0
     automatic.assert_not_called()
+    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())['projectBytes'] > 0
+    from validation_artifacts import cache_space_report
+    measured = cache_space_report(fixture)
+    assert measured['projectBytes'] > 0 and measured['casGenerationLimitBytes'] == CAS_GENERATION_LIMIT
+    from compiler_cache import cache_layout_ready
+    from validation_artifacts import cache_names
+    derived = fixture / 'ready'; derived.mkdir()
+    for name in cache_names: (derived / name).symlink_to(fixture / '.build/compiler-cache' / name, target_is_directory=True)
+    assert cache_layout_ready(fixture / '.build/compiler-cache', [derived], ['xcodebuild', 'build'])
+    (derived / 'Index.noindex').unlink()
+    assert not cache_layout_ready(fixture / '.build/compiler-cache', [derived], ['xcodebuild', 'build'])
     from validation_artifacts import main as audit_artifacts
     import fcntl
     def locked_prune(shared):
