@@ -84,9 +84,9 @@ struct CommunityRecoveryCompositionTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func courseSearchStaysAvailableThroughFailureAndConnectedRecovery(routeChange: Bool) async throws {
-        let path = NetworkPathState(snapshot: .init(status: routeChange ? .connected : .disconnected, interfaces: [.wifi])), reads = CourseReads()
+    @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "wifi"])
+    func courseSearchStaysAvailableThroughFailureAndConnectedRecovery(change: String) async throws {
+        let path = NetworkPathState(snapshot: .init(status: change == "connection" ? .disconnected : .connected, interfaces: [.wifi])), reads = CourseReads()
         let preferences = CommunityPreferences(snapshot: .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
             useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
         let dependencies = CourseDependencies(list: reads, detail: CourseService(session: session()), preferences: preferences,
@@ -106,13 +106,13 @@ struct CommunityRecoveryCompositionTests {
             return result
         }
         #expect(fields(controller.view).contains { $0.text == "旧查询" })
-        if !routeChange {
+        if change == "connection" {
             path.update(snapshot: .init(status: .requiresConnection))
             try await render()
             #expect(reads.queries == ["旧查询"])
         }
         reads.offline = false
-        path.update(snapshot: .init(status: .connected, interfaces: [.cellular]))
+        path.update(snapshot: .init(status: .connected, interfaces: change == "interface" ? [.cellular] : [.wifi]))
         try await waitForTestEvent { model.state.status == .loaded }
         #expect(reads.queries == ["旧查询", "旧查询"])
         model.searchText = "新查询"

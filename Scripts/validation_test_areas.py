@@ -772,8 +772,8 @@ public final class Observer {
 
 
 @lru_cache
-def indexed_test_sources(sources: tuple[tuple[str, str], ...]) -> dict:
-    return swift_syntax_index_sources(dict(sources), cache_transformed_sources=True)
+def indexed_test_sources(sources: tuple[tuple[str, str], ...], group: str = 'all') -> dict:
+    return swift_syntax_index_sources(dict(sources), cache_context='tests:' + group)
 
 
 def raw_test_selectors(group: str) -> dict[str, str]:
@@ -786,7 +786,7 @@ def raw_test_selectors(group: str) -> dict[str, str]:
         sources[str(path)] = active_swift_source(path.read_text(), group, path=str(path))
     selectors = {}
     origins = {}
-    for path, facts in indexed_test_sources(tuple(sorted(sources.items()))).items():
+    for path, facts in indexed_test_sources(tuple(sorted(sources.items())), group).items():
         functions = {function['start']: function for function in facts['functionRanges']}
         for test in facts['tests']:
             selector = test['value']
@@ -820,7 +820,7 @@ def test_case_inventory(group: str) -> dict[str, int]:
     directory = ROOT / ('BIT101-iOSUITests' if effective == 'ui' else 'BIT101-iOSTests')
     sources = {str(path): active_swift_source(path.read_text(), effective, path=str(path))
         for path in directory.rglob('*.swift')}
-    index = indexed_test_sources(tuple(sorted(sources.items())))
+    index = indexed_test_sources(tuple(sorted(sources.items())), effective)
     expected, enum_index = {}, None
     for path, facts in index.items():
         for test in facts['tests']:

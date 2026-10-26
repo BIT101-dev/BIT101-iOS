@@ -255,59 +255,58 @@ private struct GalleryMessageRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-            GalleryMessageAvatarView(user: message.fromUser, type: type)
+        Button(action: onOpenResource) {
+            HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+                GalleryMessageAvatarView(user: message.fromUser, type: type)
 
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
-                    if isUnread {
-                        Circle()
-                            .fill(AppDesignSystem.Palette.Accent.primary)
-                            .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+                    HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
+                        if isUnread {
+                            Circle()
+                                .fill(AppDesignSystem.Palette.Accent.primary)
+                                .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
+                        }
+
+                        Text(message.fromUser.displayName)
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
+                            .lineLimit(1)
+
+                        Spacer(minLength: AppDesignSystem.Spacing.none)
+
+                        Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
+                            .font(AppDesignSystem.Typography.caption)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
 
-                    Text(message.fromUser.displayName)
-                        .font(AppDesignSystem.Typography.bodyEmphasis)
-                        .foregroundStyle(AppDesignSystem.Foreground.primary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                    Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                }
-
-                Text(type.actionText(for: message))
-                    .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(AppDesignSystem.Foreground.primary)
-
-                if !message.text.isEmpty {
-                    Text(message.text)
+                    Text(type.actionText(for: message))
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
+
+                    if !message.text.isEmpty {
+                        Text(message.text)
+                            .font(AppDesignSystem.Typography.body)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                if canOpenResource {
+                    Image(systemName: "chevron.right")
+                        .font(AppDesignSystem.Typography.captionEmphasis)
+                        .foregroundStyle(AppDesignSystem.Foreground.tertiary)
+                        .padding(.top, AppDesignSystem.Spacing.micro)
                 }
             }
-
-            if canOpenResource {
-                Image(systemName: "chevron.right")
-                    .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(AppDesignSystem.Foreground.tertiary)
-                    .padding(.top, AppDesignSystem.Spacing.micro)
-            }
+            .padding(.horizontal, AppDesignSystem.Spacing.content)
+            .padding(.vertical, AppDesignSystem.Spacing.content)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isUnread ? AppDesignSystem.Palette.Accent.surface : AppDesignSystem.Palette.Background.system)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, AppDesignSystem.Spacing.content)
-        .padding(.vertical, AppDesignSystem.Spacing.content)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isUnread ? AppDesignSystem.Palette.Accent.surface : AppDesignSystem.Palette.Background.system)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            onOpenResource()
-        }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
         .accessibilityHint(canOpenResource ? "打开关联\(message.resourceTitle)" : "标记为已读")
         .accessibilityIdentifier("gallery.message.\(message.id)")
     }

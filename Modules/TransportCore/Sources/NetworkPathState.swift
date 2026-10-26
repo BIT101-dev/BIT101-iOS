@@ -63,9 +63,8 @@ public final class NetworkPathState {
     }
 
     func update(snapshot: NetworkPathSnapshot) {
-        let previous = self.snapshot
         self.snapshot = snapshot
-        if snapshot.status == .connected, previous != snapshot {
+        if snapshot.status == .connected {
             for continuation in recoveryContinuations.values { continuation.yield(()) }
         }
     }

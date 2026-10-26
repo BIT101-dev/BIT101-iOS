@@ -144,9 +144,6 @@ private struct PaperRootViewScene: View {
                                                 selectedPaper = paper
                                             }
                                         )
-                                        .accessibilityElement(children: .combine)
-                                        .accessibilityAddTraits(.isButton)
-                                        .accessibilityHint("打开文章详情")
                                     }
                                     .id(paper.id)
                                     .task(id: viewModel.previewGeneration) {

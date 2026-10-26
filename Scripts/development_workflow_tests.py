@@ -44,6 +44,9 @@ def shared_source_facts(fixture: Path) -> None:
     cache = fixture / 'source-facts.sqlite'
     path = ROOT / 'Modules/CommunityCore/Sources/CommunityTextLimits.swift'
     source = path.read_text()
+    with closing(sqlite3.connect(cache)) as database, database:
+        database.execute('CREATE TABLE facts (path TEXT PRIMARY KEY, content TEXT)')
+        database.execute('INSERT INTO facts VALUES (?, ?)', (str(path), 'legacy facts'))
     with patch.dict(os.environ, BIT101_SOURCE_FACTS_CACHE=str(cache)), \
             patch.object(subject, '_run_swift_syntax_index', wraps=subject._run_swift_syntax_index) as parse:
         first = subject.swift_syntax_index_sources({str(path): source})[str(path)]
@@ -58,7 +61,7 @@ def shared_source_facts(fixture: Path) -> None:
             stored = database.execute('SELECT content FROM facts WHERE path = ?', (str(path),)).fetchone()[0]
         assert all(type(position) is int for position in json.loads(stored)['calls']) and '$source' in stored
         with closing(sqlite3.connect(cache)) as database, database:
-            database.execute('INSERT INTO facts VALUES (?, ?)', ('unrequested.swift', 'invalid JSON'))
+            database.execute('INSERT INTO facts VALUES (?, ?, ?)', ('unrequested.swift', '', 'invalid JSON'))
         relative = str(path.relative_to(ROOT))
         assert subject.swift_syntax_index_sources({relative: source})[relative] == first and parse.call_count == 1
         with patch.dict(os.environ), patch.object(subject, 'DEFAULT_FACTS_CACHE', cache):
@@ -129,9 +132,9 @@ print('done', flush=True)
         transformed = source + '\n'
         calls = parse.call_count
         for _ in range(2):
-            assert subject.swift_syntax_index_sources({relative: transformed}, cache_transformed_sources=True)[relative]['source'] == transformed
-        assert parse.call_count == calls + 1
-        assert subject.swift_syntax_index_sources({relative: source}, cache_transformed_sources=True)[relative] == expected
+            for context, version in (('tests:app', transformed), ('tests:release', transformed + '\n')):
+                assert subject.swift_syntax_index_sources({relative: version}, cache_context=context)[relative]['source'] == version
+            assert subject.swift_syntax_index_sources({relative: source})[relative] == expected
         assert parse.call_count == calls + 2
         cache.write_bytes(b'invalid SQLite cache')
         assert subject.swift_syntax_index_sources({relative: source})[relative] == expected

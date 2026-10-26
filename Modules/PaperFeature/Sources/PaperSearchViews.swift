@@ -85,9 +85,6 @@ private struct PaperSearchScene: View {
                                             selectedPaper = paper
                                         }
                                     )
-                                    .accessibilityElement(children: .combine)
-                                    .accessibilityAddTraits(.isButton)
-                                    .accessibilityHint("打开文章详情")
                                 }
                                 .task(id: viewModel.previewGeneration) {
                                     await viewModel.loadPreviewMetadataIfNeeded(for: paper)

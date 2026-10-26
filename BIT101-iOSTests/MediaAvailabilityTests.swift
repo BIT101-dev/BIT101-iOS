@@ -9,6 +9,13 @@ import os
 
 @MainActor
 struct MediaAvailabilityTests {
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingSynchronousImagePreparationStopsBeforeDecoding() async {
+        let preparation = Task { try ImageDataCompressor.compress(Data(), maximumBytes: 1) }
+        preparation.cancel()
+        await #expect(throws: CancellationError.self) { try await preparation.value }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
     func encodedLocalPreviewsKeepJPEGBytesAndAttachmentPositions(selected: Int) async throws {
         let helper = MediaDependencyTests(), files = PreferenceMemoryFiles()

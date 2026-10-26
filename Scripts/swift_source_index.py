@@ -164,7 +164,7 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
     return swift_syntax_index_sources({str(path): path.read_bytes().decode("utf-8") for path in files})
 
 
-def swift_syntax_index_sources(sources: dict[str, str], *, cache_transformed_sources: bool = False) -> dict[str, dict]:
+def swift_syntax_index_sources(sources: dict[str, str], *, cache_context: str | None = None) -> dict[str, dict]:
     cache_name = os.environ.get('BIT101_SOURCE_FACTS_CACHE', str(DEFAULT_FACTS_CACHE))
     if not cache_name: return _index_sources(sources)
     from validation_inputs import SWIFT_ROOTS
@@ -172,13 +172,15 @@ def swift_syntax_index_sources(sources: dict[str, str], *, cache_transformed_sou
     for name, source in sources.items():
         path = (ROOT / name).resolve()
         parts = path.relative_to(ROOT).parts if path.is_relative_to(ROOT) else ()
-        if parts and parts[0] in SWIFT_ROOTS \
-                and path.is_file() and (cache_transformed_sources or path.read_bytes().decode('utf-8') == source):
-            eligible[name] = str(path)
+        if parts and parts[0] in SWIFT_ROOTS and path.is_file():
+            context = '' if path.read_bytes().decode('utf-8') == source else cache_context
+            if context is not None: eligible[name] = (str(path), context)
     if not eligible: return _index_sources(sources)
-    requested = {path: sources[name] for name, path in eligible.items()}
-    shared = _cached_facts(Path(cache_name), requested)
-    index = {name: shared[path] for name, path in eligible.items()}
+    grouped = {}
+    for name, (path, context) in eligible.items(): grouped.setdefault(context, {})[path] = sources[name]
+    shared = {(path, context): facts for context, requested in grouped.items()
+        for path, facts in _cached_facts(Path(cache_name), requested, context).items()}
+    index = {name: shared[key] for name, key in eligible.items()}
     missing = {name: source for name, source in sources.items() if name not in eligible}
     if missing: index.update(_index_sources(missing, resolve_tests=False))
     index = _materialize_facts(index)
@@ -188,34 +190,37 @@ def swift_syntax_index_sources(sources: dict[str, str], *, cache_transformed_sou
     return index
 
 
-def _cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
+def _cached_facts(cache_path: Path, requested: dict[str, str], context: str = '') -> dict:
     """Decode private facts for the requested files from the shared audit database."""
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with cache_path.with_suffix('.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        try: return _read_cached_facts(cache_path, requested)
+        try: return _read_cached_facts(cache_path, requested, context)
         except sqlite3.DatabaseError as error:
             if error.sqlite_errorcode not in {sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB}: raise
             cache_path.unlink()
             Path(str(cache_path) + '-journal').unlink(missing_ok=True)
-            return _read_cached_facts(cache_path, requested)
+            return _read_cached_facts(cache_path, requested, context)
 
 
-def _read_cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
+def _read_cached_facts(cache_path: Path, requested: dict[str, str], context: str) -> dict:
     with closing(sqlite3.connect(cache_path)) as database, database:
-        database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT PRIMARY KEY, content TEXT)')
+        columns = [row[1] for row in database.execute('PRAGMA table_info(facts)')]
+        migrate = bool(columns) and 'context' not in columns
+        if migrate: database.execute('DROP TABLE facts')
+        database.execute('CREATE TABLE IF NOT EXISTS facts (path TEXT, context TEXT, content TEXT, PRIMARY KEY (path, context))')
         database.execute('CREATE TABLE IF NOT EXISTS metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
         signature = source_facts_signature()
         previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
-        reclaim = previous is not None and previous[0] != signature
+        reclaim = migrate or previous is not None and previous[0] != signature
         if previous is None or previous[0] != signature:
             database.execute('DELETE FROM facts')
             database.execute("INSERT OR REPLACE INTO metadata VALUES ('indexer', ?)", (signature,))
-        obsolete = [(path,) for path, in database.execute('SELECT path FROM facts') if not Path(path).is_file()]
+        obsolete = [(path,) for path, in database.execute('SELECT DISTINCT path FROM facts') if not Path(path).is_file()]
         database.executemany('DELETE FROM facts WHERE path = ?', obsolete)
         shared = {}
         for path, source in requested.items():
-            row = database.execute('SELECT content FROM facts WHERE path = ?', (path,)).fetchone()
+            row = database.execute('SELECT content FROM facts WHERE path = ? AND context = ?', (path, context)).fetchone()
             if row:
                 try: facts = json.loads(row[0])
                 except json.JSONDecodeError: continue
@@ -223,8 +228,8 @@ def _read_cached_facts(cache_path: Path, requested: dict[str, str]) -> dict:
         missing = {path: source for path, source in requested.items() if path not in shared}
         if missing:
             parsed = _index_sources(missing, resolve_tests=False)
-            database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?)',
-                ((path, json.dumps(facts, ensure_ascii=False, separators=(',', ':'))) for path, facts in parsed.items()))
+            database.executemany('INSERT OR REPLACE INTO facts VALUES (?, ?, ?)',
+                ((path, context, json.dumps(facts, ensure_ascii=False, separators=(',', ':'))) for path, facts in parsed.items()))
             shared.update(parsed)
         if reclaim:
             database.commit()

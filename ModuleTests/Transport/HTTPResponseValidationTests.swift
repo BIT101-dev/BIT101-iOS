@@ -71,7 +71,7 @@ private nonisolated final class InterruptedResponseServer: Sendable {
 
 @MainActor
 struct HTTPResponseValidationTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "vpn"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "vpn", "wifi"])
     func usableRouteChangesPublishRecoveryEvents(kind: String) async throws {
         let path = NetworkPathState(snapshot: .init(status: kind == "connection" ? .disconnected : .connected, interfaces: [.wifi]))
         let recoveries = path.connectionRecoveries()
