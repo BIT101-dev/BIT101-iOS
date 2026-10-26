@@ -39,6 +39,7 @@ private struct PaperRootViewScene: View {
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
+    @State private var currentTopPaperID: Int?
     @Binding var requestedPaperID: Int?
     private let onShowFeed: () -> Void
 
@@ -63,6 +64,39 @@ private struct PaperRootViewScene: View {
                 viewModel.enqueueRefresh()
             }
         }
+        .sheet(isPresented: $isShowingComposer) {
+            NavigationStack {
+                PaperComposerView(initialContent: "", currentIdentity: dependencies.currentIdentity) {
+                    handleComposerCreated()
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingSearch) {
+            NavigationStack {
+                PaperSearchView(dependencies: dependencies, media: media)
+            }
+        }
+        .task {
+            await viewModel.bootstrapIfNeeded()
+            viewModel.retryFailedPreviews()
+        }
+        .task(id: requestedPaperID) {
+            consumeDeepLinkedPaperIfNeeded(requestedPaperID)
+        }
+        .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            viewModel.enqueueRefresh()
+        }
+        .communityReadRecovery(networkPath: dependencies.networkPath,
+            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil) {
+            if case .failed = viewModel.state.status { await viewModel.refresh() }
+            else if viewModel.state.paginationError != nil {
+                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+            }
+            viewModel.retryFailedPreviews()
+        }
+        .onDisappear { viewModel.cancelRefreshOperations() }
+        .diagnosticAlert(item: $viewModel.alert)
         .environment(dependencies).environment(media)
     }
 
@@ -101,7 +135,7 @@ private struct PaperRootViewScene: View {
                         } else {
                             LazyVGrid(columns: [GridItem(.flexible())], spacing: AppDesignSystem.Spacing.none) {
                                 ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
-                                    AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
+                                    AppFeedRow(isLast: index == viewModel.state.items.count - 1, isSelected: selectedPaper?.id == paper.id) {
                                         PaperSummaryCard(
                                             paper: paper,
                                             previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -114,6 +148,7 @@ private struct PaperRootViewScene: View {
                                         .accessibilityAddTraits(.isButton)
                                         .accessibilityHint("打开文章详情")
                                     }
+                                    .id(paper.id)
                                     .task(id: viewModel.previewGeneration) {
                                         await viewModel.loadPreviewMetadataIfNeeded(for: paper)
                                     }
@@ -122,6 +157,7 @@ private struct PaperRootViewScene: View {
                                     }
                                 }
                             }
+                            .scrollTargetLayout()
 
                             CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,
                                 errorMessage: viewModel.state.paginationError) {
@@ -132,6 +168,8 @@ private struct PaperRootViewScene: View {
             }
             .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
             }
+            .scrollPosition(id: Binding(get: { currentTopPaperID },
+                set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top)
             .refreshable {
                     interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
 
@@ -140,7 +178,9 @@ private struct PaperRootViewScene: View {
             .simultaneousGesture(sortSwitchGesture)
             .accessibilityIdentifier("paper.sort-surface")
 
-            AppFloatingActionStack {
+
+        }
+        .appBrowserActions(expanded: layout.isLandscape) {
                 AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
                     isShowingComposer = true
                 }
@@ -148,7 +188,6 @@ private struct PaperRootViewScene: View {
                 AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
                     isShowingSearch = true
                 }
-            }
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(
@@ -161,38 +200,7 @@ private struct PaperRootViewScene: View {
                 }
             }
         }
-        .sheet(isPresented: $isShowingComposer) {
-            NavigationStack {
-                PaperComposerView(initialContent: "", currentIdentity: dependencies.currentIdentity) {
-                    handleComposerCreated()
-                }
-            }
-        }
-        .sheet(isPresented: $isShowingSearch) {
-            NavigationStack {
-                PaperSearchView(dependencies: dependencies, media: media)
-            }
-        }
-        .task {
-            await viewModel.bootstrapIfNeeded()
-        }
-        .task(id: requestedPaperID) {
-            consumeDeepLinkedPaperIfNeeded(requestedPaperID)
-        }
-        .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
-            guard oldValue != newValue else { return }
-            viewModel.enqueueRefresh()
-        }
-        .communityReadRecovery(networkPath: dependencies.networkPath,
-            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil) {
-            if case .failed = viewModel.state.status { await viewModel.refresh() }
-            else if viewModel.state.paginationError != nil {
-                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
-            }
-            viewModel.retryFailedPreviews()
-        }
-        .onDisappear { viewModel.cancelRefreshOperations() }
-        .diagnosticAlert(item: $viewModel.alert)
+
     }
 
     private func consumeDeepLinkedPaperIfNeeded(_ paperID: Int?) {

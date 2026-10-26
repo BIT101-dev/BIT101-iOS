@@ -25,7 +25,7 @@ extension EnvironmentValues {
 
 /// 日程页根视图。
 ///
-/// 顶部使用公共 segmented，正文按当前分区单独渲染。
+/// 竖屏沿顶部公共 segmented 切换分区，横屏并排呈现课表与 DDL。
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
@@ -54,14 +54,12 @@ public struct ScheduleRootView: View {
     private var content: some View {
         GeometryReader { proxy in
             ZStack {
-                if layout.isLandscape && viewModel.selectedSection != .classroom {
-                    HStack(spacing: AppDesignSystem.Spacing.none) {
+                if viewModel.selectedSection == .classroom { FreeClassroomTabView(viewModel: viewModel.classroom) }
+                else {
+                    AppPairedPages(showsFirst: viewModel.selectedSection == .courses) {
                         CourseScheduleTabView(viewModel: viewModel, resetSignal: courseTabResetSignal, destinations: destinations)
-                            .frame(maxWidth: .infinity)
-                        Divider()
-                        DDLScheduleTabView(viewModel: viewModel.ddl).frame(maxWidth: .infinity)
-                    }
-                } else { selectedSectionView }
+                    } second: { DDLScheduleTabView(viewModel: viewModel.ddl) }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
@@ -82,15 +80,13 @@ public struct ScheduleRootView: View {
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation {
                 if layout.isLandscape {
-                    AppWidePageHeader(navigation: AnyView(AppSegmentedPicker(title: "日程分区",
+                    AppSegmentedPicker(title: "日程分区",
                         selection: Binding(get: { viewModel.selectedSection == .classroom },
                             set: { viewModel.selectedSection = $0 ? .classroom : .courses })) {
-                            Text("课表与 DDL").tag(false); Text("空教室").tag(true)
-                        }), leadingStatus: viewModel.selectedSection == .classroom ? nil
-                            : AnyView(ScheduleRefreshStatusRow(viewModel: viewModel, section: .courses))) {
-                        ScheduleRefreshStatusRow(viewModel: viewModel,
-                            section: viewModel.selectedSection == .classroom ? .classroom : .ddl)
+                        Text("课表与 DDL").tag(false); Text("空教室").tag(true)
                     }
+                    .padding(.horizontal, AppDesignSystem.Spacing.section)
+                    .padding(.vertical, AppDesignSystem.Spacing.regular)
                 } else {
                     ScheduleSectionTabs(selectedSection: $viewModel.selectedSection, courseTitle: viewModel.activeCourseScheduleTitle)
                 }
@@ -156,23 +152,6 @@ public struct ScheduleRootView: View {
         }
         .environmentObject(viewModel)
         .environmentObject(viewModel.ddl)
-    }
-
-    /// 根据当前分区切换渲染不同内容页。
-    @ViewBuilder
-    private var selectedSectionView: some View {
-        switch viewModel.selectedSection {
-        case .courses:
-            CourseScheduleTabView(
-                viewModel: viewModel,
-                resetSignal: courseTabResetSignal,
-                destinations: destinations
-            )
-        case .ddl:
-            DDLScheduleTabView(viewModel: viewModel.ddl)
-        case .classroom:
-            FreeClassroomTabView(viewModel: viewModel.classroom)
-        }
     }
 
     /// 轻扫切换课表 / DDL / 空教室的手势。
@@ -289,19 +268,6 @@ public struct SchedulePersistenceConflictView: View {
 /// 顶部公共分段切换条。
 ///
 /// 根视图专注处理路由和副作用，segmented 样式细节由子视图承载。
-public struct ScheduleRefreshStatusRow: View {
-    @ObservedObject private var viewModel: ScheduleViewModel
-    private let section: ScheduleSection?
-    public init(viewModel: ScheduleViewModel, section: ScheduleSection? = nil) { self.viewModel = viewModel; self.section = section }
-    public var body: some View {
-        switch section ?? viewModel.selectedSection {
-        case .courses: CourseScheduleRefreshStatusRow(viewModel: viewModel)
-        case .ddl: DDLRefreshStatusRow(viewModel: viewModel.ddl)
-        case .classroom: ClassroomRefreshStatusRow(viewModel: viewModel.classroom)
-        }
-    }
-}
-
 private struct ScheduleSectionTabs: View {
     @Binding var selectedSection: ScheduleSection
     let courseTitle: String

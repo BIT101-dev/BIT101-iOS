@@ -132,6 +132,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> HostViewController {
         let controller = HostViewController()
+        controller.view.isUserInteractionEnabled = false
         controller.onReady = { [weak coordinator = context.coordinator, weak controller] in
             guard let coordinator, let controller else { return }
             coordinator.presentPendingIfPossible(from: controller)

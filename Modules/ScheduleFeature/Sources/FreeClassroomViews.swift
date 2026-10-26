@@ -7,7 +7,6 @@ import SwiftUI
 ///
 /// 校区与教学楼选择自动加载，当天结果支持本地节次筛选与手动刷新。
 struct FreeClassroomTabView: View {
-    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @ObservedObject var viewModel: ScheduleClassroomViewModel
 
@@ -76,9 +75,7 @@ struct FreeClassroomTabView: View {
 
     @ViewBuilder
     private var classroomControls: some View {
-        if !layout.isLandscape {
-            Section { ClassroomRefreshStatusRow(viewModel: viewModel) }
-        }
+        Section { ClassroomRefreshStatusRow(viewModel: viewModel) }
 
         Section {
             Picker("校区", selection: Binding(

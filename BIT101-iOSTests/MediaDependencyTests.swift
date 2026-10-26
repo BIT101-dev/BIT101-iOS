@@ -675,19 +675,17 @@ struct MediaDependencyTests {
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let avatars = CachedRemoteImageStore(files: files, resources: cache)
         let first = Task {
-            let file = try await cache.file(for: AppURL.required("https://example.invalid/first.png"))
-            return try files.readData(at: file)
+            try await cache.withFile(for: AppURL.required("https://example.invalid/first.png")) { try files.readData(at: $0) }
         }
         try await waitForTestEvent { limit.pending != nil }
         let second = Task {
             let url = AppURL.required("https://example.invalid/second.png")
             if avatar {
-                await avatars.store(bytes, for: url)
-                let stored = await avatars.diskData(for: url)
-                return try #require(stored)
+                let image = try #require(await avatars.storeAndDecode(bytes, for: url))
+                #expect(image.size.width == 2)
+                return bytes
             }
-            let file = try await cache.file(for: url)
-            return try files.readData(at: file)
+            return try await cache.withFile(for: url) { try files.readData(at: $0) }
         }
         try await waitForTestEvent { limit.secondPending != nil }
         if firstFinishesFirst {
@@ -701,8 +699,7 @@ struct MediaDependencyTests {
             limit.pending?.resume(returning: 1)
             #expect(try await first.value == bytes)
         }
-        await quota.enforce(force: true)
-        #expect(await quota.usedBytes() <= 1_048_576)
+        try await waitForTestEvent(isolation: quota) { $0.usedBytes() <= 1_048_576 }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -723,8 +720,7 @@ struct MediaDependencyTests {
         await quota.enforce(force: true)
         pausedRead.pending?.resume(returning: 0)
         #expect(try await read.value == bytes)
-        await quota.enforce(force: true)
-        #expect(await quota.usedBytes() <= 1_048_576)
+        try await waitForTestEvent(isolation: quota) { $0.usedBytes() <= 1_048_576 }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

@@ -62,10 +62,11 @@ nonisolated final class PreviewFileOwnership: Sendable {
     private let fileOperations = OSAllocatedUnfairLock()
     func begin(_ owner: UUID) { state.withLock { $0.sessions[owner] = [] } }
     @discardableResult
-    func end(_ owner: UUID) -> Task<Void, Never> {
-        state.withLock { $0.sessions[owner] = nil }
+    func end(_ owner: UUID, onRelease: @escaping @Sendable (Set<URL>) async -> Void = { _ in }) -> Task<Void, Never> {
+        let paths = state.withLock { $0.sessions.removeValue(forKey: owner) ?? [] }
         return Task.detached {
             self.fileOperations.withLock { self.removeReleasedFiles() }
+            if !paths.isEmpty { await onRelease(Set(paths.map { URL(fileURLWithPath: $0) })) }
         }
     }
     private func removeReleasedFiles() {
@@ -184,7 +185,9 @@ actor ImageCacheDiskQuota {
         catch { previewOwnership.end(owner); throw error }
     }
 
-    nonisolated func endFileUse(_ owner: UUID) { previewOwnership.end(owner) }
+    nonisolated func endFileUse(_ owner: UUID) {
+        previewOwnership.end(owner) { [self] urls in await didReleaseFiles(urls) }
+    }
 
     func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) async {
         let now = Date()

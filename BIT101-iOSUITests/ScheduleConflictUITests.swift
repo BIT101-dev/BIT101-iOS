@@ -151,8 +151,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         tap("取消")
         back()
         app.mainTab("成绩").tapBriefly()
-        assertPanes("score.sidebar", "interaction.ScoreListPage.list")
-        reveal(textElement("加权 GPA"), description: "侧栏统计")
+        assertPanes("home.score-surface", "home.course-surface")
         capture("成绩")
         app.mainTab("日程").tapBriefly()
         let calendarWeek = app.buttons["第1周"]
@@ -179,6 +178,10 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         first.tapBriefly()
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5) && first.exists, "话题详情应在右侧打开并保留左侧列表。")
         capture("话题详情")
+        XCUIDevice.shared.orientation = .portrait
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "竖屏应保留当前帖子详情。")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        assertUI(first.appears(timeout: 5) && app.navigationBars["帖子详情"].exists, "返回横屏应保留阅读位置与详情。")
         tapHeader(app.segmentedControls.buttons["文章"])
         let paper = textElement("分页文章 1"), nextPaper = textElement("分页文章 2")
         assertUI(waitUntil(NSPredicate { _, _ in
@@ -210,12 +213,11 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "主导航应始终位于窗口中央。")
             if let navigationWidth { assertUI(abs(frame.width - navigationWidth) <= 1, "页面切换应保持主导航宽度。") }
             else { navigationWidth = frame.width }
-            for card in app.descendants(matching: .any).matching(identifier: "app.refresh-status.card").allElementsBoundByIndex {
-                let cell = card.native.cells.firstMatch
-                assertUI(cell.exists && abs(cell.frame.height - 52) <= 1, "刷新卡片应沿公共行高布局：\(cell.frame)。")
+            for cell in app.native.cells.containing(.button, identifier: "app.refresh-status.action").allElementsBoundByIndex {
+                assertUI(abs(cell.frame.height - 52) <= 1, "模块刷新行应沿公共行高布局：\(cell.frame)。")
             }
         }
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "界面截图·\(title)"
         attachment.lifetime = .keepAlways
         add(attachment)

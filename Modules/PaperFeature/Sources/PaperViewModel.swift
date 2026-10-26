@@ -55,6 +55,7 @@ class PaperCollectionViewModel: ObservableObject {
     func cancelRefreshOperations() {
         refreshTask?.cancel(); refreshTask = nil
         refreshGeneration &+= 1
+        previewRevalidationIDs.formUnion(previewLoadingIDs)
         previewLoadingIDs.removeAll()
         if let refreshPreviousState {
             state = refreshPreviousState.state
@@ -218,7 +219,7 @@ class PaperCollectionViewModel: ObservableObject {
     }
 
     func retryFailedPreviews() {
-        if !previewFailedIDs.isEmpty { previewGeneration &+= 1 }
+        if !previewFailedIDs.isEmpty || !previewRevalidationIDs.isEmpty { previewGeneration &+= 1 }
     }
 
     func reset() {

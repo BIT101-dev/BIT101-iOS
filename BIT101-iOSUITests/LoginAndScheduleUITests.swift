@@ -311,6 +311,18 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         defer { device.orientation = .portrait }
         app.buttons["第3周"].tapBriefly()
         assertSelectedWeek(3)
+        tap("schedule.add-content")
+        tap("添加课程")
+        let draft = app.textFields["课程名称"]
+        replaceText("旋转保留课程草稿", in: draft)
+        dismissKeyboard()
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            device.orientation = orientation
+            UITestSnapshotReader.invalidate()
+            assertUI(draft.appears(timeout: 5) && draft.value as? String == "旋转保留课程草稿", "旋转应保留课程编辑器及完整草稿。")
+        }
+        tap("取消")
+        tap("放弃输入")
         for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight, .portrait] {
             device.orientation = orientation
             UITestSnapshotReader.invalidate()

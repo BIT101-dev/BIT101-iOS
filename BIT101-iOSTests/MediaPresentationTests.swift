@@ -272,8 +272,8 @@ struct MediaPresentationTests {
         if failure == "transport" { transport.failedURLs.insert(original) }
         else { transport.responses[original] = Data("damaged".utf8) }
         let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let host = UIHostingController(rootView: AnyView(RemoteAutoplayingImage(url: original, fallbackURL: thumbnail)
-            .frame(width: 40, height: 40).environment(media)))
+        let host = UIHostingController(rootView: AnyView(ScrollView { RemoteAutoplayingImage(url: original, fallbackURL: thumbnail)
+            .frame(width: 40, height: 40) }.environment(media)))
         let window = try window(host)
         defer { transport.pending?.resume(); transport.pending = nil; window.isHidden = true; window.rootViewController = nil }
         try await waitForTestEvent { transport.pending != nil && media.displayBudget.usedBytes > 0 }
@@ -283,6 +283,31 @@ struct MediaPresentationTests {
         #expect(media.displayBudget.usedBytes > 0 && transport.requests == 2)
         host.rootView = AnyView(EmptyView())
         try await waitForTestEvent { media.displayBudget.usedBytes == 0 }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func scrollingAnAnimatedImageOffscreenReleasesItsDisplayBudget() async throws {
+        let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
+        let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let host = UIHostingController(rootView: ScrollView {
+            VStack {
+                RemoteAutoplayingImage(url: AppURL.required("https://example.invalid/visible.gif"))
+                    .frame(width: 80, height: 80)
+                Color.clear.frame(height: 3_000)
+            }
+        }.environment(media))
+        let window = try window(host)
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func scrollView(in view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView { return scroll }
+            return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+        }
+        try await waitForTestEvent { media.displayBudget.usedBytes > 0 }
+        let scroll = try #require(scrollView(in: host.view))
+        scroll.setContentOffset(CGPoint(x: 0, y: 400), animated: false)
+        try await waitForTestEvent { media.displayBudget.usedBytes == 0 }
+        scroll.setContentOffset(.zero, animated: false)
+        try await waitForTestEvent { media.displayBudget.usedBytes > 0 }
     }
 
     @Test(.timeLimit(.minutes(1)))

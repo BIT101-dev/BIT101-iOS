@@ -17,7 +17,6 @@ import UIKit
 ///
 /// 待办沿分组列表呈现，横屏与课表并排。
 struct DDLScheduleTabView: View {
-    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScheduleDDLViewModel
@@ -37,6 +36,7 @@ struct DDLScheduleTabView: View {
 
             AppFloatingActionStack {
                 AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
+                    selectedEvent = nil
                     editingEventID = nil
                     draft = DDLDraft()
                     isShowingSheet = true
@@ -45,7 +45,7 @@ struct DDLScheduleTabView: View {
 
             }
         }
-        .sheet(isPresented: $isShowingSheet, onDismiss: { editingEventID = nil; selectedEvent = nil }) {
+        .sheet(isPresented: $isShowingSheet) {
             if let event = selectedEvent {
                 DDLEventDetailSheet(event: event, isEditable: viewModel.isCacheWritable,
                     remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
@@ -75,12 +75,15 @@ struct DDLScheduleTabView: View {
                     }, onDismiss: { isShowingSheet = false })
             }
         }
+        .onChange(of: isShowingSheet) { _, visible in
+            if !visible { editingEventID = nil; selectedEvent = nil }
+        }
         .systemImagePreview(item: $imageViewer)
     }
 
     private var eventList: some View {
         List {
-            if !layout.isLandscape { Section { refreshRow } }
+            Section { refreshRow }
 
             if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
                 Section {

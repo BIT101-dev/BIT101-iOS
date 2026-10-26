@@ -33,9 +33,9 @@ struct PaperSummaryCard: View {
                 )
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                    Text(previewMetadata?.authorName ?? (previewFailed ? "作者加载失败，刷新重试" : "加载中"))
-                        .font(AppDesignSystem.Typography.bodyEmphasis)
-                        .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    Text(previewMetadata?.authorName ?? (previewFailed ? "作者暂不可用" : "加载中"))
+                        .font(previewMetadata == nil ? AppDesignSystem.Typography.subheadline : AppDesignSystem.Typography.bodyEmphasis)
+                        .foregroundStyle(previewMetadata == nil ? AppDesignSystem.Foreground.secondary : AppDesignSystem.Foreground.primary)
                         .lineLimit(1)
 
                     Text(AppDateText.timestampText(from: paper.updateTime))

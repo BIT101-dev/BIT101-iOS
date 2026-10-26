@@ -115,7 +115,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并沿固定设备记录复用后续测试与恢复。Duo 布局沿 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转合同验收选中周次、主导航和内容操作区。
 
-`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收成绩、空教室和个人页分栏、话题与文章的列表和详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。
+`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收成绩与课程并排、空教室和个人页分栏、话题与文章的列表和详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。
 
 `simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 

@@ -27,14 +27,12 @@ public struct ScoreRefreshStatusRow: View {
 public struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
-    let showsRefreshStatus: Bool
     let transcriptService: any TrustedTranscriptServicing
 
-    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void, showsRefreshStatus: Bool = true) {
+    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
         self.onSearchCourse = onSearchCourse
-        self.showsRefreshStatus = showsRefreshStatus
     }
 
     public var body: some View {
@@ -65,58 +63,53 @@ public struct ScoreListPage: View {
                 }
                 .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
-                AppSidebarLayout {
-                    List { scoreControls }.appGroupedListStyle()
-                        .accessibilityIdentifier("score.sidebar")
-                } content: { usesSidebar in
-                    List {
-                        if !usesSidebar { scoreControls }
-                        Section("成绩列表") {
-                            if visibleRows.isEmpty {
-                                AppEmptyState(
-                                    title: "暂无成绩",
-                                    systemImage: "chart.bar.doc.horizontal",
-                                    message: "当前筛选条件下暂无成绩。"
-                                )
-                                .frame(maxWidth: .infinity)
-                            } else {
-                                ForEach(visibleRows) { row in
-                                    NavigationLink {
-                                        ScoreDetailView(
-                                            row: row,
-                                            onSearchCourse: onSearchCourse
-                                        )
-                                        .appReadableContent()
-                                    } label: {
-                                        ScoreListRowCard(row: row)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .appInteractiveListRow()
-                                        .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
+                List {
+                    scoreControls
+                    Section("成绩列表") {
+                        if visibleRows.isEmpty {
+                            AppEmptyState(
+                                title: "暂无成绩",
+                                systemImage: "chart.bar.doc.horizontal",
+                                message: "当前筛选条件下暂无成绩。"
+                            )
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            ForEach(visibleRows) { row in
+                                NavigationLink {
+                                    ScoreDetailView(
+                                        row: row,
+                                        onSearchCourse: onSearchCourse
+                                    )
+                                    .appReadableContent()
+                                } label: {
+                                    ScoreListRowCard(row: row)
                                 }
-                            }
-                        }
-
-                        if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
-                            Section("未出分") {
-                                ForEach(pendingCourses) { course in
-                                    NavigationLink {
-                                        PendingScoreDetailView(course: course)
-                                            .appReadableContent()
-                                    } label: {
-                                        ScoreListRowCard(course: course)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .appInteractiveListRow()
-                                        .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
-                                }
+                                .buttonStyle(.plain)
+                                .appInteractiveListRow()
+                                    .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                             }
                         }
                     }
-                    .accessibilityIdentifier("interaction.ScoreListPage.list")
-                    .appGroupedListStyle()
-                    .background(AppDesignSystem.Palette.Background.grouped)
+
+                    if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
+                        Section("未出分") {
+                            ForEach(pendingCourses) { course in
+                                NavigationLink {
+                                    PendingScoreDetailView(course: course)
+                                        .appReadableContent()
+                                } label: {
+                                    ScoreListRowCard(course: course)
+                                }
+                                .buttonStyle(.plain)
+                                .appInteractiveListRow()
+                                    .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
+                            }
+                        }
+                    }
                 }
+                .accessibilityIdentifier("interaction.ScoreListPage.list")
+                .appGroupedListStyle()
+                .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
         .task {
@@ -156,7 +149,7 @@ public struct ScoreListPage: View {
     private var scoreControls: some View {
         let summary = viewModel.summary
         Section {
-            if showsRefreshStatus { ScoreRefreshStatusRow(viewModel: viewModel) }
+            ScoreRefreshStatusRow(viewModel: viewModel)
             if viewModel.needsStorageRecovery {
                 Text("当前可用成绩和筛选继续生效，可通过“恢复成绩存储”重建本账号的本机缓存与筛选偏好。")
                     .font(AppDesignSystem.Typography.caption)

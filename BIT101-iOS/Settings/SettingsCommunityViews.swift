@@ -9,6 +9,7 @@ struct GallerySettingsPage: View {
     @EnvironmentObject private var settings: AppSettingsStore
     let media: MediaEnvironment
     @State private var imageCacheLimitMB: Int
+    @FocusState private var imageCacheLimitFocused: Bool
     @State private var imageCacheUsageText = "计算中"
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
@@ -103,17 +104,13 @@ struct GallerySettingsPage: View {
                 HStack(spacing: AppDesignSystem.Spacing.content) {
                     TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
                         .keyboardType(.numberPad)
-                        .onChange(of: imageCacheLimitMB) { _, newValue in
-                            let normalized = MediaEnvironment.normalizedCacheLimitMB(newValue)
-                            if normalized != newValue {
-                                imageCacheLimitMB = normalized
-                                return
-                            }
-                            media.cacheLimitMB = normalized
-                            Task {
-                                await media.enforceCurrentLimit()
-                                await refreshImageCacheUsage()
-                            }
+                        .focused($imageCacheLimitFocused)
+                        .onSubmit {
+                            interactionEvidence?("interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
+                            applyCacheLimit()
+                        }
+                        .onChange(of: imageCacheLimitFocused) { _, focused in
+                            if !focused { applyCacheLimit() }
                         }
 
                     Text("已用缓存 \(imageCacheUsageText)")
@@ -140,9 +137,21 @@ struct GallerySettingsPage: View {
             hiddenUserIDsText = newValue.map(String.init).joined(separator: ",")
         }
         .onDisappear {
+            applyCacheLimit()
             diagnosisTask?.cancel()
             diagnosisTask = nil
             diagnosisAlert = nil
+        }
+    }
+
+    private func applyCacheLimit() {
+        let normalized = MediaEnvironment.normalizedCacheLimitMB(imageCacheLimitMB)
+        imageCacheLimitMB = normalized
+        guard media.cacheLimitMB != normalized else { return }
+        media.cacheLimitMB = normalized
+        Task {
+            await media.enforceCurrentLimit()
+            await refreshImageCacheUsage()
         }
     }
 

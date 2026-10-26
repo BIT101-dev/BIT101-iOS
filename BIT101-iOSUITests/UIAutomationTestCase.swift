@@ -104,7 +104,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let window = app.windows.firstMatch.frame
         func isVisible() -> Bool {
             guard element.exists, element.isHittable else { return false }
-            return window.contains(CGPoint(x: element.frame.midX, y: element.frame.midY))
+            let target = element.frame
+            let viewport = (interactionScrollContainer(for: element)?.frame ?? window).intersection(window)
+            if target.width <= viewport.width && target.height <= viewport.height { return viewport.contains(target) }
+            return viewport.contains(CGPoint(x: target.midX, y: target.midY))
         }
         if isVisible() { return }
         if !UIElement.usesNativeInteraction, element.revealInScrollView() == "revealed", isVisible() {
@@ -133,10 +136,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func interactionScrollContainer(for element: UIElement) -> UIElement? {
         guard let snapshot = try? app.snapshot() else { return nil }
         let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
-            .filter { $0.frame.height >= snapshot.frame.height / 2
-                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+            .filter { !$0.frame.isEmpty && snapshot.frame.intersects($0.frame) }
+        let identifier = element.identifier, label = element.label, type = element.elementType
+        let owning = containers.filter { container in
+            container.firstSnapshot { target in
+                target.elementType == type && (identifier.isEmpty ? target.label == label : target.identifier == identifier)
+            } != nil
+        }
         let target = element.exists ? element.frame : CGRect.null
-        guard let selected = containers.last(where: { !target.isNull && !target.isEmpty
+        guard let selected = owning.last ?? containers.last(where: { !target.isNull && !target.isEmpty
             && $0.frame.minX <= target.midX && target.midX <= $0.frame.maxX }) ?? containers.last,
             !selected.identifier.isEmpty else { return nil }
         return app.descendants(matching: selected.elementType)[selected.identifier]
@@ -459,10 +467,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         )
         let scheduleTab = application.mainTab("日程")
         if !scheduleTab.isSelected { scheduleTab.tapBriefly() }
-        let scheduleReady = application.descendants(matching: .any)
-            .matching(identifier: "schedule.blank-context-menu")
-            .firstMatch
-        assertUI(scheduleReady.appears(timeout: 10), "日程缓存与课表网格应完成首屏加载。")
+        let courses = application.segmentedControls.buttons["课表"]
+        if courses.exists && !courses.isSelected { courses.tapBriefly() }
+        let scheduleReady = application.buttons["schedule.add-content"]
+        assertUI(waitUntil(NSPredicate { _, _ in scheduleReady.exists && scheduleReady.isHittable },
+            on: application, timeout: 10), "日程首屏应完成加载并提供编辑入口。")
     }
 
     @MainActor
@@ -579,7 +588,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard !checkedRefreshRows.contains(key) else { return }
         let nativeText = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
         let actionID = app.buttons["score.query"].exists ? "score.query" : "app.refresh-status.action"
-        let action = app.native.buttons[actionID]
+        let action = app.native.buttons[actionID].firstMatch
         guard action.exists, action.isEnabled else { return }
         let cell = app.native.cells.containing(.button, identifier: actionID).firstMatch
         guard cell.exists else { return }
@@ -937,7 +946,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
                     if let expanded = snapshot.firstSnapshot(where: { $0.elementType == .segmentedControl && $0.firstSnapshot(where: { $0.label == "地图" }) != nil }) {
-                        let label = initialTab == "gallery" ? "话题" : tabTitles[initialTab]
+                        let label = initialTab == "gallery" ? "话题" : initialTab == "home" ? "成绩 / 课程" : tabTitles[initialTab]
                         ready = expanded.firstSnapshot { $0.label == label && $0.isSelected } != nil
                     } else {
                         ready = snapshot.firstSnapshot {

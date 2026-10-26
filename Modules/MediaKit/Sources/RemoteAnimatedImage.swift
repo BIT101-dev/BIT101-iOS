@@ -265,8 +265,7 @@ struct RemoteAnimatedImage: UIViewRepresentable {
     }
 }
 
-/// 播放处于 LazyVStack 活跃区域的 GIF，快速划过时停止对应播放器和解码任务。
-/// 屏幕外的动图保持停止，降低 CPU/GPU 消耗。
+/// 根据滚动容器内的实际可见区域启停 GIF 播放和解码任务。
 public struct RemoteAutoplayingImage: View {
     @Environment(\.displayScale) private var displayScale
     let url: URL
@@ -274,6 +273,7 @@ public struct RemoteAutoplayingImage: View {
     var contentMode: ContentMode = .fit
     var cornerRadius: CGFloat = AppDesignSystem.Spacing.none
     @State private var isActive = false
+    @State private var isVisible = false
     @State private var pixelSize = 0
     @State private var phase = RemoteAnimatedImagePhase.loading
 
@@ -293,7 +293,15 @@ public struct RemoteAutoplayingImage: View {
             )
             if isActive, phase == .loading { ProgressView().controlSize(.small) }
         }
-        .onAppear { isActive = true }
+        .onGeometryChange(for: Bool.self) { geometry in
+            let image = CGRect(origin: .zero, size: geometry.size)
+            return image.intersects(geometry.bounds(of: .scrollView) ?? image)
+        } action: { visible in
+            isVisible = visible
+            isActive = visible
+            if !visible { phase = .loading }
+        }
+        .onAppear { isActive = isVisible }
         .onDisappear { isActive = false; phase = .loading }
         .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
             Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))

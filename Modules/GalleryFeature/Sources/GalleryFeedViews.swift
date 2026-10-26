@@ -131,6 +131,9 @@ struct GalleryFeedView: View {
     let onLoadMore: (CommunityPoster?) -> Void
     var onSelectPoster: ((CommunityPoster) -> Void)? = nil
     var excludedPosterIDs: Set<Int> = []
+    var selectedPosterID: Int? = nil
+    var scrollPosition: Binding<Int?>? = nil
+    var onPreview: ((ImagePreviewRequest) -> Void)? = nil
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var deletedPosterIDs: Set<Int> = []
@@ -169,7 +172,8 @@ struct GalleryFeedView: View {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                     LazyVGrid(columns: layout.gridColumns, spacing: layout.isLandscape ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none) {
                         ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                            AppFeedRow(isLast: layout.isLandscape || index == visiblePosters.count - 1) {
+                            AppFeedRow(isLast: layout.isLandscape || index == visiblePosters.count - 1,
+                                isSelected: selectedPosterID == poster.id) {
                                 CommunityPosterCard(
                                     poster: poster,
                                     onOpenPoster: {
@@ -177,7 +181,8 @@ struct GalleryFeedView: View {
                                         else { selectedPoster = poster }
                                     },
                                     onOpenImage: { index, images in
-                                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                                        let request = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                                        if let onPreview { onPreview(request) } else { imageViewer = request }
                                     },
                                     onDelete: nil,
                                     onReport: { reportTarget = .poster(poster.id) }
@@ -202,7 +207,7 @@ struct GalleryFeedView: View {
         }
         .accessibilityIdentifier("interaction.GalleryFeedView.scroll")
         // 系统按帖子标识保持滚动位置。
-        .scrollPosition(id: $currentTopPosterID, anchor: .top)
+        .scrollPosition(id: scrollPosition ?? $currentTopPosterID, anchor: .top)
         .background(AppDesignSystem.Palette.Background.grouped)
         .id(feedIdentity)
         .refreshable {

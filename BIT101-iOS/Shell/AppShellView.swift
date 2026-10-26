@@ -130,7 +130,7 @@ enum AppTab: String, Identifiable, Codable {
 }
 
 private enum AppWideDestination: String, CaseIterable, Identifiable, Hashable {
-    case schedule, classroom, map, topics, papers, score, courses, mine
+    case schedule, classroom, map, topics, papers, academics, mine
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -139,8 +139,7 @@ private enum AppWideDestination: String, CaseIterable, Identifiable, Hashable {
         case .map: "地图"
         case .topics: "话题"
         case .papers: "文章"
-        case .score: "成绩"
-        case .courses: "课程"
+        case .academics: "成绩 / 课程"
         case .mine: "我的"
         }
     }
@@ -153,7 +152,13 @@ private struct AppWideNavigation: View {
             AppSegmentedPicker(title: "主导航", selection: $selection) {
                 ForEach(AppWideDestination.allCases) { destination in Text(destination.title).tag(destination) }
             }
+            .font(AppDesignSystem.Typography.body)
+            .controlSize(.large)
+            .fixedSize(horizontal: true, vertical: false)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, AppDesignSystem.Spacing.regular)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.expanded-navigation")
     }
@@ -165,7 +170,6 @@ private struct AppWideNavigation: View {
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
     @Environment(\.appWindowLayout) private var layout
-    @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @State private var scoreSurface: ScoreSurface = .score
     @State private var gallerySurface: GallerySurface = .gallery
     @Environment(AppCommunityDestinations.self) private var destinations
@@ -215,21 +219,13 @@ struct AppShellView: View {
     var body: some View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
             if layout.usesExpandedNavigation {
-                AppWidePageHeader(navigation: AnyView(AppWideNavigation(selection: wideSelection)),
-                    leadingStatus: selectedTab == .schedule && scheduleViewModel.selectedSection != .classroom
-                        ? AnyView(ScheduleRefreshStatusRow(viewModel: scheduleViewModel, section: .courses)) : nil,
-                    showsStatus: selectedTab == .schedule || selectedTab == .score && scoreSurface == .score) {
-                    if selectedTab == .schedule {
-                        ScheduleRefreshStatusRow(viewModel: scheduleViewModel,
-                            section: scheduleViewModel.selectedSection == .classroom ? .classroom : .ddl)
-                    }
-                    else if selectedTab == .score { ScoreRefreshStatusRow(viewModel: scoreViewModel) }
-                }
+                AppWideNavigation(selection: wideSelection)
             }
             mainTabs
         }
         .environment(\.appExpandedNavigation, layout.usesExpandedNavigation)
         .tint(selectedTab.tintColor)
+        .appScrollEdgeEffectHidden(layout.isLandscape)
     }
 
     private var mainTabs: some View {
@@ -340,7 +336,7 @@ struct AppShellView: View {
                 }
             case .map: .map
             case .gallery: gallerySurface == .gallery ? .topics : .papers
-            case .score: scoreSurface == .score ? .score : .courses
+            case .score: .academics
             case .mine: .mine
             }
         }, set: { destination in
@@ -352,9 +348,7 @@ struct AppShellView: View {
             case .topics, .papers:
                 gallerySurface = destination == .topics ? .gallery : .paper
                 selectTab(.gallery)
-            case .score, .courses:
-                scoreSurface = destination == .score ? .score : .course
-                selectTab(.score)
+            case .academics: selectTab(.score)
             case .mine: selectTab(.mine)
             }
         })

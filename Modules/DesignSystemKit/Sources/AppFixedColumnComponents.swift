@@ -3,8 +3,8 @@ import SwiftUI
 
 /// AppFixedColumnItem 定义紧凑数据行的一列文本及其显示参数。
 ///
-/// 课程列表和成绩列表使用比例列、单行截断和等宽数字。
-/// AppFixedColumnRow 统一列宽、截断规则和数字显示；业务页面传入列含义。
+/// 课程列表和成绩列表使用比例列和等宽数字，辅助功能字号采用逐项排列。
+/// AppFixedColumnRow 统一列宽和数字显示；业务页面传入列含义。
 public struct AppFixedColumnItem {
     let text: String
     let ratio: CGFloat
@@ -29,6 +29,7 @@ public struct AppFixedColumnItem {
 
 /// AppFixedColumnRow 按比例分配可用宽度，行高容纳当前字体并沿用指定最小高度。
 public struct AppFixedColumnRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     public init(items: [AppFixedColumnItem], height: CGFloat) {
         self.items = items
         _height = ScaledMetric(wrappedValue: height, relativeTo: .body)
@@ -38,15 +39,19 @@ public struct AppFixedColumnRow: View {
     @ScaledMetric private var height: CGFloat
 
     public var body: some View {
-        AppFixedColumnLayout(ratios: items.map(\.ratio)) {
+        let expanded = dynamicTypeSize.isAccessibilitySize
+        let layout = expanded
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny))
+            : AnyLayout(AppFixedColumnLayout(ratios: items.map(\.ratio)))
+        layout {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
                 Text(item.text)
                     .font(item.font)
                     .foregroundStyle(item.color)
-                    .lineLimit(1)
+                    .lineLimit(expanded ? nil : 1)
                     .monospacedDigit()
-                    .frame(maxWidth: .infinity, alignment: item.alignment)
+                    .frame(maxWidth: .infinity, alignment: expanded ? .leading : item.alignment)
             }
         }
         .frame(minHeight: height)

@@ -16,6 +16,10 @@ public struct AppWindowLayout: Equatable {
             && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
     }
     public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
+    public var singleColumn: AppWindowLayout {
+        var value = self; value.isRegularWidth = false
+        return value
+    }
     public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
 }
 
@@ -31,43 +35,33 @@ extension EnvironmentValues {
     }
 }
 
-public struct AppWidePageHeader<Status: View>: View {
-    let navigation: AnyView
-    let leadingStatus: AnyView?
-    let showsStatus: Bool
-    let status: Status
-    @State private var navigationWidth: CGFloat = 0
-    public init(navigation: AnyView, leadingStatus: AnyView? = nil, showsStatus: Bool = true, @ViewBuilder status: () -> Status) {
-        self.navigation = navigation; self.leadingStatus = leadingStatus
-        self.showsStatus = showsStatus; self.status = status()
+public struct AppPairedPages<First: View, Second: View>: View {
+    @Environment(\.appWindowLayout) private var layout
+    private let showsFirst: Bool
+    private let first: First
+    private let second: Second
+    @State private var hasShownFirst: Bool
+    @State private var hasShownSecond: Bool
+    public init(showsFirst: Bool, @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second) {
+        self.showsFirst = showsFirst; self.first = first(); self.second = second()
+        _hasShownFirst = State(initialValue: showsFirst); _hasShownSecond = State(initialValue: !showsFirst)
     }
     public var body: some View {
-        GeometryReader { geometry in
-            let space = max((geometry.size.width - navigationWidth) / 2 - AppDesignSystem.Spacing.content, 0)
-            ZStack {
-                navigation.fixedSize(horizontal: true, vertical: false)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { navigationWidth = $0 }
-                HStack(spacing: AppDesignSystem.Spacing.none) {
-                    if let leadingStatus { refreshCard(leadingStatus, width: space) }
-                    Spacer(minLength: AppDesignSystem.Spacing.none)
-                    if showsStatus { refreshCard(status, width: space) }
-                }
-            }
-            .frame(width: geometry.size.width, height: geometry.size.height)
+        let firstVisible = layout.isLandscape || showsFirst
+        let secondVisible = layout.isLandscape || !showsFirst
+        HStack(spacing: AppDesignSystem.Spacing.none) {
+            if hasShownFirst || firstVisible { pane(first, visible: firstVisible) }
+            if layout.isLandscape { Divider() }
+            if hasShownSecond || secondVisible { pane(second, visible: secondVisible) }
         }
-        .frame(height: AppDesignSystem.Size.Control.refreshStatusRowHeight)
-        .padding(.horizontal, AppDesignSystem.Spacing.section)
-        .padding(.vertical, AppDesignSystem.Spacing.regular)
-        .background(AppDesignSystem.Palette.Background.grouped)
+        .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
+        .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
     }
-    private func refreshCard(_ content: some View, width: CGFloat) -> some View {
-        List { content.lineLimit(1) }
-            .appGroupedListStyle()
-            .scrollDisabled(true)
-            .scrollContentBackground(.hidden)
-            .frame(width: width, height: AppDesignSystem.Size.Control.refreshStatusRowHeight)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("app.refresh-status.card")
+    private func pane(_ content: some View, visible: Bool) -> some View {
+        content.environment(\.appWindowLayout, layout.singleColumn)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(width: visible ? nil : 0)
+            .clipped().allowsHitTesting(visible).accessibilityHidden(!visible)
     }
 }
 
@@ -84,24 +78,33 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
         self.master = master(); self.detail = detail
     }
     public var body: some View {
-        Group {
-            if layout.isLandscape {
-                NavigationSplitView {
-                    master.appWindowLayout().accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("browser.master")
-                } detail: {
-                    NavigationStack {
-                        if let selection { detail(selection).toolbar(.visible, for: .navigationBar) }
-                        else { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") }
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("browser.detail")
+        NavigationSplitView(columnVisibility: .constant(.all), preferredCompactColumn: Binding(
+            get: { selection == nil ? .sidebar : .detail },
+            set: { if $0 == .sidebar { selection = nil } }
+        )) {
+            NavigationStack {
+                master.environment(\.appWindowLayout, layout.singleColumn)
+                    .toolbar(.hidden, for: .navigationBar)
+            }
+            .navigationSplitViewColumnWidth(min: AppDesignSystem.Size.Layout.sidebarWidth,
+                ideal: AppDesignSystem.Size.Layout.sidebarWidth, max: AppDesignSystem.Size.Layout.sidebarWidth)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
+        } detail: {
+            NavigationStack {
+                Group {
+                    if let selection { detail(selection) }
+                    else { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") }
                 }
-                .navigationSplitViewStyle(.balanced)
-            } else { master }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppDesignSystem.Palette.Background.grouped)
+                .toolbar(.visible, for: .navigationBar)
+            }
+            .toolbar(removing: .sidebarToggle)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
         }
-        .navigationDestination(item: Binding(get: { layout.isLandscape ? nil : selection },
-            set: { if !layout.isLandscape { selection = $0 } })) { detail($0) }
+        .navigationSplitViewStyle(.balanced)
+        .environment(\.horizontalSizeClass, layout.isLandscape ? .regular : .compact)
+        .background(AppDesignSystem.Palette.Background.grouped)
     }
 }
 
@@ -151,6 +154,10 @@ private struct AppWindowSizeReader: UIViewRepresentable {
 extension View {
     public func appWindowLayout() -> some View { modifier(AppWindowLayoutModifier()) }
     public func appReadableContent() -> some View { modifier(AppReadableContentModifier()) }
+    @ViewBuilder public func appScrollEdgeEffectHidden(_ hidden: Bool) -> some View {
+        if #available(iOS 26.0, *) { scrollEdgeEffectHidden(hidden, for: .top) }
+        else { self }
+    }
 }
 
 private struct AppReadableContentModifier: ViewModifier {
@@ -392,18 +399,43 @@ public struct AppFloatingActionButtonSurface<Content: View>: View {
 
 /// 右下角操作按钮组，统一按钮间距和安全区内边距。
 public struct AppFloatingActionStack<Content: View>: View {
+    private let axis: Axis
     private let content: Content
 
-    public init(@ViewBuilder content: () -> Content) {
+    public init(axis: Axis = .vertical, @ViewBuilder content: () -> Content) {
+        self.axis = axis
         self.content = content()
     }
 
     public var body: some View {
-        VStack(alignment: .trailing, spacing: AppDesignSystem.Spacing.regular) {
+        let layout = axis == .horizontal
+            ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.regular))
+            : AnyLayout(VStackLayout(alignment: .trailing, spacing: AppDesignSystem.Spacing.regular))
+        layout {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
         .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionBottomInset)
+    }
+}
+
+extension View {
+    public func appBrowserActions<Actions: View>(expanded: Bool, @ViewBuilder actions: () -> Actions) -> some View {
+        let buttons = actions()
+        return self
+            .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
+                if expanded {
+                    HStack(spacing: AppDesignSystem.Spacing.regular) {
+                        Spacer(minLength: AppDesignSystem.Spacing.none)
+                        AppFloatingActionStack(axis: .horizontal) { buttons }
+                    }
+                    .padding(.top, AppDesignSystem.Spacing.regular)
+                    .background(AppDesignSystem.Palette.Background.grouped)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !expanded { AppFloatingActionStack { buttons } }
+            }
     }
 }
 

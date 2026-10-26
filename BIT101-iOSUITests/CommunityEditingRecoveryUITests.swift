@@ -4,7 +4,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testDDLPhotosSurviveRelaunchAndSupportPreviewRemoval() {
         XCUIDevice.shared.orientation = .portrait
-        app = configureApp(resetStorage: true)
+        app = configureApp(resetStorage: true, animations: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
         tap("添加待办")
         replaceText("图片待办", in: app.textFields["ddl.editor.title"])
@@ -15,16 +15,19 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         assertUI(photo.appears(timeout: 30), "选择图片后应展示本地缩略图。")
         tapHeader(app.buttons["ddl.editor.save"])
         assertUI(app.navigationBars["添加 DDL"].disappears(timeout: 5), "图片处理完成后应保存待办。")
-        app = configureApp(resetStorage: false, restartProcess: true)
+        app = configureApp(resetStorage: false, restartProcess: true, animations: true)
         photo = app.buttons["预览 DDL 图片"]
         tapHeader(app.segmentedControls.buttons["DDL"])
         assertUI(photo.appears(timeout: 10), "重新启动应恢复待办图片。")
         photo.tapBriefly()
         assertUI(waitForImagePreview(visible: true, timeout: 15), "待办图片应打开系统预览。")
         closeImagePreview()
-        tap("图片待办")
+        let title = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ddl.open.")).firstMatch
+        title.tap()
         assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "关闭预览后应继续打开待办详情。")
-        tap("编辑")
+        let edit = app.buttons["ui.ddl-event-detail-sheet.edit"]
+        reveal(edit, description: "待办编辑入口")
+        edit.tap()
         assertUI(app.navigationBars["编辑 DDL"].appears(timeout: 5), "详情中的编辑应打开原待办编辑器。")
         tap("移除图片")
         tapHeader(app.buttons["ddl.editor.save"])

@@ -61,6 +61,7 @@ public struct GalleryRootView: View {
 }
 
 private struct GalleryRootViewScene: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
@@ -76,6 +77,8 @@ private struct GalleryRootViewScene: View {
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @ObservedObject private var appSettings: CommunityPreferences
     @State private var selectedFeedPoster: CommunityPoster?
+    @State private var feedScrollPositions: [GalleryFeedKind: Int] = [:]
+    @State private var feedImageViewer: ImagePreviewRequest?
     @State private var deletedFeedPosterIDs: Set<Int> = []
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
@@ -128,7 +131,8 @@ private struct GalleryRootViewScene: View {
     }
 
     var body: some View {
-        content.environment(dependencies).environment(media).environment(profiles)
+        content.systemImagePreview(item: $feedImageViewer)
+            .environment(dependencies).environment(media).environment(profiles)
     }
 
     private var content: some View {
@@ -254,70 +258,6 @@ private struct GalleryRootViewScene: View {
                     viewModel.enqueueRefresh(for: viewModel.selectedFeed)
                 })
         }
-    }
-
-    private var galleryListContent: some View {
-        ZStack(alignment: .bottomTrailing) {
-            AppDesignSystem.Palette.Background.grouped
-                .ignoresSafeArea(edges: .bottom)
-
-            GalleryFeedView(
-                feedState: viewModel.state(for: viewModel.selectedFeed),
-                feedIdentity: viewModel.selectedFeed.rawValue,
-                prefetchTriggerThreshold: viewModel.selectedFeed == .recommend ? 10 : 0,
-                onRefresh: {
-                    media.retryFailedImages()
-                    viewModel.enqueueRefresh(for: viewModel.selectedFeed)
-                },
-                onPullToRefresh: {
-                    media.retryFailedImages()
-                    await viewModel.enqueueRefresh(for: viewModel.selectedFeed).value
-                },
-                onPrefetch: { poster in
-                    guard let poster else { return }
-                    viewModel.enqueuePrefetch(for: viewModel.selectedFeed, currentPoster: poster)
-                },
-                onLoadMore: { poster in
-                    viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
-                },
-                onSelectPoster: { selectedFeedPoster = $0 }, excludedPosterIDs: deletedFeedPosterIDs
-            )
-            .simultaneousGesture(feedSwitchGesture)
-            .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
-            .accessibilityIdentifier("gallery.feed-surface")
-
-            AppFloatingActionStack {
-                AppFloatingActionButton(systemImage: "bookmark", accessibilityLabel: "我的收藏") {
-                    isShowingSubscriptions = true
-                }
-                AppFloatingActionButton(
-                    systemImage: "bell.badge",
-                    badgeText: messageBadgeText,
-                    accessibilityLabel: "消息"
-                ) {
-                    isShowingMessages = true
-                }
-
-                AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布话题") {
-                    isShowingComposer = true
-                }
-
-                AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索话廊") {
-                    viewModel.isShowingSearch = true
-                }
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            AppTopSegmentedPicker(
-                title: "话廊分区",
-                selection: $viewModel.selectedFeed,
-                variant: .stacked
-            ) {
-                ForEach(visibleFeeds) { feed in
-                    Text(feed.title).tag(feed)
-                }
-            }
-        }
         .task {
             await viewModel.bootstrapIfNeeded()
         }
@@ -381,6 +321,76 @@ private struct GalleryRootViewScene: View {
         }
         .diagnosticAlert(item: $viewModel.alert)
         .onDisappear { viewModel.cancelPendingOperations() }
+    }
+
+    private var galleryListContent: some View {
+        ZStack(alignment: .bottomTrailing) {
+            AppDesignSystem.Palette.Background.grouped
+                .ignoresSafeArea(edges: .bottom)
+
+            GalleryFeedView(
+                feedState: viewModel.state(for: viewModel.selectedFeed),
+                feedIdentity: viewModel.selectedFeed.rawValue,
+                prefetchTriggerThreshold: viewModel.selectedFeed == .recommend ? 10 : 0,
+                onRefresh: {
+                    media.retryFailedImages()
+                    viewModel.enqueueRefresh(for: viewModel.selectedFeed)
+                },
+                onPullToRefresh: {
+                    media.retryFailedImages()
+                    await viewModel.enqueueRefresh(for: viewModel.selectedFeed).value
+                },
+                onPrefetch: { poster in
+                    guard let poster else { return }
+                    viewModel.enqueuePrefetch(for: viewModel.selectedFeed, currentPoster: poster)
+                },
+                onLoadMore: { poster in
+                    viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
+                },
+                onSelectPoster: { selectedFeedPoster = $0 }, excludedPosterIDs: deletedFeedPosterIDs,
+                selectedPosterID: selectedFeedPoster?.id,
+                scrollPosition: Binding(get: { feedScrollPositions[viewModel.selectedFeed] },
+                    set: { if let value = $0 { feedScrollPositions[viewModel.selectedFeed] = value } }),
+                onPreview: { feedImageViewer = $0 }
+            )
+            .simultaneousGesture(feedSwitchGesture)
+            .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
+            .accessibilityIdentifier("gallery.feed-surface")
+
+
+        }
+        .appBrowserActions(expanded: layout.isLandscape) {
+                AppFloatingActionButton(systemImage: "bookmark", accessibilityLabel: "我的收藏") {
+                    isShowingSubscriptions = true
+                }
+                AppFloatingActionButton(
+                    systemImage: "bell.badge",
+                    badgeText: messageBadgeText,
+                    accessibilityLabel: "消息"
+                ) {
+                    isShowingMessages = true
+                }
+
+                AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布话题") {
+                    isShowingComposer = true
+                }
+
+                AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索话廊") {
+                    viewModel.isShowingSearch = true
+                }
+        }
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+            AppTopSegmentedPicker(
+                title: "话廊分区",
+                selection: $viewModel.selectedFeed,
+                variant: .stacked
+            ) {
+                ForEach(visibleFeeds) { feed in
+                    Text(feed.title).tag(feed)
+                }
+            }
+        }
+
     }
 
     /// 右下角消息按钮上的红点文案。

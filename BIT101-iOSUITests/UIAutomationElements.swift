@@ -456,7 +456,7 @@ final class UIElement: NSObject {
     func mainTab(_ title: String) -> UIElement {
         let expanded = segmentedControls.containing(.button, identifier: "地图").firstMatch
         if expanded.exists {
-            let label = ["话廊": "话题"][title] ?? title
+            let label = ["话廊": "话题", "成绩": "成绩 / 课程", "课程": "成绩 / 课程"][title] ?? title
             return expanded.buttons[label]
         }
         return descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch

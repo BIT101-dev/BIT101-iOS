@@ -71,16 +71,18 @@ struct FeatureCompositionTests {
     }
 
     @Test func fixedColumnRowsContainScaledBodyText() {
-        func measured(_ size: DynamicTypeSize, bodyOnly: Bool = false) -> CGFloat {
-            let row = AppFixedColumnRow(items: [AppFixedColumnItem(text: "课程名称", ratio: 1,
-                font: .body, color: .primary)], height: AppDesignSystem.Size.CompactRow.primaryHeight)
-            let content = bodyOnly ? AnyView(Text("课程名称").font(.body)) : AnyView(row)
-            let controller = UIHostingController(rootView: content.environment(\.dynamicTypeSize, size))
-            return controller.sizeThatFits(in: CGSize(width: 320, height: 1_000)).height
+        let values = ["长课程名称与完整的课程信息", "12345.6789"]
+        let items = values.map { AppFixedColumnItem(text: $0, ratio: 1, font: .body, color: .primary) }
+        func measured(_ view: AnyView, size: DynamicTypeSize) -> CGFloat {
+            UIHostingController(rootView: view.environment(\.dynamicTypeSize, size))
+                .sizeThatFits(in: CGSize(width: 320, height: 10_000)).height
         }
-        let expanded = measured(.accessibility5)
-        #expect(expanded >= measured(.accessibility5, bodyOnly: true))
-        #expect(measured(.large) >= measured(.large, bodyOnly: true))
+        let row = AnyView(AppFixedColumnRow(items: items, height: AppDesignSystem.Size.CompactRow.primaryHeight))
+        let expandedTextHeight = values.reduce(CGFloat.zero) {
+            $0 + measured(AnyView(Text($1).font(.body)), size: .accessibility5)
+        }
+        #expect(measured(row, size: .accessibility5) >= expandedTextHeight)
+        #expect(measured(row, size: .large) >= measured(AnyView(Text(values[0]).font(.body)), size: .large))
     }
 
     @Test(.timeLimit(.minutes(1))) func repeatedAnimationFramesParticipateInTheDisplayMemoryBudget() throws {
@@ -376,10 +378,13 @@ struct FeatureCompositionTests {
         return MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: .init(snapshot: .init(status: .connected)))
     }
 
-    private func host<V: View>(_ view: V, operation: () async throws -> Void) async throws {
+    private func host<V: View>(_ view: V, navigation: Bool = true, operation: () async throws -> Void) async throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: NavigationStack { view })
+        let controller = UIHostingController(rootView: Group {
+            if navigation { NavigationStack { view } }
+            else { view }
+        })
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
@@ -501,14 +506,20 @@ struct FeatureCompositionTests {
         let details = PaperService(session: paperSession)
         let dependencies = PaperDependencies(list: service, detail: details, composer: details,
             drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition") }, prepareImageData: { $0 }), networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)), currentIdentity: { paperSession.currentCredentials.identity })
-        try await host(PaperTabs(route: routes, dependencies: dependencies, media: media())) {
+        var phase = "首屏"
+        do { try await host(PaperTabs(route: routes, dependencies: dependencies, media: media()), navigation: false) {
             try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
+            phase = "切出文章"
             routes.selection = 1
             try await waitForTestEvent { routes.otherAppeared && routes.paperDisappeared }
+            phase = "返回文章"
             routes.selection = 0
             try await waitForTestEvent { !(service.previewRequests < 2) }
             service.pending?.resume(returning: PaperPreviewMetadata(authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
             service.pending = nil
+        } } catch {
+            Issue.record("文章恢复阶段：\(phase)，页面请求：\(service.pages)，作者请求：\(service.previewRequests)，其他页：\(routes.otherAppeared)，文章离开：\(routes.paperDisappeared)。")
+            throw error
         }
         #expect(service.previewRequests == 2 && service.pages == [0, 1])
     }
@@ -647,7 +658,7 @@ struct FeatureCompositionTests {
         let destinations = ScheduleDestinations(appStoreURL: AppURL.required("https://example.invalid"),
             academicCourse: { _, _ in AnyView(Text("course")) }, openCourseLocation: { _ in true }, resolveCourseShare: { _ in nil })
         try await host(ScheduleRootView(viewModel: selected, requestedSection: .constant(section), destinations: destinations)
-            .environmentObject(surrounding)) {
+            .environmentObject(surrounding).environment(media())) {
                 if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
                 try await waitForTestEvent { !(!selected.isCacheWritable) }
                 #expect(selected.courseState.courses.map(\.id) == [course.id])

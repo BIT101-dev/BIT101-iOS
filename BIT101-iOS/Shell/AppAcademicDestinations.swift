@@ -25,7 +25,7 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 
 /// 成绩与课程合并主页。
 ///
-/// 页面提供“成绩 / 课程”的顶部切换。
+/// 竖屏通过顶部切换成绩与课程，横屏沿公共组合布局并排呈现。
 struct ScoreRootView: View {
     private let scene: ScoreRootScene
     private let identity: ObjectIdentifier
@@ -46,7 +46,6 @@ private struct ScoreRootScene: View {
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
-    @Environment(\.appExpandedNavigation) private var expandedNavigation
     @Environment(\.appWindowLayout) private var layout
     @State private var localSurface: ScoreSurface = .score
     private let selection: Binding<ScoreSurface>?
@@ -73,32 +72,22 @@ private struct ScoreRootScene: View {
     }
 
     var body: some View {
-        TabView(selection: surfaceSelection) {
-            ScoreListPage(
-                viewModel: scoreViewModel,
-                transcriptService: transcriptService,
-                onSearchCourse: openCourseSearch, showsRefreshStatus: !layout.isLandscape
-            )
+        AppPairedPages(showsFirst: selectedSurface == .score) {
+            ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService, onSearchCourse: openCourseSearch)
                 .simultaneousGesture(surfaceSwitchGesture)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("home.score-surface")
-                .tag(ScoreSurface.score)
-                .tabItem { Text(ScoreSurface.score.title) }
-                .toolbar(.hidden, for: .tabBar)
+        } second: {
             CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
                 .simultaneousGesture(surfaceSwitchGesture)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("home.course-surface")
-                .tag(ScoreSurface.course)
-                .tabItem { Text(ScoreSurface.course.title) }
-                .toolbar(.hidden, for: .tabBar)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("academic.surfaces")
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation {
-                if layout.isLandscape && selectedSurface == .score {
-                    AppWidePageHeader(navigation: AnyView(surfaceTabs)) { ScoreRefreshStatusRow(viewModel: scoreViewModel) }
-                } else { surfaceTabs }
-            }
+            if !layout.isLandscape { surfaceTabs }
         }
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: detailRequest) { request in

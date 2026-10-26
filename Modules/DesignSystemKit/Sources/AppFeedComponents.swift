@@ -4,10 +4,12 @@ import SwiftUI
 /// AppFeedRow 为信息流提供零间距行容器，并为非末行显示缩进分割线。
 public struct AppFeedRow<Content: View>: View {
     let isLast: Bool
+    let isSelected: Bool
     private let content: Content
 
-    public init(isLast: Bool, @ViewBuilder content: () -> Content) {
+    public init(isLast: Bool, isSelected: Bool = false, @ViewBuilder content: () -> Content) {
         self.isLast = isLast
+        self.isSelected = isSelected
         self.content = content()
     }
 
@@ -20,6 +22,9 @@ public struct AppFeedRow<Content: View>: View {
                     .padding(.leading, AppDesignSystem.Spacing.content)
                     .accessibilityHidden(true)
             }
+        }
+        .overlay {
+            if isSelected { AppDesignSystem.Palette.Accent.subtleSurface.allowsHitTesting(false) }
         }
     }
 }
