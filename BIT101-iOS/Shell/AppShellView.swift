@@ -220,6 +220,7 @@ struct AppShellView: View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
             if layout.usesExpandedNavigation {
                 AppWideNavigation(selection: wideSelection)
+                    .ignoresSafeArea(.container, edges: .horizontal)
             }
             mainTabs
         }

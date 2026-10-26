@@ -588,6 +588,33 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await service.requestedPages() == [0, 0])
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingAPageWaiterKeepsTheSharedPrefetchAvailable() async throws {
+        var response: CheckedContinuation<Void, Never>?
+        let service = FeedServiceStub(batches: [0: .init(items: [], nextSourcePage: 1, canLoadMore: false)],
+            beforeResponse: { _ in await withCheckedContinuation { response = $0 } })
+        let coordinator = GalleryRecommendPrefetchCoordinator(service: service)
+        let prefetch = coordinator.start(from: 0)
+        defer { response?.resume(); response = nil; coordinator.reset() }
+        try await waitForTestEvent { response != nil }
+        var started = false, cancelled = false
+        let waiter = Task {
+            started = true
+            do { _ = try await coordinator.takePage(for: 0); Issue.record("取消后的分页等待应结束。") }
+            catch { cancelled = error is CancellationError }
+        }
+        try await waitForTestEvent { started }
+        waiter.cancel()
+        try await waitForTestEvent { cancelled }
+        await waiter.value
+        #expect(response != nil)
+        #expect(await service.requestedPages() == [0])
+        response?.resume(); response = nil
+        await prefetch.value
+        #expect(try await coordinator.takePage(for: 0).page == 0)
+        #expect(await service.requestedPages() == [0])
+    }
+
     @Test("Prefetched pages merge stably and never duplicate a source request", .timeLimit(.minutes(1)))
     func stablePrefetchMerge() async throws {
         let first = try makePoster(id: 1)

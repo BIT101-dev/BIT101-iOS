@@ -13,9 +13,37 @@ struct GalleryPrefetchedPage {
 /// Shares source-page tasks between foreground pagination and background prefetch.
 @MainActor
 final class GalleryRecommendPrefetchCoordinator {
-    private struct PageOperation {
+    private final class PageOperation {
         let id = UUID()
         let task: Task<GalleryPrefetchedPage, Error>
+        private var result: Result<GalleryPrefetchedPage, Error>?
+        private var waiters: [UUID: CheckedContinuation<GalleryPrefetchedPage, Error>] = [:]
+
+        init(task: Task<GalleryPrefetchedPage, Error>) {
+            self.task = task
+            Task { [weak self] in
+                let result = await task.result
+                guard let self else { return }
+                self.result = result
+                let pending = self.waiters.values
+                self.waiters = [:]
+                for waiter in pending { waiter.resume(with: result) }
+            }
+        }
+
+        func value() async throws -> GalleryPrefetchedPage {
+            try Task.checkCancellation()
+            let id = UUID()
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                    else if let result { continuation.resume(with: result) }
+                    else { waiters[id] = continuation }
+                }
+            } onCancel: {
+                Task { @MainActor in self.waiters.removeValue(forKey: id)?.resume(throwing: CancellationError()) }
+            }
+        }
     }
 
     private let service: any GalleryFeedServicing
@@ -73,9 +101,10 @@ final class GalleryRecommendPrefetchCoordinator {
         let operation = operation(for: page, generation: expectedGeneration)
         let result: GalleryPrefetchedPage
         do {
-            result = try await operation.task.value
+            result = try await operation.value()
+            try Task.checkCancellation()
         } catch {
-            if pageTasks[page]?.id == operation.id {
+            if !Task.isCancelled, pageTasks[page]?.id == operation.id {
                 pageTasks[page] = nil
             }
             throw error

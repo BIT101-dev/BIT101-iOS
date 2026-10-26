@@ -13,9 +13,16 @@ struct TrustedTranscriptRecoveryTests {
         var applications = 0
         var reads: [Int] = []
         var failed = false
+        var requiresSMS = false
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "replacement", accessToken: "fixture",
+            status: "requires_sms", maskedPhone: nil, expiresIn: 60)
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             applications += 1
             if applications == 1 { return .init(pages: (1...3).map { .init(number: $0, data: data) }, expectedPageCount: 3) }
+            if requiresSMS { throw ScoreServiceError.secondFactorRequired(challenge) }
+            return try await replacementPages(onPage: onPage)
+        }
+        private func replacementPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             let source = TrustedTranscriptReport(pageCount: 3) { [self] number, _ in
                 reads.append(number)
                 if number == 2, !failed { failed = true; throw URLError(.networkConnectionLost) }
@@ -24,17 +31,19 @@ struct TrustedTranscriptRecoveryTests {
             return try await source.loadPages(maximumBytes: data.count * 3, onPage: onPage)
         }
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            try await fetchTrustedTranscriptPages(onPage: onPage)
+            try await replacementPages(onPage: onPage)
         }
         func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func replacementRetriesKeepDownloadedProgressWhileTheCompleteReportRemainsVisible() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func replacementRetriesKeepDownloadedProgressWhileTheCompleteReportRemainsVisible(sms: Bool) async throws {
         let service = ReplacementService(), model = TrustedTranscriptViewModel(service: service)
+        service.requiresSMS = sms
         await model.applyIfNeeded()
         let original = model.images
         model.prepareReapplication(); await model.applyIfNeeded()
+        if sms { await model.submitSMSCode("123456") }
         #expect(model.images.elementsEqual(original, by: { $0 === $1 }) && model.deliveryWarning != nil)
         model.prepareRetry(); await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil)

@@ -137,7 +137,8 @@ final class TrustedTranscriptViewModel: ObservableObject {
     private func continueAfterSMSCode(_ normalized: String, challenge: BITLoginAuthenticationChallenge) async {
         defer {
             isSubmittingSMSCode = false; isLoadingPages = false
-            stagedImages = [:]; stagedBytes = [:]; smsContinuation = nil
+            if stagedReport == nil { stagedImages = [:]; stagedBytes = [:] }
+            smsContinuation = nil
         }
         do {
             authenticatedChallenge = try await service.submitTranscriptSMSCode(normalized, for: challenge)

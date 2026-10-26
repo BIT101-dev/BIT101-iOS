@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from contextlib import ExitStack
 from unittest.mock import patch
 from swift_source_index import swift_syntax_index_sources
 from validation_performance_tests import developer_directory_self_test
@@ -152,7 +153,7 @@ def run_self_test(subject) -> int:
             patch('validation_provenance.environment_context', return_value=fixture_environment), \
             patch('validation_merge.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
             patch(f'{module_name}.result_bundle_findings', side_effect=lambda *args, **kwargs: []), \
-            patch('validation_merge.performance_findings', return_value=[]):
+            patch('validation_merge.performance_findings', return_value=[]), ExitStack() as stable_inputs:
         from validation_provenance_tests import run_self_test as provenance_self_test
         from validation_test_areas import inventory_findings
         provenance_self_test(subject.record)
@@ -423,6 +424,8 @@ def run_self_test(subject) -> int:
         with patch(module_name + '.test_inventory', return_value={'Outer/Inner/works'}), patch(module_name + '.test_case_inventory', return_value={'Outer/Inner/works': 1}), patch(module_name + '.coverage_complete', return_value=True):
             for identifier in ('Package.Outer/Inner/works()', 'Package.Outer/Inner/works()/Example.swift:1:1'):
                 assert subject.complete_summary('schedule', native_case_fixture(dict(test, executedTests=[identifier]), {'Outer/Inner/works': 1}))
+        from validation_provenance import source_snapshot
+        stable_inputs.enter_context(source_snapshot())
         summaries = {name: dict(test, totalTests=len(subject.test_inventory(name)), passedTests=len(subject.test_inventory(name)), executedTests=sorted(subject.test_inventory(name))) for name in ('modules', 'all', 'release-runtime', 'catalyst', 'catalyst-release-runtime', 'ui')}
         for name in summaries.keys() - {'modules'}:
             summaries[name] = native_case_fixture(summaries[name], subject.test_case_inventory(name), name)

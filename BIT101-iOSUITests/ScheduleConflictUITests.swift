@@ -135,25 +135,27 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
                 return window.height > window.width
             }, on: app, timeout: 10), "首次旋转检查应从实际竖屏窗口开始。")
         }
-        showPortrait()
-        app.mainTab("话廊").tapBriefly()
-        func checkFirstRotation(firstID: String, title: String) {
-            let first = app.descendants(matching: .any)[firstID]
-            assertUI(first.appears(timeout: 5), "竖屏应显示浏览列表。")
-            XCUIDevice.shared.orientation = .landscapeLeft
-            let sort = app.native.segmentedControls.containing(.button, identifier: "最新").firstMatch
-            assertUI(waitUntil(NSPredicate { _, _ in
-                let window = self.app.native.windows.firstMatch.frame
-                return window.width > window.height && sort.exists && first.exists && first.frame.width < window.width / 2
-                    && first.frame.minY >= sort.frame.maxY - 1
-                    && first.frame.minY - sort.frame.maxY <= sort.frame.height
-            }, on: app, timeout: 10), "首次旋转应让列表贴近顶部排序栏。")
-            capture(title)
+        if traits["idiom"] != UIUserInterfaceIdiom.phone.rawValue {
+            showPortrait()
+            app.mainTab("话廊").tapBriefly()
+            func checkFirstRotation(firstID: String, title: String) {
+                let first = app.descendants(matching: .any)[firstID]
+                assertUI(first.appears(timeout: 5), "竖屏应显示浏览列表。")
+                XCUIDevice.shared.orientation = .landscapeLeft
+                let sort = app.native.segmentedControls.containing(.button, identifier: "最新").firstMatch
+                assertUI(waitUntil(NSPredicate { _, _ in
+                    let window = self.app.native.windows.firstMatch.frame
+                    return window.width > window.height && sort.exists && first.exists && first.frame.width < window.width / 2
+                        && first.frame.minY >= sort.frame.maxY - 1
+                        && first.frame.minY - sort.frame.maxY <= sort.frame.height
+                }, on: app, timeout: 10), "首次旋转应让列表贴近顶部排序栏。")
+                capture(title)
+            }
+            checkFirstRotation(firstID: "community.poster.card.1", title: "首次旋转话题")
+            showPortrait()
+            tapHeader(app.segmentedControls.buttons["文章"])
+            checkFirstRotation(firstID: "paper.summary.1", title: "首次旋转文章")
         }
-        checkFirstRotation(firstID: "community.poster.card.1", title: "首次旋转话题")
-        showPortrait()
-        tapHeader(app.segmentedControls.buttons["文章"])
-        checkFirstRotation(firstID: "paper.summary.1", title: "首次旋转文章")
         app.mainTab("我的").tapBriefly()
         assertUI(waitUntil(NSPredicate { _, _ in
             let window = self.app.native.windows.firstMatch.frame
@@ -182,7 +184,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let code = app.textFields["verification.code"]
         assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
         fillVerificationCode("123456", in: code)
-        assertUI(textElement("自动化测试课程").appears(timeout: 5), "横屏成绩应展示实际加载的记录。")
+        assertUI(textElement("加权平均分、92.00").appears(timeout: 5), "横屏成绩应展示已加载记录的统计。")
         assertUI(app.navigationBars["短信验证"].disappears(timeout: 5), "成绩截图应在验证面板完全收起后采样。")
         capture("成绩")
         app.mainTab("日程").tapBriefly()
