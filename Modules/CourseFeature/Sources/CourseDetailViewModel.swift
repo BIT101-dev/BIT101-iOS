@@ -183,27 +183,25 @@ final class CourseDetailViewModel: ObservableObject {
             }
         }
 
+        var request = CommunityPageRequest<Int>(sourcePage: commentState.nextPage)
         let result = await CommunityDetailTasks.loadResult { [self] in
-            var progress = CommunityPageProgress<Int>()
-            while true {
-                let comments = try await self.service.fetchComments(courseID: self.initialCourse.id, page: commentState.nextPage)
-                try Task.checkCancellation()
-                guard commentRefreshGeneration == generation else { throw CancellationError() }
-                try progress.record(comments.map(\.id), knownIDs: commentState.pagedItems.ids)
-                if comments.isEmpty || comments.contains(where: { !commentState.pagedItems.ids.contains($0.id) }) { return comments }
-                commentState.nextPage += 1
-            }
+            guard let comments = try await request.next(
+                isCurrent: { self.commentRefreshGeneration == generation },
+                knownIDs: { self.commentState.pagedItems.ids },
+                fetch: { try await self.service.fetchComments(courseID: self.initialCourse.id, page: $0) }
+            ) else { throw CancellationError() }
+            return comments
         }
+        guard commentRefreshGeneration == generation else { return }
+        commentState.nextPage = request.sourcePage
 
         switch result {
         case let .success(comments):
-            guard commentRefreshGeneration == generation else { return }
             commentState.confirmRead(in: comments)
             commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
             commentState.canLoadMore = !comments.isEmpty
             commentState.paginationError = nil
         case let .failure(error):
-            guard commentRefreshGeneration == generation else { return }
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多评论失败", error: error)
