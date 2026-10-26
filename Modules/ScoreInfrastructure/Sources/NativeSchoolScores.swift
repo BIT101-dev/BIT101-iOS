@@ -40,8 +40,10 @@ nonisolated enum NativeSchoolScoreParser {
         for row in rows.dropFirst() {
             try Task.checkCancellation()
             let raw = cells(row)
-            // 学校空结果提示以 colspan 单元格呈现。
-            if raw.count == 1, row.range(of: #"\bcolspan\s*="#, options: .regularExpression) != nil { continue }
+            if raw.count == 1, row.range(of: #"\bcolspan\s*="#, options: .regularExpression) != nil {
+                guard rows.count == 2, text(raw[0]) == "未查询到数据" else { throw ScoreServiceError.invalidResponse }
+                continue
+            }
             guard raw.count == headers.count else { throw ScoreServiceError.invalidResponse }
             var values = raw.map(text)
             if let index = headers.firstIndex(of: "成绩"),
@@ -51,7 +53,7 @@ nonisolated enum NativeSchoolScoreParser {
             guard ScoreRow(index: records.count, headers: headers, values: values).hasValidCourseIdentity else {
                 throw ScoreServiceError.invalidResponse
             }
-            let path = captures(#"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#, in: decode(row)).first
+            let path = captures(#"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#, in: SchoolLoginHTMLParser.decodeHTML(row)).first
             records.append(Record(values: values, detailPath: path))
         }
         return Table(headers: headers, records: records)
@@ -89,26 +91,12 @@ nonisolated enum NativeSchoolScoreParser {
     }
 
     private static func text(_ html: String) -> String {
-        decode(html.replacingOccurrences(of: #"<script\b[\s\S]*?</script>|<style\b[\s\S]*?</style>"#, with: "", options: [.regularExpression, .caseInsensitive])
+        SchoolLoginHTMLParser.decodeHTML(html.replacingOccurrences(of: #"<script\b[\s\S]*?</script>|<style\b[\s\S]*?</style>"#, with: "", options: [.regularExpression, .caseInsensitive])
             .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression))
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func decode(_ html: String) -> String {
-        var result = html
-        for (entity, value) in ["&nbsp;": " ", "&quot;": "\"", "&#39;": "'", "&apos;": "'", "&lt;": "<", "&gt;": ">", "&amp;": "&"] {
-            result = result.replacingOccurrences(of: entity, with: value)
-        }
-        let expression = try? NSRegularExpression(pattern: #"&#(x[0-9a-fA-F]+|[0-9]+);"#)
-        for match in (expression?.matches(in: result, range: NSRange(result.startIndex..., in: result)) ?? []).reversed() {
-            guard let valueRange = Range(match.range(at: 1), in: result), let range = Range(match.range, in: result) else { continue }
-            let value = String(result[valueRange])
-            let number = value.hasPrefix("x") ? UInt32(value.dropFirst(), radix: 16) : UInt32(value)
-            if let number, let scalar = UnicodeScalar(number) { result.replaceSubrange(range, with: String(scalar)) }
-        }
-        return result
-    }
 }
 
 final class NativeSchoolScoreQuery {

@@ -53,6 +53,32 @@ struct NativeSchoolScoreTests {
 
     private static let grades = #"<table id="dataList"><tr><th>课程编号</th><th>课程名称</th><th>成绩</th><th>学分</th><th>操作栏</th></tr><tr><td>CS1</td><td>数学 &amp; 计算</td><td><a onclick="JsMod('/jsxsd/kscj/pscj_list.do')">优秀</a></td><td>3</td><td><a onclick="JsMod('/jsxsd/kscj/cjfx?id=1')">详情</a></td></tr></table>"#
     private static let detail = #"<table id="dataList"></table><table id="dataList"><tr><td>班级人数：30</td><td>专业人数：60</td><td>学习人数：90</td><td>平均分：85</td><td>最高分：100</td><td>该课程所有教学班成绩录入完毕：是</td></tr></table><table id="dataList"><tr><td>本人成绩：95</td><td>本人成绩在班级中占：前10%</td><td>本人成绩在专业中占：前20%</td><td>本人成绩在所有学生中占：前30%</td></tr></table>"#
+    private static func gradeNotice(_ message: String) -> String {
+        grades.components(separatedBy: "</tr>")[0] + "</tr>"
+            + (message.isEmpty ? "" : "<tr><td colspan='5'>\(message)</td></tr>") + "</table>"
+    }
+
+    @Test(arguments: ["", "未查询到数据", "查询异常，请稍后重试", "说明"])
+    func emptyGradeTablesRequireTheExplicitEmptyResult(message: String) throws {
+        if message.isEmpty || message == "未查询到数据" {
+            #expect(try NativeSchoolScoreParser.parse(Self.gradeNotice(message)).records.isEmpty)
+        } else {
+            #expect(throws: ScoreServiceError.self) { try NativeSchoolScoreParser.parse(Self.gradeNotice(message)) }
+        }
+    }
+
+    @Test func schoolHTMLReferencesDecodeOnceForTextFormsAndLinks() throws {
+        for (encoded, expected) in [("&amp;lt;", "&lt;"), ("&amp;#65;", "&#65;"), ("&#65;&#x1F600;", "A😀"),
+            ("&#X41;&unknown;", "A&unknown;"), ("&quot;&apos;&amp;", "\"'&")] {
+            #expect(SchoolLoginHTMLParser.decodeHTML(encoded) == expected)
+            let html = Self.grades.replacingOccurrences(of: "数学 &amp; 计算", with: encoded)
+            #expect(try NativeSchoolScoreParser.parse(html).records.first?.values[1] == expected)
+        }
+        let html = Self.grades.replacingOccurrences(of: "cjfx?id=1", with: "cjfx?id=1&amp;amp;term=2")
+        #expect(try NativeSchoolScoreParser.parse(html).records.first?.detailPath == "/jsxsd/kscj/cjfx?id=1&amp;term=2")
+        let form = SchoolLoginHTMLParser.parse(html: #"<input id='login-croypto' value='&amp;lt;'><input id='login-page-flowkey' value='&amp;#65;'>"#)
+        #expect(form.salt == "&lt;" && form.execution == "&#65;")
+    }
     private final class Credentials: SchoolCredentialsProviding {
         var generation = 0
         let currentStudentID = "owner"
@@ -75,6 +101,7 @@ struct NativeSchoolScoreTests {
         var malformedNative = false
         var nativeBody: String?
         var nativeStatus = 200
+        var relayOffline = false
         var failedDetails: Set<String> = []
         var restrictedDetails: Set<String> = []
         var pauseDetails = false
@@ -87,6 +114,7 @@ struct NativeSchoolScoreTests {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
             let url = try #require(request.url)
+            if relayOffline, url.host == "relay.invalid" { throw URLError(.notConnectedToInternet) }
             let body: String
             switch url.path {
             case "/jsxsd/kscj/cjcx_list": body = nativeBody ?? (malformedNative ? "<html>service unavailable</html>" : NativeSchoolScoreTests.grades)
@@ -212,6 +240,35 @@ struct NativeSchoolScoreTests {
             #expect(SchoolServiceFailure.from(PartialScoreResult(rows: [], failure: error)) == expected)
         }
         #expect(transport.requests.count == 1 && observer.validationFailures.first?.1 == (httpFailure ? 503 : 200))
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func gradeNoticesKeepCachedRowsUntilAnExplicitEmptyResult(empty: Bool) async throws {
+        let credentials = Credentials(), transport = Transport()
+        transport.nativeBody = Self.gradeNotice(empty ? "未查询到数据" : "查询异常，请稍后重试")
+        transport.relayOffline = true
+        let domain = "BIT101ModulesTests.score-table-notice"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "score-table-notice")
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/score-table-notice"), defaults: defaults,
+            session: { session })
+        let old = ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩", "学分", "平均分"], values: ["CS1", "已缓存课程", "95", "3", "85"])
+        let savedAt = try #require(await cache.saveDetailed(rows: [old]))
+        let model = ScoreViewModel(service: service(credentials, transport, Authenticator(credentials.schoolSessionIdentity)), cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }), currentScoreCacheSession: { session },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded(); await model.refresh()
+        let persisted = try #require(await cache.loadSnapshot())
+        #expect(model.state == .loaded)
+        if empty {
+            #expect(model.rows.isEmpty && persisted.rows?.isEmpty == true && persisted.detailedUpdatedAt != nil)
+            #expect(transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
+        } else {
+            #expect(model.alert != nil && model.rows.map(\.values) == [old.values])
+            #expect(persisted.rows?.map(\.values) == [old.values] && persisted.detailedUpdatedAt == savedAt)
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func cancellationStopsRemainingDetailsAndKeepsTheRelayIdle() async throws {

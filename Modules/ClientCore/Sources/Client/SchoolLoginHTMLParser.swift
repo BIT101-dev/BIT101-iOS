@@ -164,44 +164,26 @@ public nonisolated enum SchoolLoginHTMLParser {
         return nil
     }
 
-    private static func decodeHTML(_ value: String) -> String {
+    private static let namedReferences = ["nbsp": " ", "quot": "\"", "apos": "'", "lt": "<", "gt": ">", "amp": "&"]
+    private static let characterReferences = try? NSRegularExpression(pattern: #"&([A-Za-z][A-Za-z0-9]*|#(?:[xX][0-9A-Fa-f]+|[0-9]+));"#)
+
+    public static func decodeHTML(_ value: String) -> String {
+        guard let expression = characterReferences else { return value }
         var decoded = value
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
-            .replacingOccurrences(of: "&#x27;", with: "'")
-            .replacingOccurrences(of: "&apos;", with: "'")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&#47;", with: "/")
-            .replacingOccurrences(of: "&#x2F;", with: "/")
-            .replacingOccurrences(of: "&amp;", with: "&")
-
-        guard let regex = try? NSRegularExpression(pattern: #"&#(?:x([0-9A-Fa-f]+)|([0-9]+));"#) else {
-            return decoded
+        for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
+            guard let bodyRange = Range(match.range(at: 1), in: value),
+                  let range = Range(match.range, in: decoded) else { continue }
+            let body = String(value[bodyRange])
+            let replacement: String?
+            if let named = namedReferences[body] { replacement = named }
+            else if body.hasPrefix("#") {
+                let digits = body.dropFirst()
+                let number = digits.hasPrefix("x") || digits.hasPrefix("X")
+                    ? UInt32(digits.dropFirst(), radix: 16) : UInt32(digits)
+                replacement = number.flatMap(UnicodeScalar.init).map(String.init)
+            } else { replacement = nil }
+            if let replacement { decoded.replaceSubrange(range, with: replacement) }
         }
-
-        let range = NSRange(decoded.startIndex..., in: decoded)
-        for match in regex.matches(in: decoded, options: [], range: range).reversed() {
-            let number: Int?
-            if let hexRange = Range(match.range(at: 1), in: decoded) {
-                number = Int(decoded[hexRange], radix: 16)
-            } else if let decimalRange = Range(match.range(at: 2), in: decoded) {
-                number = Int(decoded[decimalRange])
-            } else {
-                number = nil
-            }
-
-            guard
-                let number,
-                let scalar = UnicodeScalar(number),
-                let entityRange = Range(match.range, in: decoded)
-            else {
-                continue
-            }
-            decoded.replaceSubrange(entityRange, with: String(scalar))
-        }
-
         return decoded
     }
 }
