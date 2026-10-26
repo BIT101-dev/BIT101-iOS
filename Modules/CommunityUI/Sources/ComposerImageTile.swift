@@ -13,12 +13,6 @@ import UIKit
 /// - 失败时允许重试
 /// - 每种状态都提供删除操作
 public struct ComposerImageTile: View {
-    @Environment(\.displayScale) private var displayScale
-    @State private var thumbnail: UIImage?
-    private struct ThumbnailIdentity: Equatable {
-        let data: Data
-        let scale: CGFloat
-    }
     let draft: ComposerImageDraft
     let onRetry: () -> Void
     let onRemove: () -> Void
@@ -46,51 +40,10 @@ public struct ComposerImageTile: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                if let onOpen {
-                    Button(action: onOpen) { thumbnailContent }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(previewAccessibilityLabel)
-                        .accessibilityIdentifier("composer.image.preview.\(draft.id)")
-                } else { thumbnailContent }
-            }
-            .overlay(alignment: .bottom) {
-                overlayContent
-            }
-
-            AppComposerImageRemoveButton(accessibilityLabel: removeAccessibilityLabel, onRemove: onRemove)
+        LocalImageTile(data: draft.previewData, identifier: "composer.image.preview.\(draft.id)",
+            onOpen: onOpen, onRemove: onRemove, previewLabel: previewAccessibilityLabel, removeLabel: removeAccessibilityLabel) {
+            overlayContent
         }
-        .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
-        .task(id: ThumbnailIdentity(data: draft.previewData, scale: displayScale)) {
-            let prepared = await Self.prepareThumbnail(draft.previewData, pointSize: AppDesignSystem.Size.Media.draft, scale: displayScale)
-            guard !Task.isCancelled else { return }
-            thumbnail = prepared
-        }
-    }
-
-    private var thumbnailContent: some View {
-        ZStack {
-            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                .fill(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-            if let image = thumbnail {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Image(systemName: "photo")
-                    .font(AppDesignSystem.Typography.title)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            }
-        }
-        .frame(width: AppDesignSystem.Size.Media.draft, height: AppDesignSystem.Size.Media.draft)
-        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
-    }
-
-    @concurrent
-    private nonisolated static func prepareThumbnail(_ data: Data, pointSize: CGFloat, scale: CGFloat) async -> UIImage? {
-        BoundedStillImageDecoder.image(from: data, pointSize: pointSize, displayScale: scale)
     }
 
     @ViewBuilder

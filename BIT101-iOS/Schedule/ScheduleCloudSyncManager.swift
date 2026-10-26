@@ -25,6 +25,10 @@ final class AppCloudAccountGeneration {
 /// CloudKit adaptation and production dependency selection belong to the App host.
 actor AppScheduleCloudTransport: ScheduleCloudTransport {
     private var container: CKContainer { CKContainer.default() }
+    private let files: any AppFileService
+    private static let uploads = AppScheduleCloudUploadQueue()
+
+    init(files: any AppFileService = LocalAppFileService()) { self.files = files }
 
     func accountAvailable() async throws -> Bool {
         try Task.checkCancellation()
@@ -38,13 +42,19 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
             try Task.checkCancellation()
             let record = try await container.privateCloudDatabase.record(for: CKRecord.ID(recordName: name))
             try Task.checkCancellation()
-            return encode(record)
+            return try encode(record)
         } catch { throw mapped(error) }
     }
 
     func save(_ value: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+        try await Self.uploads.run { try await self.saveOwned(value) }
+    }
+
+    private func saveOwned(_ value: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
         try Task.checkCancellation()
-        try value.validatePayloadSize()
+        let payload = try value.imageAssetPayload()
+        let assetURL = files.temporaryDirectoryURL.appendingPathComponent("schedule-cloud-images.json")
+        defer { try? files.removeItemIfPresent(at: assetURL) }
         let record: CKRecord
         if let fields = value.systemFields {
             let decoder = try NSKeyedUnarchiver(forReadingFrom: fields)
@@ -57,12 +67,23 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
         }
         record["studentID"] = value.studentID as CKRecordValue?
         record["updatedAt"] = value.updatedAt as CKRecordValue?
-        record["payloadJSON"] = value.payloadJSON as CKRecordValue?
-        do { return encode(try await container.privateCloudDatabase.save(record)) }
+        record["payloadJSON"] = payload.metadataJSON as CKRecordValue?
+        if let data = payload.imagesData {
+            try files.writeData(data, to: assetURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            record["ddlImagesAsset"] = CKAsset(fileURL: assetURL)
+        } else { record["ddlImagesAsset"] = nil }
+        try Task.checkCancellation()
+        do { return try encode(try await container.privateCloudDatabase.save(record)) }
         catch { throw mapped(error) }
     }
 
-    private func encode(_ record: CKRecord) -> ScheduleCloudRecord {
+    private func encode(_ record: CKRecord) throws -> ScheduleCloudRecord {
+        let imageData: Data?
+        if let asset = record["ddlImagesAsset"] as? CKAsset {
+            guard let url = asset.fileURL else { throw CocoaError(.fileReadUnknown) }
+            imageData = try files.readData(at: url, maximumBytes: ScheduleCloudRecord.maximumImageAssetBytes)
+        } else { imageData = nil }
+        let payload = try ScheduleCloudImagePayload.joining(metadataJSON: record["payloadJSON"] as? String, imagesData: imageData)
         let encoder = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: encoder)
         encoder.finishEncoding()
@@ -71,7 +92,7 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
             recordType: record.recordType,
             studentID: record["studentID"] as? String,
             updatedAt: record["updatedAt"] as? Date,
-            payloadJSON: record["payloadJSON"] as? String,
+            payloadJSON: payload,
             modificationDate: record.modificationDate,
             recordChangeTag: record.recordChangeTag,
             systemFields: encoder.encodedData
@@ -85,6 +106,24 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
         case .serverRecordChanged: return ScheduleCloudTransportError.serverRecordChanged
         default: return error
         }
+    }
+}
+
+actor AppScheduleCloudUploadQueue {
+    private var pending: Task<ScheduleCloudRecord, Error>?
+    private var generation = 0
+    func run(_ save: @escaping @Sendable () async throws -> ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+        let previous = pending
+        generation &+= 1
+        let current = generation
+        let operation = Task {
+            _ = await previous?.result
+            try Task.checkCancellation()
+            return try await save()
+        }
+        pending = operation
+        defer { if current == generation { pending = nil } }
+        return try await withTaskCancellationHandler { try await operation.value } onCancel: { operation.cancel() }
     }
 }
 

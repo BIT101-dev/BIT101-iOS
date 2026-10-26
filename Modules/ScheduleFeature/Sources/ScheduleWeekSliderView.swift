@@ -5,6 +5,8 @@ import SwiftUI
 /// 课表顶部的周次滑动条，直接切换当前周。
 struct ScheduleInlineWeekSlider: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .caption) private var itemWidth = AppDesignSystem.Schedule.WeekSlider.itemWidth
+    @ScaledMetric(relativeTo: .caption) private var itemHeight = AppDesignSystem.Schedule.WeekSlider.itemHeight
     let weeks: [Int]
     let currentWeek: Int
     let highlightedWeek: Int
@@ -30,7 +32,6 @@ struct ScheduleInlineWeekSlider: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let itemWidth = AppDesignSystem.Schedule.WeekSlider.itemWidth
             let barHeight = AppDesignSystem.Schedule.WeekSlider.barHeight
             let controlWidth = AppDesignSystem.Size.Control.touchTarget
             let sliderWidth = max(proxy.size.width - controlWidth * 2, itemWidth)
@@ -51,7 +52,6 @@ struct ScheduleInlineWeekSlider: View {
                                     Text(isMajorWeek(week) ? "\(week)" : "")
                                         .font(AppDesignSystem.Typography.captionEmphasis)
                                         .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
-                                        .frame(height: AppDesignSystem.Schedule.WeekSlider.labelHeight)
                                     Capsule()
                                         .fill(week == highlightedWeek
                                             ? AppDesignSystem.Palette.Accent.primary
@@ -67,7 +67,7 @@ struct ScheduleInlineWeekSlider: View {
                                 }
                                 .frame(
                                     width: itemWidth,
-                                    height: AppDesignSystem.Schedule.WeekSlider.itemHeight,
+                                    height: itemHeight,
                                     alignment: .top
                                 )
                             }
@@ -80,7 +80,7 @@ struct ScheduleInlineWeekSlider: View {
                         }
                     }
                     .scrollTargetLayout()
-                    .frame(minHeight: AppDesignSystem.Schedule.WeekSlider.itemHeight)
+                    .frame(minHeight: itemHeight)
                 }
                 .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
                 .scrollIndicators(.hidden)

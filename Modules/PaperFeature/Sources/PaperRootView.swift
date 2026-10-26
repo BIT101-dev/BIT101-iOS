@@ -41,7 +41,6 @@ private struct PaperRootViewScene: View {
     @State private var selectedPaper: PaperSummary?
     @Binding var requestedPaperID: Int?
     private let onShowFeed: () -> Void
-    @State private var deepLinkedPaper: PaperSummary?
 
     init(
         dependencies: PaperDependencies,
@@ -57,7 +56,14 @@ private struct PaperRootViewScene: View {
     }
 
     var body: some View {
-        content.environment(dependencies).environment(media)
+        AppBrowserLayout(selection: $selectedPaper, title: "选择一篇文章", symbol: "doc.text") {
+            content
+        } detail: { paper in
+            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper, onDeleted: { selectedPaper = nil }) {
+                viewModel.enqueueRefresh()
+            }
+        }
+        .environment(dependencies).environment(media)
     }
 
     private var content: some View {
@@ -93,9 +99,9 @@ private struct PaperRootViewScene: View {
                                 )
                             }
                         } else {
-                            LazyVGrid(columns: layout.gridColumns, spacing: layout.isLandscape ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none) {
+                            LazyVGrid(columns: [GridItem(.flexible())], spacing: AppDesignSystem.Spacing.none) {
                                 ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
-                                    AppFeedRow(isLast: layout.isLandscape || index == viewModel.state.items.count - 1) {
+                                    AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
                                         PaperSummaryCard(
                                             paper: paper,
                                             previewMetadata: viewModel.previewMetadata(for: paper.id),
@@ -155,16 +161,6 @@ private struct PaperRootViewScene: View {
                 }
             }
         }
-        .navigationDestination(item: $selectedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
-                viewModel.enqueueRefresh()
-            }
-        }
-        .navigationDestination(item: $deepLinkedPaper) { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper) {
-                viewModel.enqueueRefresh()
-            }
-        }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
                 PaperComposerView(initialContent: "", currentIdentity: dependencies.currentIdentity) {
@@ -188,7 +184,7 @@ private struct PaperRootViewScene: View {
             viewModel.enqueueRefresh()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath,
-            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil && deepLinkedPaper == nil) {
+            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil) {
             if case .failed = viewModel.state.status { await viewModel.refresh() }
             else if viewModel.state.paginationError != nil {
                 await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
@@ -201,7 +197,7 @@ private struct PaperRootViewScene: View {
 
     private func consumeDeepLinkedPaperIfNeeded(_ paperID: Int?) {
         guard let paperID else { return }
-        deepLinkedPaper = PaperSummary(
+        selectedPaper = PaperSummary(
             id: paperID,
             title: "文章",
             intro: "",

@@ -138,6 +138,76 @@ struct CourseScheduleTabView: View {
         }
     }
 
+    @ViewBuilder
+    private func calendarSurface(height: CGFloat) -> some View {
+        if let firstDay = activeSchedule.firstDay {
+            ZStack(alignment: .bottomTrailing) {
+                CourseScheduleCalendarView(
+                    entries: scheduleEntries,
+                    week: viewModel.selectedWeek,
+                    availableWeeks: weekPickerWeeks,
+                    displayMode: viewModel.presentationPreferences.scheduleDisplayMode,
+                    cardContentMode: viewModel.presentationPreferences.scheduleCardContentMode,
+                    axisMode: calendarAxisMode,
+                    axisZoomScale: $calendarAxisZoomScale,
+                    firstDay: firstDay,
+                    timeTable: activeSchedule.timeTable,
+                    currentWeek: resolvedCurrentWeek(firstDay: firstDay, now: currentDate),
+                    showSaturday: viewModel.presentationPreferences.showSaturday,
+                    showSunday: viewModel.presentationPreferences.showSunday,
+                    onSelect: { entry in
+                        selectedEntry = entry
+                    },
+                    onSelectDay: { date, weekday in
+                        guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else { return }
+                        guard supportsEditingDisplayedSchedule else {
+                            viewModel.notice = ScheduleNotice.userInput(
+                                title: "无法调整分享课表",
+                                message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
+                            )
+                            return
+                        }
+                        selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
+                            date: date,
+                            week: viewModel.selectedWeek,
+                            weekday: weekday
+                        )
+                        dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
+                            targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
+                        )
+                    },
+                    onSelectWeekValue: { week in
+                        viewModel.selectedWeek = week
+                    },
+                    onLongPressCourse: { entry in
+                        shareCourse(from: entry)
+                    },
+                    onPrepareCourseShare: { entry in
+                        prepareCourseShare(from: entry)
+                    },
+                    onShareSchedule: { exportScheduleCode() },
+                    onImportSchedule: { isShowingScheduleImport = true }
+                )
+                addContentMenu
+            }
+            .frame(height: height)
+        } else {
+            ZStack(alignment: .bottomTrailing) {
+                AppEmptyState(
+                    title: activeSchedule.isPrimary ? "暂无课表" : "分享课表缺少起始日期",
+                    systemImage: "calendar",
+                    message: activeSchedule.isPrimary
+                        ? "点击上方刷新获取学校课表，也可手动添加日程。"
+                        : "试试上下滑切换到别的课表，或重新导入一份分享课表。"
+                )
+                .padding(.horizontal, AppDesignSystem.Spacing.content)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                addContentMenu
+            }
+            .frame(height: height)
+        }
+    }
+
     /// 课表分区主体。
     ///
     /// 竖屏合并更新时间与表格，横屏沿顶栏展示刷新状态并扩展日历高度。
@@ -161,108 +231,46 @@ struct CourseScheduleTabView: View {
             )
 
             ZStack(alignment: .bottomTrailing) {
-                List {
-                    if !layout.isLandscape {
-                    Section {
-                        CourseScheduleRefreshStatusRow(viewModel: viewModel)
-                        .background {
-                            GeometryReader { rowProxy in
-                                Color.clear.preference(
-                                    key: ScheduleRefreshStatusContentHeightKey.self,
-                                    value: rowProxy.size.height
-                                )
+                if layout.isLandscape {
+                    calendarSurface(height: max(listHeight - AppDesignSystem.Spacing.content, 1))
+                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
+                        .padding(.horizontal, AppDesignSystem.Spacing.section)
+                        .padding(.bottom, AppDesignSystem.Spacing.content)
+                } else {
+                    List {
+                        if !layout.isLandscape {
+                        Section {
+                            CourseScheduleRefreshStatusRow(viewModel: viewModel)
+                            .background {
+                                GeometryReader { rowProxy in
+                                    Color.clear.preference(
+                                        key: ScheduleRefreshStatusContentHeightKey.self,
+                                        value: rowProxy.size.height
+                                    )
+                                }
                             }
                         }
-                    }
-                    }
+                        }
 
-                    // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
-                    // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
-                    // 手动添加日程入口保持可用。
-                    if let firstDay = activeSchedule.firstDay {
+                        // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
+                        // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
+                        // 手动添加日程入口保持可用。
                         Section {
-                            ZStack(alignment: .bottomTrailing) {
-                                CourseScheduleCalendarView(
-                                    entries: scheduleEntries,
-                                    week: viewModel.selectedWeek,
-                                    availableWeeks: weekPickerWeeks,
-                                    displayMode: viewModel.presentationPreferences.scheduleDisplayMode,
-                                    cardContentMode: viewModel.presentationPreferences.scheduleCardContentMode,
-                                    axisMode: calendarAxisMode,
-                                    axisZoomScale: $calendarAxisZoomScale,
-                                    firstDay: firstDay,
-                                    timeTable: activeSchedule.timeTable,
-                                    currentWeek: resolvedCurrentWeek(firstDay: firstDay, now: currentDate),
-                                    showSaturday: viewModel.presentationPreferences.showSaturday,
-                                    showSunday: viewModel.presentationPreferences.showSunday,
-                                    onSelect: { entry in
-                                        selectedEntry = entry
-                                    },
-                                    onSelectDay: { date, weekday in
-                                        guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else { return }
-                                        guard supportsEditingDisplayedSchedule else {
-                                            viewModel.notice = ScheduleNotice.userInput(
-                                                title: "无法调整分享课表",
-                                                message: "分享课表是只读副本。调休 / 放假操作面向当前账号自己的课表，导入的分享课表保持原样。"
-                                            )
-                                            return
-                                        }
-                                        selectedDayAdjustmentContext = ScheduleDayAdjustmentContext(
-                                            date: date,
-                                            week: viewModel.selectedWeek,
-                                            weekday: weekday
-                                        )
-                                        dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
-                                            targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
-                                        )
-                                    },
-                                    onSelectWeekValue: { week in
-                                        viewModel.selectedWeek = week
-                                    },
-                                    onLongPressCourse: { entry in
-                                        shareCourse(from: entry)
-                                    },
-                                    onPrepareCourseShare: { entry in
-                                        prepareCourseShare(from: entry)
-                                    },
-                                    onShareSchedule: { exportScheduleCode() },
-                                    onImportSchedule: { isShowingScheduleImport = true }
-                                )
-                                addContentMenu
-                            }
-                            .frame(height: calendarHeight)
-                            // 课表自身绘制白色分组背景；List 行背景保持在悬浮 Tab 栏上方。
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(AppDesignSystem.Palette.Background.grouped)
-                        }
-                    } else {
-                        Section {
-                            ZStack(alignment: .bottomTrailing) {
-                                AppEmptyState(
-                                    title: activeSchedule.isPrimary ? "暂无课表" : "分享课表缺少起始日期",
-                                    systemImage: "calendar",
-                                    message: activeSchedule.isPrimary
-                                        ? "点击上方刷新获取学校课表，也可手动添加日程。"
-                                        : "试试上下滑切换到别的课表，或重新导入一份分享课表。"
-                                )
-                                .padding(.horizontal, AppDesignSystem.Spacing.content)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                addContentMenu
-                            }
-                            .frame(height: calendarHeight)
-                            .listRowInsets(EdgeInsets())
+                            calendarSurface(height: calendarHeight)
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(AppDesignSystem.Palette.Background.grouped)
                         }
                     }
-                }
-                .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
-                .appGroupedListStyle()
-                .scrollContentBackground(.hidden)
-                .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
-                .frame(height: listHeight, alignment: .top)
-                .zIndex(0)
-                .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
-                    guard height > 0 else { return }
-                    refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                    .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
+                    .appGroupedListStyle()
+                    .scrollContentBackground(.hidden)
+                    .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
+                    .frame(height: listHeight, alignment: .top)
+                    .zIndex(0)
+                    .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
+                        guard height > 0 else { return }
+                        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                    }
                 }
 
             }
@@ -278,6 +286,7 @@ struct CourseScheduleTabView: View {
 #endif
         }
         .simultaneousGesture(scheduleSwitchGesture)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")
         .sheet(item: $selectedEntry, onDismiss: {
             if editingCustomScheduleID != nil {

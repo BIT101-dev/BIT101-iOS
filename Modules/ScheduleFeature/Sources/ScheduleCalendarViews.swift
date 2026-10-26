@@ -179,6 +179,9 @@ final class ScheduleBlankContextMenuControl: UIControl {
 }
 
 struct CourseScheduleCalendarView: View {
+    @ScaledMetric(relativeTo: .caption) private var scaledSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
+    @ScaledMetric(relativeTo: .caption) private var scaledDateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
+    @ScaledMetric(relativeTo: .caption) private var scaledCompactHeaderHeight = AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
     private static let weekdayTitles = ["一", "二", "三", "四", "五", "六", "七"]
     @State private var contextMenuFeedbackToken = 0
@@ -234,11 +237,11 @@ struct CourseScheduleCalendarView: View {
     private var quantizedBody: some View {
         GeometryReader { proxy in
             let gridLineWidth = AppDesignSystem.Schedule.Grid.lineWidth
-            let weekSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
-            let dateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
+            let weekSliderHeight = scaledSliderHeight
+            let dateHeaderHeight = scaledDateHeaderHeight
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
-                : AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
+                : scaledCompactHeaderHeight
             let groups = quantizedCalendarGroups(entries: entries)
             let outsideHeight = groups.outside.isEmpty ? 0 : AppDesignSystem.Size.Control.touchTarget
             let usableHeight = max(proxy.size.height - headerHeight - outsideHeight, 1)

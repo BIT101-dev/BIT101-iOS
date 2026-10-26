@@ -219,7 +219,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     private func enterText(_ text: String, in field: UIElement) {
-        let started = ProcessInfo.processInfo.systemUptime
         let response = field.insertText(text)
         if response == "native" {
             field.press(forDuration: 0.01)
@@ -236,7 +235,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         } else {
             assertUI(response == "entered", "文本应通过实际输入控件更新：\(response ?? "empty")。")
         }
-        print(String(format: "UI input replace: %.3f", ProcessInfo.processInfo.systemUptime - started))
     }
 
     @MainActor
@@ -316,7 +314,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return
         }
-        let started = ProcessInfo.processInfo.systemUptime
         let deadline = Date().addingTimeInterval(2)
         var result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
         while result == "input toolbar missing" && Date() < deadline {
@@ -326,7 +323,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         assertUI(result == "finished", "键盘完成按钮应执行实际目标动作：\(result ?? "empty")。")
         assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" }, on: app),
                  "完成输入后键盘应收起。")
-        print(String(format: "UI keyboard finish: %.3f", ProcessInfo.processInfo.systemUptime - started))
     }
 
     @MainActor
@@ -661,6 +657,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func assertInteractiveLabelUsesPrimaryColor(_ title: String) {
         let label = app.staticTexts[title]
+        reveal(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch, description: "交互行")
         assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")
         guard let screenshot = app.screenshot().image.cgImage else {
             assertUI(false, "标题颜色验收应获取截图像素。")
@@ -767,8 +764,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         checkedScrollContainers.removeAll()
         checkedRefreshRows.removeAll()
         defer { preparingScene = false }
-        let started = ProcessInfo.processInfo.systemUptime
-        defer { print(String(format: "UI scene preparation: %.3f", ProcessInfo.processInfo.systemUptime - started)) }
         continueAfterFailure = false
         UIElement.usesNativeInteraction = nativeInteraction
         let previousProcess = Self.sessionProcess
@@ -941,9 +936,14 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 } else if initialTab == "gallery" && (failureOnce || !content) {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
-                    ready = snapshot.firstSnapshot {
-                        $0.identifier == "app.tab.\(initialTab)" && $0.label == tabTitles[initialTab] && $0.isSelected
-                    } != nil
+                    if let expanded = snapshot.firstSnapshot(where: { $0.elementType == .segmentedControl && $0.firstSnapshot(where: { $0.label == "地图" }) != nil }) {
+                        let label = initialTab == "gallery" ? "话题" : tabTitles[initialTab]
+                        ready = expanded.firstSnapshot { $0.label == label && $0.isSelected } != nil
+                    } else {
+                        ready = snapshot.firstSnapshot {
+                            $0.identifier == "app.tab.\(initialTab)" && $0.label == tabTitles[initialTab] && $0.isSelected
+                        } != nil
+                    }
                 }
                 if ready { identity = currentIdentity; break }
             }

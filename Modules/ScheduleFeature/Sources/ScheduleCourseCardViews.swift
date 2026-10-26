@@ -147,7 +147,8 @@ struct ScheduleCardTextView: UIViewRepresentable {
             }
 
             let gap = AppDesignSystem.Schedule.Grid.cellSpacing
-            let availableLocationHeight = max(bounds.height - baseFont.lineHeight - gap, 0)
+            let titleHeight = measuredHeight(text: title, font: baseFont, width: bounds.width)
+            let availableLocationHeight = max(bounds.height - titleHeight - gap, 0)
             guard availableLocationHeight >= baseFont.lineHeight else {
                 layoutTitle(text: title, in: bounds)
                 hideLocation()

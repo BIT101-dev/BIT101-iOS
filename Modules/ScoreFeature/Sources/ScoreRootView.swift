@@ -7,15 +7,34 @@ import MediaKit
 import SwiftUI
 import UIKit
 
+public struct ScoreRefreshStatusRow: View {
+    @ObservedObject private var viewModel: ScoreViewModel
+    public init(viewModel: ScoreViewModel) { self.viewModel = viewModel }
+    public var body: some View {
+            AppRefreshStatusRow(
+                isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
+                refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
+                lastUpdatedText: viewModel.lastUpdatedText,
+                actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
+                onRefresh: {
+                    Task { await viewModel.refresh() }
+                },
+                actionAccessibilityIdentifier: "score.query"
+            )
+    }
+}
+
 public struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
+    let showsRefreshStatus: Bool
     let transcriptService: any TrustedTranscriptServicing
 
-    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void) {
+    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void, showsRefreshStatus: Bool = true) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
         self.onSearchCourse = onSearchCourse
+        self.showsRefreshStatus = showsRefreshStatus
     }
 
     public var body: some View {
@@ -137,16 +156,7 @@ public struct ScoreListPage: View {
     private var scoreControls: some View {
         let summary = viewModel.summary
         Section {
-            AppRefreshStatusRow(
-                isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
-                refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
-                lastUpdatedText: viewModel.lastUpdatedText,
-                actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
-                onRefresh: {
-                    Task { await viewModel.refresh() }
-                },
-                actionAccessibilityIdentifier: "score.query"
-            )
+            if showsRefreshStatus { ScoreRefreshStatusRow(viewModel: viewModel) }
             if viewModel.needsStorageRecovery {
                 Text("当前可用成绩和筛选继续生效，可通过“恢复成绩存储”重建本账号的本机缓存与筛选偏好。")
                     .font(AppDesignSystem.Typography.caption)

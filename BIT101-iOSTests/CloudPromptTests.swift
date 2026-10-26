@@ -10,6 +10,32 @@ import Testing
 struct CloudPromptTests {
     private let account = ScheduleCloudAccount(studentID: "A", session: .init(accountIdentifier: "A@BIT101"), generation: 1)
 
+    @Test(.timeLimit(.minutes(1))) func cloudAssetWritesRemainSerializedAcrossSuspension() async throws {
+        let queue = AppScheduleCloudUploadQueue(), activity = SaveActivity()
+        try await withThrowingTaskGroup(of: ScheduleCloudRecord.self) { group in
+            for index in 0..<16 {
+                group.addTask {
+                    try await queue.run {
+                        await activity.begin()
+                        await Task.yield()
+                        await activity.end()
+                        return ScheduleCloudRecord(recordName: "record-\(index)", recordType: "ScheduleCacheSyncRecord")
+                    }
+                }
+            }
+            var names: Set<String> = []
+            for try await record in group { names.insert(record.recordName) }
+            #expect(names.count == 16)
+        }
+        #expect(await activity.maximum == 1)
+    }
+    private actor SaveActivity {
+        private var active = 0
+        var maximum = 0
+        func begin() { active += 1; maximum = max(maximum, active) }
+        func end() { active -= 1 }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func aCloudAccountNotificationInvalidatesAnAlreadyPresentedChoice() async throws {
         let center = NotificationCenter()

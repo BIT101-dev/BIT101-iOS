@@ -31,6 +31,7 @@ extension AppDesignSystem {
         public enum Layout {
             public static let sidebarWidth: CGFloat = 320
             public static let landscapeColumnsMinimumWidth: CGFloat = 640
+            public static let expandedNavigationMinimumWidth: CGFloat = 900
             public static let readingWidth: CGFloat = 760
             public static let floatingActionBottomInset: CGFloat = 20
             public static let floatingActionContentInset: CGFloat = 84
@@ -40,12 +41,14 @@ extension AppDesignSystem {
             public static let navigationIcon: CGFloat = 24
             public static let compact: CGFloat = 28
             public static let touchTarget: CGFloat = 44
+            public static let refreshStatusRowHeight = touchTarget + 2 * AppDesignSystem.Spacing.tiny
         }
         public enum Editor {
             public static let multilineMinimumHeight: CGFloat = 180
         }
         public enum Media {
             public static let draft: CGFloat = 96
+            public static let attachment: CGFloat = 160
         }
         public enum Effect {
             public static let blurRadius = Radius.small

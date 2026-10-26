@@ -436,9 +436,26 @@ public nonisolated struct ExamRecord: Codable, Identifiable, Hashable, Sendable 
     }
 }
 
-/// DDL 列表项。
-///
-/// 乐学同步数据和手动新建数据都使用这一种本地记录。
+public nonisolated enum DDLImagePolicy {
+    public static let maximumImageCount = 9
+    public static let maximumImageBytes = 1_024 * 1_024
+    public static let maximumTotalBytes = 16 * 1_024 * 1_024
+    public static func totalBytes(in events: [DDLEventRecord]) -> Int {
+        events.reduce(0) { $0 + ($1.images ?? []).reduce(0) { $0 + $1.data.count } }
+    }
+    public static func isValid(_ images: [DDLImageAttachment]) -> Bool {
+        images.count <= maximumImageCount && Set(images.map(\.id)).count == images.count
+            && images.allSatisfy { !$0.data.isEmpty && $0.data.count <= maximumImageBytes }
+    }
+}
+
+public nonisolated struct DDLImageAttachment: Codable, Identifiable, Hashable, Sendable {
+    public let id: UUID
+    public let data: Data
+    public init(id: UUID = UUID(), data: Data) { self.id = id; self.data = data }
+}
+
+/// 学校同步与手动新建共用的 DDL 本地记录。
 public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Sendable {
     public let id: String
     public var group: String
@@ -447,6 +464,7 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var dueAt: Date
     public var done: Bool
     public var sourceCourseIDs: Set<Int>?
+    public var images: [DDLImageAttachment]?
     public var isSchoolSynced: Bool { group == "lexue" || group == "eclass" }
     public var displayTitle: String {
         guard group == "lexue" else { return title }
@@ -457,7 +475,8 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     }
     public var hasValidRecord: Bool {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              dueAt.timeIntervalSince1970.isFinite else { return false }
+              dueAt.timeIntervalSince1970.isFinite,
+              DDLImagePolicy.isValid(images ?? []) else { return false }
         return isSchoolSynced || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && title.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
             && text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
@@ -485,7 +504,7 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
             return nil
         }
     }
-    public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool, sourceCourseIDs: Set<Int>? = nil) {
+    public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool, sourceCourseIDs: Set<Int>? = nil, images: [DDLImageAttachment]? = nil) {
         self.id = id
         self.group = group
         self.title = title
@@ -493,6 +512,7 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
         self.dueAt = dueAt
         self.done = done
         self.sourceCourseIDs = sourceCourseIDs
+        self.images = images
     }
 }
 
@@ -503,10 +523,12 @@ public struct DDLDraft: Equatable {
     public var title = ""
     public var dueAt = Date()
     public var text = ""
-    public init(title: String = "", dueAt: Date = Date(), text: String = "") {
+    public var images: [DDLImageAttachment] = []
+    public init(title: String = "", dueAt: Date = Date(), text: String = "", images: [DDLImageAttachment] = []) {
         self.title = title
         self.dueAt = dueAt
         self.text = text
+        self.images = images
     }
 }
 

@@ -67,7 +67,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     }
 
     /// 当前选中的一级分栏。
-    @Published var selectedSection: ScheduleSection = .courses
+    @Published public var selectedSection: ScheduleSection = .courses
     /// 是否正在同步课表/考试。
     public var isSyncingCourses: Bool { courseSyncCoordinator.isSyncingCourses }
     @Published var selectedWeek = 1

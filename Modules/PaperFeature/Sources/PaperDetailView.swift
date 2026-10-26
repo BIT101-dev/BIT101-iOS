@@ -14,8 +14,8 @@ struct PaperDetailView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onChanged: @escaping () -> Void) {
-        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper, onChanged: onChanged)
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void) {
+        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper, onDeleted: onDeleted, onChanged: onChanged)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = initialPaper.id
     }
@@ -31,6 +31,7 @@ private struct PaperDetailViewScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     private let onChanged: () -> Void
+    private let onDeleted: (() -> Void)?
     @Environment(\.scenePhase) private var scenePhase
     let initialPaper: PaperSummary
 
@@ -42,11 +43,12 @@ private struct PaperDetailViewScene: View {
     @State private var isShowingDeleteConfirmation = false
     @Environment(\.dismiss) private var dismiss
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onChanged: @escaping () -> Void) {
+    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void) {
         self.dependencies = dependencies
         self.media = media
         self.initialPaper = initialPaper
         self.onChanged = onChanged
+        self.onDeleted = onDeleted
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
@@ -251,6 +253,7 @@ private struct PaperDetailViewScene: View {
                 viewModel.pendingOperations.enqueue {
                     if await viewModel.deletePaper() {
                         onChanged()
+                        onDeleted?()
                         dismiss()
                     }
                 }

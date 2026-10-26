@@ -38,6 +38,13 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         subscription = repository.ddlChanges.sink { [weak self] in self?.objectWillChange.send() }
     }
 
+    public func refreshFromUser() async {
+        guard !isSyncingDDL else { return }
+        await beforeSchoolRequest()
+        guard !Task.isCancelled else { return }
+        _ = await syncDDL()
+    }
+
     func reset() {
         isSyncingDDL = false
         notice = nil

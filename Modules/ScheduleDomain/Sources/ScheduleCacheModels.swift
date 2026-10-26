@@ -59,6 +59,7 @@ public nonisolated enum ScheduleCacheSaveSource: Sendable {
 /// 账号日程的版本化磁盘快照，各业务区域独立拥有其状态。
 public nonisolated struct ScheduleCache: Codable, Sendable {
     public static let schemaVersion = 1
+    public static let maximumEncodedBytes = 64 * 1_024 * 1_024
     public var courseData = ScheduleCourseData()
     public var ddlData = ScheduleDDLData()
     public var classroomData = ScheduleClassroomData()
@@ -176,7 +177,8 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         if !hasValidCoursePlacements || !hasSupportedCourseSections { return .courses }
         if !customSchedules.allSatisfy(\.hasValidPlacement)
             || Set(customSchedules.map(\.id)).count != customSchedules.count { return .customSchedules }
-        if !ddlEvents.allSatisfy(\.hasValidRecord) || !hasUniqueIdentities(ddlEvents.map(\.id)) { return .ddlEvents }
+        if !ddlEvents.allSatisfy(\.hasValidRecord) || !hasUniqueIdentities(ddlEvents.map(\.id))
+            || DDLImagePolicy.totalBytes(in: ddlEvents) > DDLImagePolicy.maximumTotalBytes { return .ddlEvents }
         if !hasUniqueIdentities(sharedSchedules.map(\.id)) { return .sharedSchedules }
         if !courseData.schedulesByTerm.values.allSatisfy({
             $0.exams.allSatisfy(\.hasValidPlacement) && hasUniqueIdentities($0.exams.map(\.id))

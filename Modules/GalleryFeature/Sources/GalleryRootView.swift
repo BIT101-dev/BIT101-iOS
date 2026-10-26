@@ -19,13 +19,13 @@ import OSLog
 /// “话廊”底部页内部的一级内容分区。
 ///
 /// 底部栏保留“话廊”入口，顶部栏负责在“话题 / 文章”之间切换。
-private enum GallerySurface: String, CaseIterable, Identifiable, Hashable {
+public nonisolated enum GallerySurface: String, CaseIterable, Identifiable, Hashable, Sendable {
     case gallery
     case paper
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .gallery:
             return "话题"
@@ -50,8 +50,8 @@ public struct GalleryRootView: View {
         papers: CommunityPaperDestination,
         courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        requestedPosterID: Binding<Int?> = .constant(nil)) {
-        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, courses: courses, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID)
+        requestedPosterID: Binding<Int?> = .constant(nil), selection: Binding<GallerySurface>? = nil) {
+        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, courses: courses, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID, selection: selection)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -75,6 +75,8 @@ private struct GalleryRootViewScene: View {
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @ObservedObject private var appSettings: CommunityPreferences
+    @State private var selectedFeedPoster: CommunityPoster?
+    @State private var deletedFeedPosterIDs: Set<Int> = []
     @State private var isShowingComposer = false
     @State private var isShowingMessages = false
     @State private var isShowingSubscriptions = false
@@ -83,7 +85,19 @@ private struct GalleryRootViewScene: View {
     @State private var horizontalControlFrames: [CGRect] = []
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
-    @State private var selectedSurface: GallerySurface = .gallery
+    @Environment(\.appExpandedNavigation) private var expandedNavigation
+    @State private var localSurface: GallerySurface = .gallery
+    private let selection: Binding<GallerySurface>?
+    private var selectedSurface: GallerySurface {
+        get { selection?.wrappedValue ?? localSurface }
+        nonmutating set {
+            if let selection { selection.wrappedValue = newValue }
+            else { localSurface = newValue }
+        }
+    }
+    private var surfaceSelection: Binding<GallerySurface> {
+        Binding(get: { selectedSurface }, set: { selectedSurface = $0 })
+    }
     @State private var isShowingNativePaperRoute = false
     @State private var deepLinkedPoster: GalleryPosterDetail?
     @State private var deepLinkAlert: AppAlert?
@@ -96,11 +110,13 @@ private struct GalleryRootViewScene: View {
         papers: CommunityPaperDestination,
         courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        requestedPosterID: Binding<Int?> = .constant(nil)
+        requestedPosterID: Binding<Int?> = .constant(nil),
+        selection: Binding<GallerySurface>? = nil
     ) {
         _requestedPaperID = requestedPaperID
         _requestedPosterID = requestedPosterID
         self.dependencies = dependencies
+        self.selection = selection
         self.media = media
         self.profiles = profiles
         self.destinations = papers
@@ -117,8 +133,8 @@ private struct GalleryRootViewScene: View {
 
     private var content: some View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
-            if !appSettings.galleryUseWebView {
-                AppTopSegmentedPicker(title: "话廊内容", selection: $selectedSurface) {
+            if !expandedNavigation && !appSettings.galleryUseWebView {
+                AppTopSegmentedPicker(title: "话廊内容", selection: surfaceSelection) {
                     ForEach(GallerySurface.allCases) { surface in
                         Text(surface.title).tag(surface)
                     }
@@ -127,7 +143,7 @@ private struct GalleryRootViewScene: View {
             if appSettings.galleryUseWebView && !isShowingNativePaperRoute {
                 GalleryWebContentView()
             } else {
-                TabView(selection: $selectedSurface) {
+                TabView(selection: surfaceSelection) {
                     galleryContent
                         .tag(GallerySurface.gallery)
                         .tabItem { Text(GallerySurface.gallery.title) }
@@ -149,9 +165,7 @@ private struct GalleryRootViewScene: View {
             selectedSurface = .paper
         }
         .onChange(of: selectedSurface) { _, newSurface in
-            if newSurface != .paper {
-                isShowingNativePaperRoute = false
-            }
+            isShowingNativePaperRoute = newSurface == .paper
         }
         .task(id: requestedPosterID) {
             await openRequestedPosterIfNeeded()
@@ -229,6 +243,20 @@ private struct GalleryRootViewScene: View {
     }
 
     private var galleryContent: some View {
+        AppBrowserLayout(selection: $selectedFeedPoster, title: "选择一个话题", symbol: "bubble.left.and.bubble.right") {
+            galleryListContent
+        } detail: { poster in
+            GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster,
+                onUpdated: { viewModel.enqueueRefresh(for: viewModel.selectedFeed) },
+                onDeleted: {
+                    deletedFeedPosterIDs.insert(poster.id)
+                    selectedFeedPoster = nil
+                    viewModel.enqueueRefresh(for: viewModel.selectedFeed)
+                })
+        }
+    }
+
+    private var galleryListContent: some View {
         ZStack(alignment: .bottomTrailing) {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
@@ -251,7 +279,8 @@ private struct GalleryRootViewScene: View {
                 },
                 onLoadMore: { poster in
                     viewModel.enqueueLoadMore(for: viewModel.selectedFeed, currentPoster: poster)
-                }
+                },
+                onSelectPoster: { selectedFeedPoster = $0 }, excludedPosterIDs: deletedFeedPosterIDs
             )
             .simultaneousGesture(feedSwitchGesture)
             .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }

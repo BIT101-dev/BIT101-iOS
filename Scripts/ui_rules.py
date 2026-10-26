@@ -649,7 +649,7 @@ def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str,
     from swift_type_index import SwiftTypeIndex
     types = SwiftTypeIndex(syntax)
     components = {scope[0] for path, facts in syntax.items()
-        if "/DesignSystemKit/" in path or "/CommunityUI/" in path
+        if any(f"/{module}/" in path for module in ("DesignSystemKit", "CommunityUI", "MediaKit"))
         for scope in view_scopes(facts) if any(resolved_interaction_name(types, path, call) in INTERACTION_KINDS
             and call["scope"][:len(scope)] == scope for call in facts["calls"])}
     inventory = {}

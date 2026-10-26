@@ -41,25 +41,26 @@ public struct AppRefreshStatusRow: View {
                 }
             }
             .font(AppDesignSystem.Typography.subheadline)
-            .foregroundStyle(AppDesignSystem.Foreground.primary)
+            .foregroundStyle(.tint)
             .accessibilityIdentifier("app.refresh-status.timestamp")
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
 
             if let actionTitle, let onRefresh {
-                Button(actionTitle) {
+                Button {
                     feedbackToken &+= 1
                     onRefresh()
+                } label: {
+                    Text(actionTitle).font(AppDesignSystem.Typography.body)
+                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 }
-                .font(AppDesignSystem.Typography.body)
-                .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 .accessibilityIdentifier(actionAccessibilityIdentifier ?? "app.refresh-status.action")
                 .disabled(isRefreshing)
                 .appImpactFeedback(trigger: feedbackToken)
             } else if let trailingText {
                 Text(trailingText)
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    .foregroundStyle(.tint)
             }
         }
         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)

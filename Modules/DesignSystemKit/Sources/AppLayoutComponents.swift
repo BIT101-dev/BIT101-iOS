@@ -16,6 +16,7 @@ public struct AppWindowLayout: Equatable {
             && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
     }
     public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
+    public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
 }
 
 private struct AppWindowLayoutKey: EnvironmentKey {
@@ -23,9 +24,84 @@ private struct AppWindowLayoutKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    @Entry public var appExpandedNavigation = false
     public var appWindowLayout: AppWindowLayout {
         get { self[AppWindowLayoutKey.self] }
         set { self[AppWindowLayoutKey.self] = newValue }
+    }
+}
+
+public struct AppWidePageHeader<Status: View>: View {
+    let navigation: AnyView
+    let leadingStatus: AnyView?
+    let showsStatus: Bool
+    let status: Status
+    @State private var navigationWidth: CGFloat = 0
+    public init(navigation: AnyView, leadingStatus: AnyView? = nil, showsStatus: Bool = true, @ViewBuilder status: () -> Status) {
+        self.navigation = navigation; self.leadingStatus = leadingStatus
+        self.showsStatus = showsStatus; self.status = status()
+    }
+    public var body: some View {
+        GeometryReader { geometry in
+            let space = max((geometry.size.width - navigationWidth) / 2 - AppDesignSystem.Spacing.content, 0)
+            ZStack {
+                navigation.fixedSize(horizontal: true, vertical: false)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { navigationWidth = $0 }
+                HStack(spacing: AppDesignSystem.Spacing.none) {
+                    if let leadingStatus { refreshCard(leadingStatus, width: space) }
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
+                    if showsStatus { refreshCard(status, width: space) }
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .frame(height: AppDesignSystem.Size.Control.refreshStatusRowHeight)
+        .padding(.horizontal, AppDesignSystem.Spacing.section)
+        .padding(.vertical, AppDesignSystem.Spacing.regular)
+        .background(AppDesignSystem.Palette.Background.grouped)
+    }
+    private func refreshCard(_ content: some View, width: CGFloat) -> some View {
+        List { content.lineLimit(1) }
+            .appGroupedListStyle()
+            .scrollDisabled(true)
+            .scrollContentBackground(.hidden)
+            .frame(width: width, height: AppDesignSystem.Size.Control.refreshStatusRowHeight)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("app.refresh-status.card")
+    }
+}
+
+public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>: View {
+    @Environment(\.appWindowLayout) private var layout
+    @Binding private var selection: Selection?
+    private let title: String
+    private let symbol: String
+    private let master: Master
+    private let detail: (Selection) -> Detail
+    public init(selection: Binding<Selection?>, title: String, symbol: String,
+                @ViewBuilder master: () -> Master, @ViewBuilder detail: @escaping (Selection) -> Detail) {
+        _selection = selection; self.title = title; self.symbol = symbol
+        self.master = master(); self.detail = detail
+    }
+    public var body: some View {
+        Group {
+            if layout.isLandscape {
+                NavigationSplitView {
+                    master.appWindowLayout().accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("browser.master")
+                } detail: {
+                    NavigationStack {
+                        if let selection { detail(selection).toolbar(.visible, for: .navigationBar) }
+                        else { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("browser.detail")
+                }
+                .navigationSplitViewStyle(.balanced)
+            } else { master }
+        }
+        .navigationDestination(item: Binding(get: { layout.isLandscape ? nil : selection },
+            set: { if !layout.isLandscape { selection = $0 } })) { detail($0) }
     }
 }
 
@@ -78,9 +154,8 @@ extension View {
 }
 
 private struct AppReadableContentModifier: ViewModifier {
-    @Environment(\.appWindowLayout) private var layout
     func body(content: Content) -> some View {
-        content.frame(maxWidth: layout.isLandscape ? AppDesignSystem.Size.Layout.readingWidth : .infinity)
+        content.frame(maxWidth: AppDesignSystem.Size.Layout.readingWidth)
             .frame(maxWidth: .infinity)
     }
 }

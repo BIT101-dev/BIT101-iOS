@@ -8,102 +8,79 @@ import DesignSystemKit
 //
 
 import SwiftUI
+import PhotosUI
+import MediaKit
+import TransportCore
+import UIKit
 
 /// DDL 分页。
 ///
-/// 竖屏采用分组列表，宽幅横屏采用待办卡片网格。
+/// 待办沿分组列表呈现，横屏与课表并排。
 struct DDLScheduleTabView: View {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScheduleDDLViewModel
+    @State private var imageViewer: ImagePreviewRequest?
     @State private var selectedEvent: DDLEventRecord?
     @State private var draft = DDLDraft()
     @State private var editingEventID: String?
-    @State private var isShowingEditor = false
+    @State private var isShowingSheet = false
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
 
-            if layout.isLandscape {
-                ScrollView {
-                    VStack(spacing: AppDesignSystem.Spacing.section) {
-                        AppCard { refreshRow }
-                        if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
-                            AppEmptyState(title: "暂无 DDL", systemImage: "list.bullet.clipboard", message: viewModel.ddlEmptyStateMessage)
-                        } else {
-                            LazyVGrid(columns: layout.gridColumns, alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                                ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
-                                    AppCard { eventRow(event) }
-                                }
-                            }
-                        }
-                    }
-                    .padding(AppDesignSystem.Spacing.section)
-                    .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
-                }
-                .accessibilityIdentifier("interaction.DDLScheduleTabView.grid")
-            } else { eventList }
+            eventList
 
 
             AppFloatingActionStack {
                 AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
                     editingEventID = nil
                     draft = DDLDraft()
-                    isShowingEditor = true
+                    isShowingSheet = true
                 }
                 .disabled(!viewModel.isCacheWritable)
 
             }
         }
-        .sheet(item: $selectedEvent) { event in
-            DDLEventDetailSheet(
-                event: event,
-                isEditable: viewModel.isCacheWritable,
-                remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
-                onEdit: {
-                    editingEventID = event.id
-                    draft = viewModel.ddlDraft(for: event)
-                    isShowingEditor = true
-                },
-                onDelete: {
-                    do {
-                        try viewModel.deleteDDL(id: event.id)
+        .sheet(isPresented: $isShowingSheet, onDismiss: { editingEventID = nil; selectedEvent = nil }) {
+            if let event = selectedEvent {
+                DDLEventDetailSheet(event: event, isEditable: viewModel.isCacheWritable,
+                    remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
+                    onEdit: {
+                        editingEventID = event.id
+                        draft = viewModel.ddlDraft(for: event)
                         selectedEvent = nil
-                    } catch {
-                        viewModel.notice = ScheduleNotice.userInput(title: "删除失败", message: error.localizedDescription)
-                    }
-                }
-            )
-        }
-        .sheet(isPresented: $isShowingEditor) {
-            DDLEditSheet(
-                draft: $draft,
-                isEditing: editingEventID != nil,
-                onSubmit: {
-                    do {
-                        if let editingEventID {
-                            try viewModel.updateDDL(id: editingEventID, draft: draft)
-                        } else {
-                            try viewModel.addDDL(draft)
+                    },
+                    onDelete: {
+                        do {
+                            try viewModel.deleteDDL(id: event.id)
+                            isShowingSheet = false
+                        } catch {
+                            viewModel.notice = ScheduleNotice.userInput(title: "删除失败", message: error.localizedDescription)
                         }
-                        isShowingEditor = false
-                    } catch {
-                        viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
-                    }
-                },
-                onDismiss: { isShowingEditor = false }
-            )
+                    })
+            } else {
+                DDLEditSheet(draft: $draft, isEditing: editingEventID != nil,
+                    onSubmit: {
+                        do {
+                            if let editingEventID { try viewModel.updateDDL(id: editingEventID, draft: draft) }
+                            else { try viewModel.addDDL(draft) }
+                            isShowingSheet = false
+                        } catch {
+                            viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
+                        }
+                    }, onDismiss: { isShowingSheet = false })
+            }
         }
+        .systemImagePreview(item: $imageViewer)
     }
 
     private var eventList: some View {
         List {
-            Section {
-                refreshRow
-            }
+            if !layout.isLandscape { Section { refreshRow } }
 
             if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
                 Section {
@@ -128,17 +105,7 @@ struct DDLScheduleTabView: View {
         .scrollContentBackground(.hidden)
     }
 
-    private var refreshRow: some View {
-        AppRefreshStatusRow(
-            isRefreshing: viewModel.isSyncingDDL,
-            refreshingText: "正在刷新 DDL",
-            lastUpdatedText: viewModel.ddlLastUpdatedText,
-            actionTitle: "刷新",
-            onRefresh: {
-                Task { await refreshDDL() }
-            }
-        )
-    }
+    private var refreshRow: some View { DDLRefreshStatusRow(viewModel: viewModel) }
 
     private func eventRow(_ event: DDLEventRecord) -> some View {
         DDLEventRow(
@@ -147,20 +114,15 @@ struct DDLScheduleTabView: View {
             dueText: viewModel.ddlDueText(for: event),
             tint: color(for: event),
             isEditable: viewModel.isCacheWritable,
+            onPreview: { imageViewer = $0 },
             onToggleDone: { viewModel.toggleDDLDone(event) },
             onOpen: {
                 if let url = event.browserURL { openURL(url) }
-                else { selectedEvent = event }
+                else { selectedEvent = event; isShowingSheet = true }
             }
         )
     }
 
-    private func refreshDDL() async {
-        guard !viewModel.isSyncingDDL else { return }
-        await viewModel.beforeSchoolRequest()
-        guard !Task.isCancelled else { return }
-        _ = await viewModel.syncDDL()
-    }
 
     private func color(for event: DDLEventRecord) -> Color {
         switch viewModel.ddlTint(for: event, now: currentDate) {
@@ -183,11 +145,23 @@ private struct DDLEventRow: View {
     let dueText: String
     let tint: Color
     let isEditable: Bool
+    let onPreview: (ImagePreviewRequest) -> Void
     let onToggleDone: () -> Void
     let onOpen: () -> Void
 
     var body: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            eventContent
+            if let images = event.images, !images.isEmpty { DDLImageStrip(images: images, onPreview: onPreview) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("ddl.event.\(event.id)")
+        .accessibilityAction(named: event.browserURL == nil ? "打开详情" : "在浏览器打开", onOpen)
+    }
+
+    private var eventContent: some View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+            Button(action: onOpen) {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 Text(event.displayTitle)
                     .font(AppDesignSystem.Typography.title)
@@ -215,7 +189,11 @@ private struct DDLEventRow: View {
                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
 
-            Spacer(minLength: AppDesignSystem.Spacing.none)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ddl.open.\(event.id)")
 
             Button(action: onToggleDone) {
                 Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
@@ -233,12 +211,8 @@ private struct DDLEventRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("ddl.event.\(event.id)")
-        .accessibilityAction(named: event.browserURL == nil ? "打开详情" : "在浏览器打开") {
-            onOpen()
-        }
+        .accessibilityIdentifier("ddl.content.\(event.id)")
     }
 
     private var displayText: String {
@@ -246,6 +220,15 @@ private struct DDLEventRow: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+}
+
+struct DDLRefreshStatusRow: View {
+    @ObservedObject var viewModel: ScheduleDDLViewModel
+    var body: some View {
+        AppRefreshStatusRow(isRefreshing: viewModel.isSyncingDDL, refreshingText: "正在刷新 DDL",
+            lastUpdatedText: viewModel.ddlLastUpdatedText, actionTitle: "刷新",
+            onRefresh: { Task { await viewModel.refreshFromUser() } })
     }
 }
 
@@ -260,6 +243,7 @@ private struct DDLEventDetailSheet: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var imageViewer: ImagePreviewRequest?
 
     var body: some View {
         NavigationStack {
@@ -280,10 +264,13 @@ private struct DDLEventDetailSheet: View {
                     Text(detailText.isEmpty ? "无详情" : detailText)
                 }
 
+                if let images = event.images, !images.isEmpty {
+                    Section("图片") { DDLImageStrip(images: images, onPreview: { imageViewer = $0 }) }
+                }
+
                 if !event.isSchoolSynced && isEditable {
                     Section {
                         Button("编辑") {
-                            dismiss()
                             onEdit()
                         }
                         .appInteractiveListRow()
@@ -307,6 +294,7 @@ private struct DDLEventDetailSheet: View {
                 }
             }
         }
+        .systemImagePreview(item: $imageViewer)
     }
 
     private var detailText: String {
@@ -323,6 +311,11 @@ private struct DDLEditSheet: View {
     let onSubmit: () -> Void
     let onDismiss: () -> Void
 
+    @Environment(MediaEnvironment.self) private var media
+    @State private var imageViewer: ImagePreviewRequest?
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var isImporting = false
+    @State private var importError: String?
     @State private var initialDraft: DDLDraft?
     private var hasChanges: Bool { initialDraft.map { $0 != draft } ?? false }
 
@@ -341,24 +334,85 @@ private struct DDLEditSheet: View {
                         .accessibilityIdentifier("ddl.editor.details")
                         .lineLimit(4, reservesSpace: true)
                 }
+                Section("图片") {
+                    if !draft.images.isEmpty {
+                        DDLImageStrip(images: draft.images, onRemove: { id in draft.images.removeAll { $0.id == id } },
+                            onPreview: { imageViewer = $0 })
+                    }
+                    if draft.images.count < DDLImagePolicy.maximumImageCount {
+                        PhotosPicker(selection: $selectedPhotos,
+                            maxSelectionCount: DDLImagePolicy.maximumImageCount - draft.images.count, matching: .images) {
+                            Text("添加图片")
+                        }
+                        .disabled(isImporting)
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier("ddl.editor.photos")
+                    }
+                    if isImporting { AppInlineLoadingState("正在处理图片") }
+                    if let importError { Text(importError).foregroundStyle(AppDesignSystem.Palette.Status.danger) }
+                }
             }
             .navigationTitle(isEditing ? "编辑 DDL" : "添加 DDL")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    AppCancelEditingButton(confirmDiscard: hasChanges, onCancel: onDismiss)
+                    AppCancelEditingButton(confirmDiscard: hasChanges || isImporting || !selectedPhotos.isEmpty, onCancel: onDismiss)
                         .accessibilityIdentifier("ui.ddl-edit-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
+                        .disabled(isImporting || !selectedPhotos.isEmpty)
                         .accessibilityIdentifier("ddl.editor.save")
                 }
             }
         }
+        .systemImagePreview(item: $imageViewer)
+        .task(id: selectedPhotos) { await importPhotos() }
         .onAppear { if initialDraft == nil { initialDraft = draft } }
-        .interactiveDismissDisabled(hasChanges)
+        .interactiveDismissDisabled(hasChanges || isImporting || !selectedPhotos.isEmpty)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private func importPhotos() async {
+        guard !selectedPhotos.isEmpty else { return }
+        isImporting = true
+        importError = nil
+        defer { isImporting = false }
+        do {
+            for item in selectedPhotos {
+                try Task.checkCancellation()
+                guard let data = try await media.loadBoundedImageData(from: item) else { throw CocoaError(.fileReadCorruptFile) }
+                let prepared = try await ImageDataCompressor.prepare(data, maximumBytes: DDLImagePolicy.maximumImageBytes)
+                try Task.checkCancellation()
+                draft.images.append(DDLImageAttachment(data: prepared))
+            }
+        } catch {
+            guard !TaskCancellation.matches(error) else { return }
+            importError = "图片处理失败：\(error.localizedDescription)"
+        }
+        selectedPhotos = []
+    }
+}
+
+private struct DDLImageStrip: View {
+    let images: [DDLImageAttachment]
+    var onRemove: ((UUID) -> Void)? = nil
+    let onPreview: (ImagePreviewRequest) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: AppDesignSystem.Spacing.regular) {
+                ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
+                    LocalImageTile(data: image.data, identifier: "ddl.image.\(image.id)",
+                        pointSize: onRemove == nil ? AppDesignSystem.Size.Media.attachment : AppDesignSystem.Size.Media.draft,
+                        onOpen: { onPreview(ImagePreviewRequest(localImages: images.compactMap { UIImage(data: $0.data) }, initialIndex: index)) },
+                        onRemove: onRemove.map { remove in { remove(image.id) } }, previewLabel: "预览 DDL 图片")
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .accessibilityIdentifier("interaction.DDLImageStrip.scroll")
     }
 }
 

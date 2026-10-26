@@ -5,7 +5,7 @@ import StorageCore
 
 /// 注入式日程磁盘仓库，账号路径与串行写入归单个实例维护。
 public actor SchedulePersistenceStore {
-    public nonisolated static let maximumCacheBytes = 16 * 1_024 * 1_024
+    public nonisolated static let maximumCacheBytes = ScheduleCache.maximumEncodedBytes
     private nonisolated let executor = StorageFileExecutor()
     public nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
     private nonisolated let files: any AppFileService

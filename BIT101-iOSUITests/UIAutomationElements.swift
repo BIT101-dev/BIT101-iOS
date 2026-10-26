@@ -45,7 +45,6 @@ enum UITestControlClient {
     }
 
     static func activate(_ parameters: [String: String], element: XCUIElement) {
-        let started = ProcessInfo.processInfo.systemUptime
         let result = request(parameters.merging(["command": "activate"]) { _, command in command }, timeout: 5)
         if result?.hasPrefix("native") == true {
             if let result, result != "native" { print("UI native control: \(result)") }
@@ -54,7 +53,6 @@ enum UITestControlClient {
             return
         }
         XCTAssertTrue(result == "activated" || result == "control", "UI 动作应由实际控件执行：\(parameters["label"] ?? "")。")
-        print(String(format: result == "control" ? "UI control action: %.3f" : "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
     }
 
     static func request(_ parameters: [String: String], timeout: TimeInterval = 10) -> String? {
@@ -157,7 +155,7 @@ enum UITestSnapshotReader {
 @MainActor
 final class UIElement: NSObject {
     static var beforeNativeTap: (() -> Void)?
-    static var usesNativeInteraction = false
+    static var usesNativeInteraction = true
     let native: XCUIElement
     let path: [[String: String]]?
     private var capturedSnapshot: (any XCUIElementSnapshot)?
@@ -405,15 +403,12 @@ final class UIElement: NSObject {
             return
         }
         if let actionPath, let data = try? JSONSerialization.data(withJSONObject: actionPath) {
-            let started = ProcessInfo.processInfo.systemUptime
             let response = UITestControlClient.request(["command": "query-activate", "query": String(decoding: data, as: UTF8.self),
                                                        "hittable": (preparedHittability ?? isHittable) ? "1" : "0", "label": label, "identifier": identifier], timeout: 5)
             if response == "activated" {
-                print(String(format: "UI accessibility activate: %.3f", ProcessInfo.processInfo.systemUptime - started))
                 return
             }
             if response == "control" {
-                print(String(format: "UI control action: %.3f", ProcessInfo.processInfo.systemUptime - started))
                 return
             }
             guard response == "native" else {
@@ -459,7 +454,12 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
+        let expanded = segmentedControls.containing(.button, identifier: "地图").firstMatch
+        if expanded.exists {
+            let label = ["话廊": "话题"][title] ?? title
+            return expanded.buttons[label]
+        }
+        return descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
     }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
     var collectionViews: UIElementQuery { descendants(matching: .collectionView) }

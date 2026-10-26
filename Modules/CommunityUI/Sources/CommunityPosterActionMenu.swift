@@ -59,7 +59,7 @@ public struct CommunityPosterActionMenu: View {
         Image(systemName: "ellipsis.circle")
             .font(AppDesignSystem.Typography.title)
             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            .frame(width: AppDesignSystem.Size.Control.detailActionButton, height: AppDesignSystem.Size.Control.detailActionButton)
+            .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
             .accessibilityLabel("更多操作")
     }
 }

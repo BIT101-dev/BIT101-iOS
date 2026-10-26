@@ -19,6 +19,75 @@ import os
 import SwiftUI
 import UIKit
 
+public struct LocalImageTile<Overlay: View>: View {
+    @Environment(\.displayScale) private var displayScale
+    @State private var thumbnail: UIImage?
+    private struct Identity: Equatable { let data: Data; let size: CGFloat; let scale: CGFloat }
+    let data: Data
+    let identifier: String
+    let pointSize: CGFloat
+    let onOpen: (() -> Void)?
+    let onRemove: (() -> Void)?
+    let previewLabel: String
+    let removeLabel: String
+    let overlay: Overlay
+
+    public init(data: Data, identifier: String, pointSize: CGFloat = AppDesignSystem.Size.Media.draft,
+                onOpen: (() -> Void)?, onRemove: (() -> Void)? = nil,
+                previewLabel: String = "预览图片", removeLabel: String = "移除图片", @ViewBuilder overlay: () -> Overlay) {
+        self.data = data; self.identifier = identifier; self.pointSize = pointSize
+        self.onOpen = onOpen; self.onRemove = onRemove; self.previewLabel = previewLabel; self.removeLabel = removeLabel
+        self.overlay = overlay()
+    }
+
+    public var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let onOpen {
+                    Button(action: onOpen) { thumbnailContent }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(previewLabel)
+                        .accessibilityIdentifier("media.local-image.\(identifier)")
+                } else { thumbnailContent }
+            }
+            .overlay(alignment: .bottom) { overlay }
+            if let onRemove {
+                AppComposerImageRemoveButton(accessibilityLabel: removeLabel, onRemove: onRemove)
+            }
+        }
+        .frame(width: pointSize, height: pointSize)
+        .task(id: Identity(data: data, size: pointSize, scale: displayScale)) {
+            let image = await BoundedStillImageDecoder.thumbnail(data, size: pointSize, scale: displayScale)
+            guard !Task.isCancelled else { return }
+            thumbnail = image
+        }
+        .onDisappear { thumbnail = nil }
+    }
+
+    private var thumbnailContent: some View {
+        ZStack {
+            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card).fill(AppDesignSystem.Palette.Background.secondaryGrouped)
+            if let thumbnail {
+                Image(uiImage: thumbnail).resizable().scaledToFill()
+            } else {
+                Image(systemName: "photo").font(AppDesignSystem.Typography.title).foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+        }
+        .frame(width: pointSize, height: pointSize)
+        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+    }
+
+}
+
+extension LocalImageTile where Overlay == EmptyView {
+    public init(data: Data, identifier: String, pointSize: CGFloat = AppDesignSystem.Size.Media.draft,
+                onOpen: (() -> Void)?, onRemove: (() -> Void)? = nil,
+                previewLabel: String = "预览图片", removeLabel: String = "移除图片") {
+        self.init(data: data, identifier: identifier, pointSize: pointSize, onOpen: onOpen, onRemove: onRemove,
+            previewLabel: previewLabel, removeLabel: removeLabel) { EmptyView() }
+    }
+}
+
 /// 一次系统图片预览请求。
 public struct ImagePreviewRequest: Identifiable {
     fileprivate enum Source {
@@ -223,6 +292,9 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
 
         func previewControllerDidDismiss(_ controller: QLPreviewController) {
             guard controller === previewController else { return }
+            previewController = nil
+            controller.dataSource = nil
+            controller.delegate = nil
             onDismiss?()
             cancel()
         }

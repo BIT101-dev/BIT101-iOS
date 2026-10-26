@@ -2,6 +2,37 @@ import XCTest
 
 nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testDDLPhotosSurviveRelaunchAndSupportPreviewRemoval() {
+        XCUIDevice.shared.orientation = .portrait
+        app = configureApp(resetStorage: true)
+        tapHeader(app.segmentedControls.buttons["DDL"])
+        tap("添加待办")
+        replaceText("图片待办", in: app.textFields["ddl.editor.title"])
+        dismissKeyboard()
+        tap("添加图片")
+        selectFirstPhoto()
+        var photo = app.buttons["预览 DDL 图片"]
+        assertUI(photo.appears(timeout: 30), "选择图片后应展示本地缩略图。")
+        tapHeader(app.buttons["ddl.editor.save"])
+        assertUI(app.navigationBars["添加 DDL"].disappears(timeout: 5), "图片处理完成后应保存待办。")
+        app = configureApp(resetStorage: false, restartProcess: true)
+        photo = app.buttons["预览 DDL 图片"]
+        tapHeader(app.segmentedControls.buttons["DDL"])
+        assertUI(photo.appears(timeout: 10), "重新启动应恢复待办图片。")
+        photo.tapBriefly()
+        assertUI(waitForImagePreview(visible: true, timeout: 15), "待办图片应打开系统预览。")
+        closeImagePreview()
+        tap("图片待办")
+        assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "关闭预览后应继续打开待办详情。")
+        tap("编辑")
+        assertUI(app.navigationBars["编辑 DDL"].appears(timeout: 5), "详情中的编辑应打开原待办编辑器。")
+        tap("移除图片")
+        tapHeader(app.buttons["ddl.editor.save"])
+        assertUI(app.navigationBars["编辑 DDL"].disappears(timeout: 5), "移除图片后应保存待办。")
+        assertUI(photo.disappears(timeout: 5) && textElement("图片待办").exists, "移除附件应保留待办正文。")
+    }
+
+    @MainActor
     @objc func testPosterImageWhitespaceOpensDetailsAndImageKeepsPreview() {
         app = configureApp(resetStorage: true, content: true, media: true, portraitMedia: true, initialTab: "gallery")
         let image = app.buttons["查看第1张图片"]
@@ -247,14 +278,12 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
     private func selectFirstPhoto() {
         let platform = UIElement(app.native)
-        let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
-        assertUI(photos.appears(timeout: 30), "图片入口应呈现系统照片选择器。")
         let first = UIElement(app.native.images.matching(identifier: "PXGGridLayout-Info").firstMatch)
-        assertUI(first.appears(timeout: 5), "照片选择器应展示固定测试图片。")
+        assertUI(first.appears(timeout: 30), "照片选择器应展示固定测试图片。")
         first.tapBriefly()
-        let add = platform.buttons.matching(identifier: "Add").firstMatch
+        let add = platform.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@", "Add", ["添加", "完成", "Done"])).firstMatch
         assertUI(add.appears(timeout: 5), "选择图片后应提供添加操作。")
         add.tapBriefly()
-        assertUI(photos.disappears(timeout: 5), "确认选择应返回编辑器。")
+        assertUI(first.disappears(timeout: 5), "确认选择应返回编辑器。")
     }
 }

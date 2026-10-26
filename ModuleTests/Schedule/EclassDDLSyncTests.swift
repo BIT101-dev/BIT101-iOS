@@ -10,6 +10,26 @@ import TransportCore
 
 @MainActor
 struct EclassDDLSyncTests {
+    @Test func manualDDLPhotosPersistAndRemainEditable() throws {
+        let image = DDLImageAttachment(data: Data([1, 2, 3]))
+        var draft = DDLDraft(title: "论文", dueAt: Date(timeIntervalSince1970: 100), text: "要求", images: [image])
+        let added = try ScheduleDDLEditor.adding(draft, to: [], id: "ddl")
+        var cache = ScheduleCache(); cache.ddlEvents = added
+        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        #expect(restored.ddlEvents.first?.images == [image])
+        #expect(ScheduleDDLEditor.draft(for: restored.ddlEvents.first) == draft)
+        draft.title = "修改标题"
+        let edited = try ScheduleDDLEditor.updating(id: "ddl", with: draft, in: restored.ddlEvents)
+        #expect(edited.first?.images == [image] && edited.first?.title == "修改标题")
+        #expect(ScheduleDDLEditor.togglingDone(id: "ddl", in: edited).first?.images == [image])
+        draft.images = []
+        #expect(try ScheduleDDLEditor.updating(id: "ddl", with: draft, in: edited).first?.images == nil)
+        draft.images = [image, image]
+        #expect(throws: (any Error).self) { try ScheduleDDLEditor.adding(draft, to: []) }
+        draft.images = (0...DDLImagePolicy.maximumImageCount).map { _ in DDLImageAttachment(data: Data([1])) }
+        #expect(throws: (any Error).self) { try ScheduleDDLEditor.adding(draft, to: []) }
+    }
+
     @Test(arguments: [
         ("lexue", "作业 已到期", "作业"),
         ("lexue", "  实验报告   已到期 \n", "实验报告"),

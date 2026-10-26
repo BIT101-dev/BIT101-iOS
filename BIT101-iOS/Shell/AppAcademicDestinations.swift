@@ -7,7 +7,7 @@ import ScheduleDomain
 import DesignSystemKit
 import SwiftUI
 
-private enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
+enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     case score
     case course
 
@@ -31,8 +31,8 @@ struct ScoreRootView: View {
     private let identity: ObjectIdentifier
 
     init(courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
-         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)) {
-        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse)
+         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil), selection: Binding<ScoreSurface>? = nil) {
+        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse, selection: selection)
         identity = ObjectIdentifier(courses)
     }
 
@@ -46,26 +46,38 @@ private struct ScoreRootScene: View {
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
-    @State private var selectedSurface: ScoreSurface = .score
+    @Environment(\.appExpandedNavigation) private var expandedNavigation
+    @Environment(\.appWindowLayout) private var layout
+    @State private var localSurface: ScoreSurface = .score
+    private let selection: Binding<ScoreSurface>?
+    private var selectedSurface: ScoreSurface {
+        get { selection?.wrappedValue ?? localSurface }
+        nonmutating set {
+            if let selection { selection.wrappedValue = newValue }
+            else { localSurface = newValue }
+        }
+    }
     @Binding private var requestedCourse: CourseNavigationRequest?
 
     init(
         courses: CourseDependencies,
         transcriptService: any TrustedTranscriptServicing,
-        requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil)
+        requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil),
+        selection: Binding<ScoreSurface>? = nil
     ) {
         self.courses = courses
+        self.selection = selection
         _courseViewModel = StateObject(wrappedValue: courses.makeListViewModel())
         self.transcriptService = transcriptService
         _requestedCourse = requestedCourse
     }
 
     var body: some View {
-        TabView(selection: $selectedSurface) {
+        TabView(selection: surfaceSelection) {
             ScoreListPage(
                 viewModel: scoreViewModel,
                 transcriptService: transcriptService,
-                onSearchCourse: openCourseSearch
+                onSearchCourse: openCourseSearch, showsRefreshStatus: !layout.isLandscape
             )
                 .simultaneousGesture(surfaceSwitchGesture)
                 .accessibilityIdentifier("home.score-surface")
@@ -82,10 +94,10 @@ private struct ScoreRootScene: View {
         .accessibilityIdentifier("academic.surfaces")
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
-                ForEach(ScoreSurface.allCases) { surface in
-                    Text(surface.title).tag(surface)
-                }
+            if !expandedNavigation {
+                if layout.isLandscape && selectedSurface == .score {
+                    AppWidePageHeader(navigation: AnyView(surfaceTabs)) { ScoreRefreshStatusRow(viewModel: scoreViewModel) }
+                } else { surfaceTabs }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -106,6 +118,12 @@ private struct ScoreRootScene: View {
             } else {
                 prepareCourseSurface(requestedCourse)
             }
+        }
+    }
+
+    private var surfaceTabs: some View {
+        AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
+            ForEach(ScoreSurface.allCases) { surface in Text(surface.title).tag(surface) }
         }
     }
 

@@ -4,6 +4,13 @@ import UIKit
 import ImageIO
 
 public enum ImageDataCompressor {
+    @concurrent public nonisolated static func prepare(_ data: Data, maximumBytes: Int) async throws -> Data {
+        try Task.checkCancellation()
+        let prepared = try compress(data, maximumBytes: maximumBytes)
+        try Task.checkCancellation()
+        return prepared
+    }
+
     public nonisolated static func compress(_ data: Data, maximumBytes: Int) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(

@@ -623,7 +623,7 @@ public actor ScheduleCloudSyncManager {
         else { return nil }
 
         let payloadData = Data(payloadJSON.utf8)
-        guard payloadData.count <= ScheduleCloudRecord.maximumPayloadBytes else { return nil }
+        guard payloadData.count <= ScheduleCloudRecord.maximumDecodedPayloadBytes else { return nil }
         let cache: ScheduleCache
         let requiresPayloadMigration: Bool
         if let envelope = try? decoder.decode(ScheduleCloudSyncEnvelope.self, from: payloadData) {

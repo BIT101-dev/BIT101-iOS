@@ -679,7 +679,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         tap("完成")
         choose("星期", option: "周2")
         tap("开始节次")
-        tap("第1节")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch.tapBriefly()
         tap("结束节次")
         tap("第2节")
         tap("确定")
@@ -885,75 +885,6 @@ extension XCUIElement {
             if exists == presence { return true }
         } while Date() < deadline
         return false
-    }
-}
-
-nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
-    @MainActor
-    @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
-        app = configureApp(resetStorage: true, content: true, school: true, pagination: true, initialTab: "mine")
-        let traits = windowTraits()
-        let isCompactPhone = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
-            && traits["horizontal"] == UIUserInterfaceSizeClass.compact.rawValue
-        if isCompactPhone {
-            assertUI(app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width, "紧凑手机采用竖屏布局。")
-            assertUI(!app.collectionViews["mine.sidebar"].exists, "竖向窗口应合并资料与设置入口。")
-            assertUI(app.mainTab("我的").isHittable, "竖向窗口保留主导航。")
-            return
-        }
-        XCUIDevice.shared.orientation = .landscapeLeft
-        defer { XCUIDevice.shared.orientation = .portrait }
-        assertUI(waitUntil(NSPredicate { _, _ in
-            let window = self.app.native.windows.firstMatch.frame
-            return window.width > window.height
-        }, on: app, timeout: 10), "横屏专项应在实际横屏窗口运行；Duo 姿态由 Device Hub 设置。")
-        func assertPanes(_ sidebarID: String, _ contentID: String) {
-            let sidebar = app.descendants(matching: .any)[sidebarID]
-            let content = app.descendants(matching: .any)[contentID]
-            assertUI(waitUntil(NSPredicate { _, _ in
-                sidebar.exists && content.exists && sidebar.frame.maxX <= content.frame.minX + 1
-            }, on: app), "横屏应并排呈现侧栏和主体：\(sidebarID)。")
-        }
-        assertPanes("mine.sidebar", "interaction.MineRootViewScene.list")
-        openSettings("account")
-        tap("昵称")
-        let input = app.textFields.firstMatch
-        replaceText("横屏编辑草稿", in: input)
-        dismissKeyboard()
-        assertUI(input.value as? String == "横屏编辑草稿", "横屏编辑与键盘收起保留完整草稿。")
-        tap("取消")
-        back()
-        app.mainTab("成绩").tapBriefly()
-        assertPanes("score.sidebar", "interaction.ScoreListPage.list")
-        reveal(textElement("加权 GPA"), description: "侧栏统计")
-        app.mainTab("日程").tapBriefly()
-        tapHeader(app.segmentedControls.buttons["空教室"])
-        assertPanes("classroom.sidebar", "interaction.FreeClassroomTabView.list")
-        tapHeader(app.segmentedControls.buttons["DDL"])
-        assertUI(app.scrollViews["interaction.DDLScheduleTabView.grid"].appears(timeout: 5), "横屏待办应进入卡片网格。")
-        assertUI(app.buttons["添加待办"].isHittable, "横屏待办保留添加入口。")
-        app.mainTab("话廊").tapBriefly()
-        tapHeader(app.segmentedControls.buttons["最新"])
-        let first = app.descendants(matching: .any)["community.poster.card.1"]
-        let second = app.descendants(matching: .any)["community.poster.card.2"]
-        assertUI(waitUntil(NSPredicate { _, _ in
-            first.exists && second.exists && first.frame.maxX <= second.frame.minX
-                && first.frame.minY < second.frame.maxY && second.frame.minY < first.frame.maxY
-        }, on: app), "横屏话题应使用并排卡片。")
-        tapHeader(app.segmentedControls.buttons["文章"])
-        let paper = textElement("分页文章 1"), nextPaper = textElement("分页文章 2")
-        assertUI(waitUntil(NSPredicate { _, _ in
-            paper.exists && nextPaper.exists && paper.frame.maxX <= nextPaper.frame.minX
-                && paper.frame.minY < nextPaper.frame.maxY && nextPaper.frame.minY < paper.frame.maxY
-        }, on: app), "横屏文章应使用并排卡片。")
-        app.mainTab("地图").tapBriefly()
-        let layer = app.buttons["切换地图图层"]
-        assertUI(layer.appears(timeout: 5) && app.windows.firstMatch.frame.contains(layer.frame), "横屏地图应完整显示图层工具。")
-        layer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
-        waitForValue("卫星图", of: layer)
-        app = configureApp(resetStorage: true, accessibilityTextSize: true, content: true, school: true, initialTab: "mine")
-        assertUI(textElement("自动化测试用户").appears(timeout: 5), "大字号窗口保留资料内容。")
-        assertUI(!app.collectionViews["mine.sidebar"].exists, "辅助功能字号采用完整宽度的单列内容。")
     }
 }
 

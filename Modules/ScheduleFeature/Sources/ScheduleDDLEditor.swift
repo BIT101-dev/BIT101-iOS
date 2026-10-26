@@ -13,7 +13,7 @@ import Foundation
 enum ScheduleDDLEditor {
     static func draft(for event: DDLEventRecord?) -> DDLDraft {
         guard let event else { return DDLDraft() }
-        return DDLDraft(title: event.title, dueAt: event.dueAt, text: event.text)
+        return DDLDraft(title: event.title, dueAt: event.dueAt, text: event.text, images: event.images ?? [])
     }
 
     static func mergingSyncedEvents(
@@ -54,6 +54,7 @@ enum ScheduleDDLEditor {
         id: String = UUID().uuidString
     ) throws -> [DDLEventRecord] {
         try validateText(draft.text)
+        try validateImages(draft.images, alongside: events)
         var events = events
         events.append(DDLEventRecord(
             id: id,
@@ -61,7 +62,8 @@ enum ScheduleDDLEditor {
             title: try normalizedTitle(draft.title),
             text: draft.text,
             dueAt: draft.dueAt,
-            done: false
+            done: false,
+            images: draft.images.isEmpty ? nil : draft.images
         ))
         return events.sorted { lhs, rhs in
             if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
@@ -77,9 +79,11 @@ enum ScheduleDDLEditor {
         var events = events
         guard let index = events.firstIndex(where: { $0.id == id }) else { return events }
         try validateText(draft.text)
+        try validateImages(draft.images, alongside: events.filter { $0.id != id })
         events[index].title = try normalizedTitle(draft.title)
         events[index].text = draft.text
         events[index].dueAt = draft.dueAt
+        events[index].images = draft.images.isEmpty ? nil : draft.images
         return events.sorted { lhs, rhs in
             if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
             return lhs.id < rhs.id
@@ -88,6 +92,17 @@ enum ScheduleDDLEditor {
 
     static func deleting(id: String, from events: [DDLEventRecord]) -> [DDLEventRecord] {
         events.filter { $0.id != id }
+    }
+
+    private static func validateImages(_ images: [DDLImageAttachment], alongside events: [DDLEventRecord]) throws {
+        guard DDLImagePolicy.isValid(images) else {
+            throw NSError(domain: "BIT101.Schedule", code: -1, userInfo: [NSLocalizedDescriptionKey: "每条 DDL 最多添加 9 张图片，单张图片上限为 1 MB。"])
+        }
+        let total = DDLImagePolicy.totalBytes(in: events)
+            + images.reduce(0) { $0 + $1.data.count }
+        guard total <= DDLImagePolicy.maximumTotalBytes else {
+            throw NSError(domain: "BIT101.Schedule", code: -1, userInfo: [NSLocalizedDescriptionKey: "DDL 图片总容量达到 16 MB，请移除部分图片后保存。"])
+        }
     }
 
     private static func normalizedTitle(_ title: String) throws -> String {

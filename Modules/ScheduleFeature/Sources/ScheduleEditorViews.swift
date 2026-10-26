@@ -172,7 +172,7 @@ struct CourseArrangementEditorSheet: View {
                             .accessibilityIdentifier("ui.course-arrangement-editor-sheet.星期")
 
                         NavigationLink {
-                            ScheduleSectionSelectionSheet(
+                            ScheduleSectionSelectionPage(
                                 timeTable: timeTable,
                                 selectedSections: sectionSelectionBinding(for: $arrangement)
                             )
@@ -306,22 +306,35 @@ struct ScheduleWeekdaySelectionSheet: View {
     }
 }
 
-struct ScheduleSectionSelectionSheet: View {
+struct ScheduleSectionSelectionPage: View {
     let timeTable: [TimeSlot]
+    let title: String
+    let selectAllTitle: String?
+    let showsCompletionButton: Bool
     @Binding var selectedSections: [Int]
+
+    init(timeTable: [TimeSlot], title: String = "节次", selectAllTitle: String? = nil,
+         showsCompletionButton: Bool = true, selectedSections: Binding<[Int]>) {
+        self.timeTable = timeTable
+        self.title = title
+        self.selectAllTitle = selectAllTitle
+        self.showsCompletionButton = showsCompletionButton
+        _selectedSections = selectedSections
+    }
 
     var body: some View {
         AppMultiSelectionList(
-            title: "节次",
+            title: title,
             items: timeTable.map(\.id),
             itemTitle: { id in
                 let slot = timeTable.first { $0.id == id }
                 return "第\(id)节  \(slot?.start ?? "")-\(slot?.end ?? "")"
             },
-            selectAllTitle: nil,
-            showsCompletionButton: true,
+            selectAllTitle: selectAllTitle,
+            showsCompletionButton: showsCompletionButton,
             selectedItems: $selectedSections
         )
+        .appReadableContent()
     }
 }
 

@@ -7,24 +7,9 @@ import SwiftUI
 ///
 /// 校区与教学楼选择自动加载，当天结果支持本地节次筛选与手动刷新。
 struct FreeClassroomTabView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @ObservedObject var viewModel: ScheduleClassroomViewModel
-
-    private var isClassroomRefreshing: Bool {
-        viewModel.shouldShowInitialClassroomSpinner
-            || viewModel.isLoadingClassroomMeta
-            || viewModel.isLoadingClassrooms
-    }
-
-    private var classroomLoadingText: String {
-        if viewModel.shouldShowInitialClassroomSpinner {
-            return "正在加载空教室信息"
-        }
-        if viewModel.isLoadingClassroomMeta {
-            return "正在更新教学楼列表"
-        }
-        return "正在刷新当前教学楼"
-    }
 
     var body: some View {
         let availabilities = viewModel.classroomAvailabilities(at: currentDate)
@@ -34,7 +19,7 @@ struct FreeClassroomTabView: View {
         } content: { usesSidebar in
             List {
                 if !usesSidebar { classroomControls }
-                if availabilities.isEmpty, !isClassroomRefreshing {
+                if availabilities.isEmpty, !viewModel.isRefreshingPage {
                     Section {
                         AppEmptyState(
                             title: "暂无空教室结果",
@@ -91,16 +76,8 @@ struct FreeClassroomTabView: View {
 
     @ViewBuilder
     private var classroomControls: some View {
-        Section {
-            AppRefreshStatusRow(
-                isRefreshing: isClassroomRefreshing,
-                refreshingText: classroomLoadingText,
-                lastUpdatedText: viewModel.classroomLastUpdatedText,
-                actionTitle: "刷新",
-                onRefresh: {
-                    Task { await viewModel.refreshClassroomPage() }
-                }
-            )
+        if !layout.isLandscape {
+            Section { ClassroomRefreshStatusRow(viewModel: viewModel) }
         }
 
         Section {
@@ -131,14 +108,14 @@ struct FreeClassroomTabView: View {
             .appInteractiveListRow()
 
             NavigationLink {
-                ClassroomSectionFilterPage(
+                ScheduleSectionSelectionPage(
                     timeTable: viewModel.cache.timeTable,
-                    selectedSectionIDs: Binding(
+                    title: "节次筛选", selectAllTitle: "全选", showsCompletionButton: false,
+                    selectedSections: Binding(
                         get: { viewModel.cache.selectedClassroomSectionIDs },
                         set: { viewModel.setSelectedClassroomSectionIDs($0) }
                     )
                 )
-                    .appReadableContent()
             } label: {
                 LabeledContent("节次筛选", value: viewModel.classroomSectionFilterSummary)
             }
@@ -175,22 +152,12 @@ struct FreeClassroomTabView: View {
     }
 }
 
-/// 空教室节次筛选页。
-///
-/// 空选表示“当前空闲”，选择任一节次则按“命中任一节次空闲”筛选结果。
-struct ClassroomSectionFilterPage: View {
-    let timeTable: [TimeSlot]
-    @Binding var selectedSectionIDs: [Int]
-
+struct ClassroomRefreshStatusRow: View {
+    @ObservedObject var viewModel: ScheduleClassroomViewModel
     var body: some View {
-        AppMultiSelectionList(
-            title: "节次筛选",
-            items: timeTable.map(\.id),
-            itemTitle: { "第\($0)节" },
-            selectAllTitle: "全选",
-            showsCompletionButton: false,
-            selectedItems: $selectedSectionIDs
-        )
+        AppRefreshStatusRow(isRefreshing: viewModel.isRefreshingPage, refreshingText: viewModel.pageRefreshText,
+            lastUpdatedText: viewModel.classroomLastUpdatedText, actionTitle: "刷新",
+            onRefresh: { Task { await viewModel.refreshClassroomPage() } })
     }
 }
 

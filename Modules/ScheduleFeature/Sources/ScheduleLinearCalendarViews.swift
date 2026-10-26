@@ -6,6 +6,9 @@ import UIKit
 
 /// 线性时间轴视图。
 struct LinearScheduleCalendarView: View {
+    @ScaledMetric(relativeTo: .caption) private var scaledSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
+    @ScaledMetric(relativeTo: .caption) private var scaledDateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
+    @ScaledMetric(relativeTo: .caption) private var scaledCompactHeaderHeight = AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
     let entries: [ScheduleCalendarEntry]
     let week: Int
@@ -28,14 +31,15 @@ struct LinearScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let weekSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
-            let dateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
+            let weekSliderHeight = scaledSliderHeight
+            let dateHeaderHeight = scaledDateHeaderHeight
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
-                : AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
+                : scaledCompactHeaderHeight
 
             VStack(spacing: AppDesignSystem.Spacing.none) {
                 LinearScheduleHeader(
+                    weekSliderHeight: weekSliderHeight, dateHeaderHeight: dateHeaderHeight,
                     week: week,
                     availableWeeks: availableWeeks,
                     displayMode: displayMode,
@@ -74,6 +78,8 @@ struct LinearScheduleCalendarView: View {
 }
 
 private struct LinearScheduleHeader: View {
+    let weekSliderHeight: CGFloat
+    let dateHeaderHeight: CGFloat
     let week: Int
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
@@ -101,7 +107,7 @@ private struct LinearScheduleHeader: View {
                     onSelectWeek: onSelectWeekValue
                 )
                 .frame(maxWidth: .infinity)
-                .frame(height: AppDesignSystem.Schedule.WeekSlider.sliderHeight)
+                .frame(height: weekSliderHeight)
                 .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                 GeometryReader { proxy in
@@ -112,7 +118,7 @@ private struct LinearScheduleHeader: View {
                             .foregroundStyle(AppDesignSystem.Foreground.primary)
                             .lineLimit(1)
                             .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
-                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
+                            .frame(width: dayWidth, height: dateHeaderHeight)
                             .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
@@ -122,7 +128,7 @@ private struct LinearScheduleHeader: View {
                                 Text(ScheduleDateCodec.formatCompactDate(date))
                                     .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
+                                    .frame(width: dayWidth, height: dateHeaderHeight)
                                     .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                             }
                             .buttonStyle(.plain)
@@ -130,7 +136,7 @@ private struct LinearScheduleHeader: View {
                         }
                     }
                 }
-                .frame(height: AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight)
+                .frame(height: dateHeaderHeight)
             } else {
                 GeometryReader { proxy in
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)

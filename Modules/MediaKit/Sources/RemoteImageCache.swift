@@ -657,6 +657,10 @@ actor RemoteImageCache {
 }
 
 public nonisolated enum BoundedStillImageDecoder {
+    @concurrent static func thumbnail(_ data: Data, size: CGFloat, scale: CGFloat) async -> UIImage? {
+        image(from: data, pointSize: size, displayScale: scale)
+    }
+
     public static func hasCompleteImage(in data: Data) -> Bool {
         RemoteImageResourceLimits.completeImageSource(from: data) != nil
     }

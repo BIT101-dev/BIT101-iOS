@@ -16,7 +16,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
 
     var primaryScheduleTitle: String
     var manualCourseRulesByTerm: [String: [ScheduleCourseRule]]
-    var manualDDLEvents: [DDLEventRecord]
+    package var manualDDLEvents: [DDLEventRecord]
     var lexueDDLCompletionByID: [String: Bool]
     var schoolDDLCompletionRetiredAtByID: [String: Date]?
     var customSchedules: [CustomScheduleRecord]
@@ -39,6 +39,7 @@ public nonisolated struct ScheduleCloudSyncState: Codable, Sendable {
 
     public var hasValidManualDDLEvents: Bool {
         manualDDLEvents.allSatisfy { !$0.isSchoolSynced && $0.hasValidRecord }
+            && DDLImagePolicy.totalBytes(in: manualDDLEvents) <= DDLImagePolicy.maximumTotalBytes
     }
 
     public init(cache: ScheduleCache) {

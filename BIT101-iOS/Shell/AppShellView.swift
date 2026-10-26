@@ -129,11 +129,45 @@ enum AppTab: String, Identifiable, Codable {
     }
 }
 
+private enum AppWideDestination: String, CaseIterable, Identifiable, Hashable {
+    case schedule, classroom, map, topics, papers, score, courses, mine
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .schedule: "日程"
+        case .classroom: "空教室"
+        case .map: "地图"
+        case .topics: "话题"
+        case .papers: "文章"
+        case .score: "成绩"
+        case .courses: "课程"
+        case .mine: "我的"
+        }
+    }
+}
+
+private struct AppWideNavigation: View {
+    @Binding var selection: AppWideDestination
+    var body: some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            AppSegmentedPicker(title: "主导航", selection: $selection) {
+                ForEach(AppWideDestination.allCases) { destination in Text(destination.title).tag(destination) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("app.expanded-navigation")
+    }
+}
+
 /// 登录后的应用壳层。
 ///
 /// 壳层负责底部 tab、跨模块路由、全局提示和退出登录回调。
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
+    @Environment(\.appWindowLayout) private var layout
+    @EnvironmentObject private var scoreViewModel: ScoreViewModel
+    @State private var scoreSurface: ScoreSurface = .score
+    @State private var gallerySurface: GallerySurface = .gallery
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
@@ -179,6 +213,26 @@ struct AppShellView: View {
     /// 2. 启动公告与运行时提示
     /// 3. 小组件和深链路由分发
     var body: some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            if layout.usesExpandedNavigation {
+                AppWidePageHeader(navigation: AnyView(AppWideNavigation(selection: wideSelection)),
+                    leadingStatus: selectedTab == .schedule && scheduleViewModel.selectedSection != .classroom
+                        ? AnyView(ScheduleRefreshStatusRow(viewModel: scheduleViewModel, section: .courses)) : nil,
+                    showsStatus: selectedTab == .schedule || selectedTab == .score && scoreSurface == .score) {
+                    if selectedTab == .schedule {
+                        ScheduleRefreshStatusRow(viewModel: scheduleViewModel,
+                            section: scheduleViewModel.selectedSection == .classroom ? .classroom : .ddl)
+                    }
+                    else if selectedTab == .score { ScoreRefreshStatusRow(viewModel: scoreViewModel) }
+                }
+            }
+            mainTabs
+        }
+        .environment(\.appExpandedNavigation, layout.usesExpandedNavigation)
+        .tint(selectedTab.tintColor)
+    }
+
+    private var mainTabs: some View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
                 NavigationStack {
@@ -205,13 +259,13 @@ struct AppShellView: View {
                         }
                         .task { await scheduleViewModel.loadIfNeeded() }
                     case .score:
-                        ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse)
+                        ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse, selection: $scoreSurface)
                     case .gallery:
                         GalleryRootView(
                             dependencies: community.gallery, media: destinations.media,
                             profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
                             requestedPaperID: $requestedPaperID,
-                            requestedPosterID: $requestedPosterID
+                            requestedPosterID: $requestedPosterID, selection: $gallerySurface
                         )
                     case .mine:
                         MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
@@ -223,6 +277,7 @@ struct AppShellView: View {
 #endif
                     }
                 }
+                .toolbar(layout.usesExpandedNavigation ? .hidden : .visible, for: .tabBar)
                 .tag(tab)
                 .tabItem {
                     Label(tab.title, systemImage: tab.systemImage)
@@ -231,7 +286,7 @@ struct AppShellView: View {
             }
         }
         .accessibilityIdentifier("app.shell")
-        .tint(selectedTab.tintColor)
+        .environment(\.appExpandedNavigation, layout.usesExpandedNavigation)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .task(id: requestedCalendarRoute) {
             guard let route = requestedCalendarRoute,
@@ -273,6 +328,36 @@ struct AppShellView: View {
             scheduleViewModel.dismissNotice()
             AppErrorPresenter.shared.present(notice)
         }
+    }
+
+    private var wideSelection: Binding<AppWideDestination> {
+        Binding(get: {
+            switch selectedTab {
+            case .schedule:
+                switch scheduleViewModel.selectedSection {
+                case .courses, .ddl: .schedule
+                case .classroom: .classroom
+                }
+            case .map: .map
+            case .gallery: gallerySurface == .gallery ? .topics : .papers
+            case .score: scoreSurface == .score ? .score : .courses
+            case .mine: .mine
+            }
+        }, set: { destination in
+            switch destination {
+            case .schedule, .classroom:
+                scheduleViewModel.selectedSection = destination == .schedule ? .courses : .classroom
+                selectTab(.schedule)
+            case .map: selectTab(.map)
+            case .topics, .papers:
+                gallerySurface = destination == .topics ? .gallery : .paper
+                selectTab(.gallery)
+            case .score, .courses:
+                scoreSurface = destination == .score ? .score : .course
+                selectTab(.score)
+            case .mine: selectTab(.mine)
+            }
+        })
     }
 
     private var tabSelection: Binding<AppTab> {

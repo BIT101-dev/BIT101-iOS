@@ -87,6 +87,7 @@ public struct CommunityPosterCard: View {
                     .lineLimit(poster.images.count <= 2 ? 4 : 3)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("community.poster.\(poster.id)")
 
             if !poster.images.isEmpty {

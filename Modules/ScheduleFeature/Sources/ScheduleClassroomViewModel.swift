@@ -51,6 +51,22 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         _ = restoreClassroomQuery()
     }
 
+    var isRefreshingPage: Bool {
+        shouldShowInitialClassroomSpinner
+            || isLoadingClassroomMeta
+            || isLoadingClassrooms
+    }
+
+    var pageRefreshText: String {
+        if shouldShowInitialClassroomSpinner {
+            return "正在加载空教室信息"
+        }
+        if isLoadingClassroomMeta {
+            return "正在更新教学楼列表"
+        }
+        return "正在刷新当前教学楼"
+    }
+
     func reset() {
         classroomTask?.cancel()
         classroomTask = nil

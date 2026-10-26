@@ -68,7 +68,6 @@ private enum CampusMapDisplayMode: String {
 ///
 /// 使用原生 MapKit 展示下一节课的位置，并提供校区切换和系统地图导航入口。
 public struct CampusMapScreen: View {
-    @Environment(\.appWindowLayout) private var layout
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
@@ -137,13 +136,7 @@ public struct CampusMapScreen: View {
                     centerOnUser()
                 }
 
-                if !layout.isLandscape { campusButtons }
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            if layout.isLandscape {
-                HStack(spacing: AppDesignSystem.Spacing.content) { campusButtons }
-                    .padding(AppDesignSystem.Spacing.content)
+                campusButtons
             }
         }
         .toolbar(.hidden, for: .navigationBar)

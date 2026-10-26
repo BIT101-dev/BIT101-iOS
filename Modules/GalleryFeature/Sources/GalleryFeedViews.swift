@@ -129,6 +129,8 @@ struct GalleryFeedView: View {
     let onPullToRefresh: () async -> Void
     let onPrefetch: (CommunityPoster?) -> Void
     let onLoadMore: (CommunityPoster?) -> Void
+    var onSelectPoster: ((CommunityPoster) -> Void)? = nil
+    var excludedPosterIDs: Set<Int> = []
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var deletedPosterIDs: Set<Int> = []
@@ -170,7 +172,10 @@ struct GalleryFeedView: View {
                             AppFeedRow(isLast: layout.isLandscape || index == visiblePosters.count - 1) {
                                 CommunityPosterCard(
                                     poster: poster,
-                                    onOpenPoster: { selectedPoster = poster },
+                                    onOpenPoster: {
+                                        if let onSelectPoster { onSelectPoster(poster) }
+                                        else { selectedPoster = poster }
+                                    },
                                     onOpenImage: { index, images in
                                         imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
                                     },
@@ -242,7 +247,7 @@ struct GalleryFeedView: View {
     /// 删帖成功后会先做本地移除，再等待上层刷新；因此这里要叠加一层
     /// `deletedPosterIDs` 过滤，保证体感上帖子会立刻消失。
     private var visiblePosters: [CommunityPoster] {
-        feedState.posters.filter { !deletedPosterIDs.contains($0.id) }
+        feedState.posters.filter { !deletedPosterIDs.contains($0.id) && !excludedPosterIDs.contains($0.id) }
     }
 
     /// 进入可见列表尾部若干条时触发的预取集合。

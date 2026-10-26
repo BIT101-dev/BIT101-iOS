@@ -41,16 +41,15 @@ extension AppDesignSystem {
         }
         enum WeekSlider {
             static let itemSpacing: CGFloat = 5
-            static let itemWidth: CGFloat = 24
-            static let itemHeight: CGFloat = 34
-            static let labelHeight: CGFloat = 13
+            static let itemWidth: CGFloat = AppDesignSystem.Size.Control.touchTarget
+            static let itemHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
             static let barHeight: CGFloat = 20
             static let minorBarHeight: CGFloat = 16
             static let selectedBarWidth: CGFloat = 4
             static let barWidth: CGFloat = 3
             static let sliderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
-            static let dateHeaderHeight: CGFloat = 26
-            static let compactHeaderHeight: CGFloat = 42
+            static let dateHeaderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
+            static let compactHeaderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
         }
         static let timelineDefaultScale: CGFloat = CGFloat(24) / CGFloat(13)
         static let timelineMinimumScale: CGFloat = 1

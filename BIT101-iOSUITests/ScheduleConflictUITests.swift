@@ -112,3 +112,113 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
         assertUI(selectedName.appears(timeout: 5), "冷启动应恢复已保存版本。")
     }
 }
+
+nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
+    private var navigationWidth: CGFloat?
+    @MainActor
+    @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
+        app = configureApp(resetStorage: true, content: true, school: true, pagination: true, initialTab: "mine")
+        let traits = windowTraits()
+        let isCompactPhone = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+            && traits["horizontal"] == UIUserInterfaceSizeClass.compact.rawValue
+        if isCompactPhone {
+            assertUI(app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width, "紧凑手机采用竖屏布局。")
+            assertUI(!app.collectionViews["mine.sidebar"].exists, "竖向窗口应合并资料与设置入口。")
+            assertUI(app.mainTab("我的").isHittable, "竖向窗口保留主导航。")
+            return
+        }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let window = self.app.native.windows.firstMatch.frame
+            return window.width > window.height
+        }, on: app, timeout: 10), "横屏专项应在实际横屏窗口运行；Duo 姿态由 Device Hub 设置。")
+        func assertPanes(_ sidebarID: String, _ contentID: String) {
+            let sidebar = app.descendants(matching: .any)[sidebarID]
+            let content = app.descendants(matching: .any)[contentID]
+            assertUI(waitUntil(NSPredicate { _, _ in
+                sidebar.exists && content.exists && sidebar.frame.maxX <= content.frame.minX + 1
+            }, on: app), "横屏应并排呈现侧栏和主体：\(sidebarID)。")
+        }
+        assertPanes("mine.sidebar", "interaction.MineRootViewScene.list")
+        capture("个人页")
+        openSettings("account")
+        tap("昵称")
+        let input = app.textFields.firstMatch
+        replaceText("横屏编辑草稿", in: input)
+        dismissKeyboard()
+        assertUI(input.value as? String == "横屏编辑草稿", "横屏编辑与键盘收起保留完整草稿。")
+        tap("取消")
+        back()
+        app.mainTab("成绩").tapBriefly()
+        assertPanes("score.sidebar", "interaction.ScoreListPage.list")
+        reveal(textElement("加权 GPA"), description: "侧栏统计")
+        capture("成绩")
+        app.mainTab("日程").tapBriefly()
+        let calendarWeek = app.buttons["第1周"]
+        assertUI(calendarWeek.appears(timeout: 5) && calendarWeek.isHittable, "横屏应完整展示课表周次。")
+        assertUI(app.buttons["添加待办"].isHittable, "课表与单列 DDL 应同时提供入口。")
+        capture("课表与DDL")
+        tapHeader(app.segmentedControls.buttons["空教室"])
+        assertPanes("classroom.sidebar", "interaction.FreeClassroomTabView.list")
+        capture("空教室")
+        app.mainTab("话廊").tapBriefly()
+        tapHeader(app.segmentedControls.buttons["最新"])
+        let first = app.descendants(matching: .any)["community.poster.card.1"]
+        let second = app.descendants(matching: .any)["community.poster.card.2"]
+        assertUI(waitUntil(NSPredicate { _, _ in
+            first.exists && second.exists && first.frame.maxY <= second.frame.minY
+        }, on: app), "横屏话题应沿左侧单列排列。")
+        capture("话题列表")
+        let more = app.descendants(matching: .any)["ui.community-poster-action-menu.menu"]
+        assertUI(more.frame.width >= 44 - 0.5 && more.frame.height >= 44 - 0.5, "帖子菜单应提供完整点击区域：\(more.frame)。")
+        more.tapBriefly()
+        assertUI(app.buttons["举报帖子"].appears(timeout: 5), "帖子菜单应响应原生触摸。")
+        app.mainTab("话廊").tapBriefly()
+        assertUI(app.buttons["举报帖子"].disappears(timeout: 5), "点按导航应关闭帖子菜单。")
+        first.tapBriefly()
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5) && first.exists, "话题详情应在右侧打开并保留左侧列表。")
+        capture("话题详情")
+        tapHeader(app.segmentedControls.buttons["文章"])
+        let paper = textElement("分页文章 1"), nextPaper = textElement("分页文章 2")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            paper.exists && nextPaper.exists && paper.frame.maxY <= nextPaper.frame.minY
+        }, on: app), "横屏文章应沿左侧单列排列。")
+        capture("文章列表")
+        paper.tapBriefly()
+        assertUI(app.navigationBars["文章详情"].appears(timeout: 5) && paper.exists, "文章详情应在右侧打开并保留左侧列表。")
+        capture("文章详情")
+        app.mainTab("地图").tapBriefly()
+        let layer = app.buttons["切换地图图层"]
+        assertUI(layer.appears(timeout: 5) && app.windows.firstMatch.frame.contains(layer.frame), "横屏地图应完整显示图层工具。")
+        layer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
+        waitForValue("卫星图", of: layer)
+        capture("地图")
+        app = configureApp(resetStorage: true, accessibilityTextSize: true, content: true, school: true, initialTab: "mine")
+        assertUI(textElement("自动化测试用户").appears(timeout: 5), "大字号窗口保留资料内容。")
+        assertUI(!app.collectionViews["mine.sidebar"].exists, "辅助功能字号采用完整宽度的单列内容。")
+        app.mainTab("日程").tapBriefly()
+        let week = app.buttons["第1周"]
+        assertUI(week.appears(timeout: 5) && week.frame.width >= 44 && week.frame.height >= 44, "大字号周次刻度保留完整点击区域。")
+        let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
+        assertUI(day.appears(timeout: 5) && day.frame.height >= 44, "大字号日期入口保留完整点击高度。")
+    }
+    @MainActor private func capture(_ title: String) {
+        let navigation = app.native.segmentedControls.containing(.button, identifier: "地图").firstMatch
+        if navigation.exists {
+            let frame = navigation.frame
+            assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "主导航应始终位于窗口中央。")
+            if let navigationWidth { assertUI(abs(frame.width - navigationWidth) <= 1, "页面切换应保持主导航宽度。") }
+            else { navigationWidth = frame.width }
+            for card in app.descendants(matching: .any).matching(identifier: "app.refresh-status.card").allElementsBoundByIndex {
+                let cell = card.native.cells.firstMatch
+                assertUI(cell.exists && abs(cell.frame.height - 52) <= 1, "刷新卡片应沿公共行高布局：\(cell.frame)。")
+            }
+        }
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "界面截图·\(title)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+}

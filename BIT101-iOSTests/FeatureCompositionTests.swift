@@ -53,18 +53,19 @@ struct FeatureCompositionTests {
         for height: CGFloat in [18, 40, 120] {
             for font in [UIFont.preferredFont(forTextStyle: .caption1), UIFont.preferredFont(forTextStyle: .title1)] {
                 let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: height))
-                view.configure(title: "计算机网络", location: String(repeating: "文萃楼 A101 ", count: 8),
+                view.configure(title: "计算机网络与通信原理", location: String(repeating: "文萃楼 A101 ", count: 8),
                     contentMode: .nameAndLocation, font: font, textColor: .label)
                 view.layoutIfNeeded()
                 let labels = view.subviews.compactMap { $0 as? UILabel }
                 let title = try #require(labels.first)
-                #expect(!title.isHidden && title.text == "计算机网络" && title.frame.height > 0)
+                #expect(!title.isHidden && title.text == "计算机网络与通信原理" && title.frame.height > 0)
                 #expect(view.bounds.contains(title.frame) && title.font.pointSize == font.pointSize)
+                if height == 120 { #expect(title.numberOfLines >= 2 && title.frame.height >= font.lineHeight * 2) }
                 for location in labels.dropFirst().filter({ !$0.isHidden }) {
                     #expect(location.font.pointSize == font.pointSize && location.numberOfLines > 0)
                     #expect(title.frame.maxY <= location.frame.minY && view.bounds.contains(location.frame))
                 }
-                #expect(view.accessibilityLabel == "计算机网络" && view.accessibilityValue?.contains("文萃楼") == true)
+                #expect(view.accessibilityLabel == "计算机网络与通信原理" && view.accessibilityValue?.contains("文萃楼") == true)
             }
         }
     }

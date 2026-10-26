@@ -8,6 +8,48 @@ import Testing
 
 @MainActor
 struct ScheduleSyncTests {
+    @Test func ddlPhotosTravelAsAnAssetAndSurviveMetadataEdits() throws {
+        let image = DDLImageAttachment(data: Data(repeating: 5, count: 900_000))
+        let event = DDLEventRecord(id: "photo-ddl", group: "main", title: "论文", text: "要求",
+            dueAt: Date(timeIntervalSince1970: 100), done: false, images: [image])
+        var cache = ScheduleCache(); cache.ddlEvents = [event]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let envelope = ScheduleCloudSyncEnvelope(schemaVersion: 3,
+            payload: .init(updatedAt: Date(timeIntervalSince1970: 50), state: .init(cache: cache)))
+        let json = String(decoding: try encoder.encode(envelope), as: UTF8.self)
+        #expect(json.utf8.count > ScheduleCloudRecord.maximumPayloadBytes)
+        let record = ScheduleCloudRecord(recordName: "photo", recordType: "ScheduleCacheSyncRecord", payloadJSON: json)
+        let parts = try record.imageAssetPayload()
+        let metadata = try #require(parts.metadataJSON)
+        #expect(metadata.utf8.count < ScheduleCloudRecord.maximumPayloadBytes)
+        #expect(try decoder.decode(ScheduleCloudSyncEnvelope.self, from: Data(metadata.utf8)).payload.state.manualDDLEvents.first?.images == nil)
+        let edited = metadata.replacingOccurrences(of: "论文", with: "论文修改")
+        let joined = try #require(try ScheduleCloudImagePayload.joining(metadataJSON: edited, imagesData: parts.imagesData))
+        let restored = try decoder.decode(ScheduleCloudSyncEnvelope.self, from: Data(joined.utf8)).payload.state.manualDDLEvents
+        #expect(restored.first?.title == "论文修改" && restored.first?.images == [image])
+        cache.ddlEvents = []
+        let empty = ScheduleCloudSyncEnvelope(schemaVersion: 3,
+            payload: .init(updatedAt: Date(timeIntervalSince1970: 50), state: .init(cache: cache)))
+        let cleared = ScheduleCloudRecord(recordName: "photo", recordType: "ScheduleCacheSyncRecord",
+            payloadJSON: String(decoding: try encoder.encode(empty), as: UTF8.self))
+        #expect(try cleared.imageAssetPayload().imagesData == nil)
+        #expect(try ScheduleCloudImagePayload.joining(metadataJSON: metadata, imagesData: nil) == metadata)
+    }
+
+    @Test func cloudRejectsInvalidPhotoAssetsBeforeReplacingTheCache() throws {
+        let invalid = [DDLImageAttachment(data: Data(repeating: 1, count: DDLImagePolicy.maximumImageBytes + 1))]
+        let asset = try JSONEncoder().encode(["ddl": invalid])
+        var cache = ScheduleCache()
+        cache.ddlEvents = [DDLEventRecord(id: "ddl", group: "main", title: "DDL", text: "", dueAt: Date(), done: false)]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let envelope = ScheduleCloudSyncEnvelope(schemaVersion: 3, payload: .init(updatedAt: Date(), state: .init(cache: cache)))
+        let metadata = String(decoding: try encoder.encode(envelope), as: UTF8.self)
+        #expect(throws: ScheduleCloudTransportError.capacityExceeded) {
+            try ScheduleCloudImagePayload.joining(metadataJSON: metadata, imagesData: asset)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func recoveredLocalSnapshotsWaitForLocalConfirmationBeforeCloudActivity() async throws {
         let local = Local()
         local.returnsRecovered = true
