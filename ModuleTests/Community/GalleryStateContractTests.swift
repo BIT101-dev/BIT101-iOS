@@ -83,6 +83,7 @@ struct GalleryStateContractTests {
         var commentFailure: (any Error)?
         var creationFailure: any Error = URLError(.unsupportedURL)
         var commentRequests = 0
+        var commentQueries: [(order: CommunityCommentOrder, page: Int?)] = []
         var posterRequests = 0
         func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
             posterRequests += 1
@@ -98,6 +99,7 @@ struct GalleryStateContractTests {
         }
         func fetchComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> GalleryPageBatch<CommunityComment> {
             commentRequests += 1
+            commentQueries.append((order, page))
             if let commentFailure { throw commentFailure }
             if let batch = commentPages[page ?? 0] { return batch }
             return .init(items: comments, nextSourcePage: 0, canLoadMore: false)
@@ -353,6 +355,22 @@ struct GalleryStateContractTests {
         #expect(model.commentState.items.map(\.id) == [1] && model.commentState.nextPage == 4 && model.commentState.paginationError != nil)
         await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
         #expect(model.commentState.items.map(\.id) == [1, 2] && model.commentState.nextPage == 6 && model.commentState.paginationError == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingSortChangesKeepsAnEmptyLoadedPageAndItsOrderTogether() async {
+        let service = SubscriptionDetails()
+        service.commentPages[0] = .init(items: [], nextSourcePage: 5, canLoadMore: true, sourceIDs: Array(1...5))
+        service.commentPages[5] = .init(items: [], nextSourcePage: 6, canLoadMore: false)
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        await model.refreshComments()
+        service.commentFailure = CancellationError()
+        await model.setCommentOrder(.like)
+        #expect(model.commentOrder == .newest && model.commentState.status == .loaded && model.commentState.nextPage == 5)
+        service.commentFailure = nil
+        await model.loadMoreCommentsIfNeeded(currentComment: nil)
+        #expect(service.commentQueries.last?.order == .newest && service.commentQueries.last?.page == 5)
+        #expect(model.commentState.nextPage == 6 && !model.commentState.canLoadMore)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

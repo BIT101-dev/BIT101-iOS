@@ -265,14 +265,16 @@ public struct GalleryService {
 
         while canLoadMore && collected.count < 12 && scanned < maxScanCount {
             try Task.checkCancellation()
-            let rawPosters = try await fetchRawPosters(
-                mode: "search",
-                order: "new",
-                search: nil,
-                uid: -1,
-                page: sourcePage == 0 ? nil : sourcePage,
-                hideBot: false
-            )
+            let rawPosters: [CommunityPoster]
+            do {
+                rawPosters = try await fetchRawPosters(
+                    mode: "search", order: "new", search: nil, uid: -1,
+                    page: sourcePage == 0 ? nil : sourcePage, hideBot: false
+                )
+            } catch {
+                guard !Task.isCancelled, !TaskCancellation.matches(error), !collected.isEmpty else { throw error }
+                break
+            }
             let visible = await applyGalleryFilters(rawPosters)
             try progress.record(rawPosters.map(\.id))
             sourceIDs.append(contentsOf: rawPosters.map(\.id))

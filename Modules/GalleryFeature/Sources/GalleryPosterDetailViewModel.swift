@@ -408,7 +408,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         case let .failure(error):
             let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
-            if !commentState.items.isEmpty { commentOrder = commentState.order }
+            if commentState.status == .loaded { commentOrder = commentState.order }
             if cancelled { return }
             alert = AppAlert(title: "加载评论失败", error: error)
         }

@@ -299,10 +299,11 @@ struct ServiceContractTests {
         #expect(try transport.requests.allSatisfy { try query($0)["hide_bot"] == nil })
     }
 
-    @Test(.timeLimit(.minutes(1))) func botFilteringPreservesItsCursorAcrossBoundedBatches() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func botFilteringPreservesItsCursorAcrossBoundedBatches(fails: Bool) async throws {
         let hidden = (1...5).map { poster(id: $0, bot: true) }
         let visible = poster(id: 8, bot: true, userID: 2)
-        let transport = Transport(hidden.map { (200, "[" + $0 + "]") } + [(200, "[" + visible + "]"), (200, "[]")])
+        let tail = fails ? [(503, "{}"), (200, "[]")] : [(200, "[]")]
+        let transport = Transport(hidden.map { (200, "[" + $0 + "]") } + [(200, "[" + visible + "]")] + tail)
         let service = GalleryService(session: session(transport), preferences: {
             CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [1], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
@@ -310,8 +311,13 @@ struct ServiceContractTests {
         #expect(batch.items.isEmpty && batch.sourceIDs == Array(1...5))
         #expect(batch.nextSourcePage == 5 && batch.canLoadMore && transport.requests.count == 5)
         let end = try await service.fetchBotFeed(startPage: batch.nextSourcePage)
-        #expect(end.items.map(\.id) == [8] && end.nextSourcePage == 7 && end.canLoadMore == false)
+        #expect(end.items.map(\.id) == [8] && end.nextSourcePage == (fails ? 6 : 7) && end.canLoadMore == fails)
         #expect(transport.requests.count == 7)
+        if fails {
+            let retry = try await service.fetchBotFeed(startPage: end.nextSourcePage)
+            #expect(retry.items.isEmpty && retry.nextSourcePage == 7 && !retry.canLoadMore)
+            #expect(transport.requests.count == 8)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["feed", "bot", "recommend", "comments"])
