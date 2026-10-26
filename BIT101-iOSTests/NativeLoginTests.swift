@@ -19,7 +19,8 @@ struct NativeLoginTests {
         var registrationFailure = false
         var unexpectedCASResponseURL = false
         var schoolFailureStatus: Int?
-        var rejectSchoolPassword = false
+        var schoolPasswordRejections = 0
+        var identityPasswordRejections = 0
         var rejectedSchoolStatus = 200
         var serviceTicket = false
         var sessionActivations = 0
@@ -47,19 +48,25 @@ struct NativeLoginTests {
                 } else { text = #"{"fake_cookie":"direct-cookie"}"# }
             case "/user/check": status = 401; text = ""
             case "/user/webvpn_verify_init": text = #"{"captcha":"","cookie":"fixture","execution":"fixture","salt":"MTIzNDU2Nzg5MDEyMzQ1Ng=="}"#
-            case "/user/webvpn_verify": text = #"{"token":"proof","code":"proof-code"}"#
+            case "/user/webvpn_verify":
+                if identityPasswordRejections > 0 {
+                    identityPasswordRejections -= 1; status = 401; text = #"{"msg":"用户名或密码错误"}"#
+                } else { text = #"{"token":"proof","code":"proof-code"}"# }
             case "/user/register":
                 if registrationFailure { status = 503; text = #"{"msg":"database unavailable"}"# }
                 else { text = #"{"fake_cookie":"proof-cookie"}"# }
             case "/cas/login":
                 if request.httpMethod == "POST", let failure = schoolFailureStatus {
                     status = failure; text = failure == 200 ? "对不起，无权访问该资源" : "school unavailable"
+                } else if request.httpMethod == "POST", schoolPasswordRejections > 0 {
+                    schoolPasswordRejections -= 1; status = rejectedSchoolStatus; text = "<p id='login-error-code'>1030027</p>"
                 } else if request.httpMethod == "POST", serviceTicket {
-                    status = 302; headers["Location"] = "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture"; text = ""
+                    if URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "service" })?.value?.isEmpty == false {
+                        status = 302; headers["Location"] = "https://webvpn.bit.edu.cn/login?cas_login=true&ticket=fixture"; text = ""
+                    } else { text = "cas-success" }
                 } else if request.httpMethod == "POST" {
-                    if rejectSchoolPassword { rejectSchoolPassword = false; status = rejectedSchoolStatus; text = "<p id='login-error-code'>1030027</p>" }
-                    else { text = "cas-success" }
-                } else { text = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p>"# }
+                    text = "cas-success"
+                } else { text = #"<form method="post"><p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p></form>"# }
             case "/ustc-rba-front/fp": text = #"{"responsetoken":"risk-token"}"#
             default: throw URLError(.badURL)
             }
@@ -111,7 +118,7 @@ struct NativeLoginTests {
     @Test(.timeLimit(.minutes(1)), arguments: [200, 401, 403]) func differentPasswordsAskForSchoolPasswordAfterExplicitRejection(status: Int) async throws {
         try await fixture { storage, transport, service, _, prompts in
             _ = try await service.login(studentID: "owner", password: "community-A")
-            transport.rejectSchoolPassword = true
+            transport.schoolPasswordRejections = 1
             transport.rejectedSchoolStatus = status
             #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
             #expect(storage.currentPassword == "school-B" && prompts() == 1)
@@ -125,7 +132,7 @@ struct NativeLoginTests {
         try await fixture { storage, transport, service, _, prompts in
             transport.loginRejections = 2
             #expect(try await service.login(studentID: "owner", password: "community-A") == "owner")
-            #expect(storage.fakeCookie == "proof-cookie" && storage.currentPassword == "school-B" && prompts() == 1)
+            #expect(storage.fakeCookie == "proof-cookie" && storage.currentPassword == "community-A" && prompts() == 0)
             #expect(try storage.loadCommunityPasswordDigest() == nil)
             let request = try #require(transport.requests.first { $0.url?.path == "/user/register" })
             let data = try #require(request.httpBody)
@@ -138,7 +145,7 @@ struct NativeLoginTests {
         try await fixture { storage, transport, service, _, prompts in
             transport.loginRejections = 1
             _ = try await service.login(studentID: "owner", password: "community-A")
-            #expect(storage.fakeCookie == "direct-cookie" && prompts() == 1)
+            #expect(storage.fakeCookie == "direct-cookie" && storage.currentPassword == "community-A" && prompts() == 0)
             #expect(try storage.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-A"))
         }
     }
@@ -159,9 +166,9 @@ struct NativeLoginTests {
             transport.serverFailure = !registrationOnly; transport.serviceTicket = true
             if registrationOnly { transport.loginRejections = 1; transport.registrationFailure = true }
             #expect(try await service.login(studentID: "owner", password: "community-A") == "owner")
-            #expect(storage.hasCachedSession && storage.fakeCookie.isEmpty && storage.currentPassword == "school-B")
+            #expect(storage.hasCachedSession && storage.fakeCookie.isEmpty && storage.currentPassword == "community-A")
             #expect(try storage.loadCommunityPasswordDigest() == nil)
-            #expect(prompts() == 1 && transport.sessionActivations == 1)
+            #expect(prompts() == 0 && transport.sessionActivations == 1)
             let expected = registrationOnly ? ["/user/login", "/user/webvpn_verify_init", "/user/webvpn_verify", "/user/register", "/cas/login", "/cas/login"]
                 : ["/user/login", "/cas/login", "/cas/login"]
             #expect(transport.requests.compactMap { $0.url?.path } == expected)
@@ -187,7 +194,7 @@ struct NativeLoginTests {
 
     @Test(.timeLimit(.minutes(1))) func failedSchoolProofKeepsTheFreshAccountSignedOut() async throws {
         try await fixture { storage, transport, service, _, prompts in
-            transport.serverFailure = true; transport.rejectSchoolPassword = true
+            transport.serverFailure = true; transport.schoolPasswordRejections = 2
             await #expect(throws: LoginServiceError.self) { try await service.login(studentID: "owner", password: "community-A") }
             #expect(!storage.hasCachedSession && storage.currentStudentID.isEmpty && storage.fakeCookie.isEmpty)
             #expect(prompts() == 1 && transport.sessionActivations == 0)
@@ -195,16 +202,49 @@ struct NativeLoginTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func freshLoginRejectsAnUnexpectedSchoolResponseOrigin() async throws {
-        try await fixture { storage, transport, service, _, _ in
+        try await fixture { storage, transport, service, _, prompts in
             transport.serverFailure = true; transport.serviceTicket = true; transport.unexpectedCASResponseURL = true
             await #expect(throws: NativeSchoolAuthenticationError.self) { try await service.login(studentID: "owner", password: "community-A") }
-            #expect(!storage.hasCachedSession && transport.sessionActivations == 0)
+            #expect(!storage.hasCachedSession && transport.sessionActivations == 0 && prompts() == 0)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["native", "community", "registration-outage"])
+    func schoolPasswordPromptFollowsOneExplicitRejection(route: String) async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            let native = route == "native"
+            if native {
+                transport.serverFailure = true; transport.serviceTicket = true; transport.schoolPasswordRejections = 1
+            } else {
+                transport.loginRejections = 1; transport.identityPasswordRejections = 1
+                if route == "registration-outage" { transport.registrationFailure = true; transport.serviceTicket = true }
+            }
+            #expect(try await service.login(studentID: "owner", password: "community-A") == "owner")
+            #expect(storage.currentPassword == "school-B" && prompts() == 1)
+            let path = native ? "/cas/login" : "/user/webvpn_verify"
+            let attempts = transport.requests.filter { $0.url?.path == path && $0.httpMethod == "POST" }
+            #expect(attempts.count == 2)
+            for (request, password) in zip(attempts, ["community-A", "school-B"]) {
+                let data = try #require(request.httpBody)
+                let encrypted: String?
+                if native {
+                    encrypted = URLComponents(string: "https://fixture.invalid?" + String(decoding: data, as: UTF8.self))?
+                        .queryItems?.first { $0.name == "password" }?.value
+                } else { encrypted = (try JSONSerialization.jsonObject(with: data) as? [String: String])?["password"] }
+                #expect(encrypted == (try LoginCrypto.encryptPassword(password, saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))
+            }
+            if route == "registration-outage" {
+                let nativePost = try #require(transport.requests.last { $0.url?.path == "/cas/login" && $0.httpMethod == "POST" })
+                let body = String(decoding: try #require(nativePost.httpBody), as: UTF8.self)
+                let fields = URLComponents(string: "https://fixture.invalid?" + body)?.queryItems ?? []
+                #expect(fields.first { $0.name == "password" }?.value == (try LoginCrypto.encryptPassword("school-B", saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))
+            }
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [200, 403, 503])
     func independentLoginPreservesKnownSchoolFailureAttribution(status: Int) async throws {
-        try await fixture { storage, transport, service, _, _ in
+        try await fixture { storage, transport, service, _, prompts in
             transport.serverFailure = true; transport.schoolFailureStatus = status
             do {
                 _ = try await service.login(studentID: "owner", password: "community-A")
@@ -212,7 +252,7 @@ struct NativeLoginTests {
             } catch {
                 #expect(SchoolServiceFailure.from(error) == (status == 503 ? .unavailable : .accessDenied))
             }
-            #expect(!storage.hasCachedSession && transport.sessionActivations == 0)
+            #expect(!storage.hasCachedSession && transport.sessionActivations == 0 && prompts() == 0)
         }
     }
 
@@ -243,7 +283,7 @@ struct NativeLoginTests {
         try await fixture { storage, transport, service, _, prompts in
             try storage.saveLoginState(studentID: "owner", password: "old-B", fakeCookie: "community-cookie",
                 communityPasswordDigest: LoginCrypto.md5Hex("community-A"))
-            transport.rejectSchoolPassword = true
+            transport.schoolPasswordRejections = 1
             #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
             #expect(prompts() == 1 && storage.currentPassword == "school-B" && storage.fakeCookie == "community-cookie")
             #expect(transport.requests.count == 4)
@@ -265,7 +305,7 @@ struct NativeLoginTests {
             #expect(next.host == "webvpn.bit.edu.cn" && prompts() == 0)
             #expect(transport.requests.compactMap { $0.url?.path } == ["/ustc-rba-front/fp", "/cas/login"])
             let post = try #require(transport.requests.last)
-            #expect(post.url?.query == nil)
+            #expect(post.url?.query == "service=fixture")
             let body = String(decoding: try #require(post.httpBody), as: UTF8.self)
             let fields = URLComponents(string: "https://fixture.invalid?" + body)?.queryItems ?? []
             #expect(fields.first { $0.name == "password" }?.value == (try LoginCrypto.encryptPassword("school-B", saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))

@@ -154,9 +154,8 @@ final class LoginStorage: SchoolCredentialsProviding {
         catch { Self.logger.error("Session credentials await a successful read") }
     }
 
-    /// 身份补充验证允许在建立首个社区会话前收集学校密码。
+    /// 学校明确拒绝当前凭据后，为本次身份验证收集替换密码。
     func schoolPasswordForIdentityVerification(studentID: String) async throws -> String {
-        if currentStudentID == studentID, !currentPassword.isEmpty { return currentPassword }
         let password = try await requestSchoolPassword(studentID)
         guard !password.isEmpty else { throw LoginServiceError.schoolCredentialsRequired }
         return password

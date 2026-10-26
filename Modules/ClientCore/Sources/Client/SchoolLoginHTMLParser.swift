@@ -23,10 +23,11 @@ public nonisolated enum SchoolLoginHTMLParser {
         )
     }
 
-    /// CAS flow 由 execution 承接，默认表单提交路径沿同源 login 解析。
+    /// CAS 表单省略 action 时沿当前文档提交，保留 service 与 execution 上下文。
     public static func loginFormAction(html: String, documentURL: URL) -> URL? {
-        let action = attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#) ?? "login"
-        guard let url = URL(string: decodeHTML(action), relativeTo: documentURL)?.absoluteURL,
+        let action = attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#) ?? ""
+        let decoded = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = decoded.isEmpty ? documentURL : URL(string: decoded, relativeTo: documentURL)?.absoluteURL,
               isSameSecureOrigin(url, as: documentURL) else { return nil }
         return url
     }

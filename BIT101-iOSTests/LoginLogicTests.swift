@@ -148,7 +148,17 @@ extension LoginLogicTests {
                 body = Data(#"<a href="/logout">退出登录</a>"#.utf8)
             case "webvpn_verify_init":
                 body = Data(#"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","execution":"school-flow","cookie":"school-cookie","captcha":""}"#.utf8)
-            case "webvpn_verify": body = Data(#"{"token":"school-proof","code":"123456"}"#.utf8)
+            case "webvpn_verify":
+                let data = try #require(request.httpBody)
+                let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+                let accepted = try ["school-password", "saved-school-password", "new-school-password"].map {
+                    try LoginCrypto.encryptPassword($0, saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==")
+                }
+                guard accepted.contains(payload["password"] ?? "") else {
+                    return (Data(#"{"msg":"用户名或密码错误"}"#.utf8),
+                        try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+                }
+                body = Data(#"{"token":"school-proof","code":"123456"}"#.utf8)
             case "register": body = Data(#"{"fake_cookie":"community-cookie"}"#.utf8)
             case "cookies": body = Data(#"{"data":{"wengine_vpn_ticket":"school-ticket"}}"#.utf8)
             case "xnxqcx.do": body = Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#.utf8)
@@ -219,7 +229,8 @@ extension LoginLogicTests {
         #expect(prompts == ["A"] && storage.currentPassword == "school-password")
         #expect(storage.communityCredentials == owner)
         #expect(try storage.loadCommunityPasswordDigest() == nil)
-        #expect(transport.requests.prefix(5).map(\.url?.lastPathComponent) == ["login", "webvpn_verify_init", "webvpn_verify", "register", "login"])
+        #expect(transport.requests.prefix(7).map(\.url?.lastPathComponent)
+            == ["login", "webvpn_verify_init", "webvpn_verify", "webvpn_verify_init", "webvpn_verify", "register", "login"])
         let loginRequest = try #require(transport.requests.first { $0.url?.lastPathComponent == "register" }?.httpBody)
         let loginBody = try #require(JSONSerialization.jsonObject(with: loginRequest) as? [String: Any])
         #expect(loginBody["password"] as? String == LoginCrypto.md5Hex("account-password"))

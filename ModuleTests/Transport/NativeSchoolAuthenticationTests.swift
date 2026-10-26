@@ -213,8 +213,13 @@ struct NativeSchoolAuthenticationTests {
 
     @Test func CASFormSubmissionRetainsFlowAndRespectsSameOrigin() throws {
         let url = AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture")
-        #expect(SchoolLoginHTMLParser.loginFormAction(html: "", documentURL: url)?.absoluteString == "https://sso.bit.edu.cn/cas/login")
+        for html in ["<form method='post'>", "<form action=''>", "<form action='  '>"] {
+            #expect(SchoolLoginHTMLParser.loginFormAction(html: html, documentURL: url) == url)
+        }
+        #expect(SchoolLoginHTMLParser.loginFormAction(html: "<form action='login'>", documentURL: url)?.absoluteString == "https://sso.bit.edu.cn/cas/login")
+        #expect(SchoolLoginHTMLParser.loginFormAction(html: "<form action='?service=a&amp;renew=true'>", documentURL: url)?.query == "service=a&renew=true")
         #expect(SchoolLoginHTMLParser.loginFormAction(html: "<form action='https://outside.invalid/'>", documentURL: url) == nil)
+        #expect(SchoolLoginHTMLParser.loginFormAction(html: "<form method='post'>", documentURL: AppURL.required("http://sso.bit.edu.cn/cas/login")) == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func schoolWebVPNFallbackMapsTeachingCenterPreflightAndCallback() async throws {

@@ -49,7 +49,7 @@ public nonisolated enum NativeSchoolAuthenticationError: LocalizedError, SchoolS
     }
     public var errorDescription: String? {
         switch self {
-        case .invalidResponse: "学校认证页面结构发生变化，请稍后重试。"
+        case .invalidResponse: "学校认证返回了无法识别的响应，请重试或检查更新。"
         case .serviceUnavailable(let status): "学校服务响应异常（HTTP \(status)）。"
         case .additionalVerification: "学校需要补充身份验证，请重新尝试当前操作。"
         }

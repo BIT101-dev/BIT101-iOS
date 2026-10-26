@@ -156,18 +156,22 @@ struct LoginService {
         let digest = LoginCrypto.md5Hex(password)
         var response: RegisterResponse
         var schoolPassword = storage.currentStudentID == account ? storage.currentPassword : ""
+        // 登录先复用一次输入完成社区与学校认证；学校明确拒绝后再弹窗补充独立密码，保持单次输入体验。
+        if schoolPassword.isEmpty { schoolPassword = password }
         var validatedDigest: String?
         do {
             do {
                 response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
                 validatedDigest = digest
-                if schoolPassword.isEmpty { schoolPassword = password }
             } catch LoginServiceError.invalidCredentials {
                 // 服务端共用账号缺失与密码错误响应，学校证明交由 login_mode 保留已有密码。
-                schoolPassword = try await storage.schoolPasswordForIdentityVerification(studentID: account)
+                let verified = try await withSchoolPassword(studentID: account, password: schoolPassword, identity: identity) {
+                    try await verifyRegistrationIdentity(studentID: account, password: $0)
+                }
+                schoolPassword = verified.password
                 try validateCommunityIdentity(identity)
-                response = try await authenticateSchoolIdentity(studentID: account, password: schoolPassword,
-                    communityPasswordDigest: digest)
+                response = try await apiClient.register(password: digest, token: verified.proof.token,
+                    code: verified.proof.code, loginMode: true)
                 do {
                     response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
                     validatedDigest = digest
@@ -184,24 +188,41 @@ struct LoginService {
             guard (!storage.hasCachedSession || savedStudentID != account),
                   BIT101APIClient.permitsIndependentSchoolLogin(after: error) else { throw error }
             try validateCommunityIdentity(identity)
-            if schoolPassword.isEmpty {
-                schoolPassword = try await storage.schoolPasswordForIdentityVerification(studentID: account)
+            let initialPassword = schoolPassword
+            let verification = Task {
+                try await withSchoolPassword(studentID: account, password: initialPassword, identity: identity) {
+                    try await verifySchoolIdentity(account, $0)
+                }
             }
-            let verifiedPassword = schoolPassword
-            try validateCommunityIdentity(identity)
-            let verification = Task { try await verifySchoolIdentity(account, verifiedPassword) }
             let accountChanges = storage.changes.sink { current in
                 if current != identity { verification.cancel() }
             }
             defer { accountChanges.cancel() }
-            let proof = try await withTaskCancellationHandler {
+            let verified = try await withTaskCancellationHandler {
                 try await verification.value
             } onCancel: { verification.cancel() }
             try validateCommunityIdentity(identity)
+            let proof = verified.proof
             guard proof.studentID == account else { throw LoginServiceError.invalidServerResponse }
-            try storage.saveSchoolLoginState(studentID: account, password: verifiedPassword)
+            try storage.saveSchoolLoginState(studentID: account, password: verified.password)
             proof.activateSession()
             return account
+        }
+    }
+
+    private func withSchoolPassword<Proof>(studentID: String, password: String, identity: CommunitySessionIdentity,
+        verify: (String) async throws -> Proof) async throws -> (password: String, proof: Proof) {
+        try validateCommunityIdentity(identity)
+        do { return (password, try await verify(password)) }
+        catch let error as LoginServiceError {
+            switch error {
+            case .invalidCredentials, .schoolPasswordRejected: break
+            default: throw error
+            }
+            try validateCommunityIdentity(identity)
+            let replacement = try await storage.schoolPasswordForIdentityVerification(studentID: studentID)
+            try validateCommunityIdentity(identity)
+            return (replacement, try await verify(replacement))
         }
     }
 
