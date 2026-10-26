@@ -368,7 +368,7 @@ def read(path, *args, **kwargs):
     return original_read(path, *args, **kwargs)
 with patch.object(Path, 'read_text', read):
     import validation_evidence
-    with patch.object(validation_evidence, 'source_digest', return_value='fixture'), patch.object(sys, 'argv', ['validation_evidence.py', 'digest']):
+    with patch.object(validation_evidence, 'input_identity', return_value='fixture'), patch.object(sys, 'argv', ['validation_evidence.py', 'digest']):
         raise SystemExit(validation_evidence.main())
 '''
     result = subprocess.run([sys.executable, '-B', '-c', isolated_digest], cwd=SCRIPT_ROOT, capture_output=True, text=True)
@@ -784,7 +784,7 @@ def ui_metrics_boundary_findings() -> list[str]:
             patch.object(Path, "open", lambda path, *args, **kwargs: StringIO() if path == Path("/audit/ui-tests.log") else original_open(path, *args, **kwargs)), \
             patch.object(Path, "write_text", lambda path, value, **kwargs: report.__setitem__(path, value)), \
             patch('validation_evidence.native_source_coverage', return_value={'ScoreFeature': (30, 100), 'BIT101-iOS.app': (60, 100)}), \
-            patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
+            patch.dict(os.environ, BIT101_VALIDATION_INPUT_IDENTITY="digest", BIT101_VALIDATION_RUN_ID="run"), redirect_stdout(StringIO()):
         record_native_metrics(sys.argv[1:])
     result = json.loads(next(line.split("：", 1)[1] for line in report[Path("/audit/test-metrics.txt")].splitlines() if line.startswith("控件库存：")))
     if result["processIdentifiers"] == ["10", "20"] and result["observed"] == 3 and result["visited"] == 2 \

@@ -34,6 +34,8 @@ struct ContentView: View {
                     .id(studentID)
             }
         }
+        .appWindowLayout()
+        .background(AppInterfaceOrientationObserver())
         .disabled(localData.isCleaning)
         .allowsHitTesting(!localData.isCleaning)
         .overlay {

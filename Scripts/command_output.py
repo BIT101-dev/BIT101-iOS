@@ -122,6 +122,7 @@ def show_log(path: Path, failed: bool) -> None:
 
 def run_command(arguments: list[str]) -> int:
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     report_path = Path(arguments[0])
     label = arguments[1]
     started = time.monotonic()
@@ -141,7 +142,6 @@ def run_command(arguments: list[str]) -> int:
     with report_path.open("w", encoding="utf-8") as report:
         for line in process.stdout:
             report.write(line)
-            report.flush()
             if arguments[2] == "xcodebuild":
                 match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
                 if match:
@@ -153,6 +153,7 @@ def run_command(arguments: list[str]) -> int:
                 continue
             failures.add(line)
             if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
+                report.flush()
                 if dependency := re.match(r"warning: '(.+)' is missing a dependency on '(.+)' because dependency scan of Swift module", line):
                     dependency_warning_count += 1
                     if not dependency_example: dependency_example = f'{dependency[1]} → {dependency[2]}'

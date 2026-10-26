@@ -109,13 +109,13 @@ if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == school ]]; then validation_group=s
 if [[ -n "$SMOKE_TERM" && ( "$SMOKE_SCOPE" == all || "$SMOKE_SCOPE" == school || "$SMOKE_SCOPE" == schedule ) ]]; then validation_scope=selected; fi
 RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
-BIT101_VALIDATION_SOURCE_DIGEST=""
-if ! $PREPARE_ONLY; then BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"; fi
+BIT101_VALIDATION_INPUT_IDENTITY=""
+if ! $PREPARE_ONLY; then BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"; fi
 SCHOOL_SMS_STARTED_DIGEST=""
 if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
   SCHOOL_SMS_STARTED_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest school-sms)"
 fi
-export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
 
 REMOTE_REPORT_PATH="Library/NetworkSmoke/release-network-smoke.json"
 REMOTE_RAW_COURSE_PATH="Library/NetworkSmoke/raw-course-response.json"
@@ -153,7 +153,7 @@ PY
   fi
   if ! $PREPARE_ONLY; then python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?; fi
   if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
-    BIT101_VALIDATION_SOURCE_DIGEST="$SCHOOL_SMS_STARTED_DIGEST" \
+    BIT101_VALIDATION_INPUT_IDENTITY="$SCHOOL_SMS_STARTED_DIGEST" \
       python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$school_sms_status" "$validation_scope" || smoke_status=$?
   fi
   exit "$smoke_status"

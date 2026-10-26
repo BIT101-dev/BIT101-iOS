@@ -4,6 +4,22 @@ from code_quality_rules import ROOT, ast_has_view_request, view_transport_findin
 
 def cross_file_view_request_self_test() -> list[str]:
     from swift_source_index import swift_syntax_index_sources
+    from swift_type_index import SwiftTypeIndex
+    from ui_source_facts import view_helper_ranges
+    from unittest.mock import patch
+    from network_capability_rules import matching_api_calls
+    shared = swift_syntax_index_sources({
+        'Views.swift': 'struct First: View { var body: some View { makeContent() } }; struct Second: View { var body: some View { Text("two") } }',
+        'Helpers.swift': 'func makeContent() -> some View { makeLeaf() }; func makeLeaf() -> some View { Text("leaf") }; func unused() { URLRequest(url: url) }',
+        'Other.swift': 'struct Other: View { var body: some View { Text("other") } }'})
+    resolver = SwiftTypeIndex(shared)
+    with patch('network_capability_rules.matching_api_calls', wraps=matching_api_calls) as resolve:
+        first = view_helper_ranges(shared, resolver, origin='Views.swift')
+        count = resolve.call_count
+        other = view_helper_ranges(shared, resolver, origin='Other.swift')
+        assert first['Helpers.swift'] and not other['Helpers.swift']
+        assert view_helper_ranges(shared, resolver, origin='Views.swift') is first
+        assert resolve.call_count == count, '来源切换与重复查询复用 helper 图'
     for split in (False, True):
         for action, expected in (('await rawLoad(client: client)', True), ('()', False)):
             view = str(ROOT / 'BIT101-iOS/HelperScreen.swift')

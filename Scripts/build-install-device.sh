@@ -95,9 +95,9 @@ if [[ "$ACTION" == install-archive ]]; then
 fi
 if [[ "$ACTION" == install ]]; then
   bit101_require_device || exit 1
-  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"
+  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
-  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+  export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
   finish_install() {
     local install_status=$?
     trap - EXIT
@@ -155,7 +155,7 @@ fi
 
 BUILD_OVERRIDES=()
 if [[ "$ACTION" == install ]]; then
-  BUILD_OVERRIDES+=("BIT101_RESTORE_INPUT_DIGEST=$BIT101_VALIDATION_SOURCE_DIGEST")
+  BUILD_OVERRIDES+=("BIT101_RESTORE_INPUT_DIGEST=$BIT101_VALIDATION_INPUT_IDENTITY")
   rm -f "$DERIVED_DATA/restore-readiness.json" "$DERIVED_DATA/restore-process.json"
 fi
 BUILD_ACTION=build
@@ -169,10 +169,10 @@ fi
 if [[ "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   BUILD_ACTION=archive
   BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
-  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
+  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
-  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
-  BUILD_OVERRIDES+=("BIT101_ARCHIVE_INPUT_DIGEST=$BIT101_VALIDATION_SOURCE_DIGEST" "BIT101_ARCHIVE_RUN_ID=$BIT101_VALIDATION_RUN_ID")
+  export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
+  BUILD_OVERRIDES+=("BIT101_ARCHIVE_INPUT_DIGEST=$BIT101_VALIDATION_INPUT_IDENTITY" "BIT101_ARCHIVE_RUN_ID=$BIT101_VALIDATION_RUN_ID")
   rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
   finish_archive() {
     local archive_status=$?
@@ -215,7 +215,7 @@ while (( SECONDS < restore_deadline )); do
       --source Documents/restore-readiness.json --destination "$DERIVED_DATA/restore-readiness.json" > "$RESTORE_LOG" 2>&1; then
     if xcrun devicectl device info processes --device "$BIT101_DEVICETCL_DEVICE_ID" \
         --quiet --json-output "$DERIVED_DATA/restore-process.json" >> "$RESTORE_LOG" 2>&1; then
-      if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_SOURCE_DIGEST" >> "$RESTORE_LOG" 2>&1; then
+      if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_INPUT_IDENTITY" >> "$RESTORE_LOG" 2>&1; then
         echo "iOS Release 初始化与活跃进程已确认：$BIT101_DEVICE_NAME"
         exit 0
       fi

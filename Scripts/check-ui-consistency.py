@@ -24,7 +24,7 @@ from ui_rules import (
 from ui_rule_tests import ast_marker_boundary_findings, source_boundary_findings, map_theme_color_contract_findings, interaction_inventory_boundary_findings
 from code_quality_rules import static_audit_lock
 from swift_type_index import SwiftBindingTypes
-from ui_source_facts import is_semantic_color_member
+from ui_source_facts import UIAuditContext, is_semantic_color_member
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     swift_files.cache_clear()
@@ -43,6 +43,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
             return 1
     else:
         syntax = shared_syntax
+    syntax = UIAuditContext(syntax)
     errors.extend(boundary_findings or [])
     color_types = SwiftBindingTypes(syntax)
     for facts in syntax.values():

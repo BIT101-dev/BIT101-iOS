@@ -303,6 +303,9 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testScheduleKeepsWeekAndControlsAcrossWindowRotation() {
         app = configureApp(resetStorage: true, school: true)
+        let traits = windowTraits()
+        let requiresPortrait = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+            && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue)
         let device = XCUIDevice.shared
         defer { device.orientation = .portrait }
         app.buttons["第3周"].tapBriefly()
@@ -310,13 +313,20 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight, .portrait] {
             device.orientation = orientation
             UITestSnapshotReader.invalidate()
+            let add = app.buttons["schedule.add-content"]
+            assertUI(waitUntil(NSPredicate { _, _ in
+                UITestSnapshotReader.invalidate()
+                let window = self.app.native.windows.firstMatch.frame
+                return add.native.exists && add.native.isHittable && window.contains(add.native.frame)
+            }, on: app, timeout: 10), "窗口旋转后课表操作入口保持可触达。")
+            if requiresPortrait {
+                assertUI(app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width, "紧凑手机窗口应保持竖屏：\(windowTraits())。")
+            }
             assertSelectedWeek(3)
             let calendar = app.buttons["schedule.blank-context-menu"]
             assertUI(calendar.appears(timeout: 10), "窗口旋转后课表保持可见。")
             let window = app.windows.firstMatch.frame
-            let add = app.buttons["schedule.add-content"]
             assertUI(calendar.frame.height > add.frame.height && window.intersects(calendar.frame), "窗口旋转后课表保留可用的内容区域。")
-            assertUI(add.exists && add.native.isHittable, "窗口旋转后课表操作入口保持可触达。")
             for title in ["日程", "地图", "成绩", "话廊", "我的"] {
                 let tab = app.mainTab(title)
                 assertUI(tab.exists && tab.native.isHittable, "窗口旋转后主导航保持可触达：\(title)。")

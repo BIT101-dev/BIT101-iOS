@@ -397,7 +397,7 @@ def source_snapshot():
     finally: _SOURCE_SNAPSHOT.reset(token)
 
 
-def source_digest(group: str = "", *, environment: dict | None = None) -> str:
+def input_identity(group: str = "", *, environment: dict | None = None) -> str:
     snapshot = _SOURCE_SNAPSHOT.get()
     if snapshot is None: snapshot = {}
     if 'files' not in snapshot:
@@ -416,7 +416,7 @@ def source_digest(group: str = "", *, environment: dict | None = None) -> str:
         committed_identity=_clean_source_identity(group, context))
 
 
-def committed_source_digest(group: str = "", *, environment: dict | None = None) -> str:
+def committed_input_identity(group: str = "", *, environment: dict | None = None) -> str:
     identity = _clean_source_identity(group, _source_context(group, environment))
     if identity is None: raise ValueError('公开发布回执需要已提交的验证输入。')
     return identity

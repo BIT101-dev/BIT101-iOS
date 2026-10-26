@@ -162,7 +162,7 @@ def begin_result_step(retain_previous: bool, *, selected_groups: list[str] | Non
 
 
 def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
-    from validation_provenance import REPORT, source_digest, report_lock
+    from validation_provenance import REPORT, input_identity, report_lock
     recover_result_step()
     groups = []
     if BUNDLE.exists():
@@ -182,7 +182,7 @@ def begin_selected_result_step(replacing_group: str | None = None) -> list[str]:
             if name == replacing_group: continue
             full = complete_group_row(row)
             if full.get('scope') == 'full' and full.get('exitCode') == 0 and full.get('summary', {}).get('passed') is True \
-                    and full.get('resultBundleIdentity') == identity and full.get('inputDigest') == source_digest(name) \
+                    and full.get('resultBundleIdentity') == identity and full.get('inputDigest') == input_identity(name) \
                     and exchange_identity(full.get('environment')) == exchange_identity(environment_context(name)):
                 groups.append(name)
     if replacing_group is None:
@@ -333,8 +333,8 @@ def record_complete(record: dict, *, current: bool) -> bool:
         if any({key: metric[key] for key in ('samples', 'mean')} != normalized[name] for name, metric in record['metrics'].items()):
             return False
         if current:
-            from validation_provenance import source_digest
-            if execution['inputDigest'] != source_digest(group, environment=context): return False
+            from validation_provenance import input_identity
+            if execution['inputDigest'] != input_identity(group, environment=context): return False
         return True
     except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError):
         return False
@@ -394,7 +394,7 @@ def uncommitted_inputs() -> list[str]:
 
 
 def capture_current() -> dict:
-    from validation_provenance import REPORT, source_digest
+    from validation_provenance import REPORT, input_identity
     if uncommitted_inputs(): raise ValueError('性能采样需要已提交的构建输入。')
     groups = json.loads(REPORT.read_text())['groups']
     retained_sha = bundle_identity(BUNDLE)
@@ -405,7 +405,7 @@ def capture_current() -> dict:
         context = environment_context(group)
         if row.get('exitCode') != 0 or row.get('scope') != 'full' or row.get('resultBundleIdentity') != retained_sha \
                 or exchange_identity(row.get('environment')) != exchange_identity(context) \
-                or row.get('inputDigest') != source_digest(group) or not complete_environment(group, context):
+                or row.get('inputDigest') != input_identity(group) or not complete_environment(group, context):
             raise ValueError('性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。')
         proof = row['performance']
         expected = {name for name, (test, _) in performance_workloads().items() if performance_group(test) == group}

@@ -305,7 +305,7 @@ def installation_path_complete(name: str, row: dict, application: dict) -> bool:
 
 def application_identity_complete(proof: dict, platform: str) -> bool:
     from validation_compilation import compilation_settings
-    from validation_provenance import source_digest
+    from validation_provenance import input_identity
     from validate_distribution import distribution_contracts, minimum_os_version, valid_executable_uuids
     application = proof.get('application')
     minimum = minimum_os_version(compilation_settings('macOS' if platform == 'macCatalyst' else platform)[1])
@@ -322,7 +322,7 @@ def application_identity_complete(proof: dict, platform: str) -> bool:
         and minimum_os_version(application.get('minimumOSVersion')) == minimum \
         and valid_executable_uuids(application.get('executableUUIDs')) \
         and (platform == 'macCatalyst' or application.get('distributionChannel') in {'testflight', 'app-store'}) \
-        and proof.get('inputDigest') == source_digest('manual-device', environment={})
+        and proof.get('inputDigest') == input_identity('manual-device', environment={})
 
 
 def baseline_complete(proof: dict) -> bool:

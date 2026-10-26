@@ -136,6 +136,7 @@ private struct SettingsStorageNotice: View {
 ///
 /// 此页面使用卡片式入口，与“我的”页保持风格区分。
 private struct SettingsIndexPage: View {
+    @Environment(\.appWindowLayout) private var layout
     let studentID: String
     let onLogout: () -> Void
     let dependencies: SettingsDependencies
@@ -143,7 +144,7 @@ private struct SettingsIndexPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: AppDesignSystem.Spacing.regular) {
+            LazyVGrid(columns: layout.gridColumns, spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(SettingsRoute.allCases) { route in
                     if route == .suggestion {
                         Button {
@@ -198,21 +199,24 @@ private struct SettingsRoutePage: View {
     let dependencies: SettingsDependencies
 
     var body: some View {
-        switch route {
-        case .account:
-            AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
-        case .calendar:
-            AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: dependencies.scheduleCloudSync)
-        case .ddl:
-            DDLSettingsPage(viewModel: scheduleViewModel.ddl)
-        case .gallery:
-            GallerySettingsPage(media: dependencies.media, diagnosis: dependencies.networkDiagnosis)
-        case .suggestion:
-            DeveloperSuggestionPage(dependencies: dependencies.suggestion)
-        case .about:
-            AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData,
-                updates: dependencies.updates, prompts: dependencies.prompts)
+        Group {
+            switch route {
+            case .account:
+                AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
+            case .calendar:
+                AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: dependencies.scheduleCloudSync)
+            case .ddl:
+                DDLSettingsPage(viewModel: scheduleViewModel.ddl)
+            case .gallery:
+                GallerySettingsPage(media: dependencies.media, diagnosis: dependencies.networkDiagnosis)
+            case .suggestion:
+                DeveloperSuggestionPage(dependencies: dependencies.suggestion)
+            case .about:
+                AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData,
+                    updates: dependencies.updates, prompts: dependencies.prompts)
+            }
         }
+        .appReadableContent()
     }
 }
 

@@ -84,6 +84,7 @@ struct LoginRootView: View {
     var body: some View {
         NavigationStack {
             LoginFormView(viewModel: viewModel)
+                .appReadableContent()
         }
     }
 }
@@ -165,6 +166,7 @@ private struct LoginFormView: View {
             Section {
                 NavigationLink {
                     AccountRegistrationView(studentID: viewModel.studentID)
+                        .appReadableContent()
                 } label: {
                     Text("注册或重置密码")
                 }

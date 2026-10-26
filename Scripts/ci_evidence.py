@@ -585,8 +585,8 @@ def check_release() -> None:
     tag = receipt.get('tag', '') if isinstance(receipt, dict) else ''
     version_tag(tag)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
-    from validation_provenance import committed_source_digest
-    errors = receipt_findings(receipt, tag, commit, committed_source_digest)
+    from validation_provenance import committed_input_identity
+    errors = receipt_findings(receipt, tag, commit, committed_input_identity)
     if errors: raise ValueError('\n'.join(errors))
     print('公开发布回执通过：维护者确认、源码、工具链及采样时间。')
 
@@ -663,8 +663,8 @@ def release(tag: str, *, publish: bool = False) -> None:
         with validation_evidence.report_lock():
             if validation_evidence.inspect_report(SimpleNamespace(action='check', recorded_environment=False)):
                 raise ValueError('发布证据需要完整发布验收与提交绑定。')
-            from validation_provenance import committed_source_digest
-            receipt = release_receipt(json.loads(REPORT.read_text()), tag, committed_source_digest)
+            from validation_provenance import committed_input_identity
+            receipt = release_receipt(json.loads(REPORT.read_text()), tag, committed_input_identity)
             RECEIPT.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n')
             subprocess.run(['gh', 'release', 'upload', tag, str(RECEIPT), '--repo', repository(), '--clobber'],
                 cwd=ROOT, capture_output=True, text=True, check=True)

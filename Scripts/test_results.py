@@ -516,7 +516,7 @@ def record_native_metrics(arguments: list[str]) -> None:
             f"- {name}: {duration}" for _, name, duration in sorted(durations, reverse=True)[:10]
         ]]
 
-    lines += ["验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"]]
+    lines += ["验证输入：" + os.environ["BIT101_VALIDATION_INPUT_IDENTITY"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"]]
     report = "\n".join(lines) + "\n"
     Path(report_path).write_text(report, encoding="utf-8")
     print(lines[4])
@@ -560,7 +560,7 @@ def export_module_metrics(arguments: list[str]) -> None:
         report_path.with_name('test-failures.txt').write_text(''.join(details.lines()))
         rows = ['# 模块测试指标', '结果来源：' + json.dumps(dict(family='modules', exitCode=status, coverage=None)),
             f'结果：Failed · 进程状态 {status}', '完整日志：' + str(log),
-            '验证输入：' + os.environ['BIT101_VALIDATION_SOURCE_DIGEST'], '验证运行：' + os.environ['BIT101_VALIDATION_RUN_ID']]
+            '验证输入：' + os.environ['BIT101_VALIDATION_INPUT_IDENTITY'], '验证运行：' + os.environ['BIT101_VALIDATION_RUN_ID']]
         if 'totalTests' in tests:
             rows.append(f"总计 {tests['totalTests']}；通过 {tests['passedTests']}；失败 {tests['failedTests']}；跳过 {tests['skippedTests']}")
         report_path.write_text('\n'.join(rows) + '\n')
@@ -593,7 +593,7 @@ def export_module_metrics(arguments: list[str]) -> None:
     rows = ["# 模块生产源码行覆盖率", '结果来源：' + json.dumps(dict(family='modules', coverage=str(coverage_path))),
         f"总计 {tests['totalTests']}；通过 {test_count}；失败 {tests['failedTests']}；跳过 {tests['skippedTests']}",
         "测试实例：" + json.dumps(tests['testCases']),
-        "验证输入：" + os.environ["BIT101_VALIDATION_SOURCE_DIGEST"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
+        "验证输入：" + os.environ["BIT101_VALIDATION_INPUT_IDENTITY"], "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
         f"统计范围：macOS 可执行生产源码，共 {len(modules)} 个模块",
         f"合计：{covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)", *[
         f"- {name}: {covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)"

@@ -115,7 +115,7 @@ python3() {{
 }}
 bit101_run_logged() {{ print 'error: fixture module build failure' > "$DERIVED_ROOT/modules.log"; return 7; }}
 '''
-        environment = dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST='fixture', BIT101_VALIDATION_RUN_ID='fixture')
+        environment = dict(os.environ, BIT101_VALIDATION_INPUT_IDENTITY='fixture', BIT101_VALIDATION_RUN_ID='fixture')
         result = subprocess.run(['zsh', '-c', harness + finish
             + '\ntrap finish_validation EXIT ZERR\n' + branch], env=environment, text=True, capture_output=True)
         assert result.returncode == 7, (result.stdout, result.stderr)

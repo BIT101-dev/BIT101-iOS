@@ -904,7 +904,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     private func cancelPhotoPicker() {
         dismissNotificationBanner()
         let platform = UIElement(app.native)
-        let photos = platform.buttons.matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
+        let photos = platform.descendants(matching: .any).matching(NSPredicate(format: "label IN %@", ["照片", "Photos"])).firstMatch
         assertUI(photos.appears(timeout: 30), "图片入口应呈现系统照片选择器。")
         let cancel = platform.buttons.matching(identifier: "Cancel").firstMatch
         assertUI(cancel.appears(timeout: 5), "系统照片选择器应提供取消操作。")

@@ -81,17 +81,17 @@ private struct MineRootViewScene: View {
     }
 
     private var content: some View {
-        List {
-            Section {
-                profileSection
+        AppSidebarLayout {
+            List { Section { profileSection } }.appGroupedListStyle()
+                .accessibilityIdentifier("mine.sidebar")
+        } content: { usesSidebar in
+            List {
+                if !usesSidebar { Section { profileSection } }
+                Section { settingsSection }
             }
-
-            Section {
-                settingsSection
-            }
+            .accessibilityIdentifier("interaction.MineRootViewScene.list")
+            .appGroupedListStyle()
         }
-        .accessibilityIdentifier("interaction.MineRootViewScene.list")
-        .appGroupedListStyle()
         .toolbar(.hidden, for: .navigationBar)
         .navigationDestination(item: $route) { destination in
             Group {
@@ -234,6 +234,7 @@ public struct UserProfileRootView: View {
     public var body: some View {
         scene.id(identity)
             .id(resourceID)
+            .appReadableContent()
     }
 }
 

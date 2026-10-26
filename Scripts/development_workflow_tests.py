@@ -265,7 +265,7 @@ def readiness_diagnostics(fixture: Path) -> None:
             log.write_text('old readiness failure')
             harness = f'''set -euo pipefail
 ROOT_DIR={shlex.quote(str(ROOT))} RESTORE_LOG={shlex.quote(str(log))} DERIVED_DATA={shlex.quote(str(fixture))}
-BIT101_DEVICETCL_DEVICE_ID=fixture BIT101_VALIDATION_RUN_ID=fixture BIT101_VALIDATION_SOURCE_DIGEST=fixture BIT101_DEVICE_NAME=fixture
+BIT101_DEVICETCL_DEVICE_ID=fixture BIT101_VALIDATION_RUN_ID=fixture BIT101_VALIDATION_INPUT_IDENTITY=fixture BIT101_DEVICE_NAME=fixture
 INSTALL_PATH=/fixture/App.app MAC_READINESS=/fixture/proof MAC_RUN_ID=fixture MAC_INPUT_DIGEST=fixture
 failure={shlex.quote(failure)}
 xcrun() {{
@@ -438,7 +438,7 @@ def full_result_batches(fixture: Path) -> None:
         return subprocess.CompletedProcess(command, 0)
     with patch.object(subject, 'BUNDLE', bundle), patch.object(subject, 'ROOT', fixture), \
             patch.object(provenance, 'REPORT', report), patch.object(provenance, 'report_lock', side_effect=nullcontext), \
-            patch.object(provenance, 'source_digest', return_value='input'), patch.object(subject, 'environment_context', return_value={}), \
+            patch.object(provenance, 'input_identity', return_value='input'), patch.object(subject, 'environment_context', return_value={}), \
             patch.object(subject.subprocess, 'run', side_effect=merge), patch.object(subject.subprocess, 'check_output', return_value=b'{}'), \
             redirect_stderr(StringIO()):
         for group in ('all', 'ui', 'all', 'ui', 'ui', 'all'):
@@ -541,7 +541,7 @@ def archive_prune_then_fetch(fixture: Path) -> None:
     def response(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, json.dumps(dict(report=dict(comment='retained remote'))), '')
     arguments = [str(keys), str(staging), '/worker', 'namespace', str(processed)]
-    with patch.object(subprocess, 'run', side_effect=response) as download, redirect_stdout(StringIO()):
+    with patch('report_inbox.capture_command', side_effect=response) as download, redirect_stdout(StringIO()):
         archive_reports(arguments)
         archived = next(root.glob('*/*/report_*.json'))
         os.utime(archived, ns=(0, 0))
@@ -552,7 +552,7 @@ def archive_prune_then_fetch(fixture: Path) -> None:
     assert 'pruned-file:report_old.json' in processed.read_text()
     processed.write_text(processed.read_text() + 'report:expired\npruned-file:report_expired.json\n')
     keys.write_text('[]')
-    with patch.object(subprocess, 'run', side_effect=response) as download, redirect_stdout(StringIO()):
+    with patch('report_inbox.capture_command', side_effect=response) as download, redirect_stdout(StringIO()):
         archive_reports(arguments)
     assert processed.read_text() == '' and not download.called, '远端过期且本地已清理的处理键随抓取回收'
 

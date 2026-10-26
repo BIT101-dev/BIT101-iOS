@@ -243,11 +243,11 @@ def developer_directory_self_test() -> None:
     finally:
         environment.host_environment.cache_clear()
         environment.environment_context.cache_clear()
-    from validation_provenance import source_digest
+    from validation_provenance import input_identity
     context = contexts[0]
     with patch('validation_provenance._clean_source_identity', return_value=None), \
             patch('validation_provenance._local_source_identity', side_effect=source_identity_fixture()):
-        assert source_digest('audit', environment=context) != source_digest('audit', environment=context | {
+        assert input_identity('audit', environment=context) != input_identity('audit', environment=context | {
             'runtimes': context['runtimes'] | {'ruff': 'changed-version'}})
 
 
@@ -305,14 +305,14 @@ def selected_result_retention_self_test() -> None:
         row = dict(full, **changed)
         with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
                 patch.object(subject, 'bundle_identity', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
-                patch.object(validation_provenance, 'source_digest', return_value='same'), \
+                patch.object(validation_provenance, 'input_identity', return_value='same'), \
                 patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
                 patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': row}})):
             assert subject.begin_selected_result_step() == retained
             begin.assert_called_once_with(bool(retained), selected_groups=retained)
     with patch.object(subject, 'recover_result_step'), patch.object(subject, 'begin_result_step') as begin, \
             patch.object(subject, 'bundle_identity', return_value=sha), patch.object(subject, 'environment_context', return_value=environment), \
-            patch.object(validation_provenance, 'source_digest', return_value='same'), \
+            patch.object(validation_provenance, 'input_identity', return_value='same'), \
             patch.object(validation_provenance, 'report_lock', side_effect=nullcontext), patch.object(Path, 'exists', return_value=True), \
             patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': full, 'ui': full}})):
         from contextlib import redirect_stdout
@@ -372,7 +372,7 @@ def recorded_failure_self_test(full: dict, method: str) -> None:
     from io import StringIO
     import validation_evidence
     report = {'groups': {'all': deepcopy(full), 'ui': dict(deepcopy(full), summary={'passed': True, 'executedTests': ['UITests/render']})}}
-    with patch.object(validation_evidence, 'source_digest', return_value='input'), \
+    with patch.object(validation_evidence, 'input_identity', return_value='input'), \
             patch.object(validation_evidence, 'environment_context', return_value={}), \
             patch.object(validation_evidence, 'report_lock', side_effect=nullcontext), \
             patch.object(validation_evidence, 'write_report', side_effect=lambda value: report.update(value)), \
@@ -481,7 +481,7 @@ def producing_run_capture_self_test() -> None:
             patch.object(subject, 'uncommitted_inputs', return_value=[]), \
             patch.object(subject, 'record_complete', return_value=True), \
             patch.object(subject, 'bundle_identity', return_value='b' * 64), \
-            patch('validation_provenance.source_digest', return_value='digest'), \
+            patch('validation_provenance.input_identity', return_value='digest'), \
             patch.object(subject.subprocess, 'check_output', side_effect=AssertionError('后续宿主沿固定结果包继续运行')):
         assert subject.capture_current() == {'schemaVersion': 1, 'records': combined}
         from validation_environment import exchange_identity
@@ -778,10 +778,10 @@ def merge_regression_self_test() -> None:
     assert not subject.merge_findings(report)
     with patch.object(subject, 'current_commit', return_value='0' * 40):
         assert not subject.merge_findings(report)
-        with patch('validation_provenance.source_digest', side_effect=lambda group, **kwargs: report['groups'][group]['inputDigest']):
+        with patch('validation_provenance.input_identity', side_effect=lambda group, **kwargs: report['groups'][group]['inputDigest']):
             for row in report['groups'].values():
                 assert all(subject.record_complete(record, current=True) for record in row['performance']['records'].values())
-        with patch('validation_provenance.source_digest', return_value='changed input'):
+        with patch('validation_provenance.input_identity', return_value='changed input'):
             assert not subject.record_complete(report['groups']['all']['performance']['records']['pagination'], current=True)
     from validation_environment import exchange_identity
     shared = exchange_identity(report)

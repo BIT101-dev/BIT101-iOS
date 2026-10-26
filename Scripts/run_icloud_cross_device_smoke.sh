@@ -124,8 +124,8 @@ fi
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 validation_group=icloud
 if $CLEANUP_ONLY; then validation_group=icloud-cleanup; fi
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
-export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
 finish_early_validation() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM

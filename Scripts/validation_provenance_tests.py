@@ -50,14 +50,14 @@ def source_snapshot_self_test() -> None:
             patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=0o644)), \
             patch.object(subject, '_clean_source_identity', return_value=None), patch.object(subject, '_local_source_identity', side_effect=identity):
         with subject.source_snapshot():
-            full = subject.source_digest()
+            full = subject.input_identity()
             with subject.source_snapshot():
-                group = subject.source_digest('modules', environment={})
+                group = subject.input_identity('modules', environment={})
             assert set(json.loads(full)) == set(inputs) and set(json.loads(group)) == {'Package.swift'}
             inputs['Package.swift'] = b'changed product'
-            assert subject.source_digest('modules', environment={}) == group
+            assert subject.input_identity('modules', environment={}) == group
         assert inventory.call_count == 1 and sorted(reads) == sorted(inputs)
-        assert subject.source_digest('modules', environment={}) != group
+        assert subject.input_identity('modules', environment={}) != group
         assert inventory.call_count == 2 and reads[-1] == 'Package.swift'
 
 
@@ -154,7 +154,7 @@ def run_self_test(recorder) -> None:
         ("network", "current", "run", json.dumps({"runID": "run"}), 0),
     ):
         values = [artifact, '{"groups":{}}'] if artifact is not None else ['{"groups":{}}']
-        with patch.object(module, "source_digest", return_value="current"), \
+        with patch.object(module, "input_identity", return_value="current"), \
                 patch.object(module, "complete_environment", return_value=True), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
                 patch.object(module, "test_summary", return_value=summary), patch.object(module, "smoke_summary", return_value=summary), \
@@ -177,7 +177,7 @@ def run_self_test(recorder) -> None:
     for digest, expected in (("current", 0), ("changed", 1)):
         with patch.object(sys, "argv", ["validation_evidence.py", "check-group", "all"]), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "complete_summary", return_value=True), \
-                patch.object(module, "source_digest", return_value=digest), patch.object(Path, "is_file", return_value=True), \
+                patch.object(module, "input_identity", return_value=digest), patch.object(Path, "is_file", return_value=True), \
                 patch.object(Path, "read_text", return_value=json.dumps({"groups": {"all": group_row}})), redirect_stderr(StringIO()):
             assert module.main() == expected
     selected = dict(group_row, scope='selected', lastFullRun=group_row)
@@ -185,7 +185,7 @@ def run_self_test(recorder) -> None:
         selected['exitCode'] = status
         with patch.object(sys, 'argv', ['validation_evidence.py', 'check-group', 'all']), \
                 patch.object(module, 'report_lock', side_effect=nullcontext), patch.object(module, 'complete_summary', return_value=True), \
-                patch.object(module, 'source_digest', return_value='current'), patch.object(Path, 'is_file', return_value=True), \
+                patch.object(module, 'input_identity', return_value='current'), patch.object(Path, 'is_file', return_value=True), \
                 patch.object(Path, 'read_text', return_value=json.dumps({'groups': {'all': selected}})), redirect_stderr(StringIO()):
             assert module.main() == status
     artifact_lock_self_test(module)
@@ -212,7 +212,7 @@ def run_self_test(recorder) -> None:
             (dict(fresh, finishedAt=(now - timedelta(days=2)).isoformat()), 1, "待复验")):
           row = dict(group_row, summary=dict(summary, passed=True))
           report = json.dumps({"groups": {group: row}})
-          with patch.object(module, "source_digest", return_value="current"), \
+          with patch.object(module, "input_identity", return_value="current"), \
                   patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "complete_summary", return_value=True), \
                   patch.object(Path, "is_file", return_value=True), patch.object(Path, "read_text", return_value=report), \
                   patch.object(sys, "argv", ["validation_evidence.py", "check-group", group]), redirect_stderr(StringIO()):
@@ -231,7 +231,7 @@ def check_group_bundle_self_test(module) -> None:
                 'resultBundleIdentity': stored, 'summary': {'passed': True}, 'recordedAt': utc_now().isoformat()}
             report = {'groups': {group: row}}
             with patch.object(module, 'report_lock', side_effect=nullcontext), \
-                    patch.object(module, 'source_digest', return_value='current'), \
+                    patch.object(module, 'input_identity', return_value='current'), \
                     patch.object(module, 'complete_summary', return_value=True), \
                     patch.object(module, 'complete_environment', return_value=True), \
                     patch('validation_coverage.policy_floors', return_value={}), \
@@ -256,7 +256,7 @@ def check_group_coverage_policy_self_test(module) -> None:
                     summary={'passed': True, 'coverage': {name: {'coveredLines': 100, 'executableLines': 100}}}) if selected else full
                 report = {'groups': {group: row}, 'coveragePolicy': {
                     'modules' if group == 'modules' else 'all': {'GalleryFeature': floor}}}
-                with patch.object(module, 'source_digest', return_value='current'), \
+                with patch.object(module, 'input_identity', return_value='current'), \
                         patch.object(module, 'report_lock', side_effect=nullcontext), \
                         patch.object(module, 'complete_summary', return_value=True), \
                         patch.object(module, 'complete_environment', return_value=True), \
@@ -341,7 +341,7 @@ def selected_coverage_self_test(module) -> None:
             "executedTests": ["Suite/testRun"], "coverage": {"iOS/Feature": {"coveredLines": 94, "executableLines": 100}}}
         summary['testCases'] = {'passed': True, 'total': 1, 'byTest': {'Suite/testRun': 1}, 'expectedByTest': {'Suite/testRun': 1},
             'destinations': [{'platform': 'iOS', 'deviceIdentifier': 'fixture-device'}], 'identifiersByTest': {'Suite/testRun': ['test://com.apple.xcode/BIT101-iOS/BIT101-iOSTests/Suite/testRun']}}
-        with patch.object(module, "source_digest", return_value="digest"), patch.object(module, "complete_environment", return_value=True), \
+        with patch.object(module, "input_identity", return_value="digest"), patch.object(module, "complete_environment", return_value=True), \
                 patch.object(module, "report_lock", side_effect=nullcontext), patch.object(module, "write_report") as saved, \
                 patch.object(module, "test_summary", return_value=summary), patch.object(module, "complete_summary", return_value=True), \
                 patch.object(module, 'test_case_inventory', return_value={'Suite/testRun': 1}), \
@@ -401,7 +401,7 @@ def complete_run_reuse_self_test(module=None) -> None:
     full = dict(full, environment={})
     report = {'groups': {'network': full}}
     for status, scope, reusable in ((0, 'selected', True), (1, 'selected', False), (0, 'selected', False), (0, 'full', True)):
-        with patch.object(module, 'source_digest', return_value='same'), patch.object(module, 'environment_context', return_value={}), \
+        with patch.object(module, 'input_identity', return_value='same'), patch.object(module, 'environment_context', return_value={}), \
                 patch.object(module, 'complete_environment', return_value=True), patch.object(module, 'report_lock', side_effect=nullcontext), \
                 patch.object(module, 'write_report') as saved, patch.object(module, 'smoke_summary', return_value={'passed': True}), \
                 patch.object(module, 'complete_summary', return_value=True), patch.object(Path, 'is_file', return_value=True), \

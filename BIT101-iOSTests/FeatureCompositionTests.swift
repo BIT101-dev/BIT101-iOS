@@ -28,6 +28,25 @@ import ScoreInfrastructure
 @MainActor
 @Suite(.serialized)
 struct FeatureCompositionTests {
+    @Test func orientationAndWindowLayoutFollowAvailableSpace() {
+        for (idiom, horizontal, vertical, mask) in [
+            (UIUserInterfaceIdiom.phone, UIUserInterfaceSizeClass.compact, UIUserInterfaceSizeClass.regular, UIInterfaceOrientationMask.portrait),
+            (.phone, .regular, .compact, .portrait), (.phone, .regular, .regular, .allButUpsideDown),
+            (.pad, .compact, .regular, .all), (.pad, .regular, .regular, .all)
+        ] {
+            let traits = UITraitCollection { traits in
+                traits.userInterfaceIdiom = idiom
+                traits.horizontalSizeClass = horizontal; traits.verticalSizeClass = vertical
+            }
+            #expect(AppInterfaceOrientationPolicy.supportedOrientations(for: traits) == mask)
+        }
+        let wide = AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true)
+        #expect(wide.isLandscape && wide.gridColumns.count == 2)
+        #expect(!AppWindowLayout(size: CGSize(width: 834, height: 1_194), isRegularWidth: true).isLandscape)
+        #expect(!AppWindowLayout(size: wide.size, isRegularWidth: false).isLandscape)
+        #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, usesAccessibilityText: true).isLandscape)
+    }
+
     @Test func fixedColumnRowsContainScaledBodyText() {
         func measured(_ size: DynamicTypeSize, bodyOnly: Bool = false) -> CGFloat {
             let row = AppFixedColumnRow(items: [AppFixedColumnItem(text: "课程名称", ratio: 1,

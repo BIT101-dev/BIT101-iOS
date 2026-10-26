@@ -459,7 +459,7 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
+        descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
     }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
     var collectionViews: UIElementQuery { descendants(matching: .collectionView) }
@@ -585,6 +585,13 @@ extension XCUIElementSnapshot {
 
 @MainActor
 extension UIAutomationTestCase {
+    func windowTraits() -> [String: Int] {
+        guard let response = UITestControlClient.request(["command": "window-layout"]),
+              let values = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]],
+              let traits = values.first else { XCTFail("当前窗口应提供布局信息。"); return [:] }
+        return traits.compactMapValues { ($0 as? NSNumber)?.intValue }
+    }
+
     @MainActor
     func openSettings(_ route: String) {
         let mine = app.mainTab("我的")

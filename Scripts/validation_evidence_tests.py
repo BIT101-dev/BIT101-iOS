@@ -189,7 +189,7 @@ def run_self_test(subject) -> int:
             arguments = ['validation_evidence.py', action] + (['ui'] if action == 'check-group' else [])
             with patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(Path, 'is_file', return_value=True), \
                     patch.object(Path, 'read_text', return_value=json.dumps(regressed)), patch.object(sys, 'argv', arguments), \
-                    patch.object(subject, 'source_digest', return_value='digest'), patch.object(subject, 'evidence_current', return_value=True), \
+                    patch.object(subject, 'input_identity', return_value='digest'), patch.object(subject, 'evidence_current', return_value=True), \
                     patch.object(subject, 'complete_summary', return_value=True), patch.dict(os.environ, GITHUB_STEP_SUMMARY=''), \
                     redirect_stdout(output), redirect_stderr(output):
                 assert subject.main() == expected
@@ -234,7 +234,7 @@ def run_self_test(subject) -> int:
                     patch.object(subject, 'report_lock', side_effect=nullcontext), \
                     patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(core)), \
                     patch.object(subprocess, 'check_output', return_value=accepted_commit), \
-                    patch.object(subject, 'source_digest', return_value='digest'), \
+                    patch.object(subject, 'input_identity', return_value='digest'), \
                     patch.object(subject, 'complete_summary', return_value=True), redirect_stderr(StringIO()):
                 assert subject.main() == expected
         from ui_inventory import self_test as ui_inventory_self_test
@@ -251,7 +251,7 @@ def run_self_test(subject) -> int:
         subject.test_case_inventory.cache_clear()
         for group in ('infrastructure', 'login'):
             assert any((test.startswith('SchoolCookieIsolationTests/') for test in subject.test_inventory(group)))
-        with patch.object(sys, 'argv', ['validation_evidence.py', 'record', 'audit', '7']), patch.dict(os.environ, BIT101_VALIDATION_SOURCE_DIGEST='fixture-input'), patch(f'{module_name}.record', return_value=7) as recorder:
+        with patch.object(sys, 'argv', ['validation_evidence.py', 'record', 'audit', '7']), patch.dict(os.environ, BIT101_VALIDATION_INPUT_IDENTITY='fixture-input'), patch(f'{module_name}.record', return_value=7) as recorder:
             assert subject.main() == 7
             recorder.assert_called_once_with('audit', 7, 'full', 'fixture-input')
         input_self_test()
@@ -267,17 +267,17 @@ def run_self_test(subject) -> int:
             assert subject.main() == 0
         assert output.getvalue().splitlines() == list(subject.DEFAULT_VERIFY_GROUPS)
         with patch.object(subprocess, 'check_output', return_value=b''):
-            baseline = subject.source_digest('ui')
+            baseline = subject.input_identity('ui')
             for field, value in (('host', {'system': 'changed'}), ('xcode', {'version': 'changed'}), ('sdks', {'fixture': {'Version': '2'}}), ('compiler', {'modified': 2}), ('device', {'identifier': 'changed', 'systemVersion': 'fixture-os', 'systemBuild': 'fixture-build'}), ('device', {'identifier': 'fixture-phone', 'systemVersion': 'changed', 'systemBuild': 'fixture-build'})):
                 with patch('validation_provenance.environment_context', return_value=dict(fixture_environment, **{field: value})):
-                    assert subject.source_digest('ui') != baseline
+                    assert subject.input_identity('ui') != baseline
             assert not subject.complete_environment('ui', dict(fixture_environment, device=None))
             assert not subject.complete_environment('audit', {})
-            audit_digest = subject.source_digest('audit')
+            audit_digest = subject.input_identity('audit')
             for name in fixture_environment['runtimes']:
                 runtimes = dict(fixture_environment['runtimes'], **{name: 'changed-version'})
                 with patch('validation_provenance.environment_context', return_value=dict(fixture_environment, runtimes=runtimes)):
-                    assert subject.source_digest('audit') != audit_digest
+                    assert subject.input_identity('audit') != audit_digest
                 for value in ('', None):
                     assert not subject.complete_environment('audit', dict(fixture_environment,
                         runtimes=dict(runtimes, **{name: value})))
@@ -368,24 +368,24 @@ def run_self_test(subject) -> int:
             fixture.write_text('exit 0\n')
             with patch.object(subprocess, 'check_output', return_value=fixture.relative_to(subject.ROOT).as_posix().encode()):
                 fixture.chmod(384)
-                original = subject.source_digest()
+                original = subject.input_identity()
                 fixture.chmod(448)
-                assert subject.source_digest() != original
+                assert subject.input_identity() != original
         finally:
             fixture.unlink(missing_ok=True)
         from types import SimpleNamespace
         inputs = {'README.md': b'documentation', 'Modules/StorageCore/Sources/AppFileService.swift': b'product', 'ModuleTests/Sync/ScheduleSyncTests.swift': b'test'}
         with patch.object(subprocess, 'check_output', return_value='\x00'.join(inputs).encode()), patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_bytes', lambda path: inputs[path.relative_to(subject.ROOT).as_posix()]), patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=420)):
-            before = {group: subject.source_digest(group) for group in ('audit', 'modules', 'manual-device')}
+            before = {group: subject.input_identity(group) for group in ('audit', 'modules', 'manual-device')}
             inputs['README.md'] = b'updated documentation'
-            assert subject.source_digest('audit') != before['audit']
-            assert subject.source_digest('modules') == before['modules']
-            assert subject.source_digest('manual-device') == before['manual-device']
+            assert subject.input_identity('audit') != before['audit']
+            assert subject.input_identity('modules') == before['modules']
+            assert subject.input_identity('manual-device') == before['manual-device']
             inputs['ModuleTests/Sync/ScheduleSyncTests.swift'] = b'updated test'
-            assert subject.source_digest('modules') != before['modules']
-            assert subject.source_digest('manual-device') == before['manual-device']
+            assert subject.input_identity('modules') != before['modules']
+            assert subject.input_identity('manual-device') == before['manual-device']
             inputs['Modules/StorageCore/Sources/AppFileService.swift'] = b'updated product'
-            assert subject.source_digest('manual-device') != before['manual-device']
+            assert subject.input_identity('manual-device') != before['manual-device']
         from swift_source_index import SWIFT_SYNTAX_SOURCE_NAMES
         inputs = {'Scripts/' + name: b'indexer source' for name in SWIFT_SYNTAX_SOURCE_NAMES}
         groups = subject.RELEASE_GROUPS | subject.TEST_GROUPS | {'network', 'icloud', 'manual-device', 'build-archive'}
@@ -394,10 +394,10 @@ def run_self_test(subject) -> int:
                 patch.object(Path, 'read_bytes', lambda path: inputs[path.relative_to(subject.ROOT).as_posix()]), \
                 patch.object(Path, 'stat', return_value=SimpleNamespace(st_mode=420)):
             for name in inputs:
-                before = {group: subject.source_digest(group, environment={}) for group in groups}
+                before = {group: subject.input_identity(group, environment={}) for group in groups}
                 inputs[name] += b' changed facts'
                 sampling = subject.NETWORK_GROUPS | {'network-smoke', 'icloud', 'icloud-cleanup'}
-                assert all((subject.source_digest(group, environment={}) != before[group]) ==
+                assert all((subject.input_identity(group, environment={}) != before[group]) ==
                     (group != 'manual-device' and group not in sampling) for group in groups), name
         def icloud_summary(value):
             return subject.smoke_summary('icloud', dict(validatedDomains=sorted(subject.ICLOUD_DOMAINS), cloudKitEnvironment='Production', runID='fixture', **value))
@@ -485,8 +485,8 @@ def run_self_test(subject) -> int:
             'visitedControls': [{'instance': 'control', 'scope': 'Fixture/example', 'actions': ['tap']}]}
         summaries['audit'] = {'passed': True, 'kind': 'audit', 'releaseVersionChecked': True,
             'startedAt': subject.utc_now().isoformat(), 'finishedAt': subject.utc_now().isoformat()}
-        summaries['restore'] = dict(passed=True, kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1, runID='00000000-0000-4000-8000-000000000001', inputDigest=subject.source_digest('restore'), startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
-        provenance = {'inputDigest': subject.source_digest('build-archive'), 'runID': 'fixture-run'}
+        summaries['restore'] = dict(passed=True, kind='restore', initialized=True, sessionRecovered=True, active=True, processAlive=True, processIdentifier=1, runID='00000000-0000-4000-8000-000000000001', inputDigest=subject.input_identity('restore'), startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat())
+        provenance = {'inputDigest': subject.input_identity('build-archive'), 'runID': 'fixture-run'}
         distribution_proof = distribution_fixture()[1]
         summaries['build-archive'] = {'passed': True, 'kind': 'build', 'archiveProvenance': provenance,
             'executables': {row['identifier']: row['executableUUIDs'] for row in distribution_proof['bundles']}}
@@ -613,7 +613,7 @@ def run_self_test(subject) -> int:
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], cleanup={'exitCode': 1}))
         assert not subject.complete_summary('icloud', dict(summaries['icloud'], macCleanup={'exitCode': 1}))
         groups = {name: {'exitCode': 0, 'scope': 'full', 'summary': summary, 'runID': 'fixture', 'recordedAt': subject.utc_now().isoformat(),
-            'inputDigest': subject.source_digest(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
+            'inputDigest': subject.input_identity(name), 'environment': subject.environment_context(name)} for name, summary in summaries.items()}
         groups['build-archive']['runID'] = provenance['runID']
         groups['restore']['runID'] = summaries['restore']['runID']
         from validation_manual import artifact_bytes
@@ -770,7 +770,7 @@ def summary_status_self_test(subject) -> None:
         report = {'groups': {'all': candidate}}
         output = StringIO()
         with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value=json.dumps(report)), \
-                patch.object(subject, 'source_digest', return_value='digest'), patch.object(subject, 'test_inventory', return_value={method}), \
+                patch.object(subject, 'input_identity', return_value='digest'), patch.object(subject, 'test_inventory', return_value={method}), \
                 patch.object(subject, 'test_case_inventory', return_value={method: 1}), \
                 patch.object(subject, 'coverage_complete', side_effect=lambda group, summary: bool(summary.get('coverage'))), \
                 patch.object(subject, 'complete_environment', side_effect=lambda group, environment: bool(environment)), \
@@ -921,7 +921,7 @@ def network_recording_self_test(subject, results) -> None:
                 return json.dumps(report if path == subject.REPORT else result)
             def save(value):
                 report.update(value)
-            with patch.object(subject, 'source_digest', return_value='current'), \
+            with patch.object(subject, 'input_identity', return_value='current'), \
                     patch.object(subject, 'network_inventory', side_effect=lambda scope='all': inventories[scope]), \
                     patch.object(subject, 'report_lock', side_effect=nullcontext), patch.object(subject, 'write_report', side_effect=save), \
                     patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', read), \

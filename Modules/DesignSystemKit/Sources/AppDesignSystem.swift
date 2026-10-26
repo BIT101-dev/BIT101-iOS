@@ -29,6 +29,9 @@ extension AppDesignSystem {
             public static let badgeMinimum: CGFloat = 18
         }
         public enum Layout {
+            public static let sidebarWidth: CGFloat = 320
+            public static let landscapeColumnsMinimumWidth: CGFloat = 640
+            public static let readingWidth: CGFloat = 760
             public static let floatingActionBottomInset: CGFloat = 20
             public static let floatingActionContentInset: CGFloat = 84
         }

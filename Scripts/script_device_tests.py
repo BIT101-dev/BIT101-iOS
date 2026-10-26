@@ -157,7 +157,8 @@ def simulator_requested_type_boundary_findings(program: str) -> list[str]:
         assert console.getvalue().strip() == expected
         assert saved == ([] if owned_duo else [{'identifier': expected, 'runtime': compatible['identifier']}])
         assert (['xcodebuild', '-downloadPlatform', 'iOS'] in commands) == (not present)
-        assert (['xcrun', 'simctl', 'delete', 'old'] in commands) == (not owned_duo)
+        assert ['xcrun', 'simctl', 'delete', 'old'] not in commands
+        assert (['xcrun', 'simctl', 'shutdown', 'old'] in commands) == (not owned_duo)
     return []
 
 

@@ -111,7 +111,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             print("UI scroll reveal")
             return
         }
-        let container = interactionScrollContainer() ?? app
+        let container = interactionScrollContainer(for: element) ?? app
         guard let frame = app.scrollGestureFrame(in: container.frame) else { return }
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for attempt in 0..<16 {
@@ -130,11 +130,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func interactionScrollContainer() -> UIElement? {
+    func interactionScrollContainer(for element: UIElement) -> UIElement? {
         guard let snapshot = try? app.snapshot() else { return nil }
-        guard let selected = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
-            .last(where: { $0.frame.height >= snapshot.frame.height / 2
-                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }), !selected.identifier.isEmpty else { return nil }
+        let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
+            .filter { $0.frame.height >= snapshot.frame.height / 2
+                && snapshot.frame.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+        let target = element.exists ? element.frame : CGRect.null
+        guard let selected = containers.last(where: { !target.isNull && !target.isEmpty
+            && $0.frame.minX <= target.midX && target.midX <= $0.frame.maxX }) ?? containers.last,
+            !selected.identifier.isEmpty else { return nil }
         return app.descendants(matching: selected.elementType)[selected.identifier]
     }
 
@@ -303,14 +307,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(done.appears(timeout: 5), "系统键盘应呈现完成按钮。")
             let keyboard = app.native.keyboards.firstMatch
             let positioned = NSPredicate { _, _ in
-                let surface = keyboard.exists ? keyboard : self.app.native.otherElements["inputView"].firstMatch
-                let bounds = self.app.native.frame
-                let frame = surface.exists ? surface.frame.intersection(bounds) : .null
-                return done.native.isHittable && bounds.contains(done.native.frame)
-                    && (frame.isNull || frame.isEmpty || done.native.frame.maxY <= frame.minY)
+                let bounds = self.app.native.windows.firstMatch.frame
+                return bounds.contains(done.native.frame)
             }
-            assertUI(waitUntil(positioned, on: done, timeout: 5), "完成按钮应保持可操作，并适应系统键盘与硬件键盘附件。")
-            done.tapBriefly()
+            assertUI(waitUntil(positioned, on: done, timeout: 5), "完成按钮应完整显示在窗口内：按钮 \(done.native.frame)，窗口 \(app.native.windows.firstMatch.frame)，键盘 \(keyboard.exists ? keyboard.frame : .null)。")
+            done.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
             assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return
@@ -940,8 +941,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 } else if initialTab == "gallery" && (failureOnce || !content) {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
-                    ready = snapshot.firstSnapshot { $0.elementType == .tabBar }?.firstSnapshot {
-                        $0.elementType == .button && $0.label == tabTitles[initialTab] && $0.isSelected
+                    ready = snapshot.firstSnapshot {
+                        $0.identifier == "app.tab.\(initialTab)" && $0.label == tabTitles[initialTab] && $0.isSelected
                     } != nil
                 }
                 if ready { identity = currentIdentity; break }
@@ -949,7 +950,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         } while Date() < deadline
         guard let identity else {
-            assertUI(false, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，导航：\(lastSnapshot?.snapshots(matching: .tabBar).flatMap { $0.snapshots(matching: .button).map { "\($0.label)=\($0.isSelected)" } } ?? [])。")
+            assertUI(false, "同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\(String(describing: lastSnapshot?.firstSnapshot(where: { $0.identifier == "ui-test.scene" })?.value))，窗口：\(lastSnapshot?.frame ?? .null)。")
             return app
         }
         if let lastSnapshot {

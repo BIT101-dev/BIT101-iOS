@@ -21,7 +21,7 @@ from validation_test_areas import TEST_AREA_SUITES, test_selectors, test_invento
 from validation_compilation import compilation_condition, active_swift_source
 from validate_distribution import archive_build_summary, valid_archive_provenance, valid_executable_uuids, distribution_contracts
 from validation_environment import environment_context, complete_environment, toolchain_identity, exchange_identity, native_destinations_complete
-from validation_provenance import report_lock, write_report, source_digest, normalized_test_id, LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
+from validation_provenance import report_lock, write_report, input_identity, normalized_test_id, LIVE_GROUPS, NETWORK_GROUPS, evidence_current, producing_run_matches, sampling_evidence_current, utc_now
 from validation_performance import result_bundle_findings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -564,7 +564,7 @@ def group_complete(report: dict, group: str, *, recorded_environment: bool = Fal
     from validation_provenance import complete_group_row, group_evidence_current
     from validation_coverage import policy_findings
     row = complete_group_row(report.get("groups", {}).get(group, {}))
-    inputs = source_digest(group, environment=row.get("environment", {})) if recorded_environment else source_digest(group)
+    inputs = input_identity(group, environment=row.get("environment", {})) if recorded_environment else input_identity(group)
     return row.get("exitCode") == 0 and row.get("scope") == "full" and bool(row.get("runID")) \
         and row.get("inputDigest") == inputs and group_evidence_current(group, row) \
         and complete_environment(group, row.get("environment", {})) \
@@ -583,7 +583,7 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
         errors.extend(policy_findings(report, name))
         from validation_provenance import complete_group_row
         row = complete_group_row(report.get("groups", {}).get(name, {}))
-        inputs = source_digest(name, environment=row.get("environment", {})) if recorded_environment else source_digest(name)
+        inputs = input_identity(name, environment=row.get("environment", {})) if recorded_environment else input_identity(name)
         if row.get("inputDigest") != inputs:
             errors.append(f"{name} 的验证输入已变化，请重新执行该组。")
         if not complete_environment(name, row.get("environment", {})):
@@ -615,8 +615,8 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
 def record(group: str, status: int, scope: str, started_digest: str) -> int:
     from validation_provenance import source_snapshot
     with source_snapshot():
-        digest = source_digest()
-        input_digest = source_digest(group)
+        digest = input_identity()
+        input_digest = input_identity(group)
     run_id = os.getenv("BIT101_VALIDATION_RUN_ID", "")
     if status == 0 and (not started_digest or not run_id):
         status = 1
@@ -828,7 +828,7 @@ def main() -> int:
         except (ValueError, OSError) as error: parser.error(str(error))
         if not complete_environment("manual-device", environment_context("manual-device")):
             parser.error("真机专项需要连接执行设备并读取完整系统身份。")
-        digest = source_digest()
+        digest = input_identity()
         with report_lock():
             report = json.loads(REPORT.read_text()) if REPORT.is_file() else {}
             if args.group == "distribution-signing" and not distribution_matches_archive(observation, report.get("groups", {}).get("build-archive", {})):
@@ -838,7 +838,7 @@ def main() -> int:
             report.pop("releaseCommit", None)
             report.pop("mergeCommit", None)
             previous = report["groups"].get("manual-device", {})
-            input_digest = source_digest("manual-device")
+            input_digest = input_identity("manual-device")
             summary = previous.get("summary", {"checks": {}}) if previous.get("inputDigest") == input_digest else {"checks": {}}
             summary["checks"][args.group] = observation
             summary["passed"] = manual_complete(summary["checks"])
@@ -849,7 +849,7 @@ def main() -> int:
             write_report(report)
         return 0
     if args.action == "digest":
-        print(source_digest(args.group))
+        print(input_identity(args.group))
         return 0
     if args.action == "suites":
         if args.group not in TEST_AREA_SUITES:
@@ -861,7 +861,7 @@ def main() -> int:
         with static_audit_lock(ROOT):
             return subprocess.call([sys.executable, '-B', str(ROOT / 'Scripts/validation_evidence_tests.py')])
     if args.action == "record":
-        return record(args.group, args.status, args.scope, os.getenv("BIT101_VALIDATION_SOURCE_DIGEST", ""))
+        return record(args.group, args.status, args.scope, os.getenv("BIT101_VALIDATION_INPUT_IDENTITY", ""))
     with report_lock():
         return inspect_report(args)
 
@@ -894,7 +894,7 @@ def inspect_report(args) -> int:
         from validation_merge import findings as merge_findings
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
         candidate = dict(report, mergeCommit=commit) if args.action == "bind-merge" else report
-        errors = merge_findings(candidate, digest=source_digest, complete=complete_summary, commit=commit,
+        errors = merge_findings(candidate, digest=input_identity, complete=complete_summary, commit=commit,
             recorded_environment=args.recorded_environment)
         if args.action == "bind-merge" and subprocess.check_output(["git", "status", "--porcelain=v1"], cwd=ROOT).strip():
             errors.append("合并验证证据需要对应已完整提交的仓库内容。")
@@ -906,7 +906,7 @@ def inspect_report(args) -> int:
             write_report(report)
         return 0
     if args.action in {"bind", "check"}:
-        errors = release_findings(report, source_digest(), recorded_environment=args.recorded_environment)
+        errors = release_findings(report, input_identity(), recorded_environment=args.recorded_environment)
         if not errors:
             from validation_provenance import release_worker_findings
             errors.extend(release_worker_findings(report['groups']['network']['summary']))
@@ -934,7 +934,7 @@ def inspect_report(args) -> int:
             passed = passed and selected_test_summary_complete(result, row.get("expectedTests", []), group=name)
         count = result.get("passedTests", result.get("executedProbes", sum(stage["passedTests"] for stage in result.get("stages", []))))
         environment = row.get("environment", {}) if args.recorded_environment else None
-        current = row.get("inputDigest") == source_digest(name, environment=environment) and group_evidence_current(name, row)
+        current = row.get("inputDigest") == input_identity(name, environment=environment) and group_evidence_current(name, row)
         label = "待复验" if not current else ("定向通过" if row.get("scope") == "selected" else "通过") if passed else "待处理"
         duration = row.get('durationSeconds', '?')
         rows.append(f"| {name} | {row.get('scope', '?')} | {label} | {count} | {len(result.get('coverage', {}))} | {duration} |")

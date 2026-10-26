@@ -824,8 +824,8 @@ set -euo pipefail
 ROOT_DIR=/audit validation_group=network validation_scope=full
 community_started=false PREPARE_ONLY=false report_ready={str(ready).lower()}
 SMOKE_SCOPE=all SMS_MODE={sms} console_process=""
-BIT101_VALIDATION_SOURCE_DIGEST=network-inputs SCHOOL_SMS_STARTED_DIGEST=school-inputs
-python3() {{ print -r -- "$BIT101_VALIDATION_SOURCE_DIGEST $*"; if [[ "$*" == *'record school-sms'* ]]; then return {school_record_status}; fi; return 0; }}
+BIT101_VALIDATION_INPUT_IDENTITY=network-inputs SCHOOL_SMS_STARTED_DIGEST=school-inputs
+python3() {{ print -r -- "$BIT101_VALIDATION_INPUT_IDENTITY $*"; if [[ "$*" == *'record school-sms'* ]]; then return {school_record_status}; fi; return 0; }}
 {finish_network}
 {network_traps}
 fail_command() {{ return {initial}; }}

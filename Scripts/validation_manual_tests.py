@@ -76,7 +76,7 @@ def evidence_fixture(check: str) -> bytes:
             scenarios['resize']['previousWindowSize'] = {'width': 512, 'height': 768}
         if check != 'performance-baseline':
             from validation_compilation import compilation_settings
-            from validation_provenance import source_digest
+            from validation_provenance import input_identity
             contract = next((identifier, row) for identifier, row in distribution.distribution_contracts().items()
                 if row['platform'] == ('watchOS' if check == 'watch' else 'iOS') and not row['extension'])
             identifier, row = contract
@@ -98,7 +98,7 @@ def evidence_fixture(check: str) -> bytes:
                     scenarios[name]['actions'] = {action: {'operation': '实际操作', 'result': '观察结果', 'outcome': 'passed'} for action in actions}
             return json.dumps({'schemaVersion': 1, 'platform': platform,
                 'deviceIdentifier': 'fixture-mac' if desktop else 'fixture-pad', 'deviceModel': 'Mac' if desktop else 'iPad', 'deviceFamily': 'iPad',
-                'systemVersion': minimum, 'systemBuild': 'fixture-build', 'inputDigest': source_digest('manual-device', environment={}),
+                'systemVersion': minimum, 'systemBuild': 'fixture-build', 'inputDigest': input_identity('manual-device', environment={}),
                 'application': {'identifier': identifier, 'version': row['version'], 'build': row['build'], 'configuration': 'Release',
                     'testHostMarkers': [], 'minimumOSVersion': minimum,
                     **({} if desktop else {'distributionChannel': 'testflight'}),
@@ -118,7 +118,7 @@ def evidence_fixture(check: str) -> bytes:
                     'metrics': {'clockSeconds': {'samples': [0.1] * 10, 'mean': 0.1},
                         'peakPhysicalMemoryBytes': {'samples': [1024] * 10, 'mean': 1024}}}
                 from validation_performance import current_commit
-                from validation_provenance import source_digest
+                from validation_provenance import input_identity
                 context = {'host': {'system': 'fixture'}, 'developer': '/fixture',
                     'xcode': {'DTXcodeBuild': 'fixture'}, 'compiler': {'modified': 1, 'size': 1, 'version': 'a' * 64},
                     'sdks': {'iPhoneOS': {'Version': '26.0'}},
@@ -127,7 +127,7 @@ def evidence_fixture(check: str) -> bytes:
                 current['environment']['compilationConditions'] = sorted(workflow_conditions(group))
                 from validation_performance import normalize_metrics
                 current['execution'] = {'group': group, 'runID': 'fixture-run', 'environment': context,
-                    'sourceCommit': current['sourceCommit'], 'inputDigest': source_digest(group, environment=context), 'bundleIdentity': 'a' * 64}
+                    'sourceCommit': current['sourceCommit'], 'inputDigest': input_identity(group, environment=context), 'bundleIdentity': 'a' * 64}
                 current['xcresultMetrics'] = [{'testIdentifier': test + '()', 'testRuns': [{'device': {'deviceId': 'fixture-phone'},
                     'metrics': [{'identifier': 'com.apple.dt.XCTMetric_Clock.time.monotonic', 'unitOfMeasurement': 's', 'measurements': [0.1] * 10},
                         {'identifier': 'com.apple.dt.XCTMetric_Memory.physical_peak', 'unitOfMeasurement': 'kB', 'measurements': [1.024] * 10}]}]}]
@@ -204,13 +204,13 @@ def registration_self_test(subject) -> None:
             patch.object(subject, 'write_report', side_effect=save), \
             patch('validation_manual.capture', return_value=checks['photos']), \
             patch.object(sys, 'argv', ['evidence', 'manual', 'photos', '--evidence', '/fixture']), redirect_stderr(StringIO()):
-        state['groups']['manual-device']['inputDigest'] = subject.source_digest('manual-device')
+        state['groups']['manual-device']['inputDigest'] = subject.input_identity('manual-device')
         assert subject.main() == 0
         original_digest = state['groups']['manual-device']['inputDigest']
-        original_restore = subject.source_digest('restore')
+        original_restore = subject.input_identity('restore')
         environment['device'] = {'identifier': 'tablet', 'systemVersion': 'other', 'systemBuild': 'other-build'}
-        assert subject.source_digest('manual-device') == original_digest
-        assert subject.source_digest('restore') != original_restore
+        assert subject.input_identity('manual-device') == original_digest
+        assert subject.input_identity('restore') != original_restore
         assert subject.main() == 0
         assert set(state['groups']['manual-device']['summary']['checks']) == set(checks)
         assert state['groups']['manual-device']['environment']['device']['identifier'] == 'tablet'
@@ -258,7 +258,7 @@ def manual_artifact_encoding_self_test() -> None:
     with patch('validation_manual.MAXIMUM_REPORT_BYTES', 1): assert not complete({'photos': observation})
 
 
-@patch('validation_provenance.source_digest', side_effect=lambda group='', *, environment=None: json.dumps([group, environment], sort_keys=True))
+@patch('validation_provenance.input_identity', side_effect=lambda group='', *, environment=None: json.dumps([group, environment], sort_keys=True))
 def run_self_test(_source_identity) -> None:
     manual_diagnostics_self_test()
     manual_artifact_encoding_self_test()

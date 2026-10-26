@@ -11,8 +11,9 @@ import SwiftUI
 
 /// DDL 分页。
 ///
-/// DDL 页使用 `appGroupedListStyle()`，与成绩和空教室保持一致。
+/// 竖屏采用分组列表，宽幅横屏采用待办卡片网格。
 struct DDLScheduleTabView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScheduleDDLViewModel
@@ -26,51 +27,26 @@ struct DDLScheduleTabView: View {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea(edges: .bottom)
 
-            List {
-                Section {
-                    AppRefreshStatusRow(
-                        isRefreshing: viewModel.isSyncingDDL,
-                        refreshingText: "正在刷新 DDL",
-                        lastUpdatedText: viewModel.ddlLastUpdatedText,
-                        actionTitle: "刷新",
-                        onRefresh: {
-                            Task { await refreshDDL() }
-                        }
-                    )
-                }
-
-                if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
-                    Section {
-                        AppEmptyState(
-                            title: "暂无 DDL",
-                            systemImage: "list.bullet.clipboard",
-                            message: viewModel.ddlEmptyStateMessage
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                } else {
-                    ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
-                        Section {
-                            DDLEventRow(
-                                event: event,
-                                remainText: viewModel.ddlRemainingText(for: event, now: currentDate),
-                                dueText: viewModel.ddlDueText(for: event),
-                                tint: color(for: event),
-                                isEditable: viewModel.isCacheWritable,
-                                onToggleDone: { viewModel.toggleDDLDone(event) },
-                                onOpen: {
-                                    if let url = event.browserURL { openURL(url) }
-                                    else { selectedEvent = event }
+            if layout.isLandscape {
+                ScrollView {
+                    VStack(spacing: AppDesignSystem.Spacing.section) {
+                        AppCard { refreshRow }
+                        if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
+                            AppEmptyState(title: "暂无 DDL", systemImage: "list.bullet.clipboard", message: viewModel.ddlEmptyStateMessage)
+                        } else {
+                            LazyVGrid(columns: layout.gridColumns, alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+                                ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
+                                    AppCard { eventRow(event) }
                                 }
-                            )
-                            .appListRowInsets()
+                            }
                         }
                     }
+                    .padding(AppDesignSystem.Spacing.section)
+                    .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
                 }
-            }
-            .accessibilityIdentifier("interaction.DDLScheduleTabView.list")
-            .appGroupedListStyle()
-            .scrollContentBackground(.hidden)
+                .accessibilityIdentifier("interaction.DDLScheduleTabView.grid")
+            } else { eventList }
+
 
             AppFloatingActionStack {
                 AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
@@ -121,6 +97,62 @@ struct DDLScheduleTabView: View {
                 onDismiss: { isShowingEditor = false }
             )
         }
+    }
+
+    private var eventList: some View {
+        List {
+            Section {
+                refreshRow
+            }
+
+            if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
+                Section {
+                    AppEmptyState(
+                        title: "暂无 DDL",
+                        systemImage: "list.bullet.clipboard",
+                        message: viewModel.ddlEmptyStateMessage
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
+                    Section {
+                        eventRow(event)
+                        .appListRowInsets()
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("interaction.DDLScheduleTabView.list")
+        .appGroupedListStyle()
+        .scrollContentBackground(.hidden)
+    }
+
+    private var refreshRow: some View {
+        AppRefreshStatusRow(
+            isRefreshing: viewModel.isSyncingDDL,
+            refreshingText: "正在刷新 DDL",
+            lastUpdatedText: viewModel.ddlLastUpdatedText,
+            actionTitle: "刷新",
+            onRefresh: {
+                Task { await refreshDDL() }
+            }
+        )
+    }
+
+    private func eventRow(_ event: DDLEventRecord) -> some View {
+        DDLEventRow(
+            event: event,
+            remainText: viewModel.ddlRemainingText(for: event, now: currentDate),
+            dueText: viewModel.ddlDueText(for: event),
+            tint: color(for: event),
+            isEditable: viewModel.isCacheWritable,
+            onToggleDone: { viewModel.toggleDDLDone(event) },
+            onOpen: {
+                if let url = event.browserURL { openURL(url) }
+                else { selectedEvent = event }
+            }
+        )
     }
 
     private func refreshDDL() async {

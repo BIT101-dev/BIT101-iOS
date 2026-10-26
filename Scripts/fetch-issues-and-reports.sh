@@ -63,9 +63,10 @@ NODECONFIG
 }
 mkdir -p "$OUTPUT_DIR"
 export WRANGLER_LOG_PATH="$WRANGLER_LOG"
+remote() { python3 "$ROOT_DIR/Scripts/workflow_processes.py" capture "$@"; }
 rm -f "$WRANGLER_LOG"
 keys() {
-  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json" || return $?
+  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json" || return $?
   cat "$OUTPUT_DIR/error-report-keys.json"
 }
 
@@ -79,7 +80,7 @@ show_key() {
   [[ -n "$key" ]] || { echo "没有错误报告。" >&2; exit 1; }
   [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; return 64; }
   local report_path="$OUTPUT_DIR/error-report.json"
-  (cd "$WRANGLER_DIR" && "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) > "$report_path" || return $?
+  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) > "$report_path" || return $?
   python3 -c '
 import json
 from pathlib import Path
@@ -183,7 +184,7 @@ FETCH_STATUS=0
 ISSUES_STATE=success
 CI_STATE=success
 
-if gh api \
+if remote gh api \
   "repos/$REPO/issues?state=open&per_page=100" --paginate --slurp \
   > "$STAGING_DIR/github-issues.json" \
   && python3 "$ROOT_DIR/Scripts/report_inbox.py" issues "$STAGING_DIR/github-issues.json"; then
@@ -195,11 +196,8 @@ else
   FETCH_STATUS=1
 fi
 
-if gh run list \
-  --repo "$REPO" \
-  --limit 20 \
-  --json databaseId,workflowDatabaseId,workflowName,displayTitle,status,conclusion,event,headBranch,headSha,createdAt,updatedAt,url \
-  > "$CI_RUNS_PATH"; then
+if remote gh api "repos/$REPO/actions/runs?per_page=100" --paginate --slurp \
+  > "$CI_RUNS_PATH" && python3 "$ROOT_DIR/Scripts/report_inbox.py" ci-runs "$CI_RUNS_PATH"; then
 
 if python3 - "$CI_RUNS_PATH" "$CI_REPORT_PATH" "$REPO" "$ROOT_DIR/Scripts" <<'PY'
 import json
@@ -213,6 +211,7 @@ output_path = pathlib.Path(sys.argv[2])
 repo = sys.argv[3]
 sys.path.insert(0, sys.argv[4])
 from report_inbox import latest_failed_ci_runs
+from workflow_processes import capture_command
 runs = latest_failed_ci_runs(json.loads(runs_path.read_text(encoding="utf-8")))
 try:
     previous = json.loads(output_path.read_text(encoding="utf-8"))
@@ -230,15 +229,12 @@ def fetch_log(run):
     cached = cached_log(run)
     if cached is not None:
         return dict(run, failedLog=cached)
-    result = subprocess.run(
+    result = capture_command(
         [
             "gh", "run", "view", str(run["databaseId"]),
             "--repo", repo,
             "--log-failed",
         ],
-        check=False,
-        capture_output=True,
-        text=True,
     )
     item = dict(run)
     if result.returncode == 0:
@@ -280,7 +276,7 @@ CLOUDFLARE_STATE=success
 REPORT_COUNT=0
 if load_worker_config 2> "$WRANGLER_LOG" && (
   cd "$WRANGLER_DIR"
-  "$WRANGLER" kv key list --remote --prefix report: --namespace-id "$NAMESPACE_ID"
+  remote "$WRANGLER" kv key list --remote --prefix report: --namespace-id "$NAMESPACE_ID"
 ) > "$STAGING_DIR/error-report-keys.json" 2>> "$WRANGLER_LOG"; then
   mv "$STAGING_DIR/error-report-keys.json" "$OUTPUT_DIR/error-report-keys.json"
 if REPORT_COUNT="$(python3 "$ROOT_DIR/Scripts/report_inbox.py" archive "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt")"; then

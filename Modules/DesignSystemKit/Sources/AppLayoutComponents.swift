@@ -1,5 +1,101 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
+
+public struct AppWindowLayout: Equatable {
+    public var size: CGSize = .zero
+    public var isRegularWidth = false
+    public var usesAccessibilityText = false
+    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false) {
+        self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
+    }
+    public var isLandscape: Bool { isRegularWidth && size.width > size.height && !usesAccessibilityText }
+    public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
+}
+
+private struct AppWindowLayoutKey: EnvironmentKey {
+    static var defaultValue: AppWindowLayout { AppWindowLayout() }
+}
+
+extension EnvironmentValues {
+    public var appWindowLayout: AppWindowLayout {
+        get { self[AppWindowLayoutKey.self] }
+        set { self[AppWindowLayoutKey.self] = newValue }
+    }
+}
+
+private struct AppWindowLayoutModifier: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var size = CGSize.zero
+    func body(content: Content) -> some View {
+        content
+            .background(AppWindowSizeReader(onChange: { size = $0 }))
+            .environment(\.appWindowLayout, AppWindowLayout(size: size,
+                isRegularWidth: horizontalSizeClass == .regular, usesAccessibilityText: dynamicTypeSize.isAccessibilitySize))
+    }
+}
+
+private struct AppWindowSizeReader: UIViewRepresentable {
+    let onChange: (CGSize) -> Void
+    func makeUIView(context: Context) -> ProbeView { ProbeView(onChange: onChange) }
+    func updateUIView(_ view: ProbeView, context: Context) { view.onChange = onChange; view.measure() }
+    final class ProbeView: UIView {
+        var onChange: (CGSize) -> Void
+        private var lastSize = CGSize.zero
+        init(onChange: @escaping (CGSize) -> Void) {
+            self.onChange = onChange
+            super.init(frame: .zero)
+            isUserInteractionEnabled = false
+        }
+        required init?(coder: NSCoder) { return nil }
+        override func didMoveToWindow() { super.didMoveToWindow(); measure() }
+        override func layoutSubviews() { super.layoutSubviews(); measure() }
+        func measure() {
+            guard let size = window?.bounds.size, size != lastSize else { return }
+            lastSize = size
+            Task { @MainActor [weak self] in
+                guard let self, lastSize == size else { return }
+                onChange(size)
+            }
+        }
+    }
+}
+
+extension View {
+    public func appWindowLayout() -> some View { modifier(AppWindowLayoutModifier()) }
+    public func appReadableContent() -> some View { modifier(AppReadableContentModifier()) }
+}
+
+private struct AppReadableContentModifier: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    func body(content: Content) -> some View {
+        content.frame(maxWidth: layout.isLandscape ? AppDesignSystem.Size.Layout.readingWidth : .infinity)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+public struct AppSidebarLayout<Sidebar: View, Content: View>: View {
+    @Environment(\.appWindowLayout) private var layout
+    private let sidebar: Sidebar
+    private let content: (Bool) -> Content
+    public init(@ViewBuilder sidebar: () -> Sidebar, @ViewBuilder content: @escaping (Bool) -> Content) {
+        self.sidebar = sidebar(); self.content = content
+    }
+    public var body: some View {
+        GeometryReader { geometry in
+            let usesSidebar = layout.isLandscape && geometry.size.width >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
+            HStack(spacing: AppDesignSystem.Spacing.none) {
+                if usesSidebar {
+                    sidebar.frame(width: AppDesignSystem.Size.Layout.sidebarWidth)
+                    Divider()
+                }
+                content(usesSidebar).frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
 
 /// 公共卡片容器。页面通过变体表达布局差异，背景、圆角和内边距由组件统一处理。
 public enum AppCardVariant {

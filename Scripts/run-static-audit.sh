@@ -106,9 +106,9 @@ if (( full_audit )) && [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   python3 "$ROOT_DIR/Scripts/validation_performance.py" recover-batch
 fi
 if (( full_audit )); then
-  BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
+  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest audit)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
-  export BIT101_VALIDATION_SOURCE_DIGEST BIT101_VALIDATION_RUN_ID
+  export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
 fi
 
 mkdir -p "$LOG_DIR"

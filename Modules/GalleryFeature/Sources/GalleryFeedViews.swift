@@ -117,6 +117,7 @@ struct GallerySubscriptionsView: View {
 }
 
 struct GalleryFeedView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(GalleryDependencies.self) private var dependencies
     @Environment(MediaEnvironment.self) private var media
@@ -164,33 +165,34 @@ struct GalleryFeedView: View {
                 }
             } else {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                    ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                        AppFeedRow(isLast: index == visiblePosters.count - 1) {
-                            CommunityPosterCard(
-                                poster: poster,
-                                onOpenPoster: { selectedPoster = poster },
-                                onOpenImage: { index, images in
-                                    imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
-                                },
-                                onDelete: nil,
-                                onReport: { reportTarget = .poster(poster.id) }
-                            )
-                        }
-                        .id(poster.id)
-                        .task(id: feedState.status == .loaded ? feedState.nextPage : nil) {
-                            if poster.id == prefetchTriggerPosterID,
-                               lastPrefetchTriggerPosterID != poster.id {
-                                lastPrefetchTriggerPosterID = poster.id
-                                onPrefetch(poster)
+                    LazyVGrid(columns: layout.gridColumns, spacing: layout.isLandscape ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none) {
+                        ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
+                            AppFeedRow(isLast: layout.isLandscape || index == visiblePosters.count - 1) {
+                                CommunityPosterCard(
+                                    poster: poster,
+                                    onOpenPoster: { selectedPoster = poster },
+                                    onOpenImage: { index, images in
+                                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                                    },
+                                    onDelete: nil,
+                                    onReport: { reportTarget = .poster(poster.id) }
+                                )
                             }
-                            guard poster.id == visiblePosters.last?.id else { return }
-                            onLoadMore(poster)
+                            .id(poster.id)
+                            .task(id: feedState.status == .loaded ? feedState.nextPage : nil) {
+                                if poster.id == prefetchTriggerPosterID,
+                                   lastPrefetchTriggerPosterID != poster.id {
+                                    lastPrefetchTriggerPosterID = poster.id
+                                    onPrefetch(poster)
+                                }
+                                guard poster.id == visiblePosters.last?.id else { return }
+                                onLoadMore(poster)
+                            }
                         }
                     }
-
+                    .scrollTargetLayout()
                     if feedState.canLoadMore { pageContinuation }
                 }
-                .scrollTargetLayout()
             }
         }
         .accessibilityIdentifier("interaction.GalleryFeedView.scroll")

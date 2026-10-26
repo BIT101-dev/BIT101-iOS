@@ -30,6 +30,7 @@ public struct PaperRootView: View {
 }
 
 private struct PaperRootViewScene: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
@@ -92,25 +93,27 @@ private struct PaperRootViewScene: View {
                                 )
                             }
                         } else {
-                            ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
-                                AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
-                                    PaperSummaryCard(
-                                        paper: paper,
-                                        previewMetadata: viewModel.previewMetadata(for: paper.id),
-                                        previewFailed: viewModel.previewFailedIDs.contains(paper.id),
-                                        onOpen: {
-                                            selectedPaper = paper
-                                        }
-                                    )
-                                    .accessibilityElement(children: .combine)
-                                    .accessibilityAddTraits(.isButton)
-                                    .accessibilityHint("打开文章详情")
-                                }
-                                .task(id: viewModel.previewGeneration) {
-                                    await viewModel.loadPreviewMetadataIfNeeded(for: paper)
-                                }
-                                .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
-                                    await viewModel.loadMoreIfNeeded(currentPaper: paper)
+                            LazyVGrid(columns: layout.gridColumns, spacing: layout.isLandscape ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none) {
+                                ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
+                                    AppFeedRow(isLast: layout.isLandscape || index == viewModel.state.items.count - 1) {
+                                        PaperSummaryCard(
+                                            paper: paper,
+                                            previewMetadata: viewModel.previewMetadata(for: paper.id),
+                                            previewFailed: viewModel.previewFailedIDs.contains(paper.id),
+                                            onOpen: {
+                                                selectedPaper = paper
+                                            }
+                                        )
+                                        .accessibilityElement(children: .combine)
+                                        .accessibilityAddTraits(.isButton)
+                                        .accessibilityHint("打开文章详情")
+                                    }
+                                    .task(id: viewModel.previewGeneration) {
+                                        await viewModel.loadPreviewMetadataIfNeeded(for: paper)
+                                    }
+                                    .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
+                                        await viewModel.loadMoreIfNeeded(currentPaper: paper)
+                                    }
                                 }
                             }
 

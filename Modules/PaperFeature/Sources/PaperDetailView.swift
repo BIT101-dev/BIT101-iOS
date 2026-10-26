@@ -50,7 +50,7 @@ private struct PaperDetailViewScene: View {
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
-    var body: some View { content.environment(dependencies).environment(media) }
+    var body: some View { content.environment(dependencies).environment(media).appReadableContent() }
 
     private var content: some View {
         ScrollView {

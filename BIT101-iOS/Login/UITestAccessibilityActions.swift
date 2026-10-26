@@ -271,6 +271,20 @@ enum UITestAccessibilityActions {
         return "covered"
     }
 
+    private static var windowTraitValues: [[String: Any]] {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        return windows.filter { !$0.isHidden && $0.windowLevel == .normal }.map { window in
+            ["idiom": window.traitCollection.userInterfaceIdiom.rawValue,
+                "horizontal": window.traitCollection.horizontalSizeClass.rawValue,
+                "vertical": window.traitCollection.verticalSizeClass.rawValue,
+                "width": window.bounds.width, "height": window.bounds.height,
+                "orientation": window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0]
+        }
+    }
+
+    static func windowLayout() throws -> Data { try JSONSerialization.data(withJSONObject: windowTraitValues) }
+
+
     static func coverage() throws -> Data {
         observe()
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
@@ -288,6 +302,7 @@ enum UITestAccessibilityActions {
             "identityScope": "testCaseNavigationPresentationAndOccurrence",
             "animationSpeeds": windows.filter { $0.windowLevel == .normal }.map { $0.layer.speed },
             "animationsEnabled": UIView.areAnimationsEnabled,
+            "windowTraits": windowTraitValues,
         ])
     }
     private struct Element {

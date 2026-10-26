@@ -18,18 +18,17 @@ public struct CoursePageContent: View {
     }
 
     private var content: some View {
-        List {
-            Section {
-                CourseSearchRow(text: $viewModel.searchText, onSubmit: {
-                    Task { await viewModel.submitSearch() }
-                })
+        AppSidebarLayout {
+            List { Section { searchRow } }.appGroupedListStyle()
+                .accessibilityIdentifier("course.sidebar")
+        } content: { usesSidebar in
+            List {
+                if !usesSidebar { Section { searchRow } }
+                Section { courseSection }
             }
-            Section {
-                courseSection
-            }
+            .accessibilityIdentifier("interaction.CoursePageContent.list")
+            .appGroupedListStyle()
         }
-        .accessibilityIdentifier("interaction.CoursePageContent.list")
-        .appGroupedListStyle()
         .refreshable {
             interactionEvidence?("interaction.CoursePageContent.refreshable", "refresh")
             await viewModel.refresh()
@@ -46,6 +45,10 @@ public struct CoursePageContent: View {
         .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
         .background(AppDesignSystem.Palette.Background.grouped)
+    }
+
+    private var searchRow: some View {
+        CourseSearchRow(text: $viewModel.searchText, onSubmit: { Task { await viewModel.submitSearch() } })
     }
 
     @ViewBuilder

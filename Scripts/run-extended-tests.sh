@@ -100,7 +100,7 @@ if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
 fi
 
 if [[ "$MODE" == ui ]]; then bit101_set_workflow_budget ui; fi
-export BIT101_VALIDATION_SOURCE_DIGEST
+export BIT101_VALIDATION_INPUT_IDENTITY
 
 if [[ "$MODE" == "verify" ]]; then
   verification_network_args=(all)
@@ -216,8 +216,8 @@ else
   SIGNING_ARGS=(-allowProvisioningUpdates)
 fi
 BIT101_VALIDATION_RUN_ID="$(uuidgen)"
-BIT101_VALIDATION_SOURCE_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
-export BIT101_VALIDATION_RUN_ID BIT101_VALIDATION_SOURCE_DIGEST
+BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+export BIT101_VALIDATION_RUN_ID BIT101_VALIDATION_INPUT_IDENTITY
 typeset -a retained_result_groups=()
 finish_validation() {
   local validation_status=$?

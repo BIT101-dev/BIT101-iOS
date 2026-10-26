@@ -19,7 +19,6 @@ public struct ScoreListPage: View {
     }
 
     public var body: some View {
-        let summary = viewModel.summary
         let visibleRows = viewModel.visibleRows
         Group {
             switch viewModel.state {
@@ -47,141 +46,58 @@ public struct ScoreListPage: View {
                 }
                 .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
-                List {
-                    Section {
-                        AppRefreshStatusRow(
-                            isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
-                            refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
-                            lastUpdatedText: viewModel.lastUpdatedText,
-                            actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
-                            onRefresh: {
-                                Task { await viewModel.refresh() }
-                            },
-                            actionAccessibilityIdentifier: "score.query"
-                        )
-                        if viewModel.needsStorageRecovery {
-                            Text("当前可用成绩和筛选继续生效，可通过“恢复成绩存储”重建本账号的本机缓存与筛选偏好。")
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                            storageRecoveryButton
-                        }
-                    }
-
-                    Section {
-                        NavigationLink {
-                            TrustedTranscriptDestination(service: transcriptService)
-                        } label: {
-                            Text("申请可信成绩单")
-                        }
-                        .disabled(viewModel.isSyncing)
-                        .appInteractiveListRow()
-                    }
-
-                    Section {
-                        NavigationLink {
-                            ScoreFilterPage(
-                                title: "学期筛选",
-                                options: viewModel.availableTerms,
-                                selectedValues: Binding(
-                                    get: { viewModel.selectedTerms },
-                                    set: { viewModel.setSelectedTerms($0) }
-                                ),
-                                onToggleAll: viewModel.toggleAllTerms
-                            )
-                        } label: {
-                            LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
-                        }
-                        .appInteractiveListRow()
-
-                        if !viewModel.availableCourseTypes.isEmpty {
-                            NavigationLink {
-                                ScoreFilterPage(
-                                    title: "种类筛选",
-                                    options: viewModel.availableCourseTypes,
-                                    selectedValues: Binding(
-                                        get: { viewModel.selectedCourseTypes },
-                                        set: { viewModel.setSelectedCourseTypes($0) }
-                                    ),
-                                    onToggleAll: viewModel.toggleAllCourseTypes
+                AppSidebarLayout {
+                    List { scoreControls }.appGroupedListStyle()
+                        .accessibilityIdentifier("score.sidebar")
+                } content: { usesSidebar in
+                    List {
+                        if !usesSidebar { scoreControls }
+                        Section("成绩列表") {
+                            if visibleRows.isEmpty {
+                                AppEmptyState(
+                                    title: "暂无成绩",
+                                    systemImage: "chart.bar.doc.horizontal",
+                                    message: "当前筛选条件下暂无成绩。"
                                 )
-                            } label: {
-                                LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
-                            }
-                            .appInteractiveListRow()
-                        }
-
-                        NavigationLink {
-                            ScoreSortPage(
-                                sortIndex: Binding(
-                                    get: { viewModel.sortIndex },
-                                    set: { viewModel.setSortIndex($0) }
-                                ),
-                                sortOrder: Binding(
-                                    get: { viewModel.sortOrder },
-                                    set: { viewModel.setSortOrder($0) }
-                                ),
-                                onToggleOrder: viewModel.toggleSortOrder
-                            )
-                        } label: {
-                            LabeledContent("排序", value: viewModel.sortDescription)
-                        }
-                        .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.score-list-page.排序")
-                    }
-
-                    Section("统计") {
-                        LabeledContent("参与加权", value: "\(summary.selectedCourseCount)")
-                        if let pendingCourseCount = viewModel.pendingCourseCount {
-                            LabeledContent("未出分", value: "\(pendingCourseCount)")
-                        }
-                        LabeledContent("总学分", value: formatScoreDecimal(summary.totalCredit))
-                        LabeledContent("加权平均分", value: formatOptionalScore(summary.weightedAverageScore))
-                        LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
-                    }
-
-                    Section("成绩列表") {
-                        if visibleRows.isEmpty {
-                            AppEmptyState(
-                                title: "暂无成绩",
-                                systemImage: "chart.bar.doc.horizontal",
-                                message: "当前筛选条件下暂无成绩。"
-                            )
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            ForEach(visibleRows) { row in
-                                NavigationLink {
-                                    ScoreDetailView(
-                                        row: row,
-                                        onSearchCourse: onSearchCourse
-                                    )
-                                } label: {
-                                    ScoreListRowCard(row: row)
+                                .frame(maxWidth: .infinity)
+                            } else {
+                                ForEach(visibleRows) { row in
+                                    NavigationLink {
+                                        ScoreDetailView(
+                                            row: row,
+                                            onSearchCourse: onSearchCourse
+                                        )
+                                        .appReadableContent()
+                                    } label: {
+                                        ScoreListRowCard(row: row)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .appInteractiveListRow()
+                                        .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                                 }
-                                .buttonStyle(.plain)
-                                .appInteractiveListRow()
-                                    .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                             }
                         }
-                    }
 
-                    if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
-                        Section("未出分") {
-                            ForEach(pendingCourses) { course in
-                                NavigationLink {
-                                    PendingScoreDetailView(course: course)
-                                } label: {
-                                    ScoreListRowCard(course: course)
+                        if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
+                            Section("未出分") {
+                                ForEach(pendingCourses) { course in
+                                    NavigationLink {
+                                        PendingScoreDetailView(course: course)
+                                            .appReadableContent()
+                                    } label: {
+                                        ScoreListRowCard(course: course)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .appInteractiveListRow()
+                                        .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
                                 }
-                                .buttonStyle(.plain)
-                                .appInteractiveListRow()
-                                    .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
                             }
                         }
                     }
+                    .accessibilityIdentifier("interaction.ScoreListPage.list")
+                    .appGroupedListStyle()
+                    .background(AppDesignSystem.Palette.Background.grouped)
                 }
-                .accessibilityIdentifier("interaction.ScoreListPage.list")
-                .appGroupedListStyle()
-                .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
         .task {
@@ -215,6 +131,105 @@ public struct ScoreListPage: View {
                 }
             )
         }
+    }
+
+    @ViewBuilder
+    private var scoreControls: some View {
+        let summary = viewModel.summary
+        Section {
+            AppRefreshStatusRow(
+                isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
+                refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
+                lastUpdatedText: viewModel.lastUpdatedText,
+                actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
+                onRefresh: {
+                    Task { await viewModel.refresh() }
+                },
+                actionAccessibilityIdentifier: "score.query"
+            )
+            if viewModel.needsStorageRecovery {
+                Text("当前可用成绩和筛选继续生效，可通过“恢复成绩存储”重建本账号的本机缓存与筛选偏好。")
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                storageRecoveryButton
+            }
+        }
+
+        Section {
+            NavigationLink {
+                TrustedTranscriptDestination(service: transcriptService)
+            } label: {
+                Text("申请可信成绩单")
+            }
+            .disabled(viewModel.isSyncing)
+            .appInteractiveListRow()
+        }
+
+        Section {
+            NavigationLink {
+                ScoreFilterPage(
+                    title: "学期筛选",
+                    options: viewModel.availableTerms,
+                    selectedValues: Binding(
+                        get: { viewModel.selectedTerms },
+                        set: { viewModel.setSelectedTerms($0) }
+                    ),
+                    onToggleAll: viewModel.toggleAllTerms
+                )
+                .appReadableContent()
+            } label: {
+                LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
+            }
+            .appInteractiveListRow()
+
+            if !viewModel.availableCourseTypes.isEmpty {
+                NavigationLink {
+                    ScoreFilterPage(
+                        title: "种类筛选",
+                        options: viewModel.availableCourseTypes,
+                        selectedValues: Binding(
+                            get: { viewModel.selectedCourseTypes },
+                            set: { viewModel.setSelectedCourseTypes($0) }
+                        ),
+                        onToggleAll: viewModel.toggleAllCourseTypes
+                    )
+                    .appReadableContent()
+                } label: {
+                    LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
+                }
+                .appInteractiveListRow()
+            }
+
+            NavigationLink {
+                ScoreSortPage(
+                    sortIndex: Binding(
+                        get: { viewModel.sortIndex },
+                        set: { viewModel.setSortIndex($0) }
+                    ),
+                    sortOrder: Binding(
+                        get: { viewModel.sortOrder },
+                        set: { viewModel.setSortOrder($0) }
+                    ),
+                    onToggleOrder: viewModel.toggleSortOrder
+                )
+                .appReadableContent()
+            } label: {
+                LabeledContent("排序", value: viewModel.sortDescription)
+            }
+            .appInteractiveListRow()
+                .accessibilityIdentifier("ui.score-list-page.排序")
+        }
+
+        Section("统计") {
+            LabeledContent("参与加权", value: "\(summary.selectedCourseCount)")
+            if let pendingCourseCount = viewModel.pendingCourseCount {
+                LabeledContent("未出分", value: "\(pendingCourseCount)")
+            }
+            LabeledContent("总学分", value: formatScoreDecimal(summary.totalCredit))
+            LabeledContent("加权平均分", value: formatOptionalScore(summary.weightedAverageScore))
+            LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
+        }
+
     }
 
     private var storageRecoveryButton: some View {

@@ -19,7 +19,35 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
     }
 }
 
+struct CourseScheduleRefreshStatusRow: View {
+    @ObservedObject var viewModel: ScheduleViewModel
+    private var activeSchedule: ScheduleViewModel.CourseScheduleVariant { viewModel.activeCourseSchedule }
+    var body: some View {
+        if activeSchedule.isPrimary {
+            AppRefreshStatusRow(
+                isRefreshing: viewModel.isSyncingCourses,
+                refreshingText: "正在刷新课表",
+                lastUpdatedText: viewModel.coursesLastUpdatedText,
+                actionTitle: "刷新",
+                onRefresh: {
+                    Task { await viewModel.syncSelectedTerm() }
+                }
+            )
+        } else {
+            AppRefreshStatusRow(
+                isRefreshing: false,
+                refreshingText: "",
+                lastUpdatedText: activeSchedule.importedAt.map {
+                    "导入时间：\($0.formatted(.dateTime.month().day().hour().minute()))"
+                } ?? "分享课表",
+                trailingText: "只读"
+            )
+        }
+    }
+}
+
 struct CourseScheduleTabView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     struct ScheduleCodePresentation: Identifiable {
         let id = UUID()
@@ -112,7 +140,7 @@ struct CourseScheduleTabView: View {
 
     /// 课表分区主体。
     ///
-    /// 课表页使用主 List 承载更新时间和表格两个 Section，更新时间与表格共享同一个列表。
+    /// 竖屏合并更新时间与表格，横屏沿顶栏展示刷新状态并扩展日历高度。
     var body: some View {
         GeometryReader { proxy in
             let listHeight = max(
@@ -126,7 +154,7 @@ struct CourseScheduleTabView: View {
             )
             let calendarHeight = max(
                 listHeight
-                    - refreshStatusHeight
+                    - (layout.isLandscape ? 0 : refreshStatusHeight)
                     - scheduleSectionGap
                     - scheduleSectionGap,
                 1
@@ -134,29 +162,9 @@ struct CourseScheduleTabView: View {
 
             ZStack(alignment: .bottomTrailing) {
                 List {
+                    if !layout.isLandscape {
                     Section {
-                        Group {
-                            if activeSchedule.isPrimary {
-                                AppRefreshStatusRow(
-                                    isRefreshing: viewModel.isSyncingCourses,
-                                    refreshingText: "正在刷新课表",
-                                    lastUpdatedText: viewModel.coursesLastUpdatedText,
-                                    actionTitle: "刷新",
-                                    onRefresh: {
-                                        Task { await viewModel.syncSelectedTerm() }
-                                    }
-                                )
-                            } else {
-                                AppRefreshStatusRow(
-                                    isRefreshing: false,
-                                    refreshingText: "",
-                                    lastUpdatedText: activeSchedule.importedAt.map {
-                                        "导入时间：\($0.formatted(.dateTime.month().day().hour().minute()))"
-                                    } ?? "分享课表",
-                                    trailingText: "只读"
-                                )
-                            }
-                        }
+                        CourseScheduleRefreshStatusRow(viewModel: viewModel)
                         .background {
                             GeometryReader { rowProxy in
                                 Color.clear.preference(
@@ -165,6 +173,7 @@ struct CourseScheduleTabView: View {
                                 )
                             }
                         }
+                    }
                     }
 
                     // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。

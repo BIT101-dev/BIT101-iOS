@@ -32,7 +32,9 @@ from ui_source_facts import (
 
 
 def check_composer_lifecycle(errors: list[str], syntax: dict[str, dict]) -> None:
-    for path, facts in execution_index(syntax).items():
+    from ui_source_facts import UIAuditContext
+    execution = syntax.execution if isinstance(syntax, UIAuditContext) else execution_index(syntax)
+    for path, facts in syntax.items():
         for scope in view_scopes(facts):
             rendered = rendered_scope_facts(facts, scope, syntax)
             callback = any(node.get('scope') == scope and 'async' in node.get('type', '') and '->' in node.get('type', '')
@@ -44,7 +46,7 @@ def check_composer_lifecycle(errors: list[str], syntax: dict[str, dict]) -> None
             if not editor and not (callback and comment): continue
             guards = [invocation for invocation in rendered.get('invocations', [])
                 if call_name(invocation['calledExpression']) == 'interactiveDismissDisabled']
-            if not any(not invocation.get('arguments') or branch_value(facts, invocation, invocation['arguments'][0]) is not False for invocation in guards):
+            if not any(not invocation.get('arguments') or branch_value(execution[path], invocation, invocation['arguments'][0]) is not False for invocation in guards):
                 errors.append(f'{path}: {scope[-1]} 的系统关闭需要沿编辑与提交状态保护')
 
 

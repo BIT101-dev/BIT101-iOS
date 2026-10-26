@@ -137,7 +137,30 @@ def supervise(command: list[str], environment: dict, *, owns_process_group: bool
         for signum, handler in previous.items(): signal.signal(signum, handler)
 
 
+def capture_command(command: list[str], *, cwd=None, timeout=60) -> subprocess.CompletedProcess:
+    process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, start_new_session=True)
+    try:
+        try:
+            output, error = process.communicate(timeout=timeout)
+            status = process.returncode
+        except subprocess.TimeoutExpired:
+            stop_groups({process.pid} | descendant_groups(process.pid), grace_seconds=0)
+            output, error = process.communicate()
+            status = 124
+            error += f'\n[超时] 远端请求达到 {timeout:g} 秒执行期限。\n'
+        return subprocess.CompletedProcess(command, status, output, error)
+    finally:
+        if process.poll() is None:
+            stop_groups({process.pid} | descendant_groups(process.pid), grace_seconds=0)
+            process.wait()
+
+
 def main(arguments: list[str]) -> int:
+    if arguments[:1] == ['capture']:
+        result = capture_command(arguments[1:])
+        sys.stdout.write(result.stdout); sys.stderr.write(result.stderr)
+        return result.returncode
     if arguments[:1] == ['terminate-groups']:
         stop_groups({int(value) for value in arguments[1:] if int(value) > 0})
         return 0

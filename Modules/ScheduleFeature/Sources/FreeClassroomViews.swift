@@ -28,112 +28,123 @@ struct FreeClassroomTabView: View {
 
     var body: some View {
         let availabilities = viewModel.classroomAvailabilities(at: currentDate)
-        List {
-            Section {
-                AppRefreshStatusRow(
-                    isRefreshing: isClassroomRefreshing,
-                    refreshingText: classroomLoadingText,
-                    lastUpdatedText: viewModel.classroomLastUpdatedText,
-                    actionTitle: "刷新",
-                    onRefresh: {
-                        Task { await viewModel.refreshClassroomPage() }
-                    }
-                )
-            }
-
-            Section {
-                Picker("校区", selection: Binding(
-                    get: { viewModel.cache.selectedCampusCode },
-                    set: { newValue in
-                        viewModel.selectCampus(code: newValue)
-                    }
-                )) {
-                    ForEach(viewModel.campuses) { campus in
-                        Text(campus.name).tag(campus.code)
-                    }
-                }
-                .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
-                .appInteractiveListRow()
-
-                Picker("教学楼", selection: Binding(
-                    get: { viewModel.selectedBuildingID },
-                    set: { newValue in
-                        viewModel.selectBuilding(id: newValue)
-                    }
-                )) {
-                    ForEach(viewModel.buildings) { building in
-                        Text(building.name).tag(building.buildingCode)
-                    }
-                }
-                .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
-                .appInteractiveListRow()
-
-                NavigationLink {
-                    ClassroomSectionFilterPage(
-                        timeTable: viewModel.cache.timeTable,
-                        selectedSectionIDs: Binding(
-                            get: { viewModel.cache.selectedClassroomSectionIDs },
-                            set: { viewModel.setSelectedClassroomSectionIDs($0) }
-                        )
-                    )
-                } label: {
-                    LabeledContent("节次筛选", value: viewModel.classroomSectionFilterSummary)
-                }
-                .appInteractiveListRow()
-            }
-
-            if availabilities.isEmpty, !isClassroomRefreshing {
-                Section {
-                    AppEmptyState(
-                        title: "暂无空教室结果",
-                        systemImage: "building.2.crop.circle",
-                        message: emptyStateMessage,
-                        actionTitle: canClearSectionFilter ? "清除节次筛选" : "刷新空教室",
-                        onAction: {
-                            if canClearSectionFilter {
-                                viewModel.setSelectedClassroomSectionIDs([])
-                            } else {
-                                Task { await viewModel.refreshClassroomPage() }
+        AppSidebarLayout {
+            List { classroomControls }.appGroupedListStyle()
+                .accessibilityIdentifier("classroom.sidebar")
+        } content: { usesSidebar in
+            List {
+                if !usesSidebar { classroomControls }
+                if availabilities.isEmpty, !isClassroomRefreshing {
+                    Section {
+                        AppEmptyState(
+                            title: "暂无空教室结果",
+                            systemImage: "building.2.crop.circle",
+                            message: emptyStateMessage,
+                            actionTitle: canClearSectionFilter ? "清除节次筛选" : "刷新空教室",
+                            onAction: {
+                                if canClearSectionFilter {
+                                    viewModel.setSelectedClassroomSectionIDs([])
+                                } else {
+                                    Task { await viewModel.refreshClassroomPage() }
+                                }
                             }
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                } else {
+                    Section {
+                        // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
+                        ForEach(availabilities) { classroom in
+                            let matchesAllSelectedSections = isExactMatch(for: classroom)
+                            HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.content) {
+                                Text(classroom.name)
+                                    .font(AppDesignSystem.Typography.body)
+                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                                    .lineLimit(1)
+                                    .allowsTightening(true)
+                                    .minimumScaleFactor(0.8)
+                                    .layoutPriority(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(classroom.prettyFreeTimes)
+                                    .font(
+                                        matchesAllSelectedSections
+                                            ? AppDesignSystem.Typography.subheadlineEmphasis
+                                            : AppDesignSystem.Typography.subheadline
+                                    )
+                                    .foregroundStyle(
+                                        matchesAllSelectedSections
+                                            ? AppDesignSystem.Foreground.primary
+                                            : AppDesignSystem.Foreground.secondary
+                                    )
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            .padding(.vertical, AppDesignSystem.Spacing.tiny)
                         }
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                Section {
-                    // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
-                    ForEach(availabilities) { classroom in
-                        let matchesAllSelectedSections = isExactMatch(for: classroom)
-                        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.content) {
-                            Text(classroom.name)
-                                .font(AppDesignSystem.Typography.body)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .minimumScaleFactor(0.8)
-                                .layoutPriority(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(classroom.prettyFreeTimes)
-                                .font(
-                                    matchesAllSelectedSections
-                                        ? AppDesignSystem.Typography.subheadlineEmphasis
-                                        : AppDesignSystem.Typography.subheadline
-                                )
-                                .foregroundStyle(
-                                    matchesAllSelectedSections
-                                        ? AppDesignSystem.Foreground.primary
-                                        : AppDesignSystem.Foreground.secondary
-                                )
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .padding(.vertical, AppDesignSystem.Spacing.tiny)
                     }
                 }
             }
+            .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
+            .appGroupedListStyle()
         }
-        .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
-        .appGroupedListStyle()
+    }
+
+    @ViewBuilder
+    private var classroomControls: some View {
+        Section {
+            AppRefreshStatusRow(
+                isRefreshing: isClassroomRefreshing,
+                refreshingText: classroomLoadingText,
+                lastUpdatedText: viewModel.classroomLastUpdatedText,
+                actionTitle: "刷新",
+                onRefresh: {
+                    Task { await viewModel.refreshClassroomPage() }
+                }
+            )
+        }
+
+        Section {
+            Picker("校区", selection: Binding(
+                get: { viewModel.cache.selectedCampusCode },
+                set: { newValue in
+                    viewModel.selectCampus(code: newValue)
+                }
+            )) {
+                ForEach(viewModel.campuses) { campus in
+                    Text(campus.name).tag(campus.code)
+                }
+            }
+            .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
+            .appInteractiveListRow()
+
+            Picker("教学楼", selection: Binding(
+                get: { viewModel.selectedBuildingID },
+                set: { newValue in
+                    viewModel.selectBuilding(id: newValue)
+                }
+            )) {
+                ForEach(viewModel.buildings) { building in
+                    Text(building.name).tag(building.buildingCode)
+                }
+            }
+            .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
+            .appInteractiveListRow()
+
+            NavigationLink {
+                ClassroomSectionFilterPage(
+                    timeTable: viewModel.cache.timeTable,
+                    selectedSectionIDs: Binding(
+                        get: { viewModel.cache.selectedClassroomSectionIDs },
+                        set: { viewModel.setSelectedClassroomSectionIDs($0) }
+                    )
+                )
+                    .appReadableContent()
+            } label: {
+                LabeledContent("节次筛选", value: viewModel.classroomSectionFilterSummary)
+            }
+            .appInteractiveListRow()
+        }
+
     }
 
     private var hasSectionFilter: Bool {

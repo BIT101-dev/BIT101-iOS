@@ -28,6 +28,7 @@ extension EnvironmentValues {
 /// 顶部使用公共 segmented，正文按当前分区单独渲染。
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
@@ -64,16 +65,25 @@ public struct ScheduleRootView: View {
                         : 0)
                 )
             )
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("schedule.section-surface")
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         // 与成绩、话廊共用同一套 safeAreaInset 结构。列表内容从顶部切换栏之后开始，
         // 日程分栏保持单层 VStack 间距。
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            ScheduleSectionTabs(
-                selectedSection: $viewModel.selectedSection,
-                courseTitle: viewModel.activeCourseScheduleTitle
-            )
+            HStack(spacing: AppDesignSystem.Spacing.content) {
+                ScheduleSectionTabs(
+                    selectedSection: $viewModel.selectedSection,
+                    courseTitle: viewModel.activeCourseScheduleTitle
+                )
+                    .frame(maxWidth: layout.isLandscape && viewModel.selectedSection == .courses
+                        ? AppDesignSystem.Size.Layout.sidebarWidth : .infinity)
+                if layout.isLandscape && viewModel.selectedSection == .courses {
+                    CourseScheduleRefreshStatusRow(viewModel: viewModel)
+                        .padding(.horizontal, AppDesignSystem.Spacing.content)
+                }
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。

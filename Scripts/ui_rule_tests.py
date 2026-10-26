@@ -34,6 +34,19 @@ from ui_rules import (
 
 
 def ast_marker_boundary_findings() -> list[str]:
+    from unittest.mock import patch
+    from ui_source_facts import UIAuditContext, rendered_scope_facts
+    from swift_type_index import execution_index
+    path = str(ROOT / 'BIT101-iOS/Views.swift')
+    shared = swift_syntax_index_sources({path: 'struct First: View { var body: some View { makeLeaf() }; func makeLeaf() -> some View { Leaf() } }; struct Second: View { var body: some View { Text("two") } }; struct Leaf: View { var body: some View { Text("leaf").appSelectionFeedback(trigger: true) } }'})
+    with patch('ui_source_facts.execution_index', wraps=execution_index) as build:
+        context = UIAuditContext(shared)
+        for facts in context.values(): facts['renderedScopeFacts'] = {}
+        check_composer_lifecycle([], context)
+        for name in ('First', 'Second'):
+            assert rendered_scope_facts(context[path], [name], context)['calls']
+        assert view_or_child_has_marker(context, context[path], ['First'], 'appSelectionFeedback')
+        assert build.call_count == 1, '多份 View 共享单次执行索引'
     color_path = 'semantic-color-self-test.swift'
     color_source = '''
 import SwiftUI

@@ -21,6 +21,44 @@ import Combine
 import CommunityTransport
 import UIKit
 
+enum AppInterfaceOrientationPolicy {
+    static func supportedOrientations(for traits: UITraitCollection) -> UIInterfaceOrientationMask {
+        if traits.userInterfaceIdiom == .phone {
+            return traits.horizontalSizeClass == .regular && traits.verticalSizeClass == .regular
+                ? .allButUpsideDown : .portrait
+        }
+        return .all
+    }
+}
+
+struct AppInterfaceOrientationObserver: UIViewRepresentable {
+    func makeUIView(context: Context) -> AppInterfaceOrientationView { AppInterfaceOrientationView() }
+    func updateUIView(_ view: AppInterfaceOrientationView, context: Context) { view.updatePolicy() }
+}
+
+final class AppInterfaceOrientationView: UIView {
+    private var supportedOrientations: UIInterfaceOrientationMask?
+    init() {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitUserInterfaceIdiom.self]) {
+            (view: AppInterfaceOrientationView, _: UITraitCollection) in view.updatePolicy()
+        }
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
+    override func didMoveToWindow() { super.didMoveToWindow(); supportedOrientations = nil; updatePolicy() }
+    func updatePolicy() {
+        guard let window, let scene = window.windowScene else { return }
+        let mask = AppInterfaceOrientationPolicy.supportedOrientations(for: scene.traitCollection)
+        guard supportedOrientations != mask else { return }
+        supportedOrientations = mask
+        window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        if mask == .portrait && scene.effectiveGeometry.interfaceOrientation.isLandscape {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+        }
+    }
+}
+
 /// 应用底部 Tab 的稳定标识。
 ///
 /// 底部导航使用固定顺序。

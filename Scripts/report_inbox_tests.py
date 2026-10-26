@@ -12,7 +12,13 @@ def report_inbox_boundary_findings() -> list[str]:
     "验证反馈正文、附件、旧键和重复拉取的保存合同。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
-    from report_inbox import archive_reports, normalize_github_issues, latest_failed_ci_runs
+    from report_inbox import archive_reports, normalize_github_issues, normalize_ci_runs, latest_failed_ci_runs
+    from workflow_processes import capture_command, active_members
+    captured = capture_command([sys.executable, '-c', 'import sys; print("body"); print("detail", file=sys.stderr); sys.exit(3)'])
+    assert captured.returncode == 3 and captured.stdout == 'body\n' and captured.stderr == 'detail\n'
+    expired = capture_command([sys.executable, '-c', 'import os,subprocess,sys,time; print(os.getpgrp(), flush=True); subprocess.Popen([sys.executable,"-c","import time; time.sleep(60)"]); time.sleep(60)'], timeout=1)
+    assert expired.returncode == 124 and '超时' in expired.stderr
+    assert not active_members({int(expired.stdout.strip())}), '请求超时回收整组子进程'
     def run(number, workflow=1, branch='main', event='push', conclusion='failure', status='completed'):
         return dict(databaseId=number, workflowDatabaseId=workflow, headBranch=branch, event=event, conclusion=conclusion, status=status)
     runs = [run(10, workflow=3, conclusion='timed_out'), run(9, status='in_progress', conclusion=''), run(8, conclusion='success'),
@@ -41,7 +47,7 @@ def report_inbox_boundary_findings() -> list[str]:
         keys_path.write_text(json.dumps([{"name": key} for key in reports]))
         output = StringIO()
         with patch.object(sys, "argv", ["inbox", str(keys_path), str(staging), "/worker", "namespace", str(processed_path)]), \
-                patch.object(subprocess, "run", fetch), redirect_stdout(output):
+                patch("report_inbox.capture_command", fetch), redirect_stdout(output):
             archive_reports(sys.argv[1:])
         return int(output.getvalue())
     try:
@@ -52,6 +58,11 @@ def report_inbox_boundary_findings() -> list[str]:
         issues_path.write_text(json.dumps([[dict(number=1), dict(number=2, pull_request={})], [dict(number=3, pull_request=None)]]))
         normalize_github_issues([str(issues_path)])
         assert [item['number'] for item in json.loads(issues_path.read_text())] == [1, 3]
+        ci_path = fixture / 'ci-runs.json'
+        ci_path.write_text(json.dumps([{'workflow_runs': [dict(id=index, workflow_id=1, status='completed', conclusion='success', head_branch='main', event='push') for index in range(30, 10, -1)]},
+            {'workflow_runs': [dict(id=9, workflow_id=2, status='completed', conclusion='failure', head_branch='feature', event='push')]}]))
+        normalize_ci_runs([str(ci_path)])
+        assert [item['databaseId'] for item in latest_failed_ci_runs(json.loads(ci_path.read_text()))] == [9]
         assert execute() == 2
         saved = {path.relative_to(fixture): path.read_bytes() for path in fixture.glob("*/*/*") if path.is_file()}
         attachment = next(fixture.glob("*/*/*_附件/*.jpg"))
@@ -135,6 +146,12 @@ def report_inbox_boundary_findings() -> list[str]:
 if [[ "$1" == api ]]; then
   if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then print -ru2 'incompatible flags'; exit 64; fi
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 17; fi
+  if [[ "$2" == *"/actions/runs?"* ]]; then
+    if [[ "$INBOX_SELF_TEST_MODE" == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then
+      print '[{"workflow_runs":[{"id":1,"workflow_id":1,"event":"push","head_branch":"main","status":"completed","conclusion":"failure","updated_at":"new","head_sha":"head"}]}]'
+    else print '[]'; fi
+    exit 0
+  fi
   print '[]'
 elif [[ "$2" == list ]]; then
   if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]]; then print partial; exit 18; fi
@@ -155,6 +172,7 @@ node() { [[ "$INBOX_SELF_TEST_MODE" != cloudflare-config-failure ]] || return 22
 '''
         shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', stubs)
         shell_source = shell_source.replace('WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', 'WRANGLER=mock_wrangler')
+        shell_source = shell_source.replace('remote() { python3 "$ROOT_DIR/Scripts/workflow_processes.py" capture "$@"; }', 'remote() { "$@"; }')
         issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
         old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
         old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLog":"cached log"}]'
@@ -258,7 +276,7 @@ def archive_io_failure_self_test(fixture: Path) -> None:
                 if Path(source).name == 'report_bad.json' and failure == 'commit': raise OSError('archive move failed')
                 return replace(source, destination, *args, **kwargs)
             arguments = [str(keys), str(staging), '/worker', 'namespace', str(processed)]
-            with patch.object(subprocess, 'run', fetch), patch.object(Path, 'write_text', text), \
+            with patch('report_inbox.capture_command', fetch), patch.object(Path, 'write_text', text), \
                     patch.object(Path, 'write_bytes', data), patch.object(os, 'replace', commit), \
                     redirect_stdout(output := StringIO()), redirect_stderr(StringIO()):
                 try: archive_reports(arguments)
@@ -272,7 +290,7 @@ def archive_io_failure_self_test(fixture: Path) -> None:
             calls.clear()
             failure = ''
             staging.mkdir()
-            with patch.object(subprocess, 'run', fetch), redirect_stdout(output := StringIO()):
+            with patch('report_inbox.capture_command', fetch), redirect_stdout(output := StringIO()):
                 archive_reports(arguments)
             assert calls == ['report:bad'] and int(output.getvalue()) == 1
     finally:
@@ -392,7 +410,7 @@ def community_recovery_self_test() -> list[str]:
     cleanup_environment = {"host": {"system": "fixture"}, "developer": "/fixture", "xcode": {"version": "fixture"},
         "compiler": {"modified": 1, "size": 100, "version": "a" * 64}, "sdks": {"fixture": {"Version": "1"}}, "device": {
         "identifier": "fixture-phone", "systemVersion": "fixture-os", "systemBuild": "fixture-build"}}
-    with patch("validation_evidence.source_digest", return_value="source"), patch("validation_evidence.network_inventory", return_value={"community.login"}), \
+    with patch("validation_evidence.input_identity", return_value="source"), patch("validation_evidence.network_inventory", return_value={"community.login"}), \
             patch("validation_evidence.environment_context", return_value=cleanup_environment), \
             patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"), \
             patch("validation_evidence.report_lock", side_effect=nullcontext), patch("validation_evidence.write_report") as saved, \

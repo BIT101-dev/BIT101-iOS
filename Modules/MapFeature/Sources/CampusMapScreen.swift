@@ -68,6 +68,7 @@ private enum CampusMapDisplayMode: String {
 ///
 /// 使用原生 MapKit 展示下一节课的位置，并提供校区切换和系统地图导航入口。
 public struct CampusMapScreen: View {
+    @Environment(\.appWindowLayout) private var layout
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
@@ -136,15 +137,13 @@ public struct CampusMapScreen: View {
                     centerOnUser()
                 }
 
-                ForEach(CampusPreset.allCases) { preset in
-                    FloatingMapLabelButton(
-                        label: preset.shortLabel,
-                        accessibilityLabel: "切换到\(preset.displayName)",
-                        isSelected: preset == selectedCampus
-                    ) {
-                        jump(to: preset, animated: false)
-                    }
-                }
+                if !layout.isLandscape { campusButtons }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if layout.isLandscape {
+                HStack(spacing: AppDesignSystem.Spacing.content) { campusButtons }
+                    .padding(AppDesignSystem.Spacing.content)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -174,6 +173,18 @@ public struct CampusMapScreen: View {
             }
         }
         .diagnosticAlert(item: $locationController.notice)
+    }
+
+    private var campusButtons: some View {
+        ForEach(CampusPreset.allCases) { preset in
+            FloatingMapLabelButton(
+                label: preset.shortLabel,
+                accessibilityLabel: "切换到\(preset.displayName)",
+                isSelected: preset == selectedCampus
+            ) {
+                jump(to: preset, animated: false)
+            }
+        }
     }
 
     /// 读取课程详情传入的临时地点请求。请求包含地点时，更新持久化的选中校区并聚焦对应校区。

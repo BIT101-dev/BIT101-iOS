@@ -432,6 +432,12 @@ def static_symbol_values(
     return []
 
 
+class UIAuditContext(dict):
+    def __init__(self, syntax):
+        super().__init__(syntax)
+        self.execution = execution_index(self)
+
+
 def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] | None = None) -> dict:
     """Limit a View's contract search to rendered expressions and reachable View helpers."""
     memo = facts.get("renderedScopeFacts")
@@ -456,7 +462,7 @@ def rendered_scope_facts(facts: dict, scope: list[str], syntax: dict[str, dict] 
     inputs = dict(syntax or {})
     if not any(part is facts for part in inputs.values()):
         inputs["ui-fixture.swift"] = facts
-    execution = execution_index(inputs)
+    execution = syntax.execution if isinstance(syntax, UIAuditContext) and len(inputs) == len(syntax) else execution_index(inputs)
     executable_parts = {id(part): execution[path] for path, part in inputs.items()}
 
     def can_render(part: dict, start: int) -> bool:
@@ -771,37 +777,73 @@ def explanatory_text_report() -> None:
     write_report(ROOT)
 
 
-def view_helper_ranges(index: dict, types, *, origin=None) -> dict[str, set[tuple[int, int]]]:
-    """Follow free helper functions called from views and view factories."""
-    from swift_type_index import compilation_unit
-    from network_capability_rules import matching_api_calls
-    functions = [(path, function) for path, facts in index.items() for function in facts.get('functionRanges', [])
-        if not function['scope'] and function.get('bodyStart') is not None]
-    owners = {path: {owner for owner, bases in types.conformances(path).items()
-        if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
-        if origin is None or path == origin else set() for path in index}
-    ranges = {path: {(function['bodyStart'], function['end']) for function in facts.get('functionRanges', [])
-        if function.get('returnsView') and function.get('bodyStart') is not None and (origin is None or path == origin)}
-        for path, facts in index.items()}
-    changed = True
-    while changed:
-        changed = False
+class ViewHelperGraph:
+    def __init__(self, index, types):
+        from swift_type_index import compilation_unit
+        self.index, self.types = index, types
+        self.units = {path: compilation_unit(path) for path in index}
+        self.named = {}
         for path, facts in index.items():
-            if origin is not None and path != origin and not ranges[path]: continue
-            for call in facts.get('invocations', []):
-                if not scope_contains_type(call['scope'], owners[path]) and not any(
-                        start <= call['start'] < end for start, end in ranges[path]): continue
-                prefix, _, name = call['calledExpression'].rpartition('.')
-                if prefix and prefix != compilation_unit(path): continue
-                candidates = [(source, function) for source, function in functions if function['name'] == name
-                    and compilation_unit(source) == compilation_unit(path) and (
-                        not function.get('isFilePrivate') or source == path) and (
-                        not function.get('lexicalScope') or source == path
-                        and call.get('lexicalScope', [])[:len(function['lexicalScope'])] == function['lexicalScope'])]
-                for source, function in matching_api_calls(index, candidates, dict(call, path=path), types=types, conservative=True):
-                    bounds = (function['bodyStart'], function['end'])
-                    if bounds not in ranges[source]: ranges[source].add(bounds); changed = True
-    return ranges
+            for function in facts.get('functionRanges', []):
+                if not function['scope'] and function.get('bodyStart') is not None:
+                    self.named.setdefault((self.units[path], function['name']), []).append((path, function))
+        self.owners = {path: {owner for owner, bases in types.conformances(path).items()
+            if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)} for path in index}
+        self.factories = {path: {(path, function['bodyStart'], function['end']) for function in facts.get('functionRanges', [])
+            if function.get('returnsView') and function.get('bodyStart') is not None} for path, facts in index.items()}
+        self.calls, self.roots, self.edges, self.results = {}, {}, {}, {}
+
+    def targets(self, path, call):
+        from network_capability_rules import matching_api_calls
+        key = (path, call['start'])
+        if key not in self.calls:
+            prefix, _, name = call['calledExpression'].rpartition('.')
+            candidates = [(source, function) for source, function in self.named.get((self.units[path], name), [])
+                if (not prefix or prefix == self.units[path])
+                and (not function.get('isFilePrivate') or source == path) and (
+                    not function.get('lexicalScope') or source == path
+                    and call.get('lexicalScope', [])[:len(function['lexicalScope'])] == function['lexicalScope'])]
+            self.calls[key] = {(source, function['bodyStart'], function['end']) for source, function in matching_api_calls(
+                self.index, candidates, dict(call, path=path), types=self.types, conservative=True)} if candidates else set()
+        return self.calls[key]
+
+    def seeds(self, path):
+        if path not in self.roots:
+            result = set(self.factories[path])
+            for call in self.index[path].get('invocations', []):
+                if scope_contains_type(call['scope'], self.owners[path]) or any(
+                        start <= call['start'] < end for _, start, end in self.factories[path]):
+                    result.update(self.targets(path, call))
+            self.roots[path] = result
+        return self.roots[path]
+
+    def successors(self, key):
+        if key not in self.edges:
+            path, start, end = key
+            self.edges[key] = set().union(*(self.targets(path, call) for call in self.index[path].get('invocations', [])
+                if start <= call['start'] < end))
+        return self.edges[key]
+
+    def ranges(self, origin):
+        if origin not in self.results:
+            reachable = set().union(*(self.seeds(path) for path in self.index if origin is None or path == origin))
+            pending = list(reachable)
+            while pending:
+                for target in self.successors(pending.pop()) - reachable:
+                    reachable.add(target); pending.append(target)
+            result = {path: set() for path in self.index}
+            for path, start, end in reachable: result[path].add((start, end))
+            self.results[origin] = result
+        return self.results[origin]
+
+
+def view_helper_ranges(index: dict, types, *, origin=None) -> dict[str, set[tuple[int, int]]]:
+    """Resolve reachable helper edges once per audit and share ranges by source."""
+    graph = getattr(types, '_view_helpers', None)
+    if graph is None or graph.index is not index:
+        graph = ViewHelperGraph(index, types)
+        types._view_helpers = graph
+    return graph.ranges(origin)
 
 
 def view_transport_findings(index: dict) -> list[str]:

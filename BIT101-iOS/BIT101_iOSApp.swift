@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         restoreLoginSession()
     }
 
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        AppInterfaceOrientationPolicy.supportedOrientations(for: window?.windowScene?.traitCollection
+            ?? UITraitCollection(userInterfaceIdiom: UIDevice.current.userInterfaceIdiom))
+    }
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -409,6 +414,10 @@ final class UITestSceneState: ObservableObject {
                         }
                         if environment["command"] == "coverage" {
                             reply(try UITestAccessibilityActions.coverage())
+                            return
+                        }
+                        if environment["command"] == "window-layout" {
+                            reply(try UITestAccessibilityActions.windowLayout())
                             return
                         }
                         if environment["command"] == "map-camera" {

@@ -4,10 +4,10 @@ import json
 import base64
 import pathlib
 import os
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from command_output import show_report
+from workflow_processes import capture_command
 
 import time
 
@@ -52,6 +52,17 @@ def normalize_github_issues(arguments):
     pages = json.loads(path.read_text())
     issues = [item for page in pages for item in page if item.get('pull_request') is None]
     path.write_text(json.dumps(issues, ensure_ascii=False) + '\n')
+
+
+def normalize_ci_runs(arguments):
+    path = pathlib.Path(arguments[0])
+    fields = {'databaseId': 'id', 'workflowDatabaseId': 'workflow_id', 'workflowName': 'name',
+        'displayTitle': 'display_title', 'status': 'status', 'conclusion': 'conclusion', 'event': 'event',
+        'headBranch': 'head_branch', 'headSha': 'head_sha', 'createdAt': 'created_at',
+        'updatedAt': 'updated_at', 'url': 'html_url'}
+    runs = [{key: run.get(remote) for key, remote in fields.items()}
+        for page in json.loads(path.read_text()) for run in page['workflow_runs']]
+    path.write_text(json.dumps(runs, ensure_ascii=False) + '\n')
 
 
 def refresh_archive_index(folder, compact=None):
@@ -195,15 +206,12 @@ def archive_reports(arguments):
     keys_to_fetch = [item["name"] for item in items if item.get("name", "").startswith("report:") and not cache_complete(item)]
 
     def fetch(key):
-        result = subprocess.run(
+        result = capture_command(
             [
                 str(worker_dir / "node_modules/.bin/wrangler"), "kv", "key", "get", key,
                 "--remote", "--namespace-id", namespace_id, "--text",
             ],
             cwd=worker_dir,
-            check=False,
-            capture_output=True,
-            text=True,
         )
         filename = report_filename(key)
         if result.returncode:
@@ -353,4 +361,5 @@ if __name__ == '__main__':
     elif action == 'summary': publish_summary(arguments)
     elif action == 'prune': prune_archive(arguments[0], int(arguments[1]))
     elif action == 'issues': normalize_github_issues(arguments)
+    elif action == 'ci-runs': normalize_ci_runs(arguments)
     else: raise SystemExit('反馈归档操作需要 archive、summary、prune 或 issues。')
