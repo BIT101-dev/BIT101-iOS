@@ -248,13 +248,26 @@ struct LoginService {
     func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws {
         let identity = storage.communityCredentials.identity
         let digest = LoginCrypto.md5Hex(password)
-        let response = try await apiClient.register(password: digest, token: token, code: code, loginMode: false)
+        let response: RegisterResponse
+        do { response = try await apiClient.register(password: digest, token: token, code: code, loginMode: false) }
+        catch let completionError as RegistrationCompletionError {
+            guard !Task.isCancelled, !TaskCancellation.matches(completionError) else { throw completionError }
+            try validateCommunityIdentity(identity)
+            do {
+                response = try await apiClient.loginCommunity(studentID: studentID, passwordDigest: digest)
+                guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw LoginServiceError.invalidServerResponse
+                }
+            } catch { throw completionError }
+        }
         try Task.checkCancellation()
         guard storage.communityCredentials.identity == identity else { throw CancellationError() }
         let existingSchoolPassword = storage.currentStudentID == studentID ? storage.currentPassword : ""
         let savedSchoolPassword = schoolPassword ?? (existingSchoolPassword.isEmpty ? password : existingSchoolPassword)
-        try storage.saveLoginState(studentID: studentID, password: savedSchoolPassword, fakeCookie: response.fakeCookie,
-            communityPasswordDigest: digest)
+        do {
+            try storage.saveLoginState(studentID: studentID, password: savedSchoolPassword, fakeCookie: response.fakeCookie,
+                communityPasswordDigest: digest)
+        } catch { throw RegistrationCompletionError(underlying: error, isConfirmed: true) }
     }
 
     /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。

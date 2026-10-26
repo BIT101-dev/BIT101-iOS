@@ -681,7 +681,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if identity not in network_owners and function not in callable_apis and not contains_request(function): continue
             target = types.resolve(path, '.'.join(scope), aliases=False)
             if target in protocols: continue
-            if function.get('returnsView') or target and any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'}
+            if types.returns_view(path, function) or target and any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'}
                     and types.resolve(path, base, target[1][:-1]) not in types.nominal_records for base in types.bases(target)): continue
             parameters = function.get('parameters', [])
             if target and 'HTTPTransport' in types.bases(target) and function['name'] == 'data' \

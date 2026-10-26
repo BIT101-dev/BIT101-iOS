@@ -162,6 +162,18 @@ class SwiftTypeIndex:
         self._bases[key] = result
         return result
 
+    def returns_view(self, path: str, function: dict) -> bool:
+        returned = re.sub(r'^(?:some|any)\s+', '', function.get('returnType') or '')
+        if not returned: return False
+        scope = function.get('scope', [])
+        if any(part.strip() in {'View', 'SwiftUI.View'} for part in returned.split('&')): return True
+        terminal = self.terminal_name(path, returned, scope).split('<', 1)[0]
+        if terminal in {'View', 'SwiftUI.View', 'AnyView', 'SwiftUI.AnyView', 'EmptyView', 'SwiftUI.EmptyView',
+                        'TupleView', 'SwiftUI.TupleView', 'Text', 'SwiftUI.Text', 'Image', 'SwiftUI.Image', 'Color', 'SwiftUI.Color'}:
+            return True
+        target = self.resolve(path, returned, scope)
+        return target is not None and any(base.rsplit('.', 1)[-1] == 'View' for base in self.bases(target))
+
     def conformances(self, path: str):
         module = self.units[path]
         result = {}

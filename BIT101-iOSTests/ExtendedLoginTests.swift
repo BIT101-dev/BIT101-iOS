@@ -754,6 +754,8 @@ extension LoginStorageTests {
     private final class RegistrationResponses: HTTPTransport {
         var requests: [(String, [String: Any])] = []
         var registerStatus = 200
+        var registerFailure: (any Error)?
+        var registerBody: String?
         var loginStatus = 200
         var captcha = ""
         var beforeResponse: (() async -> Void)?
@@ -769,7 +771,9 @@ extension LoginStorageTests {
                 body = #"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","cookie":"fixture","execution":"fixture","captcha":""}"#
                     .replacingOccurrences(of: #""captcha":"""#, with: #""captcha":"\#(captcha)""#)
             case "/user/webvpn_verify": body = #"{"token":"school-proof","code":"123456"}"#
-            case "/user/register": body = #"{"fake_cookie":"registered-cookie"}"#
+            case "/user/register":
+                if let registerFailure { throw registerFailure }
+                body = registerBody ?? #"{"fake_cookie":"registered-cookie"}"#
             case "/user/login": body = loginStatus == 200 ? #"{"fake_cookie":"registered-cookie"}"# : #"{"msg":"用户名或密码错误Orz"}"#
             default: throw URLError(.unsupportedURL)
             }
@@ -889,6 +893,43 @@ extension LoginStorageTests {
         pending?.resume(); await operation.value
         model.code = "123456"
         #expect(!model.canSubmit && model.alert == nil)
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["lost", "malformed", "unconfirmed", "unsent", "rejected", "cancelled", "storage"])
+    func registrationConfirmsLostReceiptsAndPreservesActionableRecovery(scenario: String) async throws {
+        let domain = "BIT101Tests.registration-outcome"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let credentials = Credentials()
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
+        let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = AccountRegistrationViewModel(studentID: "A", service: service)
+        model.method = .email; model.password = "community-password"; model.confirmation = model.password
+        await model.verify(); model.code = "123456"
+        if ["lost", "unconfirmed"].contains(scenario) { transport.registerFailure = URLError(.networkConnectionLost) }
+        if scenario == "malformed" { transport.registerBody = #"{"fake_cookie":" "}"# }
+        if scenario == "unconfirmed" { transport.loginStatus = 401 }
+        if scenario == "unsent" { transport.registerFailure = HTTPRequestNotSent(underlying: URLError(.cannotConnectToHost)) }
+        if scenario == "cancelled" { transport.registerFailure = URLError(.cancelled) }
+        if scenario == "rejected" { transport.registerStatus = 400 }
+        if scenario == "storage" { credentials.failsWrites = true }
+        await model.submit()
+        #expect(transport.requests.filter { $0.0 == "/user/register" }.count == 1)
+        let confirms = ["lost", "malformed", "unconfirmed"].contains(scenario)
+        #expect(transport.requests.filter { $0.0 == "/user/login" }.count == (confirms ? 1 : 0))
+        if ["lost", "malformed"].contains(scenario) {
+            #expect(model.alert == nil && storage.fakeCookie == "registered-cookie" && model.password.isEmpty)
+        } else {
+            #expect(storage.fakeCookie.isEmpty && model.password == "community-password")
+            let pending = ["unconfirmed", "cancelled", "storage"].contains(scenario)
+            #expect(model.canSubmit == !pending)
+            if pending {
+                #expect(model.alert?.title == (scenario == "storage" ? "注册或重置已完成" : "注册或重置结果待确认"))
+                #expect(model.alert?.message.contains("刚设置的新密码登录") == true && model.code.isEmpty)
+            }
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])

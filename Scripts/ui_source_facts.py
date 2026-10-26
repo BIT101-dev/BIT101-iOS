@@ -790,7 +790,7 @@ class ViewHelperGraph:
         self.owners = {path: {owner for owner, bases in types.conformances(path).items()
             if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)} for path in index}
         self.factories = {path: {(path, function['bodyStart'], function['end']) for function in facts.get('functionRanges', [])
-            if function.get('returnsView') and function.get('bodyStart') is not None} for path, facts in index.items()}
+            if types.returns_view(path, function) and function.get('bodyStart') is not None} for path, facts in index.items()}
         self.calls, self.roots, self.edges, self.results = {}, {}, {}, {}
 
     def targets(self, path, call):
@@ -858,7 +858,7 @@ def view_transport_findings(index: dict) -> list[str]:
         if not Path(path).relative_to(ROOT).as_posix().startswith(('BIT101-iOS/', 'Modules/', 'BIT101ScheduleWidgets/', 'BIT101WatchWidgets/', 'BIT101Watch/')): continue
         owners = {owner for owner, bases in types.conformances(path).items()
             if any(base.rsplit('.', 1)[-1] in {'View', 'ViewModifier', 'App', 'Scene'} for base in bases)}
-        factories = [fn for fn in facts.get('functionRanges', []) if fn.get('returnsView') and fn.get('bodyStart') is not None]
+        factories = [fn for fn in facts.get('functionRanges', []) if types.returns_view(path, fn) and fn.get('bodyStart') is not None]
         invocations = facts.get('invocations', [])
         invoked = {call['start'] for call in invocations}
         references = [dict(member, calledExpression=member['value']) for member in facts.get('members', [])

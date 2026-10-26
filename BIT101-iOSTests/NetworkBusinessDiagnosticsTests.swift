@@ -160,6 +160,24 @@ struct NetworkBusinessDiagnosticsTests {
         #expect(await diagnostics.latestSchoolServicePageURL()?.absoluteString == "https://jxzxehall.bit.edu.cn/fault")
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [SchoolServiceTarget.teachingCenter, .grades, .transcript, .webVPN], [false, true])
+    func schoolRecoveryLinksUseConfirmedFailuresAndCurrentBusinessHosts(target: SchoolServiceTarget, businessFailure: Bool) async throws {
+        let owner = SchoolSessionIdentity(accountIdentifier: "school-recovery", generation: 0)
+        let diagnostics = NetworkDiagnosticStore(currentIdentity: { owner })
+        let failed = target.baseURL.appending(path: "failed").appending(queryItems: [URLQueryItem(name: "ticket", value: "fixture")])
+        let response = try #require(HTTPURLResponse(url: failed, statusCode: businessFailure ? 200 : 503, httpVersion: nil, headerFields: nil))
+        await diagnostics.record(owner: owner, request: URLRequest(url: failed),
+            data: Data((businessFailure ? "<html>对不起，无权访问该资源</html>" : "unavailable").utf8), response: response, error: nil, elapsed: 0)
+        let normal = AppURL.required("https://sso.bit.edu.cn/normal")
+        let success = try #require(HTTPURLResponse(url: normal, statusCode: 200, httpVersion: nil, headerFields: nil))
+        for error in [nil, URLError(.cancelled)] {
+            await diagnostics.record(owner: owner, request: URLRequest(url: normal),
+                data: Data("<script>window.onerror = () => {}; const certificate = 'valid';</script>".utf8),
+                response: success, error: error, elapsed: 0)
+        }
+        #expect(await diagnostics.latestSchoolServicePageURL() == target.baseURL.appending(path: "failed"))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func loginParsingFailureKeepsItsFieldPathInTheRequestDiagnostic() async throws {
         let domain = "BIT101Tests.login-business-diagnostics"

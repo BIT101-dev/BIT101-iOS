@@ -335,16 +335,17 @@ struct BIT101APIClient {
 
     /// 登录模式保留已有密码，注册或重置模式保存用户设置的密码。
     func register(password: String, token: String, code: String, loginMode: Bool = true) async throws -> RegisterResponse {
-        try await sendJSONRequest(
-            url: bit101BaseURL.appending(path: "user/register"),
-            method: "POST",
-            body: RegisterRequest(
-                password: password,
-                token: token,
-                code: code,
-                loginMode: loginMode
-            )
-        )
+        let submit = {
+            let response: RegisterResponse = try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/register"),
+                method: "POST", body: RegisterRequest(password: password, token: token, code: code, loginMode: loginMode))
+            guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw LoginServiceError.invalidServerResponse
+            }
+            return response
+        }
+        if loginMode { return try await submit() }
+        do { return try await HTTPRequestEvidenceContext.withMutationOutcome(operation: submit) }
+        catch let error as HTTPMutationOutcomeUnknown { throw RegistrationCompletionError(underlying: error.underlying) }
     }
 
     /// 检查 BIT101 自己的 fake-cookie 有效性。

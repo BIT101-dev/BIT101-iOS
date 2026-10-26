@@ -8,6 +8,13 @@ def cross_file_view_request_self_test() -> list[str]:
     from ui_source_facts import view_helper_ranges
     from unittest.mock import patch
     from network_capability_rules import matching_api_calls
+    for returned, expected in [('some View', True), ('some SwiftUI.View & Sendable', True), ('AnyView', True), ('Text', True), ('Content', True),
+            ('Alias', True), ('WKWebView?', False), ('UIView', False), ('ContentViewModel', False)]:
+        path = str(ROOT / 'BIT101-iOS/NativeBridge.swift')
+        source = 'struct Content: View {}; typealias Alias = Content; struct ContentViewModel {};' + \
+            'struct Factory { func make(_ webView: WKWebView) -> RETURNED { webView.load(request); fatalError() } }'
+        facts = swift_syntax_index_sources({path: source.replace('RETURNED', returned)})
+        assert bool(view_transport_findings(facts)) == expected, returned
     shared = swift_syntax_index_sources({
         'Views.swift': 'struct First: View { var body: some View { makeContent() } }; struct Second: View { var body: some View { Text("two") } }',
         'Helpers.swift': 'func makeContent() -> some View { makeLeaf() }; func makeLeaf() -> some View { Text("leaf") }; func unused() { URLRequest(url: url) }',

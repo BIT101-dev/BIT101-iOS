@@ -1,7 +1,7 @@
 import Foundation
 import TransportCore
 
-public nonisolated enum SchoolServiceTarget: Sendable {
+public nonisolated enum SchoolServiceTarget: Sendable, CaseIterable {
     case teachingCenter, grades, transcript, webVPN
 
     public var baseURL: URL {

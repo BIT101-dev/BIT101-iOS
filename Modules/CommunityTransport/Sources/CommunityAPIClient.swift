@@ -170,34 +170,13 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         operation: () async throws -> Value) async throws -> Value {
         let isCreation = method == "POST" && ["posters", "papers", "reaction/comments", "manage/reports"].contains(path)
         let isToggle = method == "POST" && (path == "reaction/like" || path == "user/follow" || path.hasPrefix("user/follow/"))
-        var started = false
-        var rejected = false
-        let parentStart = HTTPRequestEvidenceContext.willStart
-        let parentReceive = HTTPRequestEvidenceContext.didReceive
-        let receive: (@MainActor @Sendable (URLRequest, HTTPResponse) async -> Void)?
-        if isCreation || isToggle {
-            receive = { request, response in
-                let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
-                if !CommunityCredentialRefreshContext.isRestoring {
-                    rejected = (400..<500).contains(evidence.statusCode) && evidence.statusCode != 408
-                        && evidence.endpoint == evidence.finalEndpoint && evidence.method == evidence.finalMethod
-                }
-                await parentReceive?(request, response)
-            }
-        } else { receive = parentReceive }
+        guard isCreation || isToggle else { return try await operation() }
         do {
-            return try await HTTPRequestEvidenceContext.$willStart.withValue({
-                if !CommunityCredentialRefreshContext.isRestoring { started = true; rejected = false }
-                parentStart?()
-            }) {
-                try await HTTPRequestEvidenceContext.$didReceive.withValue(receive) {
-                    return try await operation()
-                }
-            }
-        } catch {
-            guard isCreation || isToggle, started, !rejected, !(error is HTTPRequestNotSent) else { throw error }
-            if isToggle { throw CommunityToggleOutcomeUnknown(underlying: error) }
-            throw CommunityCreateOutcomeUnknown(underlying: error)
+            return try await HTTPRequestEvidenceContext.withMutationOutcome(
+                isTrackingRequest: { !CommunityCredentialRefreshContext.isRestoring }, operation: operation)
+        } catch let error as HTTPMutationOutcomeUnknown {
+            if isToggle { throw CommunityToggleOutcomeUnknown(underlying: error.underlying) }
+            throw CommunityCreateOutcomeUnknown(underlying: error.underlying)
         }
     }
 

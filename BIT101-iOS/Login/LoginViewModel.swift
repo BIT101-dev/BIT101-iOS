@@ -254,6 +254,9 @@ final class AccountRegistrationViewModel: ObservableObject {
             confirmation = ""
             schoolPassword = ""
             invalidateVerification()
+        } catch let error as RegistrationCompletionError {
+            invalidateVerification()
+            alert = AppAlert(title: error.isConfirmed ? "注册或重置已完成" : "注册或重置结果待确认", error: error)
         } catch {
             if !TaskCancellation.matches(error) {
                 alert = AppAlert(title: "注册或重置失败", error: error)

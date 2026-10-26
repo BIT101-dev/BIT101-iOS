@@ -15,6 +15,19 @@ struct StoredCredentials {
     let password: String
 }
 
+nonisolated struct RegistrationCompletionError: LocalizedError, CustomNSError {
+    let underlying: any Error
+    var isConfirmed = false
+    var errorDescription: String? {
+        isConfirmed
+            ? "注册或重置已完成，本机登录信息保存失败。请返回登录页，使用刚设置的新密码登录。"
+            : "注册或重置结果待确认。请返回登录页，使用刚设置的新密码登录以确认结果。"
+    }
+    var errorUserInfo: [String: Any] {
+        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "注册或重置结果待确认。"]
+    }
+}
+
 /// 登录链路中的统一错误定义。
 enum LoginServiceError: LocalizedError {
     case invalidSchoolLoginPage

@@ -275,13 +275,13 @@ actor NetworkDiagnosticStore {
         return selected.sorted().map { entries[$0] }
     }
 
-    private func currentRecords(limit: Int) async -> [NetworkDiagnosticRecord] {
+    private func currentEntries(limit: Int) async -> [Entry] {
         let owner = await currentIdentity()
         records.removeAll { $0.owner != owner }
-        return prioritized(records, limit: limit).map(\.record)
+        return prioritized(records, limit: limit)
     }
 
-    func recent() async -> [NetworkDiagnosticRecord] { await currentRecords(limit: 10) }
+    func recent() async -> [NetworkDiagnosticRecord] { await currentEntries(limit: 10).map(\.record) }
 
     /// 统一认证轮询以 HTTP 200 返回业务失败，诊断保留服务端原因。
     private static func authenticationFailure(in data: Data?, url: URL?) -> String? {
@@ -297,18 +297,12 @@ actor NetworkDiagnosticStore {
     /// 返回最近一次学校网页请求的安全外链；URL 移除用户信息、query 和 fragment，
     /// ticket、token 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
     func latestSchoolServicePageURL() async -> URL? {
-        let schoolHosts = Set([
-            "sso.bit.edu.cn",
-            "webvpn.bit.edu.cn",
-            "jxzxehall.bit.edu.cn",
-            "jxzxehallapp.bit.edu.cn"
-        ])
+        let schoolHosts = Set(SchoolServiceTarget.allCases.compactMap { $0.baseURL.host })
+            .union(["sso.bit.edu.cn", "jxzxehall.bit.edu.cn"])
 
-        for record in await currentRecords(limit: 20).reversed() {
-            let bodyIndicatesFailure = record.responseBody?.localizedCaseInsensitiveContains("error") == true
-                || record.responseBody?.localizedCaseInsensitiveContains("certificate") == true
-            let failed = record.error != nil || (record.statusCode ?? 200) >= 400 || bodyIndicatesFailure
-            guard failed else { continue }
+        for entry in await currentEntries(limit: 20).reversed() {
+            let record = entry.record
+            guard entry.failed || record.responseBody.flatMap(SchoolServiceFailure.schoolResponse) != nil else { continue }
             guard let url = URL(string: record.finalURL ?? record.url),
                   let host = url.host?.lowercased(),
                   schoolHosts.contains(host)
