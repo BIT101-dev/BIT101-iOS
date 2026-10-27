@@ -48,7 +48,7 @@ extension ScheduleService {
         var lastError: Error?
         for (index, baseURL) in lexueRouteBaseURLs(storedURL: storedURL).enumerated() {
             do {
-                if baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
+                if smsDeliveryMode == .send, baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
                     _ = try await nativeAuthenticator.authenticate(.webVPN)
                 }
                 let finalURL = try await resolveLexueCalendarURL(
@@ -75,10 +75,6 @@ extension ScheduleService {
                         dueAt: event.dueAt,
                         done: existingDoneMap[event.id] ?? event.done
                     )
-                }
-                if URL(string: finalURL)?.host?.lowercased() == lexueBaseURL.host?.lowercased() {
-                    let studentID = owner.accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-                    teachingCenterState.markDirectPreferred(for: studentID)
                 }
                 return DDLSyncPayload(url: finalURL, events: merged)
             } catch {
@@ -119,7 +115,7 @@ extension ScheduleService {
         var lastError: Error?
         for baseURL in lexueRouteBaseURLs(storedURL: "") {
             do {
-                if baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
+                if smsDeliveryMode == .send, baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
                     _ = try await nativeAuthenticator.authenticate(.webVPN)
                 }
                 return try await resolveLexueCalendarURL(

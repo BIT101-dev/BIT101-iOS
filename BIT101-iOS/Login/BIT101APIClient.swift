@@ -90,6 +90,7 @@ struct BIT101APIClient {
 
     private let httpClient: HTTPClient
     private let noRedirectHTTPClient: HTTPClient
+    private let schoolCookieStorage: HTTPCookieStorage
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
@@ -103,9 +104,11 @@ struct BIT101APIClient {
             noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects))
     }
 
-    init(httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient) {
+    init(httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient,
+        schoolCookieStorage: HTTPCookieStorage = AppSchoolSession.teachingCenter.cookieStorage) {
         self.httpClient = httpClient
         self.noRedirectHTTPClient = noRedirectHTTPClient
+        self.schoolCookieStorage = schoolCookieStorage
 
         decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -116,54 +119,41 @@ struct BIT101APIClient {
 
     /// 拉取学校登录页并解析出后续登录所需上下文。
     ///
-    /// 学校 CAS 的 salt/execution 只用于当前请求，函数直接解析响应。
-    func fetchSchoolLoginContext() async throws -> SchoolLoginContext {
+    /// 页面地址、表单和认证上下文沿同一次 CAS 请求传递。
+    func fetchSchoolLoginPage() async throws -> SchoolCASLoginPage {
         var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
         request.httpMethod = "GET"
         guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
 
-        let (data, response) = try await sendRequest(request, followRedirects: false)
+        let (data, response) = try await sendRequest(request, followRedirects: false, requiresBusinessEndpoint: true)
         if (300 ..< 400).contains(response.statusCode),
            let location = response.value(forHTTPHeaderField: "Location"),
            let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: requestURL),
            Self.isSchoolLoginSuccessLanding(redirectURL, schoolHost: schoolBaseURL.host)
         {
-            return SchoolLoginContext(salt: nil, execution: nil, isLoggedIn: true)
+            return SchoolCASLoginPage(url: requestURL, html: "",
+                context: SchoolLoginContext(salt: nil, execution: nil, isLoggedIn: true))
         }
         guard (200 ..< 300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }
 
         let html = String(decoding: data, as: UTF8.self)
-        return SchoolLoginHTMLParser.parse(html: html)
+        let documentURL = response.url ?? requestURL
+        if let secondFactor = SchoolLoginHTMLParser.parseSecondFactorPage(html: html,
+            baseURL: schoolBaseURL, documentURL: documentURL) {
+            throw LoginServiceError.schoolSMSRequired(secondFactor)
+        }
+        return SchoolCASLoginPage(url: documentURL, html: html, context: SchoolLoginHTMLParser.parse(html: html))
     }
 
     /// 提交学校 CAS 登录表单。
     ///
     /// 返回值表示学校侧认证结果；BIT101 注册或登录状态由后续流程确定。
-    func loginSchool(studentID: String, password: String, salt: String, execution: String) async throws -> Bool {
-        let encryptedPassword = try LoginCrypto.encryptPassword(password, saltBase64: salt)
-        let encryptedCaptchaPayload = try LoginCrypto.encryptPassword("{}", saltBase64: salt)
-
-        var request = URLRequest(url: schoolBaseURL.appending(path: "cas/login"))
-        request.httpMethod = "POST"
-        guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
-        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-        request.httpBody = HTTPFormEncoding.body(
-            [
-                ("username", studentID),
-                ("password", encryptedPassword),
-                ("execution", execution),
-                ("croypto", salt),
-                ("captcha_payload", encryptedCaptchaPayload),
-                ("type", "UsernamePassword"),
-                ("geolocation", ""),
-                ("captcha_code", ""),
-                ("_eventId", "submit"),
-            ]
-        )
-
-        let (data, response) = try await sendRequest(request, followRedirects: false)
+    func loginSchool(credentials: any SchoolCredentialsProviding, page: SchoolCASLoginPage) async throws -> Bool {
+        let (data, response) = try await submitSchoolLoginForm(url: page.url, html: page.html,
+            credentials: credentials, cookies: schoolCookieStorage)
+        let requestURL = response.url ?? page.url
 
         if (300 ..< 400).contains(response.statusCode) {
             // 正确密码时学校会进入一串 SSO 成功跳转；继续访问跳转链后，教务和乐学接口才能获得学校 cookie。

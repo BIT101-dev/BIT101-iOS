@@ -3,6 +3,12 @@ import CryptoKit
 import Foundation
 import TransportCore
 
+struct SchoolCASLoginPage {
+    let url: URL
+    let html: String
+    let context: SchoolLoginContext
+}
+
 extension BIT101APIClient {
     /// 部分 CAS service 要求重新提交学校密码，并携带本次页面的风控令牌。
     func submitSchoolServiceLogin(url: URL, html: String, storage: LoginStorage, cookieStorage: HTTPCookieStorage? = nil) async throws -> URL {
@@ -19,35 +25,9 @@ extension BIT101APIClient {
         for attempt in 0 ... 1 {
             try Task.checkCancellation()
             guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
-            let context = SchoolLoginHTMLParser.parse(html: html)
-            guard let salt = context.salt, let execution = context.execution else { throw LoginServiceError.invalidSchoolLoginPage }
-            var fields = [("username", credentials.currentStudentID),
-                ("password", try LoginCrypto.encryptPassword(credentials.currentPassword, saltBase64: salt)),
-                ("execution", execution), ("croypto", salt), ("captcha_payload", try LoginCrypto.encryptPassword("{}", saltBase64: salt)),
-                ("type", "UsernamePassword"), ("geolocation", ""), ("captcha_code", ""), ("_eventId", "submit")]
-            if Self.casField("riskSystemSwitch", in: html) == "USTC" {
-                let token = try await schoolRiskToken(referer: url, cookies: cookies)
-                try Task.checkCancellation()
-                guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
-                let group = cookies.cookies?.first { $0.name == "riskSystemGroupId" && $0.domain.hasSuffix("bit.edu.cn") }?.value ?? ""
-                let payload = try JSONSerialization.data(withJSONObject: ["token": token, "groupId": group])
-                fields += [("risk_payload", try LoginCrypto.encryptPassword(String(decoding: payload, as: UTF8.self), saltBase64: salt)),
-                    ("targetSystem", Self.casField("targetSystem", in: html) ?? "sso"),
-                    ("siteId", Self.casField("siteId", in: html) ?? "sourceId"), ("riskEngine", "true")]
-            }
-            guard let action = SchoolLoginHTMLParser.loginFormAction(html: html, documentURL: url) else {
-                throw NativeSchoolAuthenticationError.invalidResponse
-            }
-            var request = URLRequest(url: action)
-            request.httpMethod = "POST"
-            request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            request.setValue("https://sso.bit.edu.cn", forHTTPHeaderField: "Origin")
-            request.setValue(url.absoluteString, forHTTPHeaderField: "Referer")
-            request.httpBody = HTTPFormEncoding.body(fields)
-            let (data, response) = try await sendRequest(request, followRedirects: false)
-            try Task.checkCancellation()
-            guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
-            guard response.url == action else { throw NativeSchoolAuthenticationError.invalidResponse }
+            let (data, response) = try await submitSchoolLoginForm(url: url, html: html,
+                credentials: credentials, cookies: cookies)
+            guard let action = response.url else { throw NativeSchoolAuthenticationError.invalidResponse }
             if (300 ..< 400).contains(response.statusCode), let location = response.value(forHTTPHeaderField: "Location"),
                let next = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: action) { return next }
             let responseHTML = String(decoding: data, as: UTF8.self)
@@ -69,6 +49,42 @@ extension BIT101APIClient {
             throw NativeSchoolAuthenticationError.invalidResponse
         }
         throw NativeSchoolAuthenticationError.invalidResponse
+    }
+
+    func submitSchoolLoginForm(url: URL, html: String, credentials: any SchoolCredentialsProviding,
+        cookies: HTTPCookieStorage) async throws -> (Data, HTTPURLResponse) {
+        let owner = credentials.schoolSessionIdentity
+        try Task.checkCancellation()
+        let context = SchoolLoginHTMLParser.parse(html: html)
+        guard let salt = context.salt, let execution = context.execution else { throw LoginServiceError.invalidSchoolLoginPage }
+        var fields = [("username", credentials.currentStudentID),
+            ("password", try LoginCrypto.encryptPassword(credentials.currentPassword, saltBase64: salt)),
+            ("execution", execution), ("croypto", salt), ("captcha_payload", try LoginCrypto.encryptPassword("{}", saltBase64: salt)),
+            ("type", "UsernamePassword"), ("geolocation", ""), ("captcha_code", ""), ("_eventId", "submit")]
+        if Self.casField("riskSystemSwitch", in: html) == "USTC" {
+            let token = try await schoolRiskToken(referer: url, cookies: cookies)
+            try Task.checkCancellation()
+            guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
+            let group = cookies.cookies?.first { $0.name == "riskSystemGroupId" && $0.domain.hasSuffix("bit.edu.cn") }?.value ?? ""
+            let payload = try JSONSerialization.data(withJSONObject: ["token": token, "groupId": group])
+            fields += [("risk_payload", try LoginCrypto.encryptPassword(String(decoding: payload, as: UTF8.self), saltBase64: salt)),
+                ("targetSystem", Self.casField("targetSystem", in: html) ?? "sso"),
+                ("siteId", Self.casField("siteId", in: html) ?? "sourceId"), ("riskEngine", "true")]
+        }
+        guard let action = SchoolLoginHTMLParser.loginFormAction(html: html, documentURL: url) else {
+            throw NativeSchoolAuthenticationError.invalidResponse
+        }
+        var request = URLRequest(url: action)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("https://sso.bit.edu.cn", forHTTPHeaderField: "Origin")
+        request.setValue(url.absoluteString, forHTTPHeaderField: "Referer")
+        request.httpBody = HTTPFormEncoding.body(fields)
+        let (data, response) = try await sendRequest(request, followRedirects: false)
+        try Task.checkCancellation()
+        guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
+        guard response.url == action else { throw NativeSchoolAuthenticationError.invalidResponse }
+        return (data, response)
     }
 
     private func schoolRiskToken(referer: URL, cookies: HTTPCookieStorage) async throws -> String {

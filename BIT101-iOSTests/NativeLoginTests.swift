@@ -18,6 +18,7 @@ struct NativeLoginTests {
         var serverFailure = false
         var registrationFailure = false
         var unexpectedCASResponseURL = false
+        var unexpectedCASPageURL = false
         var schoolFailureStatus: Int?
         var schoolPasswordRejections = 0
         var identityPasswordRejections = 0
@@ -26,6 +27,9 @@ struct NativeLoginTests {
         var sessionActivations = 0
         var holdCAS = false
         var pendingCAS: CheckedContinuation<Void, Never>?
+        var initialSchoolSMS = false
+        var schoolSessionReady = false
+        var schoolRisk = false
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
@@ -56,7 +60,12 @@ struct NativeLoginTests {
                 if registrationFailure { status = 503; text = #"{"msg":"database unavailable"}"# }
                 else { text = #"{"fake_cookie":"proof-cookie"}"# }
             case "/cas/login":
-                if request.httpMethod == "POST", let failure = schoolFailureStatus {
+                if request.httpMethod == "GET", schoolSessionReady, url.query?.contains("service=") == true {
+                    status = 302; headers["Location"] = "https://jwms.bit.edu.cn/"; text = ""
+                } else if request.httpMethod == "GET", initialSchoolSMS {
+                    text = #"<form id="secondSmsLoginForm" action="/cas/login"><p id="login-page-flowkey">sms-flow</p><p id="user-object-id">school-owner</p></form>"#
+                } else if request.httpMethod == "GET", schoolSessionReady { text = "cas-success"
+                } else if request.httpMethod == "POST", let failure = schoolFailureStatus {
                     status = failure; text = failure == 200 ? "对不起，无权访问该资源" : "school unavailable"
                 } else if request.httpMethod == "POST", schoolPasswordRejections > 0 {
                     schoolPasswordRejections -= 1; status = rejectedSchoolStatus; text = "<p id='login-error-code'>1030027</p>"
@@ -66,11 +75,17 @@ struct NativeLoginTests {
                     } else { text = "cas-success" }
                 } else if request.httpMethod == "POST" {
                     text = "cas-success"
-                } else { text = #"<form method="post"><p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p></form>"# }
+                } else {
+                    text = #"<form method="post"><p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p></form>"#
+                        + (schoolRisk ? #"<p id="riskSystemSwitch">USTC</p>"# : "")
+                }
             case "/ustc-rba-front/fp": text = #"{"responsetoken":"risk-token"}"#
-            default: throw URLError(.badURL)
+            default:
+                guard url.host == "jwms.bit.edu.cn" else { throw URLError(.badURL) }
+                text = "{}"
             }
-            let responseURL = unexpectedCASResponseURL && url.path == "/cas/login" && request.httpMethod == "POST"
+            let responseURL = url.path == "/cas/login" && ((unexpectedCASResponseURL && request.httpMethod == "POST")
+                || (unexpectedCASPageURL && request.httpMethod == "GET"))
                 ? AppURL.required("https://outside.invalid/login") : url
             return (Data(text.utf8), try #require(HTTPURLResponse(url: responseURL, statusCode: status, httpVersion: nil, headerFields: headers)))
         }
@@ -312,6 +327,63 @@ struct NativeLoginTests {
             #expect(fields.first { $0.name == "riskEngine" }?.value == "true")
             #expect(fields.first { $0.name == "risk_payload" }?.value?.isEmpty == false)
             #expect(storage.fakeCookie == "community-cookie" && storage.currentPassword == "school-B")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func initialCASGETSMSContinuesThroughTheRealSessionRestorer() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "community-cookie")
+            transport.initialSchoolSMS = true
+            let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+            var challenges = 0
+            let authenticator = NativeSchoolAuthenticator(credentials: storage,
+                restorer: AppScheduleSchoolSessionRestorer(restore: { try await service.restoreSchoolSessionIfNeeded() }),
+                client: HTTPClient(transport: transport, observer: nil), cookies: { cookies }, secondFactor: { context in
+                    #expect(context.execution == "sms-flow" && context.userObjectID == "school-owner")
+                    challenges += 1
+                    transport.initialSchoolSMS = false
+                    transport.schoolSessionReady = true
+                })
+            let session = try await authenticator.authenticate(.grades)
+            #expect(session.baseURL == SchoolServiceTarget.grades.baseURL)
+            #expect(challenges == 1 && prompts() == 0 && storage.fakeCookie == "community-cookie")
+            #expect(transport.requests.allSatisfy { $0.httpMethod == "GET" })
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func ordinaryCASRestorationUsesTheSharedRiskFormAndCookieContainer() async throws {
+        try await fixture { storage, transport, _, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "community-cookie")
+            transport.schoolRisk = true
+            let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+            cookies.setCookie(try #require(HTTPCookie(properties: [.domain: "sso.bit.edu.cn", .path: "/",
+                .name: "riskSystemGroupId", .value: "group-fixture", .secure: "TRUE"])))
+            let client = HTTPClient(transport: transport, observer: nil)
+            let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: client,
+                noRedirectHTTPClient: client, schoolCookieStorage: cookies))
+            #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
+            #expect(transport.requests.compactMap { $0.url?.path } == ["/cas/login", "/ustc-rba-front/fp", "/cas/login"])
+            let profileRequest = try #require(transport.requests.first { $0.url?.path == "/ustc-rba-front/fp" })
+            let profileBody = try #require(profileRequest.httpBody)
+            let profile = try #require(JSONSerialization.jsonObject(with: profileBody) as? [String: String])
+            #expect(profile["localgroupId"] == "group-fixture")
+            let post = try #require(transport.requests.last)
+            #expect(post.value(forHTTPHeaderField: "Origin") == "https://sso.bit.edu.cn")
+            #expect(post.value(forHTTPHeaderField: "Referer") == "https://sso.bit.edu.cn/cas/login")
+            let fields = URLComponents(string: "https://fixture.invalid?" + String(decoding: try #require(post.httpBody), as: UTF8.self))?.queryItems ?? []
+            #expect(fields.first { $0.name == "riskEngine" }?.value == "true")
+            #expect(fields.first { $0.name == "risk_payload" }?.value?.isEmpty == false)
+            #expect(prompts() == 0 && storage.currentPassword == "school-B")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func initialCASGETRejectsAForeignDocumentBeforeSubmittingCredentials() async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "community-cookie")
+            transport.unexpectedCASPageURL = true
+            await #expect(throws: LoginServiceError.self) { try await service.restoreSchoolSessionIfNeeded() }
+            #expect(transport.requests.count == 1 && transport.requests.first?.httpMethod == "GET")
+            #expect(prompts() == 0 && storage.fakeCookie == "community-cookie")
         }
     }
 }

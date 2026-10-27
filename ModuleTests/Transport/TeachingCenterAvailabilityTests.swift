@@ -218,6 +218,78 @@ struct TeachingCenterAvailabilityTests {
         #expect(payload.warnings.isEmpty == examAvailable)
     }
 
+    private final class LexueTransport: HTTPTransport {
+        let requiresSMS: Bool
+        var requests: [URLRequest] = []
+        init(requiresSMS: Bool) { self.requiresSMS = requiresSMS }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let url = try #require(request.url)
+            if requiresSMS, url.host == "lexue.bit.edu.cn" { throw URLError(.cannotConnectToHost) }
+            let text: String
+            let responseURL: URL
+            if requiresSMS {
+                responseURL = AppURL.required("https://sso.bit.edu.cn/cas/login")
+                text = #"<form id="secondSmsLoginForm" action="/cas/login"><p id="login-page-flowkey">sms-flow</p><p id="user-object-id">owner</p></form>"#
+            } else {
+                responseURL = url
+                text = url.host == "lexue.bit.edu.cn"
+                    ? "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:homework\nSUMMARY:作业\nDTSTART:20300910T010000Z\nEND:VEVENT\nEND:VCALENDAR"
+                    : #"{"datas":{"xnxqcx":{"rows":[{"DM":"term"}]}}}"#
+            }
+            return (Data(text.utf8), try #require(HTTPURLResponse(url: responseURL, statusCode: 200, httpVersion: nil, headerFields: nil)))
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let response = try await data(for: request)
+            if let maximumBytes, response.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return response
+        }
+    }
+    private final class InteractionAuthenticator: SchoolServiceAuthenticating {
+        var calls = 0
+        func authenticate(_ target: SchoolServiceTarget) async throws -> SchoolAuthenticatedSession {
+            calls += 1
+            throw NativeSchoolAuthenticationError.additionalVerification
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func lexueDirectSyncPreservesThePreparedTeachingCenterRoute() async throws {
+        let credentials = Credentials(), transport = LexueTransport(requiresSMS: false), native = InteractionAuthenticator()
+        let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        cookies.setCookie(try #require(HTTPCookie(properties: [.domain: "webvpn.bit.edu.cn", .path: "/",
+            .name: "wengine_vpn_ticket", .value: "ticket", .secure: "TRUE"])))
+        let state = TeachingCenterSessionState(cookieStorage: cookies)
+        state.selectOwner(credentials.schoolSessionIdentity)
+        state.markAuthenticated(for: credentials.currentStudentID)
+        state.markPrepared(for: credentials.currentStudentID)
+        let revision = state.sessionRevision
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: DirectRestorer(),
+            teachingCenterState: state, transport: transport, nativeAuthenticator: native)
+        let result = try await service.syncDDLEvents(existingEvents: [],
+            storedURL: "https://lexue.bit.edu.cn/calendar/export_execute.php?userid=42", schoolSMSCodeHandler: nil, smsDeliveryMode: .send)
+        #expect(result.events.count == 1)
+        #expect(state.hasUsableSession(for: credentials.currentStudentID) && state.isPrepared(for: credentials.currentStudentID))
+        #expect(state.sessionRevision == revision && !state.shouldPreferDirect(for: credentials.currentStudentID))
+        #expect(try await service.fetchAvailableTerms() == ["term"])
+        #expect(native.calls == 0 && transport.requests.count == 2)
+        #expect(transport.requests.last?.url?.host == "webvpn.bit.edu.cn")
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func lexuePreflightUsesAvailableCookiesAndStopsBeforeInteractiveSMS(sync: Bool) async throws {
+        let credentials = Credentials(), transport = LexueTransport(requiresSMS: true), native = InteractionAuthenticator()
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: DirectRestorer(),
+            teachingCenterState: state, transport: transport, nativeAuthenticator: native)
+        do {
+            if sync { _ = try await service.syncDDLEventsForPreflight(existingEvents: [], storedURL: "") }
+            else { _ = try await service.refreshLexueCalendarURLForPreflight() }
+            Issue.record("短信探测应返回待验证状态。")
+        } catch ScheduleServiceError.schoolSecondFactorRequired {}
+        #expect(native.calls == 0)
+        #expect(transport.requests.count == 2 && transport.requests.allSatisfy { $0.httpMethod == "GET" })
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func concurrentServicesShareAuthenticationAndPreparation(cancelFirst: Bool) async throws {
         let credentials = Credentials(), transport = Transport()

@@ -99,10 +99,10 @@ struct LoginService {
     private func restoreSchoolSession() async throws -> String? {
         try await storage.prepareSchoolCredentials()
         let identity = storage.schoolSessionIdentity
-        let schoolContext = try await apiClient.fetchSchoolLoginContext()
+        let schoolPage = try await apiClient.fetchSchoolLoginPage()
         try Task.checkCancellation()
         guard storage.schoolSessionIdentity == identity else { throw CancellationError() }
-        if schoolContext.isLoggedIn {
+        if schoolPage.context.isLoggedIn {
             let studentID = savedStudentID
             if studentID.isEmpty {
                 throw LoginServiceError.unableToRestoreSchoolSession
@@ -114,26 +114,12 @@ struct LoginService {
             throw LoginServiceError.unableToRestoreSchoolSession
         }
 
-        guard
-            let salt = schoolContext.salt?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !salt.isEmpty,
-            let execution = schoolContext.execution?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !execution.isEmpty
-        else {
-            throw LoginServiceError.invalidSchoolLoginPage
-        }
-
         let studentID = credentials.studentID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !studentID.isEmpty else {
             throw LoginServiceError.unableToRestoreSchoolSession
         }
 
-        let reloginSucceeded = try await apiClient.loginSchool(
-            studentID: studentID,
-            password: credentials.password,
-            salt: salt,
-            execution: execution
-        )
+        let reloginSucceeded = try await apiClient.loginSchool(credentials: storage, page: schoolPage)
 
         try Task.checkCancellation()
         guard storage.schoolSessionIdentity == identity else { throw CancellationError() }
