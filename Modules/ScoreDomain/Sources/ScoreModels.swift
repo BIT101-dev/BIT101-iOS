@@ -1,7 +1,7 @@
 import Foundation
 
 /// 成绩页面消费的学校课程摘要，由应用组装层投影。
-public nonisolated struct ScoreCourseSummary: Identifiable, Equatable, Sendable {
+public nonisolated struct ScoreCourseSummary: Identifiable, Hashable, Sendable {
     public let id: String
     public let term: String
     public let name: String
@@ -58,7 +58,7 @@ public nonisolated struct ScoreField: Codable, Hashable, Sendable {
 /// 此结构表示成绩表中的一行课程记录。
 ///
 /// 模型保留原始表头和值的对应关系，并提供常用字段访问器。
-public nonisolated struct ScoreRow: Codable, Identifiable, Equatable, Sendable {
+public nonisolated struct ScoreRow: Codable, Identifiable, Hashable, Sendable {
     public static let requiredHeaderNames: Set<String> = ["课程名称", "课程编号", "成绩", "学分"]
     public let id: String
     public let values: [ScoreField]

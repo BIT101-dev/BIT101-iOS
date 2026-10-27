@@ -5,31 +5,60 @@ import TransportCore
 import DesignSystemKit
 import SwiftUI
 
-/// 课程页具体内容，供独立页面和“成绩 / 课程”合并页使用。
+public struct CourseBrowserPage: View {
+    @Binding private var selection: CourseNavigationRequest?
+    private let viewModel: CourseListViewModel
+    private let dependencies: CourseDependencies
+    private let media: MediaEnvironment
+    private let profiles: CommunityProfileDestination
+    private let onSurfaceStep: ((Int) -> Void)?
+
+    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, media: MediaEnvironment,
+                profiles: CommunityProfileDestination, selection: Binding<CourseNavigationRequest?>,
+                onSurfaceStep: ((Int) -> Void)? = nil) {
+        self.viewModel = viewModel; self.dependencies = dependencies; self.media = media; self.profiles = profiles
+        _selection = selection
+        self.onSurfaceStep = onSurfaceStep
+    }
+
+    public var body: some View {
+        AppBrowserLayout(selection: $selection, title: "选择一门课程", symbol: "books.vertical") {
+            CoursePageContent(viewModel: viewModel, dependencies: dependencies, selection: Binding(
+                get: { selection?.preparedCourse }, set: { course in
+                    selection = course.map { CourseNavigationRequest(courseID: $0.id, preparedCourse: $0) }
+                }))
+            .simultaneousGesture(makeHorizontalSwitchGesture { onSurfaceStep?($0) })
+            .accessibilityLabel("课程浏览列表")
+        } detail: { request in
+            if let course = request.preparedCourse {
+                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
+                    .id(course.id)
+            } else {
+                CourseEvaluationDestination(dependencies: dependencies, media: media, profiles: profiles, request: request)
+            }
+        }
+    }
+}
+
+/// 课程列表与搜索由原生浏览分栏承载。
 public struct CoursePageContent: View {
     @Environment(\.appPageIsVisible) private var isVisible
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: CourseDependencies
-    private let media: MediaEnvironment
-    private let profiles: CommunityProfileDestination
     @ObservedObject var viewModel: CourseListViewModel
+    @Binding private var selection: CourseSummary?
 
     public var body: some View {
         content.environment(dependencies)
     }
 
     private var content: some View {
-        AppSidebarLayout {
-            List { Section { searchRow } }.appGroupedListStyle()
-                .accessibilityIdentifier("course.sidebar")
-        } content: { usesSidebar in
-            List {
-                if !usesSidebar { Section { searchRow } }
-                Section { courseSection }
-            }
-            .accessibilityIdentifier("interaction.CoursePageContent.list")
-            .appGroupedListStyle()
+        List(selection: $selection) {
+            Section { searchRow }
+            Section { courseSection }
         }
+        .accessibilityIdentifier("interaction.CoursePageContent.list")
+        .appGroupedListStyle()
         .refreshable {
             interactionEvidence?("interaction.CoursePageContent.refreshable", "refresh")
             await viewModel.refresh()
@@ -87,9 +116,7 @@ public struct CoursePageContent: View {
             }
         } else {
             ForEach(viewModel.state.items) { course in
-                NavigationLink {
-                    CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
-                } label: {
+                NavigationLink(value: course) {
                     CourseListRow(course: course)
                 }
                 .buttonStyle(.plain)
@@ -106,11 +133,10 @@ public struct CoursePageContent: View {
             }
         }
     }
-    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination) {
+    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, selection: Binding<CourseSummary?>) {
         self.dependencies = dependencies
-        self.media = media
-        self.profiles = profiles
         self.viewModel = viewModel
+        _selection = selection
     }
 }
 

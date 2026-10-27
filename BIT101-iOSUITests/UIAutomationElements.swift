@@ -5,7 +5,7 @@ import os
 
 nonisolated enum UITestMainNavigation {
     static func labels(_ title: String) -> [String] {
-        let expanded = ["日程": "日程 / DDL", "话廊": "话题", "成绩": "成绩 / 课程", "课程": "成绩 / 课程"]
+        let expanded = ["日程": "日程 / DDL", "话廊": "话题"]
         return expanded[title].map { [title, $0] } ?? [title]
     }
 }

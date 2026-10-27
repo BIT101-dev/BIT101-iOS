@@ -28,14 +28,31 @@ public struct ScoreListPage: View {
     @ObservedObject var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
     let transcriptService: any TrustedTranscriptServicing
+    private let onSurfaceStep: ((Int) -> Void)?
+    @State private var selectedPage: ScorePageSelection?
 
-    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing, onSearchCourse: @escaping (String) -> Void) {
+    private enum ScorePageSelection: Hashable {
+        case score(ScoreRow), pending(ScoreCourseSummary), transcript, terms, types, sort
+    }
+
+    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
+                onSurfaceStep: ((Int) -> Void)? = nil, onSearchCourse: @escaping (String) -> Void) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
         self.onSearchCourse = onSearchCourse
+        self.onSurfaceStep = onSurfaceStep
     }
 
     public var body: some View {
+        AppBrowserLayout(selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal") {
+            content.simultaneousGesture(makeHorizontalSwitchGesture { onSurfaceStep?($0) })
+                .accessibilityLabel("成绩浏览列表")
+        } detail: { page in
+            detail(page).appReadableContent(expandsInLandscape: true)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         let visibleRows = viewModel.visibleRows
         Group {
             switch viewModel.state {
@@ -63,7 +80,7 @@ public struct ScoreListPage: View {
                 }
                 .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
-                List {
+                List(selection: $selectedPage) {
                     scoreControls
                     Section("成绩列表") {
                         if visibleRows.isEmpty {
@@ -75,13 +92,7 @@ public struct ScoreListPage: View {
                             .frame(maxWidth: .infinity)
                         } else {
                             ForEach(visibleRows) { row in
-                                NavigationLink {
-                                    ScoreDetailView(
-                                        row: row,
-                                        onSearchCourse: onSearchCourse
-                                    )
-                                    .appReadableContent()
-                                } label: {
+                                NavigationLink(value: ScorePageSelection.score(row)) {
                                     ScoreListRowCard(row: row)
                                 }
                                 .buttonStyle(.plain)
@@ -94,10 +105,7 @@ public struct ScoreListPage: View {
                     if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
                         Section("未出分") {
                             ForEach(pendingCourses) { course in
-                                NavigationLink {
-                                    PendingScoreDetailView(course: course)
-                                        .appReadableContent()
-                                } label: {
+                                NavigationLink(value: ScorePageSelection.pending(course)) {
                                     ScoreListRowCard(course: course)
                                 }
                                 .buttonStyle(.plain)
@@ -159,9 +167,7 @@ public struct ScoreListPage: View {
         }
 
         Section {
-            NavigationLink {
-                TrustedTranscriptDestination(service: transcriptService)
-            } label: {
+            NavigationLink(value: ScorePageSelection.transcript) {
                 Text("申请可信成绩单")
             }
             .disabled(viewModel.isSyncing)
@@ -169,54 +175,19 @@ public struct ScoreListPage: View {
         }
 
         Section {
-            NavigationLink {
-                ScoreFilterPage(
-                    title: "学期筛选",
-                    options: viewModel.availableTerms,
-                    selectedValues: Binding(
-                        get: { viewModel.selectedTerms },
-                        set: { viewModel.setSelectedTerms($0) }
-                    ),
-                    onToggleAll: viewModel.toggleAllTerms
-                )
-                .appReadableContent()
-            } label: {
+            NavigationLink(value: ScorePageSelection.terms) {
                 LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
             }
             .appInteractiveListRow()
 
             if !viewModel.availableCourseTypes.isEmpty {
-                NavigationLink {
-                    ScoreFilterPage(
-                        title: "种类筛选",
-                        options: viewModel.availableCourseTypes,
-                        selectedValues: Binding(
-                            get: { viewModel.selectedCourseTypes },
-                            set: { viewModel.setSelectedCourseTypes($0) }
-                        ),
-                        onToggleAll: viewModel.toggleAllCourseTypes
-                    )
-                    .appReadableContent()
-                } label: {
+                NavigationLink(value: ScorePageSelection.types) {
                     LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
                 }
                 .appInteractiveListRow()
             }
 
-            NavigationLink {
-                ScoreSortPage(
-                    sortIndex: Binding(
-                        get: { viewModel.sortIndex },
-                        set: { viewModel.setSortIndex($0) }
-                    ),
-                    sortOrder: Binding(
-                        get: { viewModel.sortOrder },
-                        set: { viewModel.setSortOrder($0) }
-                    ),
-                    onToggleOrder: viewModel.toggleSortOrder
-                )
-                .appReadableContent()
-            } label: {
+            NavigationLink(value: ScorePageSelection.sort) {
                 LabeledContent("排序", value: viewModel.sortDescription)
             }
             .appInteractiveListRow()
@@ -233,6 +204,26 @@ public struct ScoreListPage: View {
             LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
         }
 
+    }
+
+    @ViewBuilder private func detail(_ page: ScorePageSelection) -> some View {
+        switch page {
+        case let .score(row): ScoreDetailView(row: row, onSearchCourse: onSearchCourse)
+        case let .pending(course): PendingScoreDetailView(course: course)
+        case .transcript: TrustedTranscriptDestination(service: transcriptService)
+        case .terms:
+            ScoreFilterPage(title: "学期筛选", options: viewModel.availableTerms,
+                selectedValues: Binding(get: { viewModel.selectedTerms }, set: { viewModel.setSelectedTerms($0) }),
+                onToggleAll: viewModel.toggleAllTerms)
+        case .types:
+            ScoreFilterPage(title: "种类筛选", options: viewModel.availableCourseTypes,
+                selectedValues: Binding(get: { viewModel.selectedCourseTypes }, set: { viewModel.setSelectedCourseTypes($0) }),
+                onToggleAll: viewModel.toggleAllCourseTypes)
+        case .sort:
+            ScoreSortPage(sortIndex: Binding(get: { viewModel.sortIndex }, set: { viewModel.setSortIndex($0) }),
+                sortOrder: Binding(get: { viewModel.sortOrder }, set: { viewModel.setSortOrder($0) }),
+                onToggleOrder: viewModel.toggleSortOrder)
+        }
     }
 
     private var storageRecoveryButton: some View {

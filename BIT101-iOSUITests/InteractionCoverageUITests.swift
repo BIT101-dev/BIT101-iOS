@@ -330,6 +330,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
 nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testScoreIndividualFiltersRefreshCancelAndPendingDetail() {
+        XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         app.buttons["score.query"].tapBriefly()
         let code = app.textFields["verification.code"]

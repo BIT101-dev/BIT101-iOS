@@ -23,16 +23,16 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
-/// 成绩与课程合并主页。
-///
-/// 竖屏通过顶部切换成绩与课程，横屏沿公共组合布局并排呈现。
+/// 成绩与课程入口共享分区选择与课程路由，各自沿原生浏览分栏呈现。
 struct ScoreRootView: View {
     private let scene: ScoreRootScene
     private let identity: ObjectIdentifier
 
     init(courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
-         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil), selection: Binding<ScoreSurface>? = nil) {
-        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse, selection: selection)
+         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil), selection: Binding<ScoreSurface>? = nil,
+         showingCourses: Bool? = nil) {
+        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse,
+            selection: selection, showingCourses: showingCourses)
         identity = ObjectIdentifier(courses)
     }
 
@@ -46,7 +46,8 @@ private struct ScoreRootScene: View {
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
     @StateObject private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
-    @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appExpandedNavigation) private var expandedNavigation
+    private let showingCourses: Bool?
     @State private var localSurface: ScoreSurface = .score
     private let selection: Binding<ScoreSurface>?
     private var selectedSurface: ScoreSurface {
@@ -62,43 +63,37 @@ private struct ScoreRootScene: View {
         courses: CourseDependencies,
         transcriptService: any TrustedTranscriptServicing,
         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil),
-        selection: Binding<ScoreSurface>? = nil
+        selection: Binding<ScoreSurface>? = nil,
+        showingCourses: Bool? = nil
     ) {
         self.courses = courses
         self.selection = selection
+        self.showingCourses = showingCourses
         _courseViewModel = StateObject(wrappedValue: courses.makeListViewModel())
         self.transcriptService = transcriptService
         _requestedCourse = requestedCourse
     }
 
     var body: some View {
-        AppPairedPages(showsFirst: selectedSurface == .score) {
-            ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService, onSearchCourse: openCourseSearch)
-                .simultaneousGesture(surfaceSwitchGesture)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("home.score-surface")
-        } second: {
-            CoursePageContent(viewModel: courseViewModel, dependencies: courses, media: destinations.media, profiles: destinations.profiles)
-                .simultaneousGesture(surfaceSwitchGesture)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("home.course-surface")
+        Group {
+            if displayedSurface == .score {
+                ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService,
+                    onSurfaceStep: switchSurface, onSearchCourse: openCourseSearch)
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("home.score-surface")
+            } else {
+                CourseBrowserPage(viewModel: courseViewModel, dependencies: courses, media: destinations.media,
+                    profiles: destinations.profiles, selection: detailRequest, onSurfaceStep: switchSurface)
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("home.course-surface")
+            }
         }
         .accessibilityElement(children: .contain)
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !layout.isLandscape { surfaceTabs }
+            if !expandedNavigation { surfaceTabs }
         }
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(item: detailRequest) { request in
-            if let preparedCourse = request.preparedCourse {
-                CourseDetailView(dependencies: courses, media: destinations.media, profiles: destinations.profiles, initialCourse: preparedCourse)
-                    .id(preparedCourse.id)
-            } else {
-                CourseEvaluationDestination(dependencies: courses, media: destinations.media, profiles: destinations.profiles, request: request)
-            }
-        }
+        .background(AppDesignSystem.Palette.Background.grouped)
         .task(id: requestedCourse?.id) {
-            guard let requestedCourse else { return }
+            guard displayedSurface == .course, let requestedCourse else { return }
             selectedSurface = .course
             if requestedCourse.isSearchRequest, let query = requestedCourse.searchQuery {
                 if requestedCourse.searchResults != nil { prepareCourseSurface(requestedCourse) }
@@ -108,6 +103,10 @@ private struct ScoreRootScene: View {
                 prepareCourseSurface(requestedCourse)
             }
         }
+    }
+
+    private var displayedSurface: ScoreSurface {
+        showingCourses.map { $0 ? .course : .score } ?? selectedSurface
     }
 
     private var surfaceTabs: some View {
@@ -124,10 +123,7 @@ private struct ScoreRootScene: View {
     /// 成绩记录缺少教师字段时，页面进入课程搜索页，由用户选择具体教师。
     private func openCourseSearch(_ courseName: String) {
         selectedSurface = .course
-        requestedCourse = nil
-        Task {
-            await courseViewModel.search(for: courseName)
-        }
+        requestedCourse = .search(query: courseName)
     }
 
     private func prepareCourseSurface(_ request: CourseNavigationRequest) {
@@ -149,13 +145,9 @@ private struct ScoreRootScene: View {
         )
     }
 
-    /// 该手势使用左右轻扫切换分区。
-    private var surfaceSwitchGesture: some Gesture {
-        makeHorizontalSwitchGesture(onStep: switchSurface)
-    }
-
     /// 该方法按步长将当前分区切换到相邻分区。
     private func switchSurface(step: Int) {
+        guard !expandedNavigation else { return }
         let allSurfaces = ScoreSurface.allCases
         guard let currentIndex = allSurfaces.firstIndex(of: selectedSurface) else { return }
 

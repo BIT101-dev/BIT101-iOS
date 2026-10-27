@@ -115,6 +115,8 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
 
 nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var navigationWidth: CGFloat?
+    private var sidebarWidth: CGFloat?
+    private var navigationBackground: [Int]?
     @MainActor
     @objc func testClassroomSMSUsesTheCurrentNativeDestination() {
         app = configureApp(resetStorage: true, animations: true, school: true, classroomSMS: true)
@@ -128,7 +130,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     }
     @MainActor
     @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
-        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true, pagination: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, school: true, pagination: true, initialTab: "mine")
         let traits = windowTraits()
         let isCompactPhone = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             && traits["horizontal"] == UIUserInterfaceSizeClass.compact.rawValue
@@ -172,13 +174,6 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             let window = self.app.native.windows.firstMatch.frame
             return window.width > window.height
         }, on: app, timeout: 10), "横屏专项应在实际横屏窗口运行；Duo 姿态由 Device Hub 设置。")
-        func assertPanes(_ sidebarID: String, _ contentID: String) {
-            let sidebar = app.descendants(matching: .any)[sidebarID]
-            let content = app.descendants(matching: .any)[contentID]
-            assertUI(waitUntil(NSPredicate { _, _ in
-                sidebar.exists && content.exists && sidebar.frame.maxX <= content.frame.minX + 1
-            }, on: app), "横屏应并排呈现侧栏和主体：\(sidebarID)。")
-        }
         assertPanes("mine.sidebar", "interaction.MineRootViewScene.list")
         capture("个人页")
         openSettings("account")
@@ -189,18 +184,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(input.value as? String == "横屏编辑草稿", "横屏编辑与键盘收起保留完整草稿。")
         tap("取消")
         back()
-        app.mainTab("成绩").tapBriefly()
-        assertPanes("home.score-surface", "home.course-surface")
-        app.buttons["score.query"].tapBriefly()
-        let code = app.textFields["verification.code"]
-        assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
-        fillVerificationCode("123456", in: code)
-        assertUI(textElement("加权平均分、92.00").appears(timeout: 5), "横屏成绩应展示已加载记录的统计。")
-        assertUI(app.navigationBars["短信验证"].disappears(timeout: 5), "成绩截图应在验证面板完全收起后采样。")
-        assertUI(waitUntil(NSPredicate { _, _ in
-            UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
-        }, on: app, timeout: 5), "短信验证结束后应释放键盘焦点。")
-        capture("成绩")
+        checkAcademicBrowsers()
         app.mainTab("日程").tapBriefly()
         let calendarWeek = app.buttons["第1周"]
         assertUI(calendarWeek.appears(timeout: 5) && calendarWeek.isHittable, "横屏应完整展示课表周次。")
@@ -232,6 +216,8 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.buttons["举报帖子"].appears(timeout: 5), "帖子菜单应响应原生触摸。")
         app.mainTab("话廊").tapBriefly()
         assertUI(app.buttons["举报帖子"].disappears(timeout: 5), "点按导航应关闭帖子菜单。")
+        app.mainTab("话廊").tapBriefly()
+        assertUI(first.appears(timeout: 5), "详情验收应在话题列表中选择内容。")
         first.tapBriefly()
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5) && first.exists, "话题详情应在右侧打开并保留左侧列表。")
         assertDetailWidth()
@@ -265,32 +251,138 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
         assertUI(day.appears(timeout: 5) && day.frame.height >= 44, "大字号日期入口保留完整点击高度。")
     }
+    @MainActor
+    @objc func testAcademicBrowsersKeepTheSharedChrome() {
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let window = self.app.windows.firstMatch.frame
+            return window.width > window.height
+        }, on: app, timeout: 10), "分栏验收使用实际横屏窗口。")
+        checkAcademicBrowsers()
+        for (tab, title) in [("日程", "课表与DDL"), ("话廊", "话题列表"), ("文章", "文章列表")] {
+            app.mainTab(tab).tapBriefly()
+            capture(title)
+        }
+    }
+    @MainActor private func checkAcademicBrowsers() {
+        app.mainTab("成绩").tapBriefly()
+        assertPanes("browser.master", "browser.detail")
+        app.buttons["score.query"].tapBriefly()
+        let code = app.textFields["verification.code"]
+        assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
+        fillVerificationCode("123456", in: code)
+        assertUI(textElement("加权平均分、92.00").appears(timeout: 5), "横屏成绩应展示已加载记录的统计。")
+        assertUI(app.navigationBars["短信验证"].disappears(timeout: 5), "成绩截图应在验证面板完全收起后采样。")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
+        }, on: app, timeout: 5), "短信验证结束后应释放键盘焦点。")
+        capture("成绩")
+        let score = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch
+        reveal(score, description: "成绩记录")
+        score.tapBriefly()
+        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "成绩详情应在右侧打开。")
+        assertDetailWidth()
+        capture("成绩详情")
+        app.mainTab("课程").tapBriefly()
+        assertPanes("browser.master", "browser.detail")
+        let course = app.buttons["ui.course-page-content.course"]
+        assertUI(course.appears(timeout: 5), "课程列表应加载可选记录。")
+        course.tapBriefly()
+        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "课程详情应在右侧打开。")
+        assertDetailWidth()
+        capture("课程详情")
+        app.mainTab("成绩").tapBriefly()
+        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "切换主入口应保留成绩详情。")
+    }
+    @MainActor private func assertPanes(_ sidebarID: String, _ contentID: String) {
+        let sidebar = app.descendants(matching: .any)[sidebarID]
+        let content = app.descendants(matching: .any)[contentID]
+        let placeholder = app.staticTexts["从左侧列表选择内容"]
+        assertUI(waitUntil(NSPredicate { _, _ in
+            guard sidebar.exists && content.exists else { return false }
+            let contentX = contentID == "browser.detail" ? placeholder.frame.minX : content.frame.minX
+            return sidebar.frame.maxX <= contentX + 1
+        }, on: app), "横屏应并排呈现侧栏和主体：\(sidebarID)。")
+    }
     @MainActor private func assertDetailWidth() {
         let pane = app.native.descendants(matching: .any)["browser.detail"]
-        let scroll = pane.scrollViews.firstMatch
-        assertUI(waitUntil(NSPredicate { _, _ in scroll.exists && scroll.frame.width >= pane.frame.width * 0.9 }, on: app),
+        let sidebar = app.descendants(matching: .any)["browser.master"]
+        let window = app.windows.firstMatch.frame
+        let detailFrame = CGRect(x: sidebar.frame.maxX, y: window.minY,
+            width: window.maxX - sidebar.frame.maxX, height: window.height)
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let scroll = pane.scrollViews.firstMatch
+            let list = pane.collectionViews.firstMatch
+            let viewport = [.scrollView, .collectionView].contains(pane.elementType) ? pane : (scroll.exists ? scroll : list)
+            return viewport.exists && viewport.frame.intersection(detailFrame).width >= detailFrame.width * 0.9
+        }, on: app),
             "右侧详情应使用所属分栏的主要宽度。")
     }
     @MainActor private func capture(_ title: String) {
         assertUI(app.native.descendants(matching: .any)["app.navigation.adaptive"].exists, "主导航应由系统 TabView 承载。")
-        let navigation = ["日程", "空教室", "地图", "话廊", "文章", "成绩", "我的"].map { app.mainTab($0) }
-        assertUI(navigation.allSatisfy { $0.exists }, "原生主导航应呈现七个入口。")
+        let navigation = ["日程", "空教室", "地图", "话廊", "文章", "成绩", "课程", "我的"].map { app.mainTab($0) }
+        assertUI(navigation.allSatisfy { $0.exists }, "原生主导航应呈现八个入口。")
         if navigation.allSatisfy({ $0.exists }) {
             let frame = navigation.reduce(CGRect.null) { $0.union($1.frame) }
             assertUI(app.native.windows.firstMatch.frame.contains(frame), "原生导航应位于窗口内。")
             if frame.width > frame.height {
                 assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "横向主导航应位于窗口中央。")
+                if title != "地图" { assertNavigationBackground(frame) }
             }
             if let navigationWidth { assertUI(abs(frame.width - navigationWidth) <= 1, "页面切换应保持主导航宽度。") }
             else { navigationWidth = frame.width }
-            for cell in app.native.cells.containing(.button, identifier: "app.refresh-status.action").allElementsBoundByIndex {
+            for status in app.native.staticTexts.matching(identifier: "app.refresh-status.timestamp").allElementsBoundByIndex {
+                if app.native.windows.firstMatch.frame.intersects(status.frame) {
+                    assertUI(!frame.intersects(status.frame), "刷新信息应位于主导航之外：\(status.frame)。")
+                }
+            }
+            let refresh = NSPredicate(format: "identifier IN %@", ["app.refresh-status.action", "score.query"])
+            for cell in app.native.cells.containing(refresh).allElementsBoundByIndex {
                 assertUI(abs(cell.frame.height - 52) <= 1, "模块刷新行应沿公共行高布局：\(cell.frame)。")
+            }
+        }
+        for identifier in ["mine.sidebar", "classroom.sidebar", "browser.master"] {
+            let sidebar = app.native.descendants(matching: .any)[identifier]
+            if sidebar.exists && sidebar.frame.width > 0 {
+                if let sidebarWidth { assertUI(abs(sidebar.frame.width - sidebarWidth) <= 1,
+                    "同一窗口各页面应共享侧栏宽度：\(sidebar.frame.width)，参考 \(sidebarWidth)。") }
+                else { sidebarWidth = sidebar.frame.width }
             }
         }
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "界面截图·\(title)"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    @MainActor private func assertNavigationBackground(_ navigation: CGRect) {
+        let window = app.windows.firstMatch.frame
+        let screenshot = app.screenshot().image
+        let rendered = UIGraphicsImageRenderer(size: window.size).image { _ in
+            screenshot.draw(in: CGRect(origin: .zero, size: window.size))
+        }
+        guard let image = rendered.cgImage else { XCTFail("导航背景验收需要实际截图。"); return }
+        let scale = CGFloat(image.width) / window.width
+        let region = CGRect(x: 12 * scale, y: (navigation.midY - window.minY) * scale,
+                            width: 4 * scale, height: 4 * scale).integral
+        guard let sample = image.cropping(to: region) else { XCTFail("导航背景采样点应位于窗口内。"); return }
+        var pixels = [UInt8](repeating: 0, count: sample.width * sample.height * 4)
+        let color = pixels.withUnsafeMutableBytes { bytes -> [Int] in
+            guard let context = CGContext(data: bytes.baseAddress, width: sample.width, height: sample.height,
+                bitsPerComponent: 8, bytesPerRow: sample.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                XCTFail("导航背景验收应创建像素绘制上下文。"); return []
+            }
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: sample.width, height: sample.height))
+            return (0..<3).map { channel in
+                stride(from: channel, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) } / (sample.width * sample.height)
+            }
+        }
+        if let navigationBackground { assertUI(zip(color, navigationBackground).allSatisfy { abs($0 - $1) <= 2 },
+            "页面切换应保持主导航周围的公共背景：\(color)，参考 \(navigationBackground)。") }
+        else { navigationBackground = color }
     }
 
 }

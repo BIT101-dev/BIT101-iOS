@@ -131,7 +131,7 @@ enum AppTab: String, Identifiable, Codable {
 }
 
 private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
-    case schedule, classroom, map, topics, papers, academics, mine
+    case schedule, classroom, map, topics, papers, scores, courses, mine
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -140,7 +140,8 @@ private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
         case .map: "地图"
         case .topics: "话题"
         case .papers: "文章"
-        case .academics: "成绩 / 课程"
+        case .scores: "成绩"
+        case .courses: "课程"
         case .mine: "我的"
         }
     }
@@ -149,7 +150,7 @@ private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
         case .schedule, .classroom: .schedule
         case .map: .map
         case .topics, .papers: .gallery
-        case .academics: .score
+        case .scores, .courses: .score
         case .mine: .mine
         }
     }
@@ -157,12 +158,13 @@ private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .classroom: "building.2"
         case .papers: "doc.text"
+        case .courses: "books.vertical"
         default: tab.systemImage
         }
     }
     var accessibilityIdentifier: String {
         switch self {
-        case .classroom, .papers: "app.tab.\(rawValue)"
+        case .classroom, .papers, .courses: "app.tab.\(rawValue)"
         default: "app.tab.\(tab.rawValue)"
         }
     }
@@ -303,7 +305,7 @@ struct AppShellView: View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
                 Group {
-                    if tab == .gallery { tabContent(tab) }
+                    if tab == .gallery || tab == .score { tabContent(tab) }
                     else { NavigationStack { tabContent(tab) } }
                 }
                 .environment(\.appPageIsVisible, tab == selectedTab)
@@ -324,6 +326,8 @@ struct AppShellView: View {
         case .classroom: return scheduleViewModel.selectedSection != .classroom
         case .topics: return gallerySurface == .paper
         case .papers: return gallerySurface != .paper
+        case .scores: return scoreSurface != .score
+        case .courses: return scoreSurface != .course
         default: return false
         }
     }
@@ -338,6 +342,9 @@ struct AppShellView: View {
             }
         case .schedule, .classroom:
             NavigationStack { scheduleContent(showingClassrooms: destination == .classroom) }
+        case .scores, .courses:
+            ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse,
+                selection: $scoreSurface, showingCourses: destination == .courses)
         default:
             NavigationStack { tabContent(destination.tab) }
         }
@@ -373,7 +380,7 @@ struct AppShellView: View {
     private func scheduleContent(showingClassrooms: Bool? = nil) -> some View {
         ScheduleRootView(viewModel: scheduleViewModel, requestedSection: $requestedScheduleSection,
             destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
-                selectTab(.score); requestedCourse = request
+                scoreSurface = .course; selectTab(.score); requestedCourse = request
             }, onOpenCourseLocation: { request in
                 requestedMapLocation = request; selectTab(.map)
             }), showingClassrooms: showingClassrooms)
@@ -396,7 +403,7 @@ struct AppShellView: View {
                 }
             case .map: .map
             case .gallery: gallerySurface == .gallery ? .topics : .papers
-            case .score: .academics
+            case .score: scoreSurface == .score ? .scores : .courses
             case .mine: .mine
             }
         }, set: { destination in
@@ -409,7 +416,9 @@ struct AppShellView: View {
             case .topics, .papers:
                 gallerySurface = destination == .topics ? .gallery : .paper
                 selectTab(.gallery)
-            case .academics: selectTab(.score)
+            case .scores, .courses:
+                scoreSurface = destination == .scores ? .score : .course
+                selectTab(.score)
             case .mine: selectTab(.mine)
             }
         })
@@ -451,6 +460,7 @@ struct AppShellView: View {
             selectTab(.gallery)
             requestedPosterID = posterID
         case let .course(courseID):
+            scoreSurface = .course
             selectTab(.score)
             requestedCourse = CourseNavigationRequest(courseID: courseID)
         case let .calendarEvent(_, _, account):

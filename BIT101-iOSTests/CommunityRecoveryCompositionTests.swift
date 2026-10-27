@@ -183,8 +183,7 @@ struct CommunityRecoveryCompositionTests {
         let model = dependencies.makeListViewModel()
         model.searchText = "旧查询"
         let (window, controller) = try window(NavigationStack {
-            CoursePageContent(viewModel: model, dependencies: dependencies, media: media(),
-                profiles: CommunityProfileDestination(profile: { _ in AnyView(Text("个人主页")) }))
+            CoursePageContent(viewModel: model, dependencies: dependencies, selection: .constant(nil))
         })
         defer { window.isHidden = true; window.rootViewController = nil }
         try await waitForTestEvent { if case .failed = model.state.status { true } else { false } }

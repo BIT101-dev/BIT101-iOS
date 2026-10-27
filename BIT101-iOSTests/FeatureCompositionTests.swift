@@ -47,6 +47,11 @@ struct FeatureCompositionTests {
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, usesAccessibilityText: true).isLandscape)
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 540).isLandscape)
         #expect(AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 760).gridColumns.count == 2)
+        for height: CGFloat in [640, 744, 960] {
+            let layout = AppWindowLayout(size: wide.size, isRegularWidth: true, availableHeight: height)
+            #expect(layout.sidebarWidth == height * 9 / 16)
+            #expect(layout.singleColumn.sidebarWidth == layout.sidebarWidth)
+        }
     }
 
     @Test func compactScheduleCardsKeepTheTitleAndReadableText() throws {

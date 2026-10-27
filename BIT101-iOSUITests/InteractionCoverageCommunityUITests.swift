@@ -445,6 +445,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCourseHistoryChartSelectionAndHomeSurfaceSwipes() {
+        XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, content: true, initialTab: "home")
         app.descendants(matching: .any)["home.score-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["课程"].isSelected, "成绩页横滑应切换课程分区。")

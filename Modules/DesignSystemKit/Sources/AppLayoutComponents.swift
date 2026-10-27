@@ -7,10 +7,14 @@ public struct AppWindowLayout: Equatable {
     public var isRegularWidth = false
     public var usesAccessibilityText = false
     public var availableWidth: CGFloat?
-    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false, availableWidth: CGFloat? = nil) {
+    public var availableHeight: CGFloat?
+    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
+                availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil) {
         self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
         self.availableWidth = availableWidth
+        self.availableHeight = availableHeight
     }
+    public var sidebarWidth: CGFloat { (availableHeight ?? size.height) * AppDesignSystem.Size.Layout.sidebarAspectRatio }
     public var isLandscapeWindow: Bool { size.width > size.height }
     public var isLandscape: Bool {
         isRegularWidth && isLandscapeWindow && !usesAccessibilityText
@@ -89,8 +93,8 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
                 master.environment(\.appWindowLayout, layout.singleColumn)
                     .toolbar(.hidden, for: .navigationBar)
             }
-            .navigationSplitViewColumnWidth(min: AppDesignSystem.Size.Layout.sidebarWidth,
-                ideal: AppDesignSystem.Size.Layout.sidebarWidth, max: AppDesignSystem.Size.Layout.sidebarWidth)
+            .navigationSplitViewColumnWidth(min: layout.sidebarWidth,
+                ideal: layout.sidebarWidth, max: layout.sidebarWidth)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
         } detail: {
             NavigationStack {
@@ -116,24 +120,26 @@ private struct AppWindowLayoutModifier: ViewModifier {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var size = CGSize.zero
     @State private var availableWidth: CGFloat = 0
+    @State private var availableHeight: CGFloat = 0
     func body(content: Content) -> some View {
         content
-            .background(AppWindowSizeReader(onChange: { size = $0; availableWidth = $1 }))
+            .background(AppWindowSizeReader(onChange: { size = $0; availableWidth = $1; availableHeight = $2 }))
             .environment(\.appWindowLayout, AppWindowLayout(size: size,
                 isRegularWidth: horizontalSizeClass == .regular, usesAccessibilityText: dynamicTypeSize.isAccessibilitySize,
-                availableWidth: availableWidth))
+                availableWidth: availableWidth, availableHeight: availableHeight))
     }
 }
 
 private struct AppWindowSizeReader: UIViewRepresentable {
-    let onChange: (CGSize, CGFloat) -> Void
+    let onChange: (CGSize, CGFloat, CGFloat) -> Void
     func makeUIView(context: Context) -> ProbeView { ProbeView(onChange: onChange) }
     func updateUIView(_ view: ProbeView, context: Context) { view.onChange = onChange; view.measure() }
     final class ProbeView: UIView {
-        var onChange: (CGSize, CGFloat) -> Void
+        var onChange: (CGSize, CGFloat, CGFloat) -> Void
         private var lastSize = CGSize.zero
         private var lastWidth: CGFloat = 0
-        init(onChange: @escaping (CGSize, CGFloat) -> Void) {
+        private var lastHeight: CGFloat = 0
+        init(onChange: @escaping (CGSize, CGFloat, CGFloat) -> Void) {
             self.onChange = onChange
             super.init(frame: .zero)
             isUserInteractionEnabled = false
@@ -144,11 +150,12 @@ private struct AppWindowSizeReader: UIViewRepresentable {
         func measure() {
             guard let size = window?.bounds.size, bounds.width > 0 else { return }
             let width = bounds.width
-            guard size != lastSize || width != lastWidth else { return }
-            lastSize = size; lastWidth = width
+            let height = window?.safeAreaLayoutGuide.layoutFrame.height ?? size.height
+            guard size != lastSize || width != lastWidth || height != lastHeight else { return }
+            lastSize = size; lastWidth = width; lastHeight = height
             Task { @MainActor [weak self] in
-                guard let self, lastSize == size, lastWidth == width else { return }
-                onChange(size, width)
+                guard let self, lastSize == size, lastWidth == width, lastHeight == height else { return }
+                onChange(size, width, height)
             }
         }
     }
@@ -186,7 +193,7 @@ public struct AppSidebarLayout<Sidebar: View, Content: View>: View {
             let usesSidebar = layout.isLandscape && geometry.size.width >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
             HStack(spacing: AppDesignSystem.Spacing.none) {
                 if usesSidebar {
-                    sidebar.frame(width: AppDesignSystem.Size.Layout.sidebarWidth)
+                    sidebar.frame(width: layout.sidebarWidth)
                     Divider()
                 }
                 content(usesSidebar).frame(maxWidth: .infinity, maxHeight: .infinity)
