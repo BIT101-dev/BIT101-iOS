@@ -505,6 +505,12 @@ public nonisolated struct GalleryMessage: Decodable, Identifiable, Hashable, Sen
 ///
 /// 列表、分页游标和加载状态按消息类型统一存放。
 nonisolated struct GalleryMessageListState {
+    private struct OlderWindow {
+        let boundary: Int
+        var cursor: Int?
+        var canLoadMore: Bool
+    }
+    private var olderWindows: [OlderWindow] = []
     /// 当前已经加载到客户端的消息列表。
     var pagedItems = CommunityPagedItems<GalleryMessage>()
     /// 列表当前所处的加载状态。
@@ -516,6 +522,44 @@ nonisolated struct GalleryMessageListState {
     var nextCursor: Int?
     /// 服务端是否还有更多历史消息。
     var canLoadMore = true
+
+    mutating func prependCurrentWindow(_ messages: [GalleryMessage]) {
+        if let newest = pagedItems.items.first?.id, let cursor = messages.last?.id, cursor > newest {
+            olderWindows.insert(.init(boundary: newest, cursor: nextCursor, canLoadMore: canLoadMore), at: 0)
+            nextCursor = cursor
+            canLoadMore = true
+        }
+        pagedItems.replace(with: (messages + pagedItems.items).sorted { $0.id > $1.id })
+    }
+
+    mutating func appendMessagePage(_ messages: [GalleryMessage], after requested: Int?) {
+        let tail = pagedItems.items.last?.id
+        pagedItems.append(messages)
+        if let tail, messages.contains(where: { $0.id > tail }) {
+            pagedItems.replace(with: pagedItems.items.sorted { $0.id > $1.id })
+        }
+        isLoadingMore = false
+        guard requested == nextCursor else {
+            if let index = olderWindows.firstIndex(where: { $0.cursor == requested }) {
+                olderWindows[index].cursor = messages.last?.id ?? requested
+                olderWindows[index].canLoadMore = messages.last.map { $0.id < (requested ?? Int.max) } ?? false
+            }
+            return
+        }
+        guard let requested, var cursor = messages.last?.id, cursor < requested else {
+            olderWindows.removeAll()
+            canLoadMore = false
+            return
+        }
+        var more = true
+        while let window = olderWindows.first, cursor <= window.boundary {
+            olderWindows.removeFirst()
+            cursor = min(cursor, window.cursor ?? cursor)
+            more = window.canLoadMore
+        }
+        nextCursor = cursor
+        canLoadMore = more
+    }
 }
 
 extension GalleryMessageListState: CursorPagedItemsState {}

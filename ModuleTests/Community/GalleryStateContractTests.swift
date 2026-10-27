@@ -14,7 +14,31 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["course", "paper", "gallery", "search", "mine", "profile"], ["error", "cancel", "exit"])
+    @Test(.timeLimit(.minutes(1))) func cancelledSearchRecoveryReleasesAnEarlierPaginationSnapshot() async {
+        let service = Feed()
+        let model = GalleryViewModel(service: service)
+        model.searchQuery.text = "搜索"
+        await model.search()
+        let (events, entered) = AsyncStream<Void>.makeStream()
+        var pending: [CheckedContinuation<Void, Never>] = []
+        service.beforeSearch = { await withCheckedContinuation { pending.append($0); entered.yield(()) } }
+        let paging = Task { await model.loadMoreSearch(currentPoster: model.searchState.posters.last) }
+        var starts = events.makeAsyncIterator()
+        _ = await starts.next()
+        #expect(model.searchState.isLoadingMore)
+        let refresh = Task { await model.search() }
+        defer { paging.cancel(); refresh.cancel(); pending.forEach { $0.resume() }; entered.finish() }
+        _ = await starts.next()
+        refresh.cancel()
+        let held = pending; pending.removeAll(); held.forEach { $0.resume() }
+        await refresh.value; await paging.value
+        #expect(model.searchState.posters.map(\.id) == [1] && !model.searchState.isLoadingMore)
+        service.beforeSearch = nil
+        await model.loadMoreSearch(currentPoster: model.searchState.posters.last)
+        #expect(model.searchState.posters.map(\.id) == [1, 2] && !model.searchState.isLoadingMore)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["course", "paper", "gallery", "search", "mine", "profile"], ["error", "cancel", "exit", "success"])
     func restoredListsKeepMetricsReceivedDuringRefresh(kind: String, ending: String) async throws {
         let user = #"{"id":7,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
         let poster = #"{"id":1,"anonymous":false,"claim":{"id":0,"text":""},"comment_num":1,"create_time":"","edit_time":"","images":[],"like_num":1,"public":true,"tags":[],"text":"正文","title":"帖子","update_time":"","user":\#(user)}"#
@@ -22,6 +46,7 @@ struct GalleryStateContractTests {
         let paper = #"{"id":1,"title":"文章","intro":"摘要","like_num":1,"comment_num":1,"update_time":""}"#
         let transport = PausedMetricsTransport()
         let base = transport.base
+        var replaceSecond = false
         base.responseForRequest = { request in
             let object: String
             switch request.url?.path {
@@ -30,7 +55,7 @@ struct GalleryStateContractTests {
             case "/posters": object = poster
             default: throw URLError(.unsupportedURL)
             }
-            return (200, "[" + object + "," + object.replacingOccurrences(of: #""id":1,"#, with: #""id":2,"#) + "]")
+            return (200, "[" + object + "," + object.replacingOccurrences(of: #""id":1,"#, with: "\"id\":\(replaceSecond ? 3 : 2),") + "]")
         }
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"), credentials: {
@@ -84,18 +109,27 @@ struct GalleryStateContractTests {
         defer { request.cancel(); pending?.resume(throwing: CancellationError()); entered.finish() }
         var starts = events.makeAsyncIterator()
         _ = await starts.next()
-        try publish()
-        #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 4)
-        if ending != "error" {
+        if ending == "success" {
+            updates.confirmLike(objectID: try #require(identities.first), count: 9)
+            replaceSecond = true
+        } else { try publish() }
+        #expect(snapshot().first?.likeNum == 9)
+        if ending == "cancel" || ending == "exit" {
             if ending == "exit" { exit() }
             request.cancel()
         }
         let held = try #require(pending); pending = nil
-        held.resume(throwing: ending == "error" ? URLError(.networkConnectionLost) : CancellationError())
+        if ending == "success" { held.resume() }
+        else { held.resume(throwing: ending == "error" ? URLError(.networkConnectionLost) : CancellationError()) }
         await request.value
-        #expect(snapshot().map(\.objectID) == identities && page() == nextPage)
-        #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 4)
-        if kind == "course" { #expect(snapshot().first?.rate == 9.5) }
+        if ending == "success" {
+            #expect(snapshot().map(\.objectID) == identities.map { $0.hasSuffix("2") ? String($0.dropLast()) + "3" : $0 })
+            #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 1)
+        } else {
+            #expect(snapshot().map(\.objectID) == identities && page() == nextPage)
+            #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 4)
+            if kind == "course" { #expect(snapshot().first?.rate == 9.5) }
+        }
     }
 
     private final class PausedMetricsTransport: HTTPTransport {

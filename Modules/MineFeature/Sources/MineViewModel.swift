@@ -120,7 +120,7 @@ final class MineViewModel: ObservableObject {
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
-            if metrics.commentNum == nil {
+            if metrics.needsRefresh {
                 self.posterGeneration &+= 1
                 self.posterState.isLoadingMore = false
                 if self.posterState.status == .loading { self.posterState.status = .loaded }
@@ -285,7 +285,7 @@ final class UserProfileViewModel: ObservableObject {
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
-            if metrics.commentNum == nil {
+            if metrics.needsRefresh {
                 self.posterGeneration &+= 1
                 self.posterState.isLoadingMore = false
                 if self.posterState.status == .loading { self.posterState.status = .loaded }

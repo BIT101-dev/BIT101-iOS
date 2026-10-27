@@ -138,7 +138,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     private func applyResourceMetrics(_ metrics: CommunityResourceMetrics) {
-        if metrics.commentNum == nil,
+        if metrics.needsRefresh,
            feedStorage.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
             || refreshPreviousStates.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
             || searchStorage.posters.contains(where: { $0.communityObjectID == metrics.objectID }) {
@@ -505,9 +505,9 @@ final class GalleryViewModel: ObservableObject {
             restored.posters = restored.posters.preservingCommunityMetrics(from: searchState.posters)
             if TaskCancellation.matches(error) {
                 searchState = restored
+                searchState.isLoadingMore = false
                 if previousState.status == .loading {
                     searchState.status = previousState.posters.isEmpty ? .idle : .loaded
-                    searchState.isLoadingMore = false
                 }
                 return
             }

@@ -8,6 +8,71 @@ import Testing
 
 @MainActor
 struct GalleryMessageAvailabilityTests {
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func messagesArrivingDuringConfirmationKeepAContinuousHistory(browseHistory: Bool) async throws {
+        let domain = "BIT101Tests.message-page-continuity"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let account = AppStorageSession(accountIdentifier: domain)
+        let store = GalleryMessageReadStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-page-continuity"),
+            defaults: defaults, session: { account })
+        let service = ArrivingMessages()
+        let model = GalleryMessageViewModel(service: service, readStore: store)
+        service.beforeAcknowledgement = {
+            if browseHistory { await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last) }
+            service.identifiers = Array((1...12).reversed())
+        }
+        await model.refreshUnreadCounts()
+        await model.refresh(type: .comment)
+        #expect(model.state(for: .comment).items.map(\.id) == (browseHistory ? [12, 11, 6, 5, 4, 3] : [12, 11, 6, 5]))
+        for _ in 0...service.identifiers.count {
+            guard model.state(for: .comment).canLoadMore else { break }
+            await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        }
+        #expect(model.state(for: .comment).items.map(\.id) == Array((1...12).reversed()))
+        #expect(!model.state(for: .comment).canLoadMore && store.unreadCount(for: .comment) == 11)
+        #expect(service.cursors.filter { $0 == nil }.count == 1)
+    }
+
+    @Test func laterMessageWindowsPreserveTheCursorOfAnInFlightPage() throws {
+        var state = GalleryMessageListState()
+        state.applyFirstCursorPage(try ArrivingMessages.messages([6, 5]))
+        state.appendMessagePage(try ArrivingMessages.messages([4, 3]), after: 5)
+        state.prependCurrentWindow(try ArrivingMessages.messages([12, 11]))
+        state.prependCurrentWindow(try ArrivingMessages.messages([16, 15]))
+        state.appendMessagePage(try ArrivingMessages.messages([10, 9]), after: 11)
+        #expect(state.nextCursor == 15)
+        state.appendMessagePage(try ArrivingMessages.messages([14, 13]), after: 15)
+        state.appendMessagePage(try ArrivingMessages.messages([12, 11]), after: 13)
+        #expect(state.nextCursor == 9)
+        state.appendMessagePage(try ArrivingMessages.messages([8, 7]), after: 9)
+        state.appendMessagePage(try ArrivingMessages.messages([6, 5]), after: 7)
+        #expect(state.nextCursor == 3)
+        state.appendMessagePage(try ArrivingMessages.messages([2, 1]), after: 3)
+        state.appendMessagePage([], after: 1)
+        #expect(state.items.map(\.id) == Array((1...16).reversed()) && !state.canLoadMore)
+    }
+
+    private final class ArrivingMessages: GalleryMessageServicing {
+        var identifiers = Array((1...6).reversed())
+        var unread = 5
+        var cursors: [Int?] = []
+        var beforeAcknowledgement: (() async -> Void)?
+        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { .init(comment: unread) }
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+            cursors.append(lastID)
+            if lastID == nil { await beforeAcknowledgement?(); unread = 0 }
+            return try Self.messages(Array(identifiers.filter { $0 < (lastID ?? Int.max) }.prefix(2)))
+        }
+        static func messages(_ ids: [Int]) throws -> [GalleryMessage] {
+            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode([GalleryMessage].self, from: JSONSerialization.data(withJSONObject: ids.map {
+                ["from_user": [:], "id": $0, "link_obj": "", "obj": "", "text": "正文", "update_time": ""] as [String: Any]
+            }))
+        }
+    }
+
     private final class DeferredSummaryService: GalleryMessageServicing {
         var pending: CheckedContinuation<GalleryMessageUnreadCounts, Never>?
         var failure: URLError?

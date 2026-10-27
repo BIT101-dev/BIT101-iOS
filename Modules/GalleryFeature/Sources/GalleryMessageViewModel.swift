@@ -202,7 +202,7 @@ final class GalleryMessageViewModel: ObservableObject {
         func show(_ messages: [GalleryMessage]) {
             var page = hasPresentedFirstPage ? state(for: type) : GalleryMessageListState()
             if page.items.isEmpty { page.applyFirstCursorPage(messages) }
-            else { page.items = (messages + page.items).sorted { $0.id > $1.id } }
+            else { page.prependCurrentWindow(messages) }
             page.paginationError = nil
             page.status = .loaded
             listStates[type] = page
@@ -387,7 +387,7 @@ final class GalleryMessageViewModel: ObservableObject {
             try Task.checkCancellation()
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
             setState(for: type) {
-                $0.appendCursorPage(messages)
+                $0.appendMessagePage(messages, after: state.nextCursor)
                 $0.paginationError = nil
             }
         } catch {

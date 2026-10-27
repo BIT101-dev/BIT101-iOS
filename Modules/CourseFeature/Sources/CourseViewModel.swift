@@ -38,7 +38,7 @@ public final class CourseListViewModel: ObservableObject {
             let contains = self.state.items.contains { $0.communityObjectID == metrics.objectID }
                 || self.refreshPreviousState?.items.contains { $0.communityObjectID == metrics.objectID } == true
             guard contains else { return }
-            if metrics.commentNum == nil { self.cancelRefreshOperations() }
+            if metrics.needsRefresh { self.cancelRefreshOperations() }
             var updated = self.state
             if updated.pagedItems.apply(metrics) { self.state = updated }
             if metrics.needsRefresh { self.needsRefresh = true }

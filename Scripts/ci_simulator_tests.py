@@ -15,7 +15,9 @@ from unittest.mock import patch
 def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
     from validation_simulator import METADATA_PREFIX
-    producer = (ci.ROOT / 'Scripts/simulator-tests.sh').read_text().split("<<'PYRESULT'\n", 1)[1].split('\nPYRESULT\n', 1)[0]
+    from script_test_support import heredoc_body
+    source = (ci.ROOT / 'Scripts/simulator-tests.sh').read_text()
+    producer, selector = (heredoc_body(source, marker) for marker in ('PYRESULT', 'PYSELECT'))
     root, commit, run = Path('/fixture'), 'a' * 40, '8'
     work = root / '.build/extended-automation'
     report, metrics, bundle = work / 'validation-evidence.json', work / 'test-metrics.txt', work / 'test-results.xcresult'
@@ -80,6 +82,8 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
             patch('validation_environment.environment_context', return_value=context), \
             patch('validation_environment.ci_commit_findings', return_value=[]), \
             patch('validation_evidence.test_inventory', side_effect=lambda group: inventory[group]), \
+            patch('validation_evidence.test_selectors', side_effect=lambda group: {name: name + '()' for name in inventory[group]}), \
+            patch('validation_coverage.shard_inventory', side_effect=selected), \
             patch('validation_evidence.test_case_inventory', return_value=cases), \
             patch('validation_evidence.native_source_coverage', return_value=lines), \
             patch('validation_evidence.validate_community_write_test_output'), \
@@ -101,9 +105,15 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         for context in patches: stack.enter_context(context)
         for group, count in (('all', 1), ('release-runtime', 1)):
             for index in range(count):
-                expected = selected(group, index, count)
+                output = StringIO()
+                with patch.object(sys, 'argv', ['selector', str(Path(ci.__file__).parent), group, 'full']), \
+                        patch.dict(os.environ, BIT101_CI_SHARD=f'{index}/{count}'), redirect_stdout(output):
+                    exec(compile(selector, '<simulator-selector>', 'exec'), {})
+                scope, encoded, *selectors = output.getvalue().splitlines()
+                expected = json.loads(encoded)
+                assert scope == ('full' if group == 'release-runtime' else 'shard')
+                assert expected == selected(group, index, count) and selectors == [name + '()' for name in expected]
                 current_tree = tree(group, expected)
-                scope = 'full' if group == 'release-runtime' else 'shard'
                 arguments = ['producer', str(bundle), str(metrics), str(Path(ci.__file__).parent),
                     json.dumps(expected), '0', group, 'device', 'Debug', scope, '1']
                 with patch.object(sys, 'argv', arguments), patch.dict(os.environ, BIT101_CI_SHARD=f'{index}/{count}'):
@@ -111,6 +121,13 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                 assert METADATA_PREFIX in files[metrics]
                 artifact = 'validation-ios-app-tests' if group == 'release-runtime' else f'validation-ios-test-shards-{"app" if group == "all" else group}-{index}'
                 artifacts[artifact] = files[metrics], current_tree
+        with patch('validation_coverage.shard_inventory', side_effect=AssertionError('完整范围沿全部库存选择。')):
+            output = StringIO()
+            with patch.object(sys, 'argv', ['selector', str(Path(ci.__file__).parent), 'release-runtime', 'full']), \
+                    patch.dict(os.environ, BIT101_CI_SHARD='1/2'), redirect_stdout(output):
+                exec(compile(selector, '<simulator-runtime-selector>', 'exec'), {})
+            scope, encoded, *_ = output.getvalue().splitlines()
+            assert scope == 'full' and json.loads(encoded) == inventory['release-runtime']
         for suffix in ('.retained.xcresult', '.incoming.xcresult'):
             bundles[bundle.with_suffix(suffix)] = tree('all', ['StaleFixture/testOldResult'])
         with patch('validation_environment.ci_commit_findings', return_value=['fixture commit mismatch']):

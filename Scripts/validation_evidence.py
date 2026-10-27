@@ -62,7 +62,7 @@ def xcode_test_selections(group: str, selections: list[str]) -> list[str]:
 def simulator_test_selection(mode: str, scope: str, selections: list[str], shard: str | None) -> tuple[list[str], list[str]]:
     from validation_coverage import shard_inventory
     if scope in {'full', 'shard'}:
-        tests = shard_inventory(mode, *map(int, shard.split('/'))) if shard else sorted(test_inventory(mode))
+        tests = shard_inventory(mode, *map(int, shard.split('/'))) if scope == 'shard' and shard else sorted(test_inventory(mode))
         selections = [normalized_test_id(test) for test in tests]
     return sorted(selected_test_inventory(mode, selections)), xcode_test_selections(mode, selections)
 

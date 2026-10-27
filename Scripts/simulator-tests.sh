@@ -270,28 +270,30 @@ if [[ "$operation" == ui ]]; then
   if [[ "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then chmod +x "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"; fi
   if (( $# )); then selections=("${(@f)$(bit101_ui_test_selections "$@")}"); fi
 fi
-if [[ -n "${BIT101_CI_SHARD:-}" ]]; then
-  [[ "$TEST_SCOPE" == full ]] || { echo "分片验收使用登记的完整库存。" >&2; exit 64; }
-  TEST_SCOPE=shard
-fi
 selection_started=$SECONDS
 selection_plan="$(python3 - "$ROOT_DIR/Scripts" "$mode" "$TEST_SCOPE" "${selections[@]}" <<'PYSELECT'
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 from validation_evidence import simulator_test_selection
 try:
-    expected, selectors = simulator_test_selection(sys.argv[2], sys.argv[3], sys.argv[4:], os.getenv('BIT101_CI_SHARD'))
+    mode, scope, shard = sys.argv[2], sys.argv[3], os.getenv('BIT101_CI_SHARD')
+    if shard and mode in {'all', 'ui'}:
+        if scope != 'full': raise ValueError('分片验收使用登记的完整库存。')
+        scope = 'shard'
+    expected, selectors = simulator_test_selection(mode, scope, sys.argv[4:], shard)
 except ValueError as error:
     print(error, file=sys.stderr)
     raise SystemExit(64)
+print(scope)
 print(json.dumps(expected))
 print('\n'.join(selectors))
 PYSELECT
 )"
 echo "[完成] 模拟器库存规划 · $(( SECONDS - selection_started )) 秒"
 selection_rows=("${(@f)selection_plan}")
-EXPECTED_TESTS="${selection_rows[1]}"
-selections=("${selection_rows[@]:1}")
+TEST_SCOPE="${selection_rows[1]}"
+EXPECTED_TESTS="${selection_rows[2]}"
+selections=("${selection_rows[@]:2}")
 conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$mode")"
 only_testing=()
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
