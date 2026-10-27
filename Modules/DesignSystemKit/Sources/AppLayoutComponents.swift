@@ -473,10 +473,9 @@ private struct AppInteractiveLabeledContentStyle: LabeledContentStyle {
 }
 
 private struct AppInteractiveListRowBackground: View {
-    let isSelected: Bool
     var body: some View {
         AppDesignSystem.Palette.Background.secondaryGrouped
-            .overlay { if isSelected { AppSelectionHighlight() } }
+            .overlay { AppSelectionHighlight() }
     }
 }
 
@@ -488,7 +487,7 @@ extension View {
             ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
             : AnyShapeStyle(AppDesignSystem.Foreground.primary))
             .labeledContentStyle(AppInteractiveLabeledContentStyle(isDestructive: isDestructive))
-        if let isSelected { row.listRowBackground(AppInteractiveListRowBackground(isSelected: isSelected)) }
+        if let isSelected { row.listRowBackground(isSelected ? AppInteractiveListRowBackground() : nil) }
         else { row }
     }
 
