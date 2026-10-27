@@ -19,18 +19,22 @@ final class PaperDetailRequestStore {
             self.epoch = epoch
         }
     }
+    private struct Waiter {
+        let foreground: Bool
+        let continuation: CheckedContinuation<PaperDetail, any Error>
+    }
     private struct Operation {
         let id: UUID
         let load: @MainActor () async throws -> PaperDetail
         var cacheResult: Bool
-        var foreground: Bool
         var task: Task<Void, Never>?
-        var waiters: [UUID: CheckedContinuation<PaperDetail, any Error>]
+        var waiters: [UUID: Waiter]
+        var foreground: Bool { waiters.values.contains { $0.foreground } }
     }
     private var operations: [Key: Operation] = [:]
     private var queued: [Key] = []
     private var active: Set<UUID> = []
-    private var foregroundActive: Set<UUID> = []
+    private var previewActive: Set<UUID> = []
     private var cache: [Key: PaperDetail] = [:]
     private var cacheOrder: [Key] = []
     private var epochs: [Int: Int] = [:]
@@ -86,13 +90,11 @@ final class PaperDetailRequestStore {
                 guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
                 if var operation = operations[key] {
                     operation.cacheResult = operation.cacheResult || cacheResult
-                    operation.foreground = operation.foreground || foreground
-                    if foreground, active.contains(operation.id) { foregroundActive.insert(operation.id) }
-                    operation.waiters[waiter] = continuation
+                    operation.waiters[waiter] = Waiter(foreground: foreground, continuation: continuation)
                     operations[key] = operation
                 } else {
                     operations[key] = Operation(id: UUID(), load: load,
-                        cacheResult: cacheResult, foreground: foreground, waiters: [waiter: continuation])
+                        cacheResult: cacheResult, waiters: [waiter: Waiter(foreground: foreground, continuation: continuation)])
                     queued.append(key)
                 }
                 startQueued()
@@ -105,13 +107,13 @@ final class PaperDetailRequestStore {
     private func startQueued() {
         while active.count < Self.maximumConcurrentRequests, !queued.isEmpty {
             let foreground = queued.firstIndex { operations[$0]?.foreground == true }
-            guard foreground != nil || active.subtracting(foregroundActive).count < Self.maximumConcurrentRequests - 1 else { return }
+            guard foreground != nil || previewActive.count < Self.maximumConcurrentRequests - 1 else { return }
             let next = foreground ?? queued.startIndex
             let key = queued.remove(at: next)
             guard var operation = operations[key] else { continue }
             let id = operation.id
             active.insert(id)
-            if operation.foreground { foregroundActive.insert(id) }
+            if !operation.foreground { previewActive.insert(id) }
             operation.task = Task {
                 let result: Result<PaperDetail, any Error>
                 do { result = .success(try await operation.load()) }
@@ -124,7 +126,7 @@ final class PaperDetailRequestStore {
 
     private func finish(_ result: Result<PaperDetail, any Error>, key: Key, id: UUID) {
         active.remove(id)
-        foregroundActive.remove(id)
+        previewActive.remove(id)
         defer { startQueued() }
         guard operations[key]?.id == id, let operation = operations.removeValue(forKey: key) else { return }
         if operation.cacheResult, key.epoch == (epochs[key.id] ?? 0), case let .success(detail) = result,
@@ -135,18 +137,30 @@ final class PaperDetailRequestStore {
             cacheOrder.append(key)
             while cacheOrder.count > Self.maximumConcurrentRequests { cache[cacheOrder.removeFirst()] = nil }
         }
-        for continuation in operation.waiters.values { continuation.resume(with: result) }
+        for waiter in operation.waiters.values { waiter.continuation.resume(with: result) }
         discardUnusedEpochs()
     }
 
     private func cancel(waiter: UUID, key: Key) {
-        guard var operation = operations[key], let continuation = operation.waiters.removeValue(forKey: waiter) else { return }
+        guard var operation = operations[key], let removed = operation.waiters.removeValue(forKey: waiter) else { return }
         if operation.waiters.isEmpty {
             operations[key] = nil
             queued.removeAll { $0 == key }
             operation.task?.cancel()
-        } else { operations[key] = operation }
+        } else {
+            if !operation.foreground, active.contains(operation.id) {
+                previewActive.insert(operation.id)
+                if previewActive.count > Self.maximumConcurrentRequests - 1 {
+                    operation.task?.cancel()
+                    operation = Operation(id: UUID(), load: operation.load, cacheResult: operation.cacheResult,
+                        waiters: operation.waiters)
+                    queued.append(key)
+                }
+            }
+            operations[key] = operation
+        }
         discardUnusedEpochs()
-        continuation.resume(throwing: CancellationError())
+        removed.continuation.resume(throwing: CancellationError())
+        startQueued()
     }
 }

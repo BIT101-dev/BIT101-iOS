@@ -352,8 +352,8 @@ struct MediaPresentationTests {
         media.retryFailedImages()
         try await waitForTestEvent { transport.requests > count }
     }
-    @Test(.timeLimit(.minutes(1)))
-    func aVisiblePlaceholderRefreshesWhenItsThumbnailArrives() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func aVisiblePlaceholderRefreshesWhenItsThumbnailArrives(earlierThumbnailPending: Bool) async throws {
         let helper = MediaDependencyTests(), transport = MediaDependencyTests.Images(bytes: try helper.png(width: 2))
         let media = helper.environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
         let low = AppURL.required("https://example.invalid/second.png"), high = AppURL.required("https://example.invalid/original.png")
@@ -361,13 +361,18 @@ struct MediaPresentationTests {
         let preview = PreviewController(), host = ImageQuickLookPresenter.HostViewController()
         let window = try window(host)
         let coordinator = ImageQuickLookPresenter.Coordinator(media: media, makePreviewController: { preview })
-        defer { coordinator.cancel(); window.isHidden = true; window.rootViewController = nil }
-        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: AppURL.required("https://example.invalid/first.png"), originalURL: nil), .init(thumbnailURL: low, originalURL: high)], initialIndex: 0)
+        defer { coordinator.cancel(); transport.pending?.resume(); transport.pending = nil; window.isHidden = true; window.rootViewController = nil }
+        var images = [RemotePreviewImage(thumbnailURL: AppURL.required("https://example.invalid/first.png"), originalURL: nil),
+            .init(thumbnailURL: low, originalURL: earlierThumbnailPending ? nil : high)]
+        if earlierThumbnailPending { images.append(.init(thumbnailURL: AppURL.required("https://example.invalid/third.png"), originalURL: high)) }
+        let selected = earlierThumbnailPending ? 2 : 1
+        let request = ImagePreviewRequest(remoteImages: images, initialIndex: 0)
         coordinator.receive(request, from: host, media: media)
         try await waitForTestEvent { transport.pending != nil && preview.viewIfLoaded?.window != nil && !preview.isBeingPresented }
-        preview.currentPreviewItemIndex = 1
-        let oldURL = preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL
-        let item = try #require(preview.dataSource?.previewController(preview, previewItemAt: 1) as? MutableQuickLookItem)
+        preview.currentPreviewItemIndex = selected
+        let item = try #require(preview.dataSource?.previewController(preview, previewItemAt: selected) as? MutableQuickLookItem)
+        try await waitForTestEvent { transport.requestedURLs.contains(high) && item.previewItemURL == nil }
+        let oldURL = item.previewItemURL
         #expect(await Task.detached { item.previewItemURL }.value == oldURL)
         let refreshes = preview.refreshes
         transport.pending?.resume(); transport.pending = nil
@@ -375,7 +380,7 @@ struct MediaPresentationTests {
             guard let url = item.previewItemURL else { return false }
             return preview.refreshes > refreshes && url != oldURL
         }
-        #expect(preview.dataSource?.previewController(preview, previewItemAt: 1).previewItemURL != oldURL)
+        #expect(preview.dataSource?.previewController(preview, previewItemAt: selected).previewItemURL != oldURL)
         #expect(await Task.detached { item.previewItemURL }.value == item.url)
     }
     @Test(.timeLimit(.minutes(1)))

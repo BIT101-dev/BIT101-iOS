@@ -164,8 +164,13 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         tap("移除第1张评论图片")
         assertUI(textElement("已添加 1 张图片").disappears(timeout: 5), "移除应更新当前评论附件。")
         assertUI(app.textFields.firstMatch.value as? String == "移除误选评论图片", "图片编辑应保留评论文字。")
-        tap("取消")
-        tap("放弃输入")
+        replaceText("", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("添加评论图片")
+        selectFirstPhoto()
+        assertUI(textElement("已上传").appears(timeout: 10), "纯图片评论应完成图片上传。")
+        tap("发送")
+        assertUI(app.navigationBars["发表评论"].disappears(timeout: 10), "纯图片评论发送成功后应关闭编辑器。")
     }
 
     @MainActor

@@ -440,7 +440,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
                 let image = images[index]
                 if index == initialIndex, image.originalURL == nil || image.originalURL == image.thumbnailURL { continue }
                 if items.indices.contains(index),
-                   items[index].url == placeholderURL,
+                   items[index].url == placeholderURL || items[index].url == nil,
                    let lowURL = image.thumbnailURL {
                     do {
                         let preview = try await media.remotePreviewFile(for: lowURL, owner: request.id)

@@ -285,7 +285,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         target: CommunityCommentComposerTarget
     ) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        guard !trimmed.isEmpty || !imageMids.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "评论不能为空。")
             return false
         }

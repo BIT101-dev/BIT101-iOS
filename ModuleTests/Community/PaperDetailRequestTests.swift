@@ -8,6 +8,64 @@ import TransportCore
 
 @MainActor
 struct PaperDetailRequestTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func leavingAPromotedPreviewKeepsCapacityForTheNextReader(alreadyActive: Bool) async throws {
+        let store = PaperDetailRequestStore()
+        let (events, started) = AsyncStream<Int>.makeStream()
+        let (submissions, submitted) = AsyncStream<Void>.makeStream()
+        defer { started.finish(); submitted.finish() }
+        var starts = events.makeAsyncIterator(), consumers = submissions.makeAsyncIterator()
+        var pending: [Int: CheckedContinuation<PaperDetail, any Error>] = [:]
+        var calls: [Int: Int] = [:]
+        var active = 0, peak = 0
+        func load(_ id: Int) async throws -> PaperDetail {
+            calls[id, default: 0] += 1
+            active += 1; peak = max(peak, active)
+            defer { active -= 1 }
+            let value = try await withCheckedThrowingContinuation { pending[id] = $0; started.yield(id) }
+            try Task.checkCancellation()
+            return value
+        }
+        var previews = (1...3).map { id in
+            Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } }
+        }
+        var reading: Task<PaperDetail, any Error>?, next: Task<PaperDetail, any Error>?
+        defer {
+            for preview in previews { preview.cancel() }
+            reading?.cancel(); next?.cancel()
+            for continuation in pending.values { continuation.resume(throwing: CancellationError()) }
+            pending.removeAll()
+        }
+        for _ in 0..<3 { _ = await starts.next() }
+        previews.append(Task {
+            submitted.yield(())
+            return try await store.preview(id: 4, credentials: credentials) { try await load(4) }
+        })
+        _ = await consumers.next()
+        let promotedID = alreadyActive ? 1 : 4
+        reading = Task {
+            submitted.yield(())
+            return try await store.detail(id: promotedID, credentials: credentials) { try await load(promotedID) }
+        }
+        _ = await consumers.next()
+        if !alreadyActive { #expect(await starts.next() == 4) }
+        reading?.cancel()
+        do { _ = try await reading?.value; Issue.record("离开详情后应结束该阅读等待者。") }
+        catch is CancellationError { #expect(reading?.isCancelled == true) }
+        if alreadyActive { #expect(pending[4] == nil && active == 3) }
+        else { pending.removeValue(forKey: 4)?.resume(returning: Self.detail(4, title: "旧任务")) }
+        next = Task { try await store.detail(id: 5, credentials: credentials) { try await load(5) } }
+        #expect(await starts.next() == 5)
+        for id in 1...3 { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
+        #expect(await starts.next() == 4)
+        pending.removeValue(forKey: 4)?.resume(returning: Self.detail(4, title: "可用预览"))
+        pending.removeValue(forKey: 5)?.resume(returning: Self.detail(5))
+        for preview in previews { _ = try await preview.value }
+        #expect(try await next?.value.id == 5)
+        #expect(calls[4] == (alreadyActive ? 1 : 2) && peak <= 4 && active == 0)
+        #expect(store.cachedDetail(id: 4, credentials: credentials)?.title == "可用预览")
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func refreshingTheFirstPageRevalidatesAuthorMetadata() async throws {
         let store = PaperDetailRequestStore()

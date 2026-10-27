@@ -14,6 +14,23 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test(.timeLimit(.minutes(1))) func imageOnlyCommentsKeepTheirUploadedAttachments() async {
+        let service = SubscriptionDetails(), user = CommunityUser.placeholder(id: 7, nickname: "用户")
+        let image = CommunityImage(mid: "photo", url: "https://example.invalid/photo.jpg", lowUrl: "")
+        let created = CommunityComment(id: 9, obj: "poster1", images: [image], user: user, anonymous: false,
+            createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: true, rate: 0,
+            replyUser: user, replyObj: "", text: "", sub: [])
+        service.createdComment = created; service.comments = [created]
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        let target = CommunityCommentComposerTarget.poster(posterID: 1)
+        #expect(await model.submitComment(text: " \n", anonymous: false, target: target) == false)
+        #expect(service.submissions.isEmpty)
+        #expect(await model.submitComment(text: " \n", anonymous: false, imageMids: [image.mid], target: target))
+        #expect(service.submissions.count == 1 && service.submissions.first?.text == "")
+        #expect(service.submissions.first?.imageMids == [image.mid])
+        #expect(model.commentState.items.first?.images == [image])
+    }
+
     @Test(.timeLimit(.minutes(1))) func satisfiedEventsCompleteAtTheWaitingBoundary() async throws {
         try await waitForTestEvent(timeout: .zero) { true }
     }
@@ -197,6 +214,8 @@ struct GalleryStateContractTests {
         var commentPages: [Int: GalleryPageBatch<CommunityComment>] = [:]
         var commentFailure: (any Error)?
         var creationFailure: any Error = URLError(.unsupportedURL)
+        var createdComment: CommunityComment?
+        var submissions: [CommunityCommentSubmission] = []
         var commentRequests = 0
         var commentQueries: [(order: CommunityCommentOrder, page: Int?)] = []
         var posterRequests = 0
@@ -220,7 +239,12 @@ struct GalleryStateContractTests {
             return .init(items: comments, nextSourcePage: 0, canLoadMore: false)
         }
         func like(objectID: String) async throws -> CommunityLikeResult { throw URLError(.unsupportedURL) }
-        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment { throw creationFailure }
+        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool, imageMids: [String]) async throws -> CommunityComment {
+            submissions.append(.init(objectID: objectID, text: text, anonymous: anonymous,
+                replyObjectID: replyObjectID, replyUID: replyUID, imageMids: imageMids))
+            if let createdComment { return createdComment }
+            throw creationFailure
+        }
         func deleteComment(id: Int) async throws { throw URLError(.unsupportedURL) }
         func deletePoster(id: Int) async throws { throw URLError(.unsupportedURL) }
     }
