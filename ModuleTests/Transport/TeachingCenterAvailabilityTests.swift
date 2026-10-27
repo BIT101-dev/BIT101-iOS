@@ -285,8 +285,9 @@ struct TeachingCenterAvailabilityTests {
             if sync { _ = try await service.syncDDLEventsForPreflight(existingEvents: [], storedURL: "") }
             else { _ = try await service.refreshLexueCalendarURLForPreflight() }
             Issue.record("短信探测应返回待验证状态。")
-        } catch ScheduleServiceError.schoolSecondFactorRequired {}
-        #expect(native.calls == 0)
+        } catch ScheduleServiceError.schoolSecondFactorRequired {
+            #expect(native.calls == 0)
+        }
         #expect(transport.requests.count == 2 && transport.requests.allSatisfy { $0.httpMethod == "GET" })
     }
 
