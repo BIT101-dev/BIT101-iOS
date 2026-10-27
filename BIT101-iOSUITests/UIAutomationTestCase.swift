@@ -146,11 +146,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 } != nil
             }
         }
-        let target = element.exists ? element.frame : CGRect.null
-        guard let selected = owning.last ?? containers.last(where: { !target.isNull && !target.isEmpty
-            && $0.frame.minX <= target.midX && target.midX <= $0.frame.maxX }) ?? containers.last,
+        guard let selected = owning.last ?? containers.max(by: {
+            let first = $0.frame.intersection(snapshot.frame), second = $1.frame.intersection(snapshot.frame)
+            return first.width * first.height < second.width * second.height
+        }),
             !selected.identifier.isEmpty else { return nil }
-        return app.descendants(matching: selected.elementType)[selected.identifier]
+        return app.descendants(matching: selected.elementType).matching(identifier: selected.identifier)
+            .allElementsBoundByIndex.first { $0.native.frame == selected.frame }
     }
 
     @MainActor
