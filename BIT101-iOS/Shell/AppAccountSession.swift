@@ -7,21 +7,21 @@ enum AppAccountSession {
     static let storage: LoginStorage = {
 #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
         return LoginStorage(defaults: AppFileDirectories.defaults,
-            credentials: AutomatedTestPreferenceCloudStore.shared, clearSchoolCookies: {})
+            credentials: AutomatedTestPreferenceCloudStore.shared, clearSchoolCookies: { _ in })
 #else
         let service: String
-        let clearSchoolCookies: () -> Void
+        let clearSchoolCookies: (SchoolCookieResetReason) -> Void
 #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             service = uiTestKeychainService
-            clearSchoolCookies = {}
+            clearSchoolCookies = { _ in }
         } else {
             service = "harrybit.BIT101-iOS.login"
-            clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies() }
+            clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies($0) }
         }
 #else
         service = "harrybit.BIT101-iOS.login"
-        clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies() }
+        clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies($0) }
 #endif
         return LoginStorage(defaults: AppFileDirectories.defaults,
             credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies,

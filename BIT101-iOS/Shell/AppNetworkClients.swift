@@ -278,9 +278,10 @@ enum AppSchoolSession {
         TeachingCenterSessionState(cookieStorage: makeCookieStorage())
     }
 
-    static func clearSchoolAuthenticationCookies() {
-        teachingCenter.clearSchoolAuthenticationCookies()
-        teachingCenter.replaceCookieStorage(with: makeCookieStorage())
+    static func clearSchoolAuthenticationCookies(_ reason: SchoolCookieResetReason = .identityChanged,
+        state: TeachingCenterSessionState = teachingCenter) {
+        state.clearSchoolAuthenticationCookies()
+        state.replaceCookieStorage(with: makeCookieStorage(), preservingAuthentication: reason == .passwordChanged)
     }
 
     private static func makeCookieStorage() -> HTTPCookieStorage {

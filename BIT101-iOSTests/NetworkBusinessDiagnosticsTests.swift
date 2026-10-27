@@ -132,7 +132,7 @@ struct NetworkBusinessDiagnosticsTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })
         let initial = try #require(URL(string: "https://sso.bit.edu.cn/cas/login?ticket=initial-token"))
         let destination = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault?token=redirect-token"))
@@ -184,7 +184,7 @@ struct NetworkBusinessDiagnosticsTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })
         let http = HTTPClient(transport: Transport(body: #"{"captcha":7}"#), networkWarningCenter: nil, storage: storage, diagnostics: diagnostics)
         let client = BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)
@@ -199,7 +199,7 @@ struct NetworkBusinessDiagnosticsTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "diagnostic-owner", password: "fixture", fakeCookie: "fixture")
         let owner = storage.schoolSessionIdentity
         let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })

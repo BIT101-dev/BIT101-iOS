@@ -297,7 +297,7 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         for sessionFactory in [false, true] {
-            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
             try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "old-cookie")
             let diagnostics = NetworkDiagnosticStore(currentIdentity: { storage.schoolSessionIdentity })
             let transport = RenewalResponses()
@@ -322,7 +322,7 @@ struct LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "old-cookie",
             communityPasswordDigest: "fixture-digest")
         let transport = RenewalResponses()
@@ -368,7 +368,7 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let backend = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "cookie-A")
         let owner = storage.communityCredentials
         let reads = backend.readCount
@@ -377,7 +377,7 @@ struct LoginStorageTests {
         #expect(storage.currentStudentID == "A" && storage.currentPassword == "fixture")
         #expect(try storage.loadCredentials()?.studentID == "A")
         #expect(backend.readCount == reads)
-        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(reopened.credentialReadIssue != nil)
         #expect(reopened.hasResolvedSession == false)
         #expect(throws: CocoaError.self) { try reopened.loadCredentials() }
@@ -398,7 +398,7 @@ struct LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "fixture-digest")
         let owner = storage.communityCredentials.identity
         let transport = SuspendedCookieCheck(oldStatus: 401)
@@ -422,7 +422,7 @@ struct LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie")
         let identity = storage.communityCredentials.identity
         let transport = SuspendedCookieCheck(oldStatus: status)
@@ -474,7 +474,7 @@ struct LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "fixture-account", password: "fixture-password", fakeCookie: "fixture-cookie")
         let transport = SchoolRestoreResponses(scenario)
         let client = HTTPClient(transport: transport, observer: nil)
@@ -510,7 +510,7 @@ struct LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "account-a", password: "fixture-password", fakeCookie: "fixture-a")
         let transport = SuspendedSchoolRestore(suspendedRequest: request)
         let client = HTTPClient(transport: transport, observer: nil)
@@ -539,8 +539,8 @@ struct LoginStorageTests {
         let firstBackend = Credentials()
         let secondBackend = Credentials()
         var clearedSchools = 0
-        let first = LoginStorage(defaults: firstDefaults, credentials: firstBackend, clearSchoolCookies: { clearedSchools += 1 })
-        let second = LoginStorage(defaults: secondDefaults, credentials: secondBackend, clearSchoolCookies: {})
+        let first = LoginStorage(defaults: firstDefaults, credentials: firstBackend, clearSchoolCookies: { _ in clearedSchools += 1 })
+        let second = LoginStorage(defaults: secondDefaults, credentials: secondBackend, clearSchoolCookies: { _ in })
         var firstChanges: [CommunitySessionIdentity] = []
         var secondChanges: [CommunitySessionIdentity] = []
         var cookies: [String] = []
@@ -572,7 +572,7 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let backend = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "synthetic", fakeCookie: "cookie-A")
         let previous = storage.communityCredentials
         var changes: [CommunitySessionIdentity] = []
@@ -592,7 +592,7 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let backend = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "password-A", fakeCookie: "cookie-A")
         let before = backend.writeCount
         backend.failOnWrite = before + 2
@@ -607,7 +607,7 @@ struct LoginStorageTests {
         #expect(storage.fakeCookie.isEmpty && storage.currentPassword.isEmpty)
         #expect(try storage.loadCredentials() == nil)
         storage.preservingLoginMarkers { defaults.removePersistentDomain(forName: domain) }
-        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(reopened.currentStudentID == "B")
         #expect(reopened.fakeCookie.isEmpty && reopened.currentPassword.isEmpty)
         #expect(!reopened.clearAllLocalData())
@@ -633,13 +633,13 @@ struct LoginStorageTests {
                 "login.session": #"{"studentID":"previous-account","password":"previous-password","fakeCookie":"previous-cookie"}"#]
         }
         var schoolCookieClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { schoolCookieClears += 1 })
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in schoolCookieClears += 1 })
         #expect(storage.currentStudentID.isEmpty && storage.currentPassword.isEmpty && storage.fakeCookie.isEmpty)
         #expect(try storage.loadCredentials() == nil && storage.loadCommunityPasswordDigest() == nil)
         #expect(backend.values.isEmpty && schoolCookieClears == 1)
         #expect(defaults.bool(forKey: "login.installationMarker"))
         try storage.saveLoginState(studentID: "new-account", password: "school-password", fakeCookie: "new-cookie")
-        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(reopened.currentStudentID == "new-account" && reopened.currentPassword == "school-password")
         #expect(reopened.fakeCookie == "new-cookie")
     }
@@ -659,13 +659,13 @@ struct LoginStorageTests {
             backend.values["login.session"] = #"{"studentID":"A","password":"school-password","fakeCookie":"legacy-cookie"}"#
         }
         var schoolCookieClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { schoolCookieClears += 1 })
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in schoolCookieClears += 1 })
         #expect(storage.fakeCookie == "legacy-cookie")
         #expect(storage.currentPassword == "school-password" && schoolCookieClears == 0)
         #expect(storage.communityCredentials.identity == .init(accountIdentifier: "A"))
         #expect(defaults.object(forKey: "login.fakeCookie") == nil)
         #expect(try storage.loadCommunityPasswordDigest() == nil)
-        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(reopened.currentStudentID == "A" && reopened.currentPassword == "school-password")
         #expect(reopened.fakeCookie == "legacy-cookie")
     }
@@ -676,14 +676,14 @@ struct LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let backend = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "password-A", fakeCookie: "cookie-A")
         #expect(storage.clearAllLocalData())
         storage.preservingLoginMarkers { defaults.removePersistentDomain(forName: domain) }
         #expect(defaults.bool(forKey: "login.installationMarker"))
         #expect(defaults.string(forKey: "login.session.revoked") == "all")
         try storage.saveLoginState(studentID: "B", password: "password-B", fakeCookie: "cookie-B")
-        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(reopened.currentStudentID == "B" && reopened.currentPassword == "password-B" && reopened.fakeCookie == "cookie-B")
     }
 
@@ -695,7 +695,7 @@ struct LoginStorageTests {
         defaults.set(true, forKey: "login.installationMarker")
         let backend = Credentials()
         backend.failsReads = true
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(storage.hasResolvedSession == false)
         var readiness: [Bool] = []
         let observer = storage.changes.sink { _ in
@@ -708,7 +708,7 @@ struct LoginStorageTests {
         withExtendedLifetime(observer) {}
         backend.failsReads = true
         backend.failsWrites = true
-        let pending = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+        let pending = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
         #expect(pending.hasResolvedSession == false)
         pending.clearSession()
         #expect(AppRestoreReadiness.sessionIsReady(.signedOut, storage: pending))
@@ -721,10 +721,10 @@ struct LoginStorageTests {
         for protectedDataEvent in [false, true] {
             defaults.removePersistentDomain(forName: domain)
             let backend = Credentials()
-            let stored = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+            let stored = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
             try stored.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "cookie-A")
             backend.failsReads = true
-            let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+            let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
             let http = HTTPClient(transport: EndpointResponses("valid"), observer: nil)
             let model = LoginViewModel(service: LoginService(storage: reopened,
                 apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)))
@@ -784,7 +784,7 @@ extension LoginStorageTests {
         let domain = "BIT101Tests.school-captcha"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in "school-password" })
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in "school-password" })
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         transport.loginStatus = 500
         transport.captcha = "data:image/png;base64,fixture"
@@ -806,7 +806,7 @@ extension LoginStorageTests {
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration") }
         let credentials = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let model = AccountRegistrationViewModel(studentID: " 1120260001 ", service: service)
@@ -837,7 +837,7 @@ extension LoginStorageTests {
         #expect(storage.currentStudentID == "1120260001" && storage.fakeCookie == "registered-cookie")
         #expect(storage.currentPassword == (method == .school ? "school-password" : "community-password"))
         #expect(try storage.loadCredentials()?.password == (method == .school ? "school-password" : "community-password"))
-        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
         #expect(try reopened.loadCommunityPasswordDigest() == LoginCrypto.md5Hex("community-password"))
         let reopenedService = LoginService(storage: reopened, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         try await reopenedService.renewCommunitySession(observed: reopened.communityCredentials)
@@ -851,7 +851,7 @@ extension LoginStorageTests {
     func communityLoginPreservesSchoolCredentialsAndTracksValidatedCommunityPasswords() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.community-password"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.community-password") }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie",
             communityPasswordDigest: LoginCrypto.md5Hex("old-community-password"))
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
@@ -869,7 +869,7 @@ extension LoginStorageTests {
     func registrationProofsFollowTheirAccountAndVerificationMethod() async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration-proof"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration-proof") }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let model = AccountRegistrationViewModel(studentID: "A", service: service)
@@ -899,7 +899,7 @@ extension LoginStorageTests {
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials()
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let model = AccountRegistrationViewModel(studentID: "A", service: service)
@@ -933,7 +933,7 @@ extension LoginStorageTests {
     func failedOrSupersededRegistrationKeepsTheCurrentSession(superseded: Bool) async throws {
         let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.registration-session"))
         defer { defaults.removePersistentDomain(forName: "BIT101Tests.registration-session") }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "school", fakeCookie: "old-cookie")
         let transport = RegistrationResponses(), http = HTTPClient(transport: transport, observer: nil)
         let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))

@@ -196,7 +196,7 @@ extension LoginLogicTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials(), transport = SchoolLoginResponses()
         var prompts: [String] = []
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {}, requestSchoolPassword: {
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in }, requestSchoolPassword: {
             prompts.append($0)
             return "school-password"
         })
@@ -240,7 +240,7 @@ extension LoginLogicTests {
             let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(body["password"] as? String == "school-password")
         }
-        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {})
+        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
         try await reopened.prepareSchoolCredentials()
         #expect(reopened.currentPassword == "school-password" && reopened.communityCredentials.cookie == owner.cookie)
     }
@@ -251,7 +251,7 @@ extension LoginLogicTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in "new-school-password" })
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in "new-school-password" })
         try storage.saveLoginState(studentID: state == "switch-account" ? "B" : "A",
             password: state == "empty-password" ? "" : "saved-school-password", fakeCookie: "old-cookie",
             communityPasswordDigest: "old-digest")
@@ -270,7 +270,7 @@ extension LoginLogicTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials()
         var reply: CheckedContinuation<String, Error>?
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: {}, requestSchoolPassword: { _ in
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
             try await withCheckedThrowingContinuation { reply = $0 }
         })
         try storage.saveLoginState(studentID: "A", password: "", fakeCookie: "cookie-A", communityPasswordDigest: "community-A")
@@ -297,7 +297,7 @@ extension LoginLogicTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         var prompts = 0
         var reply: CheckedContinuation<String, Error>?
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
             prompts += 1
             return try await withCheckedThrowingContinuation { reply = $0 }
         })
@@ -330,7 +330,7 @@ extension LoginLogicTests {
             defaults.removePersistentDomain(forName: domain)
             var prompts = 0, firstFinished = false, secondFinished = false, secondStarted = false
             var reply: CheckedContinuation<String, Error>?
-            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {}, requestSchoolPassword: { _ in
+            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
                 prompts += 1
                 return try await withCheckedThrowingContinuation { reply = $0 }
             })

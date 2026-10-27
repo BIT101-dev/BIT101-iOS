@@ -30,6 +30,7 @@ struct NativeLoginTests {
         var initialSchoolSMS = false
         var schoolSessionReady = false
         var schoolRisk = false
+        var onSchoolPage: (() throws -> Void)?
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
@@ -60,6 +61,7 @@ struct NativeLoginTests {
                 if registrationFailure { status = 503; text = #"{"msg":"database unavailable"}"# }
                 else { text = #"{"fake_cookie":"proof-cookie"}"# }
             case "/cas/login":
+                if request.httpMethod == "GET" { try onSchoolPage?() }
                 if request.httpMethod == "GET", schoolSessionReady, url.query?.contains("service=") == true {
                     status = 302; headers["Location"] = "https://jwms.bit.edu.cn/"; text = ""
                 } else if request.httpMethod == "GET", initialSchoolSMS {
@@ -98,7 +100,7 @@ struct NativeLoginTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let backend = Credentials(), transport = Transport()
         var prompts = 0
-        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {}, requestSchoolPassword: { _ in
+        let storage = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
             prompts += 1; return "school-B"
         })
         let client = HTTPClient(transport: transport, observer: nil)
@@ -188,7 +190,7 @@ struct NativeLoginTests {
                 : ["/user/login", "/cas/login", "/cas/login"]
             #expect(transport.requests.compactMap { $0.url?.path } == expected)
             let defaults = try #require(UserDefaults(suiteName: "BIT101Tests.native-login"))
-            let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {})
+            let reopened = LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in })
             #expect(reopened.hasCachedSession && reopened.currentStudentID == "owner" && reopened.fakeCookie.isEmpty)
             let reopenedService = LoginService(storage: reopened,
                 apiClient: BIT101APIClient(httpClient: HTTPClient(transport: transport, observer: nil),
@@ -203,7 +205,7 @@ struct NativeLoginTests {
             #expect(reopened.fakeCookie == "direct-cookie" && !reopened.hasVerifiedSchoolIdentity)
             reopened.clearSession()
             #expect(!reopened.hasCachedSession && reopened.currentPassword.isEmpty)
-            #expect(!LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: {}).hasCachedSession)
+            #expect(!LoginStorage(defaults: defaults, credentials: backend, clearSchoolCookies: { _ in }).hasCachedSession)
         }
     }
 
@@ -337,18 +339,16 @@ struct NativeLoginTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let transport = Transport(), state = AppSchoolSession.isolatedState()
         let original = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
-        let replacement = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         func cookie(_ name: String, value: String, domain: String = "sso.bit.edu.cn") throws -> HTTPCookie {
             try #require(HTTPCookie(properties: [.domain: domain, .path: "/", .name: name, .value: value, .secure: "TRUE"]))
         }
         var prompts = 0
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {
-            state.clearSchoolAuthenticationCookies()
-            state.replaceCookieStorage(with: replacement)
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { reason in
+            AppSchoolSession.clearSchoolAuthenticationCookies(reason, state: state)
         }, requestSchoolPassword: { _ in prompts += 1; return "school-B" })
         try storage.saveLoginState(studentID: "owner", password: "old-B", fakeCookie: "community-cookie")
         state.replaceCookieStorage(with: original)
-        replacement.setCookie(try cookie("riskSystemGroupId", value: "new-group"))
+        transport.onSchoolPage = { state.cookieStorage.setCookie(try cookie("riskSystemGroupId", value: "new-group")) }
         original.setCookie(try cookie("riskSystemGroupId", value: "other-service", domain: "jwms.bit.edu.cn"))
         original.setCookie(try cookie("riskSystemGroupId", value: "old-group"))
         original.setCookie(try cookie("device", value: "old-device"))
@@ -357,10 +357,16 @@ struct NativeLoginTests {
         let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
         let salt = "MTIzNDU2Nzg5MDEyMzQ1Ng=="
         let html = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">old-flow</p><p id="riskSystemSwitch">USTC</p>"#
-        let next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
-            html: html, credentials: storage, cookieStorage: { state.cookieStorage },
-            updateCredentials: { try await storage.updateSchoolCredentials() })
-        #expect(next.host == "webvpn.bit.edu.cn" && prompts == 1 && storage.fakeCookie == "community-cookie")
+        var next: URL?
+        state.selectOwner(storage.schoolSessionIdentity)
+        try await state.authenticationRecovery.refresh(identity: storage.schoolSessionIdentity) {
+            next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
+                html: html, credentials: storage, cookieStorage: { state.cookieStorage },
+                updateCredentials: { try await storage.updateSchoolCredentials() })
+        }
+        let replacement = state.cookieStorage
+        #expect(replacement !== original)
+        #expect(next?.host == "webvpn.bit.edu.cn" && prompts == 1 && storage.fakeCookie == "community-cookie")
         let profiles = try transport.requests.filter { $0.url?.path == "/ustc-rba-front/fp" }.map {
             let body = try #require($0.httpBody)
             return try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
@@ -381,6 +387,26 @@ struct NativeLoginTests {
             let encrypted = try payloads.map { try LoginCrypto.encryptPassword($0, saltBase64: salt) }
             #expect(encrypted.contains(fields.first { $0.name == "risk_payload" }?.value ?? ""))
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func identityCookieResetCancelsPendingSchoolAuthentication() async throws {
+        let state = AppSchoolSession.isolatedState()
+        let owner = SchoolSessionIdentity(accountIdentifier: "retired-owner", generation: 1)
+        state.selectOwner(owner)
+        let (events, entered) = AsyncStream<Void>.makeStream()
+        var completion: CheckedContinuation<Void, Never>?
+        let recovery = Task {
+            try await state.authenticationRecovery.refresh(identity: owner) {
+                await withCheckedContinuation { completion = $0; entered.yield(()) }
+            }
+        }
+        defer { recovery.cancel(); completion?.resume(); entered.finish() }
+        var starts = events.makeAsyncIterator()
+        _ = await starts.next()
+        let original = state.cookieStorage
+        AppSchoolSession.clearSchoolAuthenticationCookies(.identityChanged, state: state)
+        await #expect(throws: CancellationError.self) { try await recovery.value }
+        #expect(state.cookieStorage !== original)
     }
 
     @Test(.timeLimit(.minutes(1))) func initialCASGETSMSContinuesThroughTheRealSessionRestorer() async throws {

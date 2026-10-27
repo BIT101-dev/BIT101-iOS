@@ -17,6 +17,10 @@ protocol LoginCredentialsStoring {
     @discardableResult func delete(account: String) -> Bool
 }
 
+nonisolated enum SchoolCookieResetReason: Equatable, Sendable {
+    case identityChanged, passwordChanged
+}
+
 /// 登录状态存储。
 ///
 /// 学号、密码和 fake-cookie 存入 Keychain，安装标记存入 `UserDefaults`，学校 cookie 由系统 `HTTPCookieStorage` 管理。
@@ -47,7 +51,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     private let defaults: UserDefaults
     private let credentials: any LoginCredentialsStoring
-    private let clearSchoolCookies: () -> Void
+    private let clearSchoolCookies: (SchoolCookieResetReason) -> Void
     private let requestSchoolPassword: @MainActor (String) async throws -> String
     private let schoolPasswordRequests = SessionRefreshCoordinator<SchoolSessionIdentity>()
     let schoolSessionRecovery = SessionRefreshCoordinator<SchoolSessionIdentity>()
@@ -74,7 +78,7 @@ final class LoginStorage: SchoolCredentialsProviding {
                 && !defaults.bool(forKey: DefaultsKey.communityAuthenticationRequired))
     }
 
-    init(defaults: UserDefaults, credentials: any LoginCredentialsStoring, clearSchoolCookies: @escaping () -> Void,
+    init(defaults: UserDefaults, credentials: any LoginCredentialsStoring, clearSchoolCookies: @escaping (SchoolCookieResetReason) -> Void,
          requestSchoolPassword: @escaping @MainActor (String) async throws -> String = { _ in
              throw LoginServiceError.schoolCredentialsRequired
          }) {
@@ -181,7 +185,7 @@ final class LoginStorage: SchoolCredentialsProviding {
             var updated = session
             updated.password = password
             try saveSession(updated)
-            clearSchoolCookies()
+            clearSchoolCookies(.passwordChanged)
         }
         try Task.checkCancellation()
         guard schoolSessionIdentity == owner else { throw CancellationError() }
@@ -224,7 +228,7 @@ final class LoginStorage: SchoolCredentialsProviding {
             communityRefreshCoordinator.cancel()
             schoolSessionRecovery.cancel()
             schoolPasswordRequests.cancel()
-            clearSchoolCookies()
+            clearSchoolCookies(.identityChanged)
             sessionGeneration &+= 1
             notifyAccountChanged()
         } else {
@@ -254,7 +258,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         retireLegacyCredentials()
 
         // 清理学校身份相关域，保留 App 内其他服务和调试环境的 Cookie。
-        clearSchoolCookies()
+        clearSchoolCookies(.identityChanged)
         notifyAccountChanged()
     }
 
@@ -295,7 +299,7 @@ final class LoginStorage: SchoolCredentialsProviding {
         defaults.removeObject(forKey: DefaultsKey.fakeCookie)
         let didDeleteSession = credentials.delete(account: KeychainAccount.session)
         let didDeleteFakeCookie = credentials.delete(account: KeychainAccount.fakeCookie)
-        clearSchoolCookies()
+        clearSchoolCookies(.identityChanged)
         let didDeleteStudentID = credentials.delete(account: KeychainAccount.studentID)
         let didDeletePassword = credentials.delete(account: KeychainAccount.password)
         return didDeleteSession && didDeleteFakeCookie && didDeleteStudentID && didDeletePassword
@@ -351,7 +355,7 @@ final class LoginStorage: SchoolCredentialsProviding {
             sessionReadError = nil
             if publishChange, previousAccount != currentStudentID || wasAwaitingRead {
                 sessionGeneration &+= 1
-                clearSchoolCookies()
+                clearSchoolCookies(.identityChanged)
                 notifyAccountChanged()
             } else if publishChange, previousCredentials != communityCredentials {
                 credentialsSubject.send(communityCredentials)

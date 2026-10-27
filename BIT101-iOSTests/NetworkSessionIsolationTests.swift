@@ -349,7 +349,7 @@ extension NetworkClientTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         let server = try CommunityIsolationServer()
         defer { server.stop() }
         let base = try await server.url(), cachedURL = base.appending(path: "account")

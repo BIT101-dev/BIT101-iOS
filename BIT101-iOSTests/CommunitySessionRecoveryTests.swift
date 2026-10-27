@@ -101,7 +101,7 @@ struct CommunitySessionRecoveryTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         var schoolCookieClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { schoolCookieClears += 1 })
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in schoolCookieClears += 1 })
         try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
         let transport = SharedRenewalResponses(); transport.outcome = "rejected"
         let http = HTTPClient(transport: transport, observer: nil)
@@ -139,7 +139,7 @@ struct CommunitySessionRecoveryTests {
         let domain = "BIT101Tests.community-reauthentication-owner"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "school-A", fakeCookie: "old-cookie")
         storage.requireCommunityAuthentication()
         let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
@@ -251,7 +251,7 @@ struct CommunitySessionRecoveryTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         for startupFirst in [false, true] {
             for sessionFactory in [false, true] {
-                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
                 try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
                 let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
                 let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
@@ -287,7 +287,7 @@ struct CommunitySessionRecoveryTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         for outcome in ["rejected", "offline"] {
             for entry in ["startup", "client", "session"] {
-                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {})
+                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
                 try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
                 let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
                 transport.outcome = outcome
@@ -322,12 +322,12 @@ struct CommunitySessionRecoveryTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials()
         var schoolClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { schoolClears += 1 })
+        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
         try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
         let identity = storage.schoolSessionIdentity
         schoolClears = 0
         storage.requireCommunityAuthentication()
-        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { schoolClears += 1 })
+        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
         #expect(reopened.hasCachedSession && reopened.fakeCookie.isEmpty && reopened.currentStudentID == "A")
         #expect(reopened.currentPassword == "school-password" && storage.schoolSessionIdentity == identity && schoolClears == 0)
         try await reopened.prepareSchoolCredentials()
@@ -339,7 +339,7 @@ struct CommunitySessionRecoveryTests {
         _ = try await login.login(studentID: "A", password: "community-password")
         #expect(reopened.communityCredentials.identity == owner && reopened.fakeCookie == "renewed-cookie")
         #expect(reopened.currentPassword == "school-password" && schoolClears == 0)
-        let restored = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { schoolClears += 1 })
+        let restored = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
         #expect(restored.hasCachedSession && restored.fakeCookie == "renewed-cookie" && restored.currentPassword == "school-password")
         login.logout()
         #expect(!login.hasCachedSession && reopened.fakeCookie.isEmpty && reopened.currentPassword.isEmpty && schoolClears == 1)

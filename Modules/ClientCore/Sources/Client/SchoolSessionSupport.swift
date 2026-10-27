@@ -72,11 +72,13 @@ public final class TeachingCenterSessionState {
         invalidate()
     }
 
-    public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage) {
-        authenticationRecovery.cancel()
+    public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage, preservingAuthentication: Bool = false) {
+        if !preservingAuthentication {
+            authenticationRecovery.cancel()
+            owner = nil
+        }
         preparationRecovery.cancel()
         schoolSecondFactorRecovery.cancel()
-        owner = nil
         sessionRevision &+= 1
         selectedCookieStorage = cookieStorage
         authenticatedStudentID = nil
