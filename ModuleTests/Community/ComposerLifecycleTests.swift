@@ -3,11 +3,52 @@ import CommunityCore
 import CommunityTransport
 import CommunityUI
 import Foundation
+import MediaKit
 @testable import GalleryFeature
 import Testing
 
 @MainActor
 struct ComposerLifecycleTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["read", "empty", "prepare"])
+    func mixedImageImportsKeepValidPhotosAfterAnIndividualFailure(failure: String) async {
+        let sources: [@MainActor () async throws -> Data?] = [{ Data([1]) }, {
+            if failure == "read" { throw CocoaError(.fileReadCorruptFile) }
+            return failure == "empty" ? nil : Data([2])
+        }, { Data([3]) }]
+        let prepare: @MainActor (Data) async throws -> Data = { data in
+            if data == Data([2]) { throw CocoaError(.fileReadCorruptFile) }
+            return data
+        }
+        var prepared: [Data] = [], failures = 0
+        await ImageDataCompressor.importImages(from: sources, prepare: prepare, isCurrent: { true },
+            onPrepared: { prepared.append($0) }, onFailure: { _ in failures += 1 })
+        #expect(prepared == [Data([1]), Data([3])] && failures == 1)
+        let images = ComposerImageUploads(upload: { data, _ in
+            .init(mid: String(data[0]), url: "", lowUrl: "")
+        }, prepare: prepare, isCurrentSession: { true })
+        await images.addImages(from: sources)
+        #expect(images.drafts.map(\.previewData) == prepared && images.errorMessage != nil)
+        #expect(images.uploadedImages.map(\.mid) == ["1", "3"] && images.isReadyToSubmit)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func imageImportsStopAfterCancellationOrOwnerReplacement(cancel: Bool) async throws {
+        let gate = Gate()
+        var current = true, prepared: [Data] = [], failures = 0, laterReads = 0
+        let task = Task {
+            await ImageDataCompressor.importImages(from: [{ await gate.pause(); return Data([1]) }, {
+                laterReads += 1; return Data([2])
+            }], prepare: { $0 }, isCurrent: { current },
+                onPrepared: { prepared.append($0) }, onFailure: { _ in failures += 1 })
+        }
+        defer { task.cancel(); gate.resume() }
+        try await gate.waitUntilPaused()
+        if cancel { task.cancel() } else { current = false }
+        gate.resume()
+        await task.value
+        #expect(prepared.isEmpty && failures == 0 && laterReads == 0)
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancellingARetriedLegacyImageRetainsItsPreviewBytes() async throws {
         let gate = Gate()
         var received = Data()

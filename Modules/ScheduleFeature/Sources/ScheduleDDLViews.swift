@@ -382,18 +382,12 @@ private struct DDLEditSheet: View {
         isImporting = true
         importError = nil
         defer { isImporting = false }
-        do {
-            for item in selectedPhotos {
-                try Task.checkCancellation()
-                guard let data = try await media.loadBoundedImageData(from: item) else { throw CocoaError(.fileReadCorruptFile) }
-                let prepared = try await ImageDataCompressor.prepare(data, maximumBytes: DDLImagePolicy.maximumImageBytes)
-                try Task.checkCancellation()
-                draft.images.append(DDLImageAttachment(data: prepared))
-            }
-        } catch {
-            guard !TaskCancellation.matches(error) else { return }
-            importError = "图片处理失败：\(error.localizedDescription)"
-        }
+        await ImageDataCompressor.importImages(from: selectedPhotos.map { item in
+            { try await media.loadBoundedImageData(from: item) }
+        }, prepare: { try await ImageDataCompressor.prepare($0, maximumBytes: DDLImagePolicy.maximumImageBytes) },
+            isCurrent: { true }, onPrepared: { draft.images.append(DDLImageAttachment(data: $0)) },
+            onFailure: { importError = "图片处理失败：\($0.localizedDescription)" })
+        guard !Task.isCancelled else { return }
         selectedPhotos = []
     }
 }

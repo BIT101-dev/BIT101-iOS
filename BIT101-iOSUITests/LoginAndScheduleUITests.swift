@@ -302,13 +302,15 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
 
     @MainActor
     func testScheduleKeepsWeekAndControlsAcrossWindowRotation() {
+        let device = XCUIDevice.shared
+        device.orientation = .portrait
         app = configureApp(resetStorage: true, school: true)
         let traits = windowTraits()
         let requiresPortrait = traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue)
         let isTablet = traits["idiom"] == UIUserInterfaceIdiom.pad.rawValue
-        let device = XCUIDevice.shared
         defer { device.orientation = .portrait }
+        assertWeekCentered(1)
         app.buttons["第3周"].tapBriefly()
         assertSelectedWeek(3)
         tap("schedule.add-content")
@@ -337,6 +339,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                 assertUI(app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width, "紧凑手机窗口应保持竖屏：\(windowTraits())。")
             }
             assertSelectedWeek(3)
+            assertWeekCentered(3)
             let calendar = app.buttons["schedule.blank-context-menu"]
             assertUI(calendar.appears(timeout: 10), "窗口旋转后课表保持可见。")
             let window = app.windows.firstMatch.frame
@@ -348,6 +351,16 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         }
     }
 
+
+    @MainActor
+    private func assertWeekCentered(_ week: Int) {
+        let item = app.native.buttons["第\(week)周"]
+        let viewport = app.native.scrollViews["interaction.ScheduleInlineWeekSlider.scroll"]
+        assertUI(waitUntil(NSPredicate { _, _ in
+            item.exists && viewport.exists && viewport.frame.width > 0
+                && abs(item.frame.midX - viewport.frame.midX) <= 1
+        }, on: app, timeout: 5), "首屏及旋转后选中周应与滚动视口居中对齐。")
+    }
 
 }
 

@@ -1,9 +1,31 @@
-#if os(iOS)
 import Foundation
+import TransportCore
+#if os(iOS)
 import UIKit
 import ImageIO
+#endif
 
 public enum ImageDataCompressor {
+    public static func importImages(from sources: [@MainActor () async throws -> Data?],
+        prepare: @MainActor (Data) async throws -> Data, isCurrent: @MainActor () -> Bool,
+        onPrepared: @MainActor (Data) -> Void, onFailure: @MainActor (any Error) -> Void) async {
+        for source in sources {
+            guard isCurrent(), !Task.isCancelled else { return }
+            do {
+                guard let data = try await source() else { throw URLError(.cannotDecodeContentData) }
+                try Task.checkCancellation()
+                let prepared = try await prepare(data)
+                guard isCurrent() else { return }
+                try Task.checkCancellation()
+                onPrepared(prepared)
+            } catch {
+                guard isCurrent(), !TaskCancellation.matches(error) else { return }
+                onFailure(error)
+            }
+        }
+    }
+
+#if os(iOS)
     @concurrent public nonisolated static func prepare(_ data: Data, maximumBytes: Int) async throws -> Data {
         try Task.checkCancellation()
         let prepared = try compress(data, maximumBytes: maximumBytes)
@@ -64,5 +86,5 @@ public enum ImageDataCompressor {
         try Task.checkCancellation()
         return data
     }
-}
 #endif
+}

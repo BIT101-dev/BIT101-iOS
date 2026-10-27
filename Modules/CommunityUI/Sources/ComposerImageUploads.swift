@@ -1,6 +1,7 @@
 import Combine
 import CommunityCore
 import Foundation
+import MediaKit
 import TransportCore
 
 /// 图片先进入本地草稿，上传任务沿图片身份独立持有。
@@ -62,21 +63,13 @@ public final class ComposerImageUploads: ObservableObject {
         errorMessage = nil
         let remaining = max(0, ComposerDraftImagePolicy.maximumImageCount - existingImageCount - drafts.count)
         let task = Task { [weak self, prepare] in
-            for source in sources.prefix(remaining) {
-                guard self?.isCurrent(operation) == true else { return }
-                do {
-                    guard let data = try await source() else { throw URLError(.cannotDecodeContentData) }
-                    try Task.checkCancellation()
-                    let prepared = try await prepare(data)
-                    guard let self, self.isCurrent(operation) else { return }
+            await ImageDataCompressor.importImages(from: Array(sources.prefix(remaining)), prepare: prepare,
+                isCurrent: { self?.isCurrent(operation) == true }, onPrepared: { prepared in
+                    guard let self else { return }
                     let draft = ComposerImageDraft(previewData: prepared, filename: "image-\(UUID().uuidString).jpg", uploadData: prepared)
                     self.drafts.append(draft)
                     self.startUpload(id: draft.id)
-                } catch {
-                    guard let self, self.isCurrent(operation), !TaskCancellation.matches(error) else { return }
-                    self.errorMessage = error.localizedDescription
-                }
-            }
+                }, onFailure: { self?.errorMessage = $0.localizedDescription })
         }
         importTask = task
         defer { if generation == operation { importTask = nil; isAddingImages = false } }
