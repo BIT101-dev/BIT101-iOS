@@ -14,7 +14,13 @@ struct ClassroomCacheTests {
         var buildingQueries: [String?] = []
         var error: Error?
         var buildingSuffix = "1"
-        func fetchCurrentTermOnly() async throws -> String { "term" }
+        var currentTerm = "term"
+        var queriedTerms: [String] = []
+        var termError: Error?
+        func fetchCurrentTermOnly() async throws -> String {
+            if let termError { throw termError }
+            return currentTerm
+        }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] {
             [CampusRecord(id: "a", name: "校区A", code: "a"), CampusRecord(id: "b", name: "校区B", code: "b")]
@@ -26,6 +32,7 @@ struct ClassroomCacheTests {
         }
         func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
             queries.append(buildingID)
+            queriedTerms.append(term)
             if let error { throw error }
             return [ClassroomRecord(id: buildingID + "-room", name: "101", busyTimeCodes: [1])]
         }
@@ -40,6 +47,35 @@ struct ClassroomCacheTests {
         cache.selectedClassroomSectionIDs = []
         cache.isClassroomSectionFilterCustomized = true
         return cache
+    }
+
+    @Test(.timeLimit(.minutes(1))) func classroomDatesUseTheSchoolTermWhileTheTimetableShowsHistory() async throws {
+        var initial = initialCache()
+        initial.currentTerm = "historical-term"
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
+        let service = Service()
+        service.currentTerm = "school-current-term"
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "classroom-term") },
+            load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        await model.refreshClassroomPage(force: false)
+        await model.refreshClassroomPage(force: false)
+        #expect(service.queriedTerms == ["school-current-term"])
+        #expect(repository.courseState.currentTerm == "historical-term")
+        now = now.addingTimeInterval(86_400)
+        service.currentTerm = "school-next-term"
+        await model.refreshClassroomPage(force: false)
+        #expect(service.queriedTerms == ["school-current-term", "school-next-term"])
+        #expect(repository.courseState.currentTerm == "historical-term")
+        service.termError = URLError(.notConnectedToInternet)
+        now = now.addingTimeInterval(86_400)
+        let updatedAt = model.classroomLastUpdatedAt
+        await model.refreshClassroomPage(force: false)
+        model.restoreCachedState()
+        #expect(model.classroomLastUpdatedAt == updatedAt && service.queriedTerms.count == 2)
+        #expect(model.hasExpiredClassroomData(at: now) && model.classroomAvailabilities.isEmpty)
+        #expect(repository.classroomState.cachedClassroomQueriesByBuildingID?["a1"]?.records?.map(\.id) == ["a1-room"])
     }
 
     @Test(.timeLimit(.minutes(1)))

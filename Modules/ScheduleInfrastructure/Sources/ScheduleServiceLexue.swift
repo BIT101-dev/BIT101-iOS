@@ -51,19 +51,24 @@ extension ScheduleService {
                 if smsDeliveryMode == .send, baseURL.host == webVPNLexueBaseURL.host, let nativeAuthenticator {
                     _ = try await nativeAuthenticator.authenticate(.webVPN)
                 }
-                let finalURL = try await resolveLexueCalendarURL(
+                var finalURL = try await resolveLexueCalendarURL(
                     storedURL: index == 0 ? storedURL : "",
                     baseURL: baseURL,
                     schoolSMSCodeHandler: schoolSMSCodeHandler,
                     smsDeliveryMode: smsDeliveryMode,
                     owner: owner
                 )
-                let remoteEvents = try await fetchLexueEvents(
-                    urlString: finalURL,
-                    schoolSMSCodeHandler: schoolSMSCodeHandler,
-                    smsDeliveryMode: smsDeliveryMode,
-                    owner: owner
-                )
+                let remoteEvents: [DDLEventRecord]
+                do {
+                    remoteEvents = try await fetchLexueEvents(urlString: finalURL, schoolSMSCodeHandler: schoolSMSCodeHandler,
+                        smsDeliveryMode: smsDeliveryMode, owner: owner)
+                } catch {
+                    guard index == 0, !storedURL.isEmpty, shouldRetryLexueRoute(after: error) else { throw error }
+                    finalURL = try await resolveLexueCalendarURL(storedURL: "", baseURL: baseURL,
+                        schoolSMSCodeHandler: schoolSMSCodeHandler, smsDeliveryMode: smsDeliveryMode, owner: owner)
+                    remoteEvents = try await fetchLexueEvents(urlString: finalURL, schoolSMSCodeHandler: schoolSMSCodeHandler,
+                        smsDeliveryMode: smsDeliveryMode, owner: owner)
+                }
 
                 let existingDoneMap = Dictionary(existingEvents.map { ($0.id, $0.done) }, uniquingKeysWith: { first, _ in first })
                 let merged = remoteEvents.map { event in

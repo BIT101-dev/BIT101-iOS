@@ -220,15 +220,23 @@ struct TeachingCenterAvailabilityTests {
 
     private final class LexueTransport: HTTPTransport {
         let requiresSMS: Bool
+        var expiredSubscription = false
         var requests: [URLRequest] = []
         init(requiresSMS: Bool) { self.requiresSMS = requiresSMS }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
             let url = try #require(request.url)
             if requiresSMS, url.host == "lexue.bit.edu.cn" { throw URLError(.cannotConnectToHost) }
+            if expiredSubscription, url.host == "webvpn.bit.edu.cn" { throw URLError(.cannotConnectToHost) }
             let text: String
             let responseURL: URL
-            if requiresSMS {
+            if expiredSubscription, url.path == "/expired.ics" {
+                responseURL = url; text = "<html>订阅令牌已失效</html>"
+            } else if expiredSubscription, url.path == "/" {
+                responseURL = url; text = #"<script>config={"sesskey":"session"}</script>"#
+            } else if expiredSubscription, url.path == "/calendar/export.php" {
+                responseURL = url; text = #"<input value="https://lexue.bit.edu.cn/fresh.ics">"#
+            } else if requiresSMS {
                 responseURL = AppURL.required("https://sso.bit.edu.cn/cas/login")
                 text = #"<form id="secondSmsLoginForm" action="/cas/login"><p id="login-page-flowkey">sms-flow</p><p id="user-object-id">owner</p></form>"#
             } else {
@@ -244,6 +252,19 @@ struct TeachingCenterAvailabilityTests {
             if let maximumBytes, response.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
             return response
         }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func expiredLexueSubscriptionRefreshesOnTheWorkingDirectRoute() async throws {
+        let credentials = Credentials(), transport = LexueTransport(requiresSMS: false), native = InteractionAuthenticator()
+        transport.expiredSubscription = true
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: DirectRestorer(),
+            teachingCenterState: state, transport: transport, nativeAuthenticator: native)
+        let result = try await service.syncDDLEvents(existingEvents: [], storedURL: "https://lexue.bit.edu.cn/expired.ics",
+            schoolSMSCodeHandler: nil, smsDeliveryMode: .send)
+        #expect(result.url == "https://lexue.bit.edu.cn/fresh.ics" && result.events.count == 1)
+        #expect(transport.requests.compactMap { $0.url?.path } == ["/expired.ics", "/", "/calendar/export.php", "/fresh.ics"])
+        #expect(transport.requests.allSatisfy { $0.url?.host == "lexue.bit.edu.cn" } && native.calls == 0)
     }
     private final class InteractionAuthenticator: SchoolServiceAuthenticating {
         var calls = 0

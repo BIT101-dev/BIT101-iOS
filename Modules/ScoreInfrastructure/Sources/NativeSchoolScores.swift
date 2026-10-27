@@ -45,11 +45,7 @@ nonisolated enum NativeSchoolScoreParser {
                 continue
             }
             guard raw.count == headers.count else { throw ScoreServiceError.invalidResponse }
-            var values = raw.map(text)
-            if let index = headers.firstIndex(of: "成绩"),
-               let numeric = ["优秀": "95", "良好": "85", "中等": "75", "及格": "65", "不及格": "0"][values[index]] {
-                values[index] = numeric
-            }
+            let values = raw.map(text)
             guard ScoreRow(index: records.count, headers: headers, values: values).hasValidCourseIdentity else {
                 throw ScoreServiceError.invalidResponse
             }
@@ -138,34 +134,58 @@ struct NativeSchoolScoreReader {
             query.table = table
         }
         defer { if detail { query.table = nil } }
-        var rows: [ScoreRow] = []
-        var failure: (any Error)?
-        for (index, record) in table.records.enumerated() {
-            try validate()
-            var values = record.values
-            var headers = table.headers
-            if detail {
-                if let path = record.detailPath {
-                    do {
-                        let request = URLRequest(url: try resource(path, base: session.baseURL))
-                        values += try await decoded(request, using: NativeSchoolScoreParser.detail)
-                        headers += NativeSchoolScoreParser.detailHeaders
-                    } catch {
-                        try validate()
-                        if TaskCancellation.matches(error) { throw error }
-                        if failure == nil || SchoolServiceFailure.from(error) != nil { failure = error }
+        guard detail else {
+            return table.records.enumerated().map { ScoreRow(index: $0.offset, headers: table.headers, values: $0.element.values) }
+        }
+        return try await withThrowingTaskGroup(of: (Int, ScoreRow, (any Error)?).self) { group in
+            var nextIndex = 0
+            for index in 0 ..< min(4, table.records.count) {
+                group.addTask {
+                    try await self.detailRow(index: index, record: table.records[index], headers: table.headers, session: session)
+                }
+                nextIndex += 1
+            }
+            var rows: [(Int, ScoreRow)] = []
+            var failure: (any Error)?
+            for try await (index, row, error) in group {
+                try validate()
+                rows.append((index, row))
+                if let error, failure == nil || SchoolServiceFailure.from(error) != nil { failure = error }
+                if nextIndex < table.records.count {
+                    let next = nextIndex
+                    group.addTask {
+                        try await self.detailRow(index: next, record: table.records[next], headers: table.headers, session: session)
                     }
-                } else {
-                    headers += NativeSchoolScoreParser.detailHeaders
-                    values += Array(repeating: "", count: NativeSchoolScoreParser.detailHeaders.count)
+                    nextIndex += 1
                 }
             }
-            let row = ScoreRow(index: index, headers: headers, values: values)
-            rows.append(row)
+            let ordered = rows.sorted { $0.0 < $1.0 }.map(\.1)
+            try validate()
+            if let failure { throw PartialScoreResult(rows: ordered, failure: failure) }
+            return ordered
         }
+    }
+
+    private func detailRow(index: Int, record: NativeSchoolScoreParser.Record, headers: [String],
+        session: SchoolAuthenticatedSession) async throws -> (Int, ScoreRow, (any Error)?) {
         try validate()
-        if let failure { throw PartialScoreResult(rows: rows, failure: failure) }
-        return rows
+        var values = record.values, headers = headers
+        var failure: (any Error)?
+        if let path = record.detailPath {
+            do {
+                let request = URLRequest(url: try resource(path, base: session.baseURL))
+                values += try await decoded(request, using: NativeSchoolScoreParser.detail)
+                headers += NativeSchoolScoreParser.detailHeaders
+            } catch {
+                try validate()
+                if TaskCancellation.matches(error) { throw error }
+                failure = error
+            }
+        } else {
+            headers += NativeSchoolScoreParser.detailHeaders
+            values += Array(repeating: "", count: NativeSchoolScoreParser.detailHeaders.count)
+        }
+        return (index, ScoreRow(index: index, headers: headers, values: values), failure)
     }
 
     private func decoded<Value: Sendable>(_ original: URLRequest, using decode: (Data) async throws -> Value) async throws -> Value {

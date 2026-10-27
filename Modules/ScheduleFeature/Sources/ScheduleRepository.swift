@@ -407,14 +407,12 @@ typealias ScheduleDDLState = ScheduleDDLData
 @dynamicMemberLookup
 nonisolated struct ScheduleClassroomState: Equatable {
     var data: ScheduleClassroomData
-    let currentTerm: String
     let courses: [CourseRecord]
     let firstDay: Date?
     let timeTable: [TimeSlot]
 
     init(cache: ScheduleCache) {
         data = cache.classroomData
-        currentTerm = cache.currentTerm
         courses = cache.courses
         firstDay = cache.firstDay
         timeTable = cache.timeTable

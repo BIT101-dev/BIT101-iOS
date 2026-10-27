@@ -149,7 +149,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     /// 刷新当前教学楼的空教室状态。
     ///
-    /// 如果当前学期编码还未知，会先补查学期，再请求教室占用。
+    /// 网络刷新先获取学校当前学期，再请求当天教室占用。
     func refreshClassrooms() async {
         await startClassroomRequest { model, requestID in
             try await model.refreshClassrooms(requestID: requestID, force: true)
@@ -166,7 +166,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         let cached = restoreClassroomQuery()
         if !force, let cached,
            ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate) { return }
-        var term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
+        var term = ""
         isLoadingClassrooms = true
         defer {
             if isCurrentClassroomRequest(requestID) {
@@ -175,12 +175,8 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         }
 
         do {
-            if term.isEmpty {
-                term = try await withClassroomRequestTimeout { [self] in try await service.fetchCurrentTermOnly() }
-                guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
-                repository.resolveCurrentTerm(term)
-                persistClassroomState()
-            }
+            term = try await withClassroomRequestTimeout { [self] in try await service.fetchCurrentTermOnly() }
+            guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
             let requestTerm = term
             let records = try await withClassroomRequestTimeout { [service] in
                 try await service.fetchClassrooms(buildingID: buildingID, term: requestTerm, date: queryDate)
@@ -198,7 +194,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             if isCurrentClassroomRequest(requestID), !TaskCancellation.matches(error) {
                 var entry = cache.cachedClassroomQueriesByBuildingID?[buildingID]
                     ?? ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now())
-                if entry.term != term { entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now()) }
+                if !term.isEmpty, entry.term != term { entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now()) }
                 entry.attemptedAt = now()
                 storeClassroomQuery(entry, buildingID: buildingID)
             }
@@ -208,9 +204,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     @discardableResult
     private func restoreClassroomQuery() -> ClassroomQueryCache? {
-        let term = cache.currentTerm.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID],
-              term.isEmpty || entry.term == term else {
+        guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID] else {
             classroomRecords = []; classroomQueryDate = nil; classroomLastUpdatedAt = nil
             return nil
         }

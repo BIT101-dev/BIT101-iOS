@@ -106,6 +106,11 @@ struct NativeSchoolScoreTests {
         var restrictedDetails: Set<String> = []
         var pauseDetails = false
         var detailsEntered = false
+        var holdDetails = false
+        var pendingDetails: [String: CheckedContinuation<Void, Never>] = [:]
+        var detailBodies: [String: String] = [:]
+        var activeDetails = 0
+        var maximumActiveDetails = 0
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
@@ -120,10 +125,14 @@ struct NativeSchoolScoreTests {
             case "/jsxsd/kscj/cjcx_list": body = nativeBody ?? (malformedNative ? "<html>service unavailable</html>" : NativeSchoolScoreTests.grades)
             case "/jsxsd/kscj/cjfx":
                 detailsEntered = true
+                activeDetails += 1
+                maximumActiveDetails = max(maximumActiveDetails, activeDetails)
+                defer { activeDetails -= 1 }
                 if pauseDetails { try await Task.sleep(for: .seconds(60)) }
                 let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "id" })?.value ?? ""
+                if holdDetails { await withCheckedContinuation { pendingDetails[id] = $0 } }
                 body = restrictedDetails.contains(id) ? "<html>对不起，无权访问该资源</html>"
-                    : failedDetails.contains(id) ? "<html>changed detail protocol</html>" : NativeSchoolScoreTests.detail
+                    : failedDetails.contains(id) ? "<html>changed detail protocol</html>" : detailBodies[id] ?? NativeSchoolScoreTests.detail
             case "/api/auth/start": body = #"{"challenge_id":"remote","access_token":"token","status":"authenticated"}"#
             case "/api/jwb/bit101/score": body = #"{"msg":"查询成功","data":[["课程编号","课程名称","成绩","学分"],["CS1","remote","90","3"]]}"#
             case "/api/jwb/cjd/cookies": body = #"{"cookie_str":"remote=fixture"}"#
@@ -160,8 +169,20 @@ struct NativeSchoolScoreTests {
         #expect(authenticator.targets == [.grades])
         #expect(transport.requests.count == 2 && transport.requests.allSatisfy { $0.url?.host == "jwms.bit.edu.cn" })
         let parsed = try NativeSchoolScoreParser.parse(Self.grades)
-        #expect(parsed.records.first?.values[1] == "数学 & 计算" && parsed.records.first?.values[2] == "95")
+        #expect(parsed.records.first?.values[1] == "数学 & 计算" && parsed.records.first?.values[2] == "优秀")
+        #expect(brief.first?.score == "优秀" && ScoreSummary.make(from: brief).weightedAverageGPA == 4)
         #expect(try NativeSchoolScoreParser.detail(Self.detail) == ["60", "90", "85", "95", "30", "100", "是", "前10%", "前20%", "前30%"])
+    }
+
+    @Test(arguments: ["优秀", "良好", "中等", "及格", "不及格"])
+    func nativeGradesKeepTheSchoolLabelsAndDomainGPA(grade: String) throws {
+        let table = try NativeSchoolScoreParser.parse(Self.grades.replacingOccurrences(of: ">优秀<", with: ">\(grade)<"))
+        let rows = table.records.enumerated().map { ScoreRow(index: $0.offset, headers: table.headers, values: $0.element.values) }
+        let grades = ["优秀": 4.0, "良好": 3.6, "中等": 2.8, "及格": 1.7, "不及格": 0.0]
+        let expected = try #require(grades[grade])
+        let actual = try #require(ScoreSummary.make(from: rows).weightedAverageGPA)
+        #expect(rows.first?.score == grade)
+        #expect(abs(actual - expected) <= expected.ulp * 2)
     }
 
     @Test func detailLinksFollowTheirResourceAcrossColumnsAndHTMLEntities() throws {
@@ -170,6 +191,36 @@ struct NativeSchoolScoreTests {
             .replacingOccurrences(of: #"<a onclick="JsMod('/jsxsd/kscj/cjfx?id=1')">详情</a>"#, with: "")
         let table = try NativeSchoolScoreParser.parse(html)
         #expect(table.records.first?.detailPath == "/jsxsd/kscj/cjfx?id=1&term=2")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func nativeDetailsUseFourConcurrentRequestsAndPreserveCourseOrder() async throws {
+        let credentials = Credentials(), transport = Transport()
+        let parts = Self.grades.components(separatedBy: "</tr>")
+        transport.nativeBody = parts[0] + "</tr>" + (1...8).map { index in
+            (parts[1] + "</tr>").replacingOccurrences(of: "CS1", with: "CS\(index)")
+                .replacingOccurrences(of: "id=1'", with: "id=\(index)'")
+        }.joined() + "</table>"
+        transport.detailBodies = Dictionary(uniqueKeysWithValues: (1...8).map { (String($0), Self.detail.replacingOccurrences(of: "平均分：85", with: "平均分：\(80 + $0)")) })
+        transport.holdDetails = true
+        let service = service(credentials, transport, Authenticator(credentials.schoolSessionIdentity))
+        let challenge = try await service.startScoreChallenge()
+        let task = Task { try await service.fetchScores(detail: true, authenticatedBy: challenge) }
+        defer {
+            task.cancel()
+            for pending in transport.pendingDetails.values { pending.resume() }
+            transport.pendingDetails.removeAll()
+        }
+        try await waitForTestEvent { transport.pendingDetails.count == 4 }
+        #expect(transport.maximumActiveDetails == 4)
+        for index in [4, 3, 2, 1, 8, 7, 6, 5] {
+            let id = String(index)
+            try await waitForTestEvent { transport.pendingDetails[id] != nil }
+            transport.pendingDetails.removeValue(forKey: id)?.resume()
+        }
+        let rows = try await task.value
+        #expect(rows.map(\.courseNumber) == (1...8).map { "CS\($0)" })
+        #expect(rows.map(\.averageScore) == (1...8).map { String(80 + $0) })
+        #expect(transport.maximumActiveDetails == 4)
     }
 
     @Test(.timeLimit(.minutes(1))) func localProtocolFailureUsesOneRemoteChallenge() async throws {

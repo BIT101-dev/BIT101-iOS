@@ -85,6 +85,7 @@ struct ScheduleRepositoryBoundaryTests {
         defer { work.cancel(); service.gate?.resume(); service.gate = nil }
         try await waitForTestEvent { service.gate != nil }
         repository.resolveCurrentTerm("changed-term"); date = date.addingTimeInterval(86_400)
+        service.holdAuthentication = false
         service.gate?.resume(); service.gate = nil
         await work.value
         #expect(service.requests.count == 1 && service.requests.first?.0 == "A")
