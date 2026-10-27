@@ -123,7 +123,7 @@ TEST_AREA_SUITES = {
         "ScheduleSystemCalendarEventBuilderTests", "ScheduleTimelineViewportTests", "SmallTermWeekNormalizerTests",
     },
     "infrastructure": {
-        "AccountSettingsTests", "AccountProfileMutationTests",
+        "AccountSettingsTests", "AccountProfileMutationTests", "AdaptivePageLifetimeTests",
         "AppDeepLinkRouteTests", "AppLocalDataOwnershipTests", "AppLocalDataResourceTests", "AppSettingsPersistenceBoundaryTests",
         "AppUpdateCheckerTests", "CampusMapLocationTests", "ComposerDraftStorageTests",
         "ErrorReportAndSchedulePolicyTests", "ErrorReportURLRedactionTests", "ExperimentalPreferenceCloudSyncTests", "NetworkDiagnosticSupportTests",

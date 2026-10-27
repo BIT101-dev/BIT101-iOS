@@ -16,6 +16,7 @@ from code_quality_rules import (
 
 def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
     from code_quality_tests import checker_boundary_findings
+    from validation_test_areas import inventory_findings, test_inventory
     if sys.argv[1:] == ["--swift-syntax-index"]:
         try:
             print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
@@ -49,6 +50,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     errors.extend(source_errors)
     errors.extend(boundary_findings or [])
     errors.extend(script_findings())
+    errors.extend(inventory_findings({test.split('/', 1)[0] for test in test_inventory('all')}))
     if syntax_index:
         errors.extend(automatic_school_fetch_findings(syntax_index))
     errors.extend(audit_wiring_findings())
