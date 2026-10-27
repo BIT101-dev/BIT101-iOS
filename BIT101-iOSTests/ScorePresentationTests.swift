@@ -23,6 +23,8 @@ import Security
 import Testing
 import UIKit
 import XCTest
+import SwiftUI
+import DesignSystemKit
 @testable import BIT101_iOS
 
 @Suite("Score presentation logic", .serialized)
@@ -53,6 +55,79 @@ struct ScorePresentationTests {
         }
     }
 
+}
+
+@MainActor
+@Suite("Adaptive page lifetime")
+struct AdaptivePageLifetimeTests {
+    @Test(.timeLimit(.minutes(1)))
+    func switchingSectionsPreservesDraftsAndInheritedVisibility() async throws {
+        let probe = Probe()
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: Host(probe: probe, showsFirst: true, isVisible: true))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        defer {
+            window.isHidden = true; window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        func wait(_ phase: String, _ condition: () -> Bool) async throws {
+            do { try await waitForTestEvent { condition() } }
+            catch { Issue.record("\(phase)：可见性 \(probe.visibility)，草稿页 \(probe.drafts.keys.sorted())"); throw error }
+        }
+        func display(_ showsFirst: Bool, _ isVisible: Bool = true) {
+            controller.rootView = Host(probe: probe, showsFirst: showsFirst, isVisible: isVisible)
+            window.layoutIfNeeded()
+        }
+        try await wait("首次挂载") { probe.visibility["score"] == true }
+        let score = try #require(probe.drafts["score"])
+        score.wrappedValue = "成绩阅读草稿"
+        display(false)
+        try await wait("切换课程") { probe.visibility["course"] == true && probe.visibility["score"] == false }
+        let course = try #require(probe.drafts["course"])
+        course.wrappedValue = "课程阅读草稿"
+        display(true)
+        try await wait("返回成绩") { probe.visibility["score"] == true && probe.visibility["course"] == false }
+        #expect(probe.drafts["score"]?.wrappedValue == "成绩阅读草稿")
+        #expect(probe.drafts["course"]?.wrappedValue == "课程阅读草稿")
+        display(true, false)
+        try await wait("隐藏父页") { probe.visibility.values.allSatisfy { !$0 } }
+        display(true)
+        try await wait("恢复父页") { probe.visibility["score"] == true && probe.visibility["course"] == false }
+        #expect(probe.drafts["score"]?.wrappedValue == "成绩阅读草稿")
+        #expect(probe.drafts["course"]?.wrappedValue == "课程阅读草稿")
+    }
+
+    private final class Probe {
+        var drafts: [String: Binding<String>] = [:]
+        var visibility: [String: Bool] = [:]
+    }
+    private struct Host: View {
+        let probe: Probe
+        let showsFirst: Bool
+        let isVisible: Bool
+        var body: some View {
+            AppPairedPages(showsFirst: showsFirst, pairsInLandscape: false) {
+                Page(name: "score", probe: probe)
+            } second: { Page(name: "course", probe: probe) }
+            .environment(\.appWindowLayout, AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true))
+            .environment(\.appPageIsVisible, isVisible)
+        }
+    }
+    private struct Page: View {
+        let name: String
+        let probe: Probe
+        @State private var draft = ""
+        @Environment(\.appPageIsVisible) private var isVisible
+        var body: some View {
+            TextField("阅读草稿", text: $draft)
+                .onAppear { probe.drafts[name] = $draft }
+                .onChange(of: isVisible, initial: true) { _, value in probe.visibility[name] = value }
+        }
+    }
 }
 
 nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {

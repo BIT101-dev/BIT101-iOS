@@ -28,6 +28,7 @@ public struct CourseBrowserPage: View {
                     selection = course.map { CourseNavigationRequest(courseID: $0.id, preparedCourse: $0) }
                 }))
             .simultaneousGesture(makeHorizontalSwitchGesture { onSurfaceStep?($0) })
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("课程浏览列表")
         } detail: { request in
             if let course = request.preparedCourse {

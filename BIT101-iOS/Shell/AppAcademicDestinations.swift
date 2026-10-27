@@ -75,17 +75,7 @@ private struct ScoreRootScene: View {
     }
 
     var body: some View {
-        Group {
-            if displayedSurface == .score {
-                ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService,
-                    onSurfaceStep: switchSurface, onSearchCourse: openCourseSearch)
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("home.score-surface")
-            } else {
-                CourseBrowserPage(viewModel: courseViewModel, dependencies: courses, media: destinations.media,
-                    profiles: destinations.profiles, selection: detailRequest, onSurfaceStep: switchSurface)
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("home.course-surface")
-            }
-        }
+        pages
         .accessibilityElement(children: .contain)
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
@@ -103,6 +93,27 @@ private struct ScoreRootScene: View {
                 prepareCourseSurface(requestedCourse)
             }
         }
+    }
+
+    @ViewBuilder private var pages: some View {
+        if showingCourses == nil {
+            AppPairedPages(showsFirst: selectedSurface == .score, pairsInLandscape: false) {
+                scorePage
+            } second: { coursePage }
+        } else if showingCourses == true { coursePage }
+        else { scorePage }
+    }
+
+    private var scorePage: some View {
+        ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService,
+            onSurfaceStep: switchSurface, onSearchCourse: openCourseSearch)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("home.score-surface")
+    }
+
+    private var coursePage: some View {
+        CourseBrowserPage(viewModel: courseViewModel, dependencies: courses, media: destinations.media,
+            profiles: destinations.profiles, selection: detailRequest, onSurfaceStep: switchSurface)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("home.course-surface")
     }
 
     private var displayedSurface: ScoreSurface {

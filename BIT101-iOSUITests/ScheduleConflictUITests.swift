@@ -193,7 +193,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let window = app.windows.firstMatch
         if let safeArea = window.scrollGestureFrame(in: window.frame) {
             assertUI(waitUntil(NSPredicate { _, _ in surface.frame.maxY >= safeArea.maxY - 1 }, on: app, timeout: 5),
-                "日程应填满窗口安全区：内容 \(surface.frame)，安全区 \(safeArea)。")
+                "日程应填满窗口安全区：内容 \(surface.frame)，安全区 \(safeArea)，键盘 \(UITestControlClient.request(["command": "keyboard-state"]) ?? "未知")。")
         }
         let grid = app.descendants(matching: .any)["schedule.calendar"]
         assertUI(waitUntil(NSPredicate { _, _ in grid.exists && grid.frame.maxY >= surface.frame.maxY - 17 }, on: app),

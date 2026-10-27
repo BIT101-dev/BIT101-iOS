@@ -43,29 +43,34 @@ extension EnvironmentValues {
 
 public struct AppPairedPages<First: View, Second: View>: View {
     @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appPageIsVisible) private var isVisible
     private let showsFirst: Bool
+    private let pairsInLandscape: Bool
     private let first: First
     private let second: Second
     @State private var hasShownFirst: Bool
     @State private var hasShownSecond: Bool
-    public init(showsFirst: Bool, @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second) {
+    public init(showsFirst: Bool, pairsInLandscape: Bool = true,
+                @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second) {
         self.showsFirst = showsFirst; self.first = first(); self.second = second()
+        self.pairsInLandscape = pairsInLandscape
         _hasShownFirst = State(initialValue: showsFirst); _hasShownSecond = State(initialValue: !showsFirst)
     }
     public var body: some View {
-        let firstVisible = layout.isLandscape || showsFirst
-        let secondVisible = layout.isLandscape || !showsFirst
+        let isPaired = pairsInLandscape && layout.isLandscape
+        let firstVisible = isPaired || showsFirst
+        let secondVisible = isPaired || !showsFirst
         HStack(spacing: AppDesignSystem.Spacing.none) {
             if hasShownFirst || firstVisible { pane(first, visible: firstVisible) }
-            if layout.isLandscape { Divider() }
+            if isPaired { Divider() }
             if hasShownSecond || secondVisible { pane(second, visible: secondVisible) }
         }
         .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
         .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
     }
     private func pane(_ content: some View, visible: Bool) -> some View {
-        content.environment(\.appWindowLayout, layout.singleColumn)
-            .environment(\.appPageIsVisible, visible)
+        content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
+            .environment(\.appPageIsVisible, visible && isVisible)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(width: visible ? nil : 0)
             .clipped().allowsHitTesting(visible).accessibilityHidden(!visible)
