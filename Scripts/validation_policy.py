@@ -121,8 +121,8 @@ NETWORK_CAPABILITIES = {
     'static verifyIdentity(studentID:String,password:String,state:TeachingCenterSessionState,transport:anyHTTPTransport,activateSession:@escaping([HTTPCookie])->Void)': 'first-login'},
  'ScoreInfrastructure.NativeSchoolScoreReader': {'fetch(detail:Bool,session:SchoolAuthenticatedSession)': 'network'},
  'BIT101-iOS.BIT101APIClient': {
-     'fetchSchoolLoginContext()': 'first-login',
-     'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'first-login',
+     'fetchSchoolLoginPage()': 'first-login',
+     'loginSchool(credentials:anySchoolCredentialsProviding,page:SchoolCASLoginPage)': 'first-login',
      'webVPNVerifyInit(studentID:String)': 'first-login',
      'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'first-login',
      'register(password:String,token:String,code:String,loginMode:Bool)': 'first-login',
@@ -229,8 +229,8 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'static verifyIdentity(studentID:String,password:String)': 'registered-account',
     'static verifyIdentity(studentID:String,password:String,state:TeachingCenterSessionState,transport:anyHTTPTransport,activateSession:@escaping([HTTPCookie])->Void)': 'registered-account'},
  'BIT101-iOS.BIT101APIClient': {
-    'fetchSchoolLoginContext()': 'registered-account',
-    'loginSchool(studentID:String,password:String,salt:String,execution:String)': 'registered-account',
+    'fetchSchoolLoginPage()': 'registered-account',
+    'loginSchool(credentials:anySchoolCredentialsProviding,page:SchoolCASLoginPage)': 'registered-account',
     'webVPNVerifyInit(studentID:String)': 'registered-account',
     'webVPNVerify(studentID:String,password:String,execution:String,cookie:String,salt:String)': 'registered-account',
     'register(password:String,token:String,code:String,loginMode:Bool)': 'new-account-registration',

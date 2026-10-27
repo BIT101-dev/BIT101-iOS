@@ -124,7 +124,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         fillVerificationCode("123456", in: app.textFields["verification.code"])
         assertUI(app.navigationBars["短信验证"].disappears(timeout: 10), "验证完成应关闭短信面板。")
         assertUI(textElement("已验证A101").appears(timeout: 10), "验证完成应重新查询空教室。")
-        assertUI(app.sectionTab("空教室").isSelected, "空教室查询应保留当前分区。")
+        assertUI(app.sectionTab("空教室").native.isSelected, "空教室查询应保留当前分区。")
     }
     @MainActor
     @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
