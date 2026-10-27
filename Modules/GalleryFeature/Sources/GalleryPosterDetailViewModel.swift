@@ -125,17 +125,25 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     func retryFailedContentIfNeeded() async {
         if needsContentRefresh { await refreshAll(); return }
         if case .failed = posterStatus { await refreshAll() }
-        else if case .failed = commentState.status { await refreshComments() }
+        else { await retryCommentsIfNeeded() }
+    }
+
+    func retryCommentsIfNeeded() async {
+        await CommunityDetailTasks.recoverComments(commentState, refresh: { await refreshComments() }, loadMore: { await loadMoreComments() })
     }
 
     /// 当滚动到尾部附近时触发评论分页。
     ///
     /// 评论分页使用“最后几条触发”策略，评论列表接近尾部时请求下一页。
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
+        guard currentComment.map({ commentState.shouldLoadMore(currentID: $0.id) }) ?? commentState.items.isEmpty else { return }
+        await loadMoreComments()
+    }
+
+    private func loadMoreComments() async {
         let generation = commentRefreshGeneration
         guard commentState.status == .loaded,
-              commentState.canLoadMore, !commentState.isLoadingMore,
-              currentComment.map({ commentState.shouldLoadMore(currentID: $0.id) }) ?? commentState.items.isEmpty
+              commentState.canLoadMore, !commentState.isLoadingMore
         else { return }
 
         commentState.isLoadingMore = true
@@ -403,8 +411,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
             commentState.nextPage = batch.nextSourcePage
             commentState.canLoadMore = batch.canLoadMore
             commentState.needsContinuation = batch.items.isEmpty && batch.canLoadMore
-            commentState.status = .loaded
-            commentState.paginationError = nil
+            commentState.finishRefresh()
         case let .failure(error):
             let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))

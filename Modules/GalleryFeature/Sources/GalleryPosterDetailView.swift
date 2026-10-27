@@ -32,7 +32,7 @@ public struct GalleryPosterDetailView: View {
     public var body: some View {
         scene.id(identity)
             .id(resourceID)
-            .appReadableContent()
+            .appReadableContent(expandsInLandscape: true)
     }
 }
 

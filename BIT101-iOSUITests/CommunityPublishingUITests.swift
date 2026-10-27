@@ -14,7 +14,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
     private func publicationReviewSurvivesRestart(paper: Bool) {
         app = configureApp(resetStorage: true, content: true, publicationOutcomeUnknownOnce: true, initialTab: "gallery")
-        if paper { tapHeader(app.segmentedControls.buttons["文章"]) }
+        if paper { tapHeader(app.sectionTab("文章")) }
         tap(paper ? "发布文章" : "发布话题")
         let title = paper ? "核对后的文章" : "核对后的话题"
         replaceText(title, in: app.textFields["标题"])
@@ -28,7 +28,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("取消")
         tap(paper ? "暂存并离开" : "保存草稿")
         app = configureApp(resetStorage: false, restartProcess: true, content: true, initialTab: "gallery")
-        if paper { tapHeader(app.segmentedControls.buttons["文章"]) }
+        if paper { tapHeader(app.sectionTab("文章")) }
         tap(paper ? "发布文章" : "发布话题")
         tap(paper ? "恢复草稿" : "加载草稿")
         assertUI(app.textFields["标题"].value as? String == title, "重新启动应保留原有草稿。")
@@ -53,7 +53,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
     func testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput() {
         app = configureApp(resetStorage: true, content: true, paperDraftRecovery: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         tap("发布文章")
         assertUI(app.alerts["恢复文章草稿存储？"].appears(timeout: 5), "损坏的文章草稿应提供确认恢复入口。")
         tap("paper.draft.recovery.cancel")
@@ -185,7 +185,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
     func testPaperPublishEditCommentAndDelete() {
         app = configureApp(resetStorage: true, content: true, animations: true, paperEditConflictOnce: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         tap("发布文章")
         let paperComposer = app.navigationBars["发布文章"]
         tap("发布")

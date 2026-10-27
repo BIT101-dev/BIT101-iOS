@@ -3,6 +3,13 @@ import CoreGraphics
 import Network
 import os
 
+nonisolated enum UITestMainNavigation {
+    static func labels(_ title: String) -> [String] {
+        let expanded = ["日程": "日程 / DDL", "话廊": "话题", "成绩": "成绩 / 课程", "课程": "成绩 / 课程"]
+        return expanded[title].map { [title, $0] } ?? [title]
+    }
+}
+
 nonisolated final class UITestControlReply: Sendable {
     private struct State {
         var content = Data()
@@ -454,12 +461,14 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        let expanded = segmentedControls.containing(.button, identifier: "地图").firstMatch
-        if expanded.exists {
-            let label = ["话廊": "话题", "成绩": "成绩 / 课程", "课程": "成绩 / 课程"][title] ?? title
-            return expanded.buttons[label]
-        }
-        return descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "app.tab.", title)).firstMatch
+        descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label IN %@",
+            "app.tab.", UITestMainNavigation.labels(title))).firstMatch
+    }
+    func sectionTab(_ title: String) -> UIElement {
+        let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
+        let primary = descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@",
+            "app.tab.", primaryTitle)).firstMatch
+        return primary.isHittable ? primary : segmentedControls.buttons[title]
     }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
     var collectionViews: UIElementQuery { descendants(matching: .collectionView) }

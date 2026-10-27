@@ -5,12 +5,13 @@ import SwiftUI
 
 private struct ScheduleSchoolVerification: ViewModifier {
     @ObservedObject var viewModel: ScheduleDDLViewModel
+    let isEnabled: Bool
 
     func body(content: Content) -> some View {
         content.sheet(item: Binding(
-            get: { viewModel.schoolSMSCodeRequest },
+            get: { isEnabled ? viewModel.schoolSMSCodeRequest : nil },
             set: { request in
-                if request == nil { viewModel.dismissSchoolSMSCode() }
+                if isEnabled, request == nil { viewModel.dismissSchoolSMSCode() }
             }
         )) { request in
             AppSchoolSMSVerificationSheet(
@@ -23,8 +24,8 @@ private struct ScheduleSchoolVerification: ViewModifier {
 }
 
 extension View {
-    public func scheduleSchoolVerification(viewModel: ScheduleDDLViewModel) -> some View {
-        modifier(ScheduleSchoolVerification(viewModel: viewModel))
+    public func scheduleSchoolVerification(viewModel: ScheduleDDLViewModel, isEnabled: Bool = true) -> some View {
+        modifier(ScheduleSchoolVerification(viewModel: viewModel, isEnabled: isEnabled))
     }
 }
 

@@ -34,14 +34,22 @@ public struct ScheduleRootView: View {
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
     let destinations: ScheduleDestinations
+    private let showingClassrooms: Bool?
+    private var displayedSection: ScheduleSection {
+        guard let showingClassrooms else { return viewModel.selectedSection }
+        if showingClassrooms { return .classroom }
+        return viewModel.selectedSection == .ddl ? .ddl : .courses
+    }
     @ObservedObject private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
     @State private var horizontalControlFrames: [CGRect] = []
 
-    public init(viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations) {
+    public init(viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations,
+        showingClassrooms: Bool? = nil) {
         self.viewModel = viewModel
         _requestedSection = requestedSection
         self.destinations = destinations
+        self.showingClassrooms = showingClassrooms
     }
 
     /// 日程主页主体。
@@ -54,9 +62,9 @@ public struct ScheduleRootView: View {
     private var content: some View {
         GeometryReader { proxy in
             ZStack {
-                if viewModel.selectedSection == .classroom { FreeClassroomTabView(viewModel: viewModel.classroom) }
+                if displayedSection == .classroom { FreeClassroomTabView(viewModel: viewModel.classroom) }
                 else {
-                    AppPairedPages(showsFirst: viewModel.selectedSection == .courses) {
+                    AppPairedPages(showsFirst: displayedSection == .courses) {
                         CourseScheduleTabView(viewModel: viewModel, resetSignal: courseTabResetSignal, destinations: destinations)
                     } second: { DDLScheduleTabView(viewModel: viewModel.ddl) }
                 }
@@ -95,7 +103,7 @@ public struct ScheduleRootView: View {
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。
             Color.clear
-                .frame(height: viewModel.selectedSection == .courses
+                .frame(height: displayedSection == .courses
                     ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -106,8 +114,8 @@ public struct ScheduleRootView: View {
         .task {
             await viewModel.loadIfNeeded()
         }
-        .task(id: viewModel.selectedSection == .classroom && !viewModel.isLoadingCache) {
-            guard viewModel.selectedSection == .classroom, !viewModel.isLoadingCache else { return }
+        .task(id: displayedSection == .classroom && viewModel.selectedSection == .classroom && !viewModel.isLoadingCache) {
+            guard displayedSection == .classroom, viewModel.selectedSection == .classroom, !viewModel.isLoadingCache else { return }
             // 每个自然日首次进入更新学校数据，其余进入复用当天缓存。
             viewModel.classroom.startClassroomPageRefresh()
         }
@@ -119,9 +127,9 @@ public struct ScheduleRootView: View {
         }
         .sheet(
             item: Binding(
-                get: { viewModel.smsChallenge },
+                get: { showingClassrooms == true ? nil : viewModel.smsChallenge },
                 set: { challenge in
-                    if challenge == nil {
+                    if showingClassrooms != true, challenge == nil {
                         viewModel.dismissSMSChallenge()
                     }
                 }
@@ -138,7 +146,7 @@ public struct ScheduleRootView: View {
                 }
             )
         }
-        .scheduleSchoolVerification(viewModel: viewModel.ddl)
+        .scheduleSchoolVerification(viewModel: viewModel.ddl, isEnabled: showingClassrooms != true)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if viewModel.hasPersistenceConflict {
                 SchedulePersistenceConflictView(repository: viewModel.repository)

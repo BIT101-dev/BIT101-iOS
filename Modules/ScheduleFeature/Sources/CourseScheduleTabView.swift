@@ -23,6 +23,11 @@ struct CourseScheduleRefreshStatusRow: View {
     @ObservedObject var viewModel: ScheduleViewModel
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant { viewModel.activeCourseSchedule }
     var body: some View {
+        refreshStatus
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("schedule.refresh-status")
+    }
+    @ViewBuilder private var refreshStatus: some View {
         if activeSchedule.isPrimary {
             AppRefreshStatusRow(
                 isRefreshing: viewModel.isSyncingCourses,
@@ -188,6 +193,8 @@ struct CourseScheduleTabView: View {
                     onShareSchedule: { exportScheduleCode() },
                     onImportSchedule: { isShowingScheduleImport = true }
                 )
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("schedule.calendar")
                 addContentMenu
             }
             .frame(height: height)
@@ -210,7 +217,7 @@ struct CourseScheduleTabView: View {
 
     /// 课表分区主体。
     ///
-    /// 竖屏合并更新时间与表格，横屏沿顶栏展示刷新状态并扩展日历高度。
+    /// 更新时间沿模块分组行展示，横屏表格按所属分栏的可用高度铺开。
     var body: some View {
         GeometryReader { proxy in
             let listHeight = max(
@@ -224,33 +231,33 @@ struct CourseScheduleTabView: View {
             )
             let calendarHeight = max(
                 listHeight
-                    - (layout.isLandscape ? 0 : refreshStatusHeight)
+                    - refreshStatusHeight
                     - scheduleSectionGap
                     - scheduleSectionGap,
                 1
             )
 
             ZStack(alignment: .bottomTrailing) {
-                if layout.isLandscape {
-                    calendarSurface(height: max(listHeight - AppDesignSystem.Spacing.content, 1))
-                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
-                        .padding(.horizontal, AppDesignSystem.Spacing.section)
-                        .padding(.bottom, AppDesignSystem.Spacing.content)
+                if layout.isLandscapeWindow && !layout.usesAccessibilityText {
+                    VStack(spacing: AppDesignSystem.Spacing.content) {
+                        List { refreshStatusSection }
+                            .accessibilityIdentifier("interaction.CourseScheduleTabView.refresh")
+                            .appGroupedListStyle()
+                            .scrollContentBackground(.hidden)
+                            .scrollDisabled(true)
+                            .frame(height: refreshStatusHeight)
+                        calendarSurface(height: calendarHeight)
+                            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
+                            .padding(.horizontal, AppDesignSystem.Spacing.section)
+                    }
+                    .padding(.bottom, AppDesignSystem.Spacing.content)
+                    .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
+                        guard height > 0 else { return }
+                        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                    }
                 } else {
                     List {
-                        if !layout.isLandscape {
-                        Section {
-                            CourseScheduleRefreshStatusRow(viewModel: viewModel)
-                            .background {
-                                GeometryReader { rowProxy in
-                                    Color.clear.preference(
-                                        key: ScheduleRefreshStatusContentHeightKey.self,
-                                        value: rowProxy.size.height
-                                    )
-                                }
-                            }
-                        }
-                        }
+                        refreshStatusSection
 
                         // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
                         // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
@@ -492,6 +499,17 @@ struct CourseScheduleTabView: View {
         }
         .onChange(of: resetSignal) { _, _ in
             dismissPresentedSheets()
+        }
+    }
+
+    private var refreshStatusSection: some View {
+        Section {
+            CourseScheduleRefreshStatusRow(viewModel: viewModel)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: ScheduleRefreshStatusContentHeightKey.self, value: proxy.size.height)
+                    }
+                }
         }
     }
 

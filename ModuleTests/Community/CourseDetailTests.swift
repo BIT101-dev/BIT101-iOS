@@ -296,6 +296,25 @@ struct CourseDetailTests {
         #expect(viewModel.resolvedRate == 8 && viewModel.sharedMaterialsURL != nil)
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func commentRecoveryKeepsLoadedRowsAndRetriesTheFailedPage(pagination: Bool) async {
+        let service = Service(), viewModel = model(service)
+        service.commentResult = .success([Self.comment(1)])
+        await viewModel.refreshComments()
+        service.commentResult = .failure(URLError(.notConnectedToInternet))
+        if pagination { await viewModel.loadMoreCommentsIfNeeded(currentComment: viewModel.commentState.items.last) }
+        else { await viewModel.refreshComments() }
+        #expect(viewModel.commentState.items.map(\.id) == [1] && viewModel.commentState.needsRefresh == !pagination)
+        #expect((viewModel.commentState.paginationError != nil) == pagination)
+        service.commentResult = .success([Self.comment(2)])
+        await viewModel.retryCommentsIfNeeded()
+        #expect(viewModel.commentState.items.map(\.id) == (pagination ? [1, 2] : [2]))
+        #expect(!viewModel.commentState.needsRefresh && viewModel.commentState.paginationError == nil && service.detailCalls == 0)
+        let requests = service.commentRequests.count
+        await viewModel.retryCommentsIfNeeded()
+        #expect(service.commentRequests.count == requests)
+    }
+
     @Test(.timeLimit(.minutes(1))) func courseRefreshPreservesLoadedDataAcrossFailuresAndCancellation() async {
         let service = Service()
         service.commentResult = .success([Self.comment(1)])
@@ -309,6 +328,7 @@ struct CourseDetailTests {
         #expect(viewModel.alert != nil)
         #expect(viewModel.commentState.items == [Self.comment(1)])
         #expect(viewModel.commentState.status == .loaded && viewModel.commentState.nextPage == 1 && viewModel.commentState.canLoadMore)
+        #expect(viewModel.commentState.needsRefresh)
         viewModel.alert = nil
         service.detailResult = .failure(CancellationError())
         service.commentResult = .failure(CancellationError())
@@ -317,6 +337,7 @@ struct CourseDetailTests {
         #expect(viewModel.alert == nil)
         #expect(viewModel.commentState.isLoadingMore == false)
         #expect(viewModel.commentState.items == [Self.comment(1)] && viewModel.commentState.canLoadMore)
+        #expect(viewModel.commentState.needsRefresh)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])

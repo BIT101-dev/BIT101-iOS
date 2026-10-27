@@ -372,7 +372,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["DDL"].isSelected, "横滑应切换到 DDL。")
         app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
-        assertUI(app.segmentedControls.buttons["空教室"].isSelected, "横滑应切换到空教室。")
+        assertUI(app.sectionTab("空教室").isSelected, "横滑应切换到空教室。")
         closeAlertIfPresent()
         app.descendants(matching: .any)["schedule.section-surface"].swipeRight()
         assertUI(app.segmentedControls.buttons["DDL"].isSelected, "反向横滑应恢复 DDL。")

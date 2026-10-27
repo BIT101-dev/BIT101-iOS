@@ -49,6 +49,13 @@ public struct CommunityCommentState {
     public var canLoadMore = true
     public var needsContinuation = false
     public var paginationError: String?
+    public private(set) var needsRefresh = false
+
+    public mutating func finishRefresh() {
+        needsRefresh = false
+        paginationError = nil
+        status = .loaded
+    }
     private struct ConfirmedCreation {
         let comment: CommunityComment
         let parent: CommunityComment?
@@ -171,6 +178,7 @@ public struct CommunityCommentState {
         let currentDeletions = confirmedDeletions
         let currentSubmissions = uncertainSubmissions
         self = previous
+        if failureStatus != nil { needsRefresh = true }
         likeResults = currentResults
         likeRevision = currentRevision
         likesNeedingReview = currentPending
@@ -215,6 +223,14 @@ extension CommunityCommentState: PagedItemsState {}
     }
 
     public init() {}
+
+    public static func recoverComments(_ state: CommunityCommentState,
+        refresh: @MainActor () async -> Void, loadMore: @MainActor () async -> Void) async {
+        guard !Task.isCancelled, state.status != .loading, !state.isLoadingMore else { return }
+        if state.needsRefresh { await refresh() }
+        else if case .failed = state.status { await refresh() }
+        else if state.paginationError != nil { await loadMore() }
+    }
 
     deinit { tasks.values.forEach { $0.cancel() } }
 

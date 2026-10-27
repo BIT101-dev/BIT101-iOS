@@ -19,6 +19,7 @@ import DesignSystemKit
 import SwiftUI
 import Combine
 import CommunityTransport
+import CommunityUI
 import UIKit
 
 enum AppInterfaceOrientationPolicy {
@@ -59,9 +60,9 @@ final class AppInterfaceOrientationView: UIView {
     }
 }
 
-/// 应用底部 Tab 的稳定标识。
+/// 应用主导航的稳定分组标识。
 ///
-/// 底部导航使用固定顺序。
+/// 主入口使用固定顺序。
 enum AppTab: String, Identifiable, Codable {
     case schedule
     case map
@@ -80,7 +81,7 @@ enum AppTab: String, Identifiable, Codable {
     /// 供 `TabView` 和设置持久化使用的稳定标识。
     var id: String { rawValue }
 
-    /// 底部栏上展示的标题。
+    /// 主入口展示的标题。
     var title: String {
         switch self {
         case .schedule:
@@ -96,7 +97,7 @@ enum AppTab: String, Identifiable, Codable {
         }
     }
 
-    /// 底部栏对应的 SF Symbol。
+    /// 主入口对应的 SF Symbol。
     var systemImage: String {
         switch self {
         case .schedule:
@@ -129,12 +130,12 @@ enum AppTab: String, Identifiable, Codable {
     }
 }
 
-private enum AppWideDestination: String, CaseIterable, Identifiable, Hashable {
+private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
     case schedule, classroom, map, topics, papers, academics, mine
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .schedule: "日程"
+        case .schedule: "日程 / DDL"
         case .classroom: "空教室"
         case .map: "地图"
         case .topics: "话题"
@@ -143,30 +144,27 @@ private enum AppWideDestination: String, CaseIterable, Identifiable, Hashable {
         case .mine: "我的"
         }
     }
-}
-
-private struct AppWideNavigation: View {
-    @Binding var selection: AppWideDestination
-    var body: some View {
-        VStack(spacing: AppDesignSystem.Spacing.none) {
-            AppSegmentedPicker(title: "主导航", selection: $selection) {
-                ForEach(AppWideDestination.allCases) { destination in Text(destination.title).tag(destination) }
-            }
-            .font(AppDesignSystem.Typography.body)
-            .controlSize(.large)
-            .fixedSize(horizontal: true, vertical: false)
+    var tab: AppTab {
+        switch self {
+        case .schedule, .classroom: .schedule
+        case .map: .map
+        case .topics, .papers: .gallery
+        case .academics: .score
+        case .mine: .mine
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, AppDesignSystem.Spacing.regular)
-        .background(AppDesignSystem.Palette.Background.grouped)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("app.expanded-navigation")
+    }
+    var systemImage: String {
+        switch self {
+        case .classroom: "building.2"
+        case .papers: "doc.text"
+        default: tab.systemImage
+        }
     }
 }
 
 /// 登录后的应用壳层。
 ///
-/// 壳层负责底部 tab、跨模块路由、全局提示和退出登录回调。
+/// 壳层负责原生 Tab、跨模块路由、全局提示和退出登录回调。
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
     @Environment(\.appWindowLayout) private var layout
@@ -213,39 +211,23 @@ struct AppShellView: View {
     /// 登录后的应用壳层主体。
     ///
     /// 这里负责：
-    /// 1. 底部 tab 容器
+    /// 1. 原生 Tab 容器
     /// 2. 启动公告与运行时提示
     /// 3. 小组件和深链路由分发
     var body: some View {
-        VStack(spacing: AppDesignSystem.Spacing.none) {
-            if layout.usesExpandedNavigation {
-                AppWideNavigation(selection: wideSelection)
-                    .ignoresSafeArea(.container, edges: .horizontal)
-            }
-            mainTabs
-        }
-        .environment(\.appExpandedNavigation, layout.usesExpandedNavigation)
-        .tint(selectedTab.tintColor)
-        .appScrollEdgeEffectHidden(layout.isLandscape)
+        mainTabs
+            .environment(\.appExpandedNavigation, usesExpandedNavigation)
+            .tint(selectedTab.tintColor)
+            .appScrollEdgeEffectHidden(layout.isLandscape)
     }
 
     private var mainTabs: some View {
-        TabView(selection: tabSelection) {
-            ForEach(AppTab.allCases) { tab in
-                Group {
-                    if tab == .gallery { tabContent(tab) }
-                    else { NavigationStack { tabContent(tab) } }
-                }
-                .toolbar(layout.usesExpandedNavigation ? .hidden : .visible, for: .tabBar)
-                .tag(tab)
-                .tabItem {
-                    Label(tab.title, systemImage: tab.systemImage)
-                        .accessibilityIdentifier("app.tab.\(tab.rawValue)")
-                }
-            }
+        Group {
+            if #available(iOS 18.0, *) { nativeTabs }
+            else { compactTabs }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
-        .environment(\.appExpandedNavigation, layout.usesExpandedNavigation)
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .task(id: requestedCalendarRoute) {
             guard let route = requestedCalendarRoute,
@@ -289,21 +271,74 @@ struct AppShellView: View {
         }
     }
 
+    private var usesExpandedNavigation: Bool {
+        if #available(iOS 18.0, *) { layout.usesExpandedNavigation }
+        else { false }
+    }
+
+    @available(iOS 18.0, *) private var nativeTabs: some View {
+        TabView(selection: destinationSelection) {
+            ForEach(AppDestination.allCases) { destination in
+                Tab(value: destination) {
+                    destinationContent(destination)
+                } label: {
+                    Label(usesExpandedNavigation ? destination.title : destination.tab.title,
+                        systemImage: destination.systemImage)
+                }
+                .accessibilityIdentifier("app.tab.\(destination.tab.rawValue)")
+                .hidden(isHidden(destination))
+            }
+        }
+        .accessibilityIdentifier("app.navigation.adaptive")
+    }
+
+    private var compactTabs: some View {
+        TabView(selection: tabSelection) {
+            ForEach(AppTab.allCases) { tab in
+                Group {
+                    if tab == .gallery { tabContent(tab) }
+                    else { NavigationStack { tabContent(tab) } }
+                }
+                .tag(tab)
+                .tabItem {
+                    Label(tab.title, systemImage: tab.systemImage)
+                        .accessibilityIdentifier("app.tab.\(tab.rawValue)")
+                }
+            }
+        }
+        .accessibilityIdentifier("app.navigation.grouped")
+    }
+
+    private func isHidden(_ destination: AppDestination) -> Bool {
+        guard !usesExpandedNavigation else { return false }
+        switch destination {
+        case .schedule: return scheduleViewModel.selectedSection == .classroom
+        case .classroom: return scheduleViewModel.selectedSection != .classroom
+        case .topics: return gallerySurface == .paper
+        case .papers: return gallerySurface != .paper
+        default: return false
+        }
+    }
+
+    @ViewBuilder private func destinationContent(_ destination: AppDestination) -> some View {
+        switch destination {
+        case .topics: galleryContent(includesPaperSurface: false)
+        case .papers:
+            VStack(spacing: AppDesignSystem.Spacing.none) {
+                if !usesExpandedNavigation { GallerySurfacePicker(selection: $gallerySurface) }
+                destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
+            }
+        case .schedule, .classroom:
+            NavigationStack { scheduleContent(showingClassrooms: destination == .classroom) }
+        default:
+            NavigationStack { tabContent(destination.tab) }
+        }
+    }
+
     @ViewBuilder private func tabContent(_ tab: AppTab) -> some View {
         switch tab {
         case .schedule:
-            ScheduleRootView(
-                viewModel: scheduleViewModel,
-                requestedSection: $requestedScheduleSection,
-                destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
-                    selectTab(.score)
-                    requestedCourse = request
-                },
-                onOpenCourseLocation: { request in
-                    requestedMapLocation = request
-                    selectTab(.map)
-                })
-            )
+            scheduleContent()
         case .map:
             TimelineView(.everyMinute) { context in
                 CampusMapScreen(
@@ -315,12 +350,7 @@ struct AppShellView: View {
         case .score:
             ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse, selection: $scoreSurface)
         case .gallery:
-            GalleryRootView(
-                dependencies: community.gallery, media: destinations.media,
-                profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
-                requestedPaperID: $requestedPaperID,
-                requestedPosterID: $requestedPosterID, selection: $gallerySurface
-            )
+            galleryContent()
         case .mine:
             MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
 #if BIT101_UI_TESTING
@@ -332,7 +362,23 @@ struct AppShellView: View {
         }
     }
 
-    private var wideSelection: Binding<AppWideDestination> {
+    private func scheduleContent(showingClassrooms: Bool? = nil) -> some View {
+        ScheduleRootView(viewModel: scheduleViewModel, requestedSection: $requestedScheduleSection,
+            destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
+                selectTab(.score); requestedCourse = request
+            }, onOpenCourseLocation: { request in
+                requestedMapLocation = request; selectTab(.map)
+            }), showingClassrooms: showingClassrooms)
+    }
+
+    private func galleryContent(includesPaperSurface: Bool = true) -> some View {
+        GalleryRootView(dependencies: community.gallery, media: destinations.media,
+            profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
+            requestedPaperID: includesPaperSurface ? $requestedPaperID : .constant(nil),
+            requestedPosterID: $requestedPosterID, selection: $gallerySurface, includesPaperSurface: includesPaperSurface)
+    }
+
+    private var destinationSelection: Binding<AppDestination> {
         Binding(get: {
             switch selectedTab {
             case .schedule:
@@ -348,7 +394,8 @@ struct AppShellView: View {
         }, set: { destination in
             switch destination {
             case .schedule, .classroom:
-                scheduleViewModel.selectedSection = destination == .schedule ? .courses : .classroom
+                if destination == .classroom { scheduleViewModel.selectedSection = .classroom }
+                else if scheduleViewModel.selectedSection == .classroom { scheduleViewModel.selectedSection = .courses }
                 selectTab(.schedule)
             case .map: selectTab(.map)
             case .topics, .papers:
@@ -388,9 +435,11 @@ struct AppShellView: View {
             selectTab(.schedule)
             requestedScheduleSection = .ddl
         case let .paper(paperID):
+            gallerySurface = .paper
             selectTab(.gallery)
             requestedPaperID = paperID
         case let .gallery(posterID):
+            gallerySurface = .gallery
             selectTab(.gallery)
             requestedPosterID = posterID
         case let .course(courseID):

@@ -133,7 +133,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testFailedPaperSortKeepsTheDisplayedConditionVisible() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         assertUI(textElement("自动化测试文章").appears(timeout: 5), "文章首屏应完成加载。")
         assertUI(UITestControlClient.request(["command": "fail-request", "key": "papers"]) == "queued", "场景应准备下一次文章读取故障。")
         tapHeader(app.segmentedControls.buttons["高赞"])
@@ -260,7 +260,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
             let tags = app.scrollViews.matching(identifier: "interaction.CommunityPosterCard.scroll").firstMatch
             reveal(tags, description: "大字号长标签")
             tags.native.swipeLeft(velocity: .slow)
-            assertUI(app.segmentedControls.buttons["最新"].isSelected && app.segmentedControls.buttons["话题"].isSelected,
+            assertUI(app.segmentedControls.buttons["最新"].isSelected && app.sectionTab("话题").isSelected,
                 "横向标签滚动应保持当前信息流分区。")
             let posterBody = app.descendants(matching: .any).matching(identifier: "community.poster.1").firstMatch
             reveal(posterBody, description: "话题正文横滑区域")
@@ -274,7 +274,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, animations: true, media: mediaLinks,
             commentMediaLinks: mediaLinks, initialTab: kind == "course" ? "home" : "gallery")
         if kind == "course" { tapHeader(app.segmentedControls.buttons["课程"]) }
-        if kind == "paper" { tapHeader(app.segmentedControls.buttons["文章"]) }
+        if kind == "paper" { tapHeader(app.sectionTab("文章")) }
         tap(kind == "poster" ? "自动化测试话题" : kind == "course" ? "自动化测试课程" : "自动化测试文章")
     }
 

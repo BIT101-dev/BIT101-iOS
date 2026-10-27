@@ -153,7 +153,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             }
             checkFirstRotation(firstID: "community.poster.card.1", title: "首次旋转话题")
             showPortrait()
-            tapHeader(app.segmentedControls.buttons["文章"])
+            tapHeader(app.sectionTab("文章"))
             checkFirstRotation(firstID: "paper.summary.1", title: "首次旋转文章")
         }
         app.mainTab("我的").tapBriefly()
@@ -200,8 +200,11 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             assertUI(waitUntil(NSPredicate { _, _ in surface.frame.maxY >= safeArea.maxY - 1 }, on: app, timeout: 5),
                 "日程应填满窗口安全区：内容 \(surface.frame)，安全区 \(safeArea)。")
         }
+        let grid = app.descendants(matching: .any)["schedule.calendar"]
+        assertUI(waitUntil(NSPredicate { _, _ in grid.exists && grid.frame.maxY >= surface.frame.maxY - 17 }, on: app),
+            "课表网格应延伸至模块底部的标准间距：网格 \(grid.frame)，模块 \(surface.frame)。")
         capture("课表与DDL")
-        tapHeader(app.segmentedControls.buttons["空教室"])
+        tapHeader(app.sectionTab("空教室"))
         assertPanes("classroom.sidebar", "interaction.FreeClassroomTabView.list")
         capture("空教室")
         app.mainTab("话廊").tapBriefly()
@@ -220,12 +223,13 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.buttons["举报帖子"].disappears(timeout: 5), "点按导航应关闭帖子菜单。")
         first.tapBriefly()
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5) && first.exists, "话题详情应在右侧打开并保留左侧列表。")
+        assertDetailWidth()
         capture("话题详情")
         XCUIDevice.shared.orientation = .portrait
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "竖屏应保留当前帖子详情。")
         XCUIDevice.shared.orientation = .landscapeLeft
         assertUI(first.appears(timeout: 5) && app.navigationBars["帖子详情"].exists, "返回横屏应保留阅读位置与详情。")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         let paper = textElement("分页文章 1"), nextPaper = textElement("分页文章 2")
         assertUI(waitUntil(NSPredicate { _, _ in
             paper.exists && nextPaper.exists && paper.frame.maxY <= nextPaper.frame.minY
@@ -233,6 +237,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         capture("文章列表")
         paper.tapBriefly()
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5) && paper.exists, "文章详情应在右侧打开并保留左侧列表。")
+        assertDetailWidth()
         capture("文章详情")
         app.mainTab("地图").tapBriefly()
         let layer = app.buttons["切换地图图层"]
@@ -249,11 +254,20 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
         assertUI(day.appears(timeout: 5) && day.frame.height >= 44, "大字号日期入口保留完整点击高度。")
     }
+    @MainActor private func assertDetailWidth() {
+        let pane = app.native.descendants(matching: .any)["browser.detail"]
+        let scroll = pane.scrollViews.firstMatch
+        assertUI(waitUntil(NSPredicate { _, _ in scroll.exists && scroll.frame.width >= pane.frame.width * 0.9 }, on: app),
+            "右侧详情应使用所属分栏的主要宽度。")
+    }
     @MainActor private func capture(_ title: String) {
-        let navigation = app.native.segmentedControls.containing(.button, identifier: "地图").firstMatch
-        if navigation.exists {
-            let frame = navigation.frame
-            assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "主导航应始终位于窗口中央。")
+        assertUI(app.native.descendants(matching: .any)["app.navigation.adaptive"].exists, "主导航应由系统 TabView 承载。")
+        let navigation = ["日程", "空教室", "地图", "话廊", "文章", "成绩", "我的"].map { app.mainTab($0) }
+        assertUI(navigation.allSatisfy { $0.exists }, "原生主导航应呈现七个入口。")
+        if navigation.allSatisfy({ $0.exists }) {
+            let frame = navigation.reduce(CGRect.null) { $0.union($1.frame) }
+            assertUI(app.native.windows.firstMatch.frame.contains(frame), "原生导航应位于窗口内。")
+            assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "主导航应位于窗口中央。")
             if let navigationWidth { assertUI(abs(frame.width - navigationWidth) <= 1, "页面切换应保持主导航宽度。") }
             else { navigationWidth = frame.width }
             for cell in app.native.cells.containing(.button, identifier: "app.refresh-status.action").allElementsBoundByIndex {

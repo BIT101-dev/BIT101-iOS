@@ -16,9 +16,9 @@ import Combine
 import WebKit
 import OSLog
 
-/// “话廊”底部页内部的一级内容分区。
+/// “话廊”的一级内容分区。
 ///
-/// 底部栏保留“话廊”入口，顶部栏负责在“话题 / 文章”之间切换。
+/// 窄窗口通过模块切换栏选择“话题 / 文章”，宽幅窗口沿原生主导航进入。
 public nonisolated enum GallerySurface: String, CaseIterable, Identifiable, Hashable, Sendable {
     case gallery
     case paper
@@ -31,6 +31,16 @@ public nonisolated enum GallerySurface: String, CaseIterable, Identifiable, Hash
             return "话题"
         case .paper:
             return "文章"
+        }
+    }
+}
+
+public struct GallerySurfacePicker: View {
+    @Binding private var selection: GallerySurface
+    public init(selection: Binding<GallerySurface>) { _selection = selection }
+    public var body: some View {
+        AppTopSegmentedPicker(title: "话廊内容", selection: $selection) {
+            ForEach(GallerySurface.allCases) { surface in Text(surface.title).tag(surface) }
         }
     }
 }
@@ -50,8 +60,9 @@ public struct GalleryRootView: View {
         papers: CommunityPaperDestination,
         courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        requestedPosterID: Binding<Int?> = .constant(nil), selection: Binding<GallerySurface>? = nil) {
-        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, courses: courses, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID, selection: selection)
+        requestedPosterID: Binding<Int?> = .constant(nil), selection: Binding<GallerySurface>? = nil,
+        includesPaperSurface: Bool = true) {
+        scene = GalleryRootViewScene(dependencies: dependencies, media: media, profiles: profiles, papers: papers, courses: courses, requestedPaperID: requestedPaperID, requestedPosterID: requestedPosterID, selection: selection, includesPaperSurface: includesPaperSurface)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -61,6 +72,7 @@ public struct GalleryRootView: View {
 }
 
 private struct GalleryRootViewScene: View {
+    let includesPaperSurface: Bool
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
@@ -115,11 +127,13 @@ private struct GalleryRootViewScene: View {
         courses: CommunityCourseDestination,
         requestedPaperID: Binding<Int?> = .constant(nil),
         requestedPosterID: Binding<Int?> = .constant(nil),
-        selection: Binding<GallerySurface>? = nil
+        selection: Binding<GallerySurface>? = nil,
+        includesPaperSurface: Bool = true
     ) {
         _requestedPaperID = requestedPaperID
         _requestedPosterID = requestedPosterID
         self.dependencies = dependencies
+        self.includesPaperSurface = includesPaperSurface
         self.selection = selection
         self.media = media
         self.profiles = profiles
@@ -138,14 +152,12 @@ private struct GalleryRootViewScene: View {
     private var content: some View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation && !appSettings.galleryUseWebView {
-                AppTopSegmentedPicker(title: "话廊内容", selection: surfaceSelection) {
-                    ForEach(GallerySurface.allCases) { surface in
-                        Text(surface.title).tag(surface)
-                    }
-                }
+                GallerySurfacePicker(selection: surfaceSelection)
             }
             if appSettings.galleryUseWebView && !isShowingNativePaperRoute && selectedContent == nil {
                 GalleryWebContentView()
+            } else if !includesPaperSurface {
+                galleryContent
             } else {
                 TabView(selection: surfaceSelection) {
                     galleryContent
@@ -169,7 +181,7 @@ private struct GalleryRootViewScene: View {
             selectedSurface = .paper
         }
         .onChange(of: selectedSurface) { _, newSurface in
-            isShowingNativePaperRoute = newSurface == .paper
+            if includesPaperSurface { isShowingNativePaperRoute = newSurface == .paper }
         }
         .task(id: requestedPosterID) {
             openRequestedPosterIfNeeded()

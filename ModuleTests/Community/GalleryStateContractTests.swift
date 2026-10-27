@@ -10,6 +10,27 @@ import Testing
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func commentRecoveryKeepsTheReadPositionAndClearsItsFailure(pagination: Bool) async {
+        let service = SubscriptionDetails(), user = CommunityUser.placeholder(id: 1, nickname: "作者")
+        func comment(_ id: Int) -> CommunityComment {
+            .init(id: id, obj: "poster1", images: [], user: user, anonymous: false, createTime: "", updateTime: "",
+                like: false, likeNum: 0, commentNum: 0, own: false, rate: 0, replyUser: user, replyObj: "", text: "评论", sub: [])
+        }
+        service.commentPages[0] = .init(items: [comment(1)], nextSourcePage: 1, canLoadMore: true)
+        let model = GalleryPosterDetailViewModel(initialPoster: listPoster(1), service: service)
+        await model.refreshComments()
+        service.commentFailure = URLError(.notConnectedToInternet)
+        if pagination { await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last) }
+        else { await model.refreshComments() }
+        #expect(model.commentState.items.map(\.id) == [1] && model.commentState.needsRefresh == !pagination)
+        service.commentFailure = nil
+        service.commentPages[pagination ? 1 : 0] = .init(items: [comment(2)], nextSourcePage: 2, canLoadMore: false)
+        await model.retryCommentsIfNeeded()
+        #expect(model.commentState.items.map(\.id) == (pagination ? [1, 2] : [2]))
+        #expect(!model.commentState.needsRefresh && model.commentState.paginationError == nil && service.posterRequests == 0)
+    }
+
     @Test(.timeLimit(.minutes(1))) func detailReappearancePreservesCommentsAndWriteReview() async {
         let service = SubscriptionDetails()
         let user = CommunityUser.placeholder(id: 7, nickname: "用户")

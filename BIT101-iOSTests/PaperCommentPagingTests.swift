@@ -122,6 +122,8 @@ struct PaperCommentPagingTests {
     private final class Transport: HTTPTransport {
         var pages: [Int] = []
         var stalls = false
+        var commentFailure: (any Error)?
+        var commentID: Int?
         var pendingDetail: CheckedContinuation<Void, Error>?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
@@ -135,7 +137,8 @@ struct PaperCommentPagingTests {
             let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "page" }?.value.flatMap(Int.init) ?? 0
             pages.append(page)
-            let id = stalls || page < 3 ? 1 : 2
+            if let commentFailure { throw commentFailure }
+            let id = commentID ?? (stalls || page < 3 ? 1 : 2)
             let user = #"{"id":1,"create_time":"","nickname":"用户","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
             let data = Data("""
             [{"id":\(id),"obj":"paper1","images":[],"user":\(user),"anonymous":false,"create_time":"",
@@ -144,6 +147,26 @@ struct PaperCommentPagingTests {
             """.utf8)
             return (data, response)
         }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func commentRecoveryRetriesItsFailedReadThroughTheSharedPolicy(pagination: Bool) async {
+        let transport = Transport()
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "paper-recovery"), cookie: "fixture") }, refresh: { _ in })
+        let model = PaperDetailViewModel(initialPaper: .init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: ""),
+            service: PaperService(session: session))
+        await model.refreshComments()
+        transport.commentFailure = URLError(.notConnectedToInternet)
+        if pagination { await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last) }
+        else { await model.refreshComments() }
+        #expect(model.commentState.items.map(\.id) == [1] && model.commentState.needsRefresh == !pagination)
+        transport.commentFailure = nil; transport.commentID = 2
+        await model.retryCommentsIfNeeded()
+        #expect(model.commentState.items.map(\.id) == (pagination ? [1, 2] : [2]))
+        #expect(transport.pages == (pagination ? [0, 1, 1] : [0, 0, 0]))
+        #expect(!model.commentState.needsRefresh && model.commentState.paginationError == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func commentsAppearWhilePaperDetailsArePending() async throws {

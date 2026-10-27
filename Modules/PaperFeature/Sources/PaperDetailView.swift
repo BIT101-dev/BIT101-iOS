@@ -53,7 +53,7 @@ private struct PaperDetailViewScene: View {
         _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
     }
 
-    var body: some View { content.environment(dependencies).environment(media).appReadableContent() }
+    var body: some View { content.environment(dependencies).environment(media).appReadableContent(expandsInLandscape: true) }
 
     private var content: some View {
         ScrollView {
@@ -365,26 +365,10 @@ private struct PaperDetailViewScene: View {
             return
         }
 
-        let shouldRetryPaper: Bool
         if case .failed = viewModel.paperStatus {
-            shouldRetryPaper = true
-        } else {
-            shouldRetryPaper = false
-        }
-
-        let shouldRetryComments: Bool
-        if case .failed = viewModel.commentState.status {
-            shouldRetryComments = true
-        } else {
-            shouldRetryComments = false
-        }
-
-        guard shouldRetryPaper || shouldRetryComments else { return }
-
-        if shouldRetryPaper {
             await viewModel.refreshAll()
         } else {
-            await viewModel.refreshComments()
+            await viewModel.retryCommentsIfNeeded()
         }
     }
 

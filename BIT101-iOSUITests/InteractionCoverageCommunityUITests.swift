@@ -55,7 +55,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testPaperImagePreviewCommentsSortAndShare() {
         app = configureApp(resetStorage: true, content: true, animations: true, media: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         tap("自动化测试文章")
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "点击卡片应打开文章。")
         back()
@@ -268,7 +268,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         tap("重试")
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "话廊重试应恢复列表。")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         assertUI(app.alerts["加载文章失败"].appears(timeout: 5), "首次文章失败应展示错误提示。")
         closeAlertIfPresent()
         tap("重试")
@@ -354,10 +354,14 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testSchoolSMSCourseSyncValidationCancelAndContinuation() {
         app = configureApp(resetStorage: true, animations: true, school: true, schoolSMS: true)
-        tap("刷新")
+        tapHeader(app.sectionTab("空教室"))
+        tapHeader(app.sectionTab("课表"))
+        let refresh = app.descendants(matching: .any)["schedule.refresh-status"].buttons["app.refresh-status.action"]
+        refresh.tapBriefly()
         assertUI(app.navigationBars["短信验证"].appears(timeout: 5), "课表刷新应呈现学校验证码。")
+        assertUI(app.buttons["验证并同步课表"].exists, "课表刷新应由课程同步面板继续。")
         tap("取消")
-        tap("刷新")
+        refresh.tapBriefly()
         let field = app.textFields["verification.code"]
         fillVerificationCode("123456", in: field)
         assertUI(app.buttons["schedule.add-content"].appears(timeout: 5), "验证成功应继续课表刷新。")

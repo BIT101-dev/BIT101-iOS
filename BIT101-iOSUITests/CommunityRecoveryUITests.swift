@@ -18,7 +18,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testPaperSearchRefreshKeepsItsQueryAndUsesTheOwnedRequest() {
         app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         tap("搜索文章")
         assertUI(app.navigationBars["搜索"].appears(timeout: 5), "搜索入口应打开原生搜索页面。")
         replaceText("分页文章\n", in: app.textFields.firstMatch)
@@ -142,7 +142,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testCommentReviewContinuesTheConfirmedSubmission() {
         app = configureApp(resetStorage: true, content: true, commentOutcomeUnknownOnce: true, initialTab: "gallery")
-        tapHeader(app.segmentedControls.buttons["文章"])
+        tapHeader(app.sectionTab("文章"))
         tap("自动化测试文章")
         tap("评论文章")
         replaceText("人工核对评论", in: app.textFields.firstMatch)

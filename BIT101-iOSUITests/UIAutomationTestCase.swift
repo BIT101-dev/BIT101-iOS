@@ -950,14 +950,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 } else if initialTab == "gallery" && (failureOnce || !content) {
                     ready = snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" } != nil
                 } else {
-                    if let expanded = snapshot.firstSnapshot(where: { $0.elementType == .segmentedControl && $0.firstSnapshot(where: { $0.label == "地图" }) != nil }) {
-                        let label = initialTab == "gallery" ? "话题" : initialTab == "home" ? "成绩 / 课程" : tabTitles[initialTab]
-                        ready = expanded.firstSnapshot { $0.label == label && $0.isSelected } != nil
-                    } else {
-                        ready = snapshot.firstSnapshot {
-                            $0.identifier == "app.tab.\(initialTab)" && $0.label == tabTitles[initialTab] && $0.isSelected
-                        } != nil
-                    }
+                    let labels = UITestMainNavigation.labels(tabTitles[initialTab] ?? "")
+                    ready = snapshot.firstSnapshot {
+                        $0.identifier == "app.tab.\(initialTab)" && labels.contains($0.label) && $0.isSelected
+                    } != nil
                 }
                 if ready { identity = currentIdentity; break }
             }

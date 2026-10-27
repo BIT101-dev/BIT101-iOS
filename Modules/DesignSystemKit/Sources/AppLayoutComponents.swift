@@ -11,8 +11,9 @@ public struct AppWindowLayout: Equatable {
         self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
         self.availableWidth = availableWidth
     }
+    public var isLandscapeWindow: Bool { size.width > size.height }
     public var isLandscape: Bool {
-        isRegularWidth && size.width > size.height && !usesAccessibilityText
+        isRegularWidth && isLandscapeWindow && !usesAccessibilityText
             && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
     }
     public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
@@ -155,7 +156,9 @@ private struct AppWindowSizeReader: UIViewRepresentable {
 
 extension View {
     public func appWindowLayout() -> some View { modifier(AppWindowLayoutModifier()) }
-    public func appReadableContent() -> some View { modifier(AppReadableContentModifier()) }
+    public func appReadableContent(expandsInLandscape: Bool = false) -> some View {
+        modifier(AppReadableContentModifier(expandsInLandscape: expandsInLandscape))
+    }
     @ViewBuilder public func appScrollEdgeEffectHidden(_ hidden: Bool) -> some View {
         if #available(iOS 26.0, *) { scrollEdgeEffectHidden(hidden, for: .top) }
         else { self }
@@ -163,8 +166,10 @@ extension View {
 }
 
 private struct AppReadableContentModifier: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    let expandsInLandscape: Bool
     func body(content: Content) -> some View {
-        content.frame(maxWidth: AppDesignSystem.Size.Layout.readingWidth)
+        content.frame(maxWidth: expandsInLandscape && layout.isLandscape ? .infinity : AppDesignSystem.Size.Layout.readingWidth)
             .frame(maxWidth: .infinity)
     }
 }

@@ -143,8 +143,8 @@ private struct CourseDetailViewScene: View {
 
     private func retryDetailIfNeeded() async {
         let detailFailed: Bool = if case .failed = viewModel.status { true } else { viewModel.needsContentRefresh }
-        let commentsFailed: Bool = if case .failed = viewModel.commentState.status { true } else { false }
-        if detailFailed || commentsFailed { await viewModel.refresh() }
+        if detailFailed { await viewModel.refresh() }
+        else { await viewModel.retryCommentsIfNeeded() }
         if case .failed = viewModel.historyGradeStatus { await viewModel.loadHistoryGradesIfNeeded() }
     }
 

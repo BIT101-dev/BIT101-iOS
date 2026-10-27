@@ -349,10 +349,18 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
-        guard let currentComment else { return }
+        guard let currentComment, commentState.shouldLoadMore(currentID: currentComment.id) else { return }
+        await loadMoreComments()
+    }
+
+    func retryCommentsIfNeeded() async {
+        await CommunityDetailTasks.recoverComments(commentState, refresh: { await refreshComments() }, loadMore: { await loadMoreComments() })
+    }
+
+    private func loadMoreComments() async {
         let generation = commentRefreshGeneration
         guard commentState.status == .loaded,
-              commentState.shouldLoadMore(currentID: currentComment.id)
+              !commentState.isLoadingMore, commentState.canLoadMore
         else { return }
 
         let order = commentOrder
@@ -574,8 +582,7 @@ final class PaperDetailViewModel: ObservableObject {
             commentState.confirmRead(in: comments)
             commentState.applyFirstPage(commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
             commentState.canLoadMore = !comments.isEmpty
-            commentState.paginationError = nil
-            commentState.status = .loaded
+            commentState.finishRefresh()
         case let .failure(error):
             let cancelled = TaskCancellation.matches(error)
             commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
