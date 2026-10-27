@@ -1,5 +1,5 @@
 import CommunityCore
-public protocol CourseListServicing {
+public protocol CourseListServicing: CommunityResourceObserving {
     func fetchCourses(search: String, page: Int) async throws -> [CourseSummary]
 }
 

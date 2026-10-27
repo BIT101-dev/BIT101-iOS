@@ -20,8 +20,8 @@ public func waitForAsyncTestEvent(
     while true {
         try Task.checkCancellation()
         let complete = try await condition()
-        if clock.now >= deadline { throw URLError(.timedOut) }
         if complete { return }
+        if clock.now >= deadline { throw URLError(.timedOut) }
         try await clock.sleep(for: .milliseconds(1))
     }
 }

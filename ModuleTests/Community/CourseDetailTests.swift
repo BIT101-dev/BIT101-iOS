@@ -220,7 +220,7 @@ struct CourseDetailTests {
         #expect(await viewModel.submitComment(text: "评论", anonymous: false, rate: 6,
             target: .course(courseID: 42)))
         #expect(viewModel.commentState.items.count == 1 && viewModel.isSubmittingComment == false)
-        try await waitForTestEvent { viewModel.alert?.title == "加载评论失败" }
+        try await waitForTestEvent { viewModel.commentState.needsRefresh }
         #expect(viewModel.commentState.items.count == 1 && viewModel.commentState.status == .loaded)
     }
 

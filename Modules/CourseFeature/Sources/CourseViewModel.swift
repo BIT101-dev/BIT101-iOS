@@ -23,6 +23,7 @@ public final class CourseListViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any CourseListServicing
+    private var resourceSubscription: AnyCancellable?
     private var needsRefresh = false
     private var hasBootstrapped = false
     private var refreshGeneration = 0
@@ -32,6 +33,16 @@ public final class CourseListViewModel: ObservableObject {
 
     public init(service: any CourseListServicing) {
         self.service = service
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
+            guard let self else { return }
+            let contains = self.state.items.contains { $0.communityObjectID == metrics.objectID }
+                || self.refreshPreviousState?.items.contains { $0.communityObjectID == metrics.objectID } == true
+            guard contains else { return }
+            if metrics.commentNum == nil { self.cancelRefreshOperations() }
+            var updated = self.state
+            if updated.pagedItems.apply(metrics) { self.state = updated }
+            if metrics.needsRefresh { self.needsRefresh = true }
+        }
     }
 
 

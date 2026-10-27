@@ -90,7 +90,7 @@ struct BIT101APIClient {
 
     private let httpClient: HTTPClient
     private let noRedirectHTTPClient: HTTPClient
-    private let schoolCookieStorage: HTTPCookieStorage
+    private let schoolCookieStorage: () -> HTTPCookieStorage
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
@@ -105,7 +105,7 @@ struct BIT101APIClient {
     }
 
     init(httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient,
-        schoolCookieStorage: HTTPCookieStorage = AppSchoolSession.teachingCenter.cookieStorage) {
+        schoolCookieStorage: @escaping () -> HTTPCookieStorage = { AppSchoolSession.teachingCenter.cookieStorage }) {
         self.httpClient = httpClient
         self.noRedirectHTTPClient = noRedirectHTTPClient
         self.schoolCookieStorage = schoolCookieStorage
@@ -152,7 +152,7 @@ struct BIT101APIClient {
     /// 返回值表示学校侧认证结果；BIT101 注册或登录状态由后续流程确定。
     func loginSchool(credentials: any SchoolCredentialsProviding, page: SchoolCASLoginPage) async throws -> Bool {
         let (data, response) = try await submitSchoolLoginForm(url: page.url, html: page.html,
-            credentials: credentials, cookies: schoolCookieStorage)
+            credentials: credentials, cookies: schoolCookieStorage())
         let requestURL = response.url ?? page.url
 
         if (300 ..< 400).contains(response.statusCode) {

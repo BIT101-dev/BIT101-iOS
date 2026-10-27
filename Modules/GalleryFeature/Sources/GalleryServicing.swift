@@ -2,7 +2,7 @@ import CommunityCore
 import Foundation
 
 /// 话廊首页与搜索页所需的最小网络能力。
-public protocol GalleryFeedServicing {
+public protocol GalleryFeedServicing: CommunityResourceObserving {
     func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster>
     func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster>
     func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster>

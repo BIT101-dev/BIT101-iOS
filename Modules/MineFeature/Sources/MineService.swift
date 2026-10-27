@@ -1,3 +1,4 @@
+import Combine
 import CommunityTransport
 import CommunityCore
 //
@@ -38,12 +39,17 @@ extension MineServiceError: CommunityAPIServiceError {
 public struct MineService {
     /// “我的”页请求使用的社区 API 客户端。
     private let api: CommunityAPIClient<MineServiceError>
+    private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
+    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+
     private let preferences: () -> CommunityPreferenceSnapshot
 
     /// 初始化社区 API 客户端。
     ///
     /// 资料请求通过注入会话取得当前账号凭据，并复用社区连接池。
-    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot) {
+    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Mine")
         self.preferences = preferences
     }
@@ -96,6 +102,7 @@ public struct MineService {
     }
 
     private func fetchPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
+        let revision = resourceUpdates.beginRead()
         var queryItems = [
             URLQueryItem(name: "mode", value: "search"),
             URLQueryItem(name: "uid", value: String(userID)),
@@ -104,13 +111,14 @@ public struct MineService {
         if await shouldHideBotPosters() {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
-        return try await api.request(
+        let result: [CommunityPoster] = try await api.request(
             path: "posters",
             queryItems: queryItems,
             validate: { posters in
                 guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else { throw MineServiceError.invalidResponse }
             }
         )
+        return result.map { resourceUpdates.resolve($0, since: revision) }
     }
 
     private func shouldHideBotPosters() async -> Bool {

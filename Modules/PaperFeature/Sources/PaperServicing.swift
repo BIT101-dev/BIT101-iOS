@@ -1,5 +1,5 @@
 import CommunityCore
-public protocol PaperListServicing {
+public protocol PaperListServicing: CommunityResourceObserving {
     func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary]
     func fetchPaper(id: Int) async throws -> PaperDetail
     func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata

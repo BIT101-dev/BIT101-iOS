@@ -154,7 +154,8 @@ final class AppCommunityDependencies {
             let owner = session.currentCredentials
             return { session.currentCredentials == owner }
         })
-        let galleryService = GalleryService(session: session, preferences: { preferences.snapshot })
+        let resourceUpdates = CommunityResourceUpdates(currentOwner: { session.currentCredentials.identity })
+        let galleryService = GalleryService(session: session, preferences: { preferences.snapshot }, resourceUpdates: resourceUpdates)
         gallery = GalleryDependencies(
             webCredentials: .init(cookie: { session.fakeCookie }, changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
             currentIdentity: { session.currentCredentials.identity },
@@ -162,14 +163,14 @@ final class AppCommunityDependencies {
             reporting: galleryService, composer: galleryService, images: galleryService, preferences: preferences,
             messages: messages, drafts: drafts, networkPath: networkPath
         )
-        let courseService = CourseService(session: session)
+        let courseService = CourseService(session: session, resourceUpdates: resourceUpdates)
         course = CourseDependencies(list: courseService, detail: courseService, preferences: preferences, networkPath: networkPath, loadCourseCredits: loadCourseCredits)
-        let paperService = PaperService(session: session)
+        let paperService = PaperService(session: session, resourceUpdates: resourceUpdates)
         paper = PaperDependencies(list: paperService, detail: paperService, composer: paperService, drafts: drafts,
             networkPath: networkPath, currentIdentity: { session.currentCredentials.identity },
             hasAuthenticationCredentials: { !session.fakeCookie.isEmpty },
             authenticationChanges: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher())
-        let mineService = MineService(session: session, preferences: { preferences.snapshot })
+        let mineService = MineService(session: session, preferences: { preferences.snapshot }, resourceUpdates: resourceUpdates)
         mine = MineDependencies(
             overview: mineService, profile: mineService,
             deletePoster: { try await galleryService.deletePoster(id: $0) }, networkPath: networkPath

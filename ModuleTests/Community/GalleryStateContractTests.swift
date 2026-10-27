@@ -5,11 +5,94 @@ import CommunityUI
 import Foundation
 import os
 import Testing
+import Combine
+import TransportCore
+@testable import CourseFeature
+@testable import PaperFeature
 @testable import GalleryFeature
 @testable import MineFeature
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test func satisfiedEventsCompleteAtTheWaitingBoundary() async throws {
+        try await waitForTestEvent(timeout: .zero) { true }
+    }
+    @Test func resourceMetricsKeepConfirmedWritesAcrossOlderReadsAndAccountChanges() {
+        var owner = 1
+        let updates = CommunityResourceUpdates(currentOwner: { owner })
+        var items = CommunityPagedItems<CommunityPoster>()
+        items.replace(with: [listPoster(1), listPoster(2)])
+        let observer = updates.changes.sink { items.apply($0) }
+        defer { observer.cancel() }
+        let earlier = updates.beginRead()
+        updates.confirmLike(objectID: "poster1", count: 9)
+        #expect(items.items.map(\.likeNum) == [9, 0] && items.items.map(\.id) == [1, 2])
+        #expect(updates.resolve(listPoster(1), since: earlier).likeNum == 9)
+        updates.invalidateComments(objectID: "poster1")
+        #expect(updates.resolve(listPoster(1), since: earlier).likeNum == 9)
+        let fresh = listPoster(1).updatingCommunityMetrics(.init(objectID: "poster1", likeNum: 10, commentNum: 3))
+        _ = updates.resolve(fresh, since: updates.beginRead())
+        let delayed = updates.resolve(listPoster(1), since: earlier)
+        #expect(delayed.likeNum == 10 && delayed.commentNum == 3)
+        owner = 2
+        updates.confirmLike(objectID: "poster1", count: 50)
+        #expect(items.items.first?.likeNum == 10)
+        #expect(updates.resolve(listPoster(2), since: updates.beginRead()).likeNum == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func confirmedInteractionsProjectAcrossCommunityListsWithoutReloadingTheirPages() async throws {
+        let user = #"{"id":1,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
+        let paper = #"{"id":1,"title":"文章","intro":"摘要","like_num":1,"comment_num":1,"update_time":""}"#
+        let course = #"{"id":1,"name":"课程","number":"CS1","credit":3,"like_num":1,"comment_num":1,"rate":8,"teachers_name":"教师","teachers_number":"T1"}"#
+        let poster = #"{"id":1,"anonymous":false,"claim":{"id":0,"text":""},"comment_num":1,"create_time":"","edit_time":"","images":[],"like_num":1,"public":true,"tags":[],"text":"正文","title":"帖子","update_time":"","user":\#(user)}"#
+        let comment = #"{"id":2,"obj":"OBJECT","images":[],"user":\#(user),"anonymous":false,"create_time":"","update_time":"","like":false,"like_num":0,"comment_num":0,"own":true,"rate":8,"reply_user":\#(user),"reply_obj":"","text":"新评论","sub":[]}"#
+        let transport = ServiceContractTests.Transport([])
+        transport.responseForRequest = { request in
+            switch request.url?.path {
+            case "/papers": return (200, "[" + paper + "]")
+            case "/courses": return (200, "[" + course + "]")
+            case "/posters": return (200, "[" + poster + "]")
+            case "/reaction/like": return (200, #"{"like":true,"like_num":9}"#)
+            case "/reaction/comments":
+                let body = try #require(request.httpBody)
+                let object = try #require((JSONSerialization.jsonObject(with: body) as? [String: Any])?["obj"] as? String)
+                return (200, comment.replacingOccurrences(of: "OBJECT", with: object))
+            case "/papers/1": return (200, String(paper.dropLast()) + #", "content":"正文","create_time":"","update_user":\#(user),"anonymous":false,"public_edit":true,"like":true,"own":true}"#)
+            case "/courses/1": return (200, String(course.dropLast()) + #", "like":true}"#)
+            case "/posters/1": return (200, String(poster.dropLast()) + #", "like":true,"own":true,"plugins":"[]"}"#)
+            default: throw URLError(.unsupportedURL)
+            }
+        }
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: {
+                .init(identity: .init(accountIdentifier: "projection"), cookie: "fixture")
+            }, refresh: { _ in })
+        let updates = CommunityResourceUpdates(currentOwner: { session.currentCredentials.identity })
+        let preferences = { CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }
+        let papers = PaperService(session: session, resourceUpdates: updates), courses = CourseService(session: session, resourceUpdates: updates)
+        let gallery = GalleryService(session: session, preferences: preferences, resourceUpdates: updates)
+        let mine = MineService(session: session, preferences: preferences, resourceUpdates: updates)
+        let paperModel = PaperListViewModel(service: papers), courseModel = CourseListViewModel(service: courses)
+        let galleryModel = GalleryViewModel(service: gallery), mineModel = MineViewModel(service: mine)
+        await paperModel.refresh(); await courseModel.refresh(); await galleryModel.refresh(feed: .newest); await mineModel.refreshPosters()
+        _ = try await papers.likePaper(id: 1)
+        _ = try await courses.like(objectID: "course1")
+        _ = try await gallery.like(objectID: "poster1")
+        #expect(paperModel.state.items.first?.likeNum == 9 && courseModel.state.items.first?.likeNum == 9)
+        #expect(galleryModel.state(for: .newest).posters.first?.likeNum == 9 && mineModel.posterState.items.first?.likeNum == 9)
+        #expect(transport.requests.count == 7)
+        _ = try await papers.createComment(objectID: "paper1", text: "新评论", replyObjectID: nil, replyUID: nil, anonymous: false)
+        #expect(paperModel.needsRefresh)
+        transport.responseForRequest = { request in
+            guard request.url?.path == "/papers/1" else { throw URLError(.unsupportedURL) }
+            return (200, String(paper.dropLast()).replacingOccurrences(of: #""comment_num":1"#, with: #""comment_num":5"#)
+                .replacingOccurrences(of: #""like_num":1"#, with: #""like_num":9"#)
+                + #", "content":"正文","create_time":"","update_user":\#(user),"anonymous":false,"public_edit":true,"like":true,"own":true}"#)
+        }
+        _ = try await papers.fetchPaper(id: 1)
+        #expect(paperModel.state.items.first?.commentNum == 5 && paperModel.state.items.first?.likeNum == 9 && paperModel.state.items.map(\.id) == [1])
+        #expect(transport.requests.count == 9)
+    }
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func commentRecoveryKeepsTheReadPositionAndClearsItsFailure(pagination: Bool) async {
         let service = SubscriptionDetails(), user = CommunityUser.placeholder(id: 1, nickname: "作者")

@@ -359,8 +359,10 @@ struct NativeLoginTests {
             cookies.setCookie(try #require(HTTPCookie(properties: [.domain: "sso.bit.edu.cn", .path: "/",
                 .name: "riskSystemGroupId", .value: "group-fixture", .secure: "TRUE"])))
             let client = HTTPClient(transport: transport, observer: nil)
+            let state = AppSchoolSession.isolatedState()
             let service = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: client,
-                noRedirectHTTPClient: client, schoolCookieStorage: cookies))
+                noRedirectHTTPClient: client, schoolCookieStorage: { state.cookieStorage }))
+            state.replaceCookieStorage(with: cookies)
             #expect(try await service.restoreSchoolSessionIfNeeded() == "owner")
             #expect(transport.requests.compactMap { $0.url?.path } == ["/cas/login", "/ustc-rba-front/fp", "/cas/login"])
             let profileRequest = try #require(transport.requests.first { $0.url?.path == "/ustc-rba-front/fp" })

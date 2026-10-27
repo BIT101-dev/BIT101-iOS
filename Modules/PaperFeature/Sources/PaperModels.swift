@@ -75,12 +75,20 @@ public enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
 /// 文章列表项。
 ///
 /// 文章列表按摘要字段解码，模型保持轻量。
-public nonisolated struct PaperSummary: Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct PaperSummary: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+    public var communityObjectID: String { "paper\(id)" }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        return value
+    }
+
     public let id: Int
     public let title: String
     public let intro: String
-    public let likeNum: Int
-    public let commentNum: Int
+    public private(set) var likeNum: Int
+    public private(set) var commentNum: Int
     public let updateTime: String
 }
 
@@ -103,7 +111,15 @@ public nonisolated struct PaperPreviewMetadata: Equatable, Hashable, Sendable {
 /// 文章详情模型。
 ///
 /// 详情页会额外显示编辑者、正文块、点赞状态和所有者状态。
-public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct PaperDetail: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+    public var communityObjectID: String { "paper\(id)" }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        return value
+    }
+
     public var isViewerAuthenticated = true
     private enum CodingKeys: String, CodingKey {
         case id, title, intro, content, createTime, updateTime, updateUser, anonymous
@@ -117,8 +133,8 @@ public nonisolated struct PaperDetail: Decodable, Identifiable, Hashable, Sendab
     public let updateTime: String
     public let updateUser: CommunityUser
     public let anonymous: Bool
-    public let likeNum: Int
-    public let commentNum: Int
+    public private(set) var likeNum: Int
+    public private(set) var commentNum: Int
     public let publicEdit: Bool
     public let like: Bool
     public let own: Bool

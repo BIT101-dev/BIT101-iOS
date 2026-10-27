@@ -24,7 +24,7 @@ enum AppNativeSchoolAuthentication {
         let manual = NetworkSessionPool.schoolCASTransport(state: state, followsRedirects: false, productionPolicy: productionPolicy)
         let api = BIT101APIClient(httpClient: HTTPClient(transport: NetworkSessionPool.schoolCASTransport(
             state: state, followsRedirects: true, productionPolicy: productionPolicy)), noRedirectHTTPClient: HTTPClient(transport: manual),
-            schoolCookieStorage: state.cookieStorage)
+            schoolCookieStorage: { state.cookieStorage })
         let restorer = AppScheduleSchoolSessionRestorer(restore: {
             do { return try await LoginService(storage: AppAccountSession.storage, apiClient: api).restoreSchoolSessionIfNeeded() }
             catch let error as LoginServiceError {
@@ -52,7 +52,7 @@ enum AppNativeSchoolAuthentication {
         transport: any HTTPTransport, activateSession: @escaping ([HTTPCookie]) -> Void) async throws -> SchoolIdentityVerification {
         let credentials = IdentityCredentials(currentStudentID: studentID, currentPassword: password)
         let client = HTTPClient(transport: transport)
-        let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client, schoolCookieStorage: state.cookieStorage)
+        let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client, schoolCookieStorage: { state.cookieStorage })
         let restorer = AppScheduleSchoolSessionRestorer(restore: { throw NativeSchoolAuthenticationError.additionalVerification })
         let authentication = authenticator(state: state, credentials: credentials, restorer: restorer, api: api,
             client: client, smsTransport: transport, acceptingServiceTicket: true,

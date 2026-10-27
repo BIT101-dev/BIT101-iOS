@@ -1,3 +1,4 @@
+import Combine
 import CommunityTransport
 import CommunityCore
 //
@@ -120,6 +121,9 @@ public enum GalleryBotClassifier {
 /// 负责帖子流、搜索和消息请求；机器人分栏使用服务端标签分类，正文筛选保持关闭。
 public struct GalleryService {
     private let api: CommunityAPIClient<GalleryServiceError>
+    private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
+    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+
     private let preferences: () -> CommunityPreferenceSnapshot
 
     /// 发帖接口请求体。
@@ -184,7 +188,9 @@ public struct GalleryService {
     ///
     /// 话廊请求沿 CommunitySession 的凭据快照提供 fake-cookie，
     /// CommunityAPIClient 在请求层显式关闭自动 Cookie 处理。
-    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot) {
+    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Gallery")
         self.preferences = preferences
     }
@@ -389,9 +395,11 @@ public struct GalleryService {
     ///
     /// 帖子详情会额外包含 `like / own / plugins` 等当前用户态字段，因此不能完全用列表卡片代替。
     public func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
-        try await api.request(path: "posters/\(id)", validate: { detail in
+        let revision = resourceUpdates.beginRead()
+        let result: GalleryPosterDetail = try await api.request(path: "posters/\(id)", validate: { detail in
             guard id > 0, detail.id == id else { throw GalleryServiceError.invalidResponse }
         })
+        return resourceUpdates.resolve(result, since: revision)
     }
 
     /// 删除一条帖子。
@@ -487,11 +495,13 @@ public struct GalleryService {
     ///
     /// 后端使用同一个接口处理帖子和评论的点赞，因此这里只传对象 ID。
     public func like(objectID: String) async throws -> CommunityLikeResult {
-        try await api.request(
+        let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
             method: "POST",
             body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
+        resourceUpdates.confirmLike(objectID: objectID, count: result.likeNum)
+        return result
     }
 
     /// 创建一条评论或回复。
@@ -506,7 +516,7 @@ public struct GalleryService {
         anonymous: Bool = false,
         imageMids: [String] = []
     ) async throws -> CommunityComment {
-        try await api.request(
+        let result: CommunityComment = try await api.request(
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
@@ -521,6 +531,8 @@ public struct GalleryService {
             ),
             validate: { guard $0.id > 0 else { throw GalleryServiceError.invalidResponse } }
         )
+        resourceUpdates.invalidateComments(objectID: objectID)
+        return result
     }
 
     public func uploadCommentImage(data: Data, filename: String) async throws -> CommunityImage {
@@ -593,6 +605,7 @@ public struct GalleryService {
         page: Int?,
         hideBot: Bool
     ) async throws -> [CommunityPoster] {
+        let revision = resourceUpdates.beginRead()
         var queryItems: [URLQueryItem] = []
 
         if let page {
@@ -619,10 +632,11 @@ public struct GalleryService {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
 
-        return try await api.request(path: "posters", queryItems: queryItems, validate: { posters in
+        let result: [CommunityPoster] = try await api.request(path: "posters", queryItems: queryItems, validate: { posters in
             guard posters.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 }) else {
                 throw GalleryServiceError.invalidResponse
             }
         })
+        return result.map { resourceUpdates.resolve($0, since: revision) }
     }
 }

@@ -1,4 +1,92 @@
 import Foundation
+import Combine
+
+public nonisolated struct CommunityResourceMetrics: Sendable {
+    public let objectID: String
+    public var likeNum: Int?
+    public var commentNum: Int?
+    public var rate: Double?
+    public var needsRefresh: Bool { likeNum == nil && commentNum == nil && rate == nil }
+    public init(objectID: String, likeNum: Int? = nil, commentNum: Int? = nil, rate: Double? = nil) {
+        self.objectID = objectID; self.likeNum = likeNum; self.commentNum = commentNum; self.rate = rate
+    }
+}
+
+public nonisolated protocol CommunityResourceItem: Identifiable, Equatable {
+    var communityObjectID: String { get }
+    var likeNum: Int { get }
+    var commentNum: Int { get }
+    var communityRate: Double? { get }
+    func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self
+}
+
+extension CommunityResourceItem {
+    public nonisolated var communityRate: Double? { nil }
+}
+
+public protocol CommunityResourceObserving {
+    var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { get }
+}
+
+extension CommunityResourceObserving {
+    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { Empty().eraseToAnyPublisher() }
+}
+
+/// 账号内共享已确认的交互计数，读取沿请求开始时的修订合并。
+@MainActor
+public final class CommunityResourceUpdates<Owner: Equatable> {
+    private let currentOwner: () -> Owner
+    private var owner: Owner
+    private var revision: UInt64 = 0
+    private var confirmed: [String: (revision: UInt64, metrics: CommunityResourceMetrics)] = [:]
+    private let subject = PassthroughSubject<CommunityResourceMetrics, Never>()
+
+    public init(currentOwner: @escaping () -> Owner) { self.currentOwner = currentOwner; owner = currentOwner() }
+
+    public var changes: AnyPublisher<CommunityResourceMetrics, Never> {
+        let observed = currentOwner()
+        return subject.filter { [weak self] _ in self?.currentOwner() == observed }.eraseToAnyPublisher()
+    }
+
+    public func beginRead() -> UInt64 { selectOwner(); return revision }
+
+    public func confirmLike(objectID: String, count: Int) {
+        selectOwner(); revision &+= 1
+        var metrics = confirmed[objectID]?.metrics ?? .init(objectID: objectID)
+        metrics.likeNum = count
+        confirmed[objectID] = (revision, metrics)
+        subject.send(.init(objectID: objectID, likeNum: count))
+    }
+
+    public func invalidateComments(objectID: String) {
+        selectOwner(); revision &+= 1
+        var metrics = confirmed[objectID]?.metrics ?? .init(objectID: objectID)
+        metrics.commentNum = nil; metrics.rate = nil
+        confirmed[objectID] = (revision, metrics)
+        subject.send(.init(objectID: objectID))
+    }
+
+    public func resolve<Item: CommunityResourceItem>(_ item: Item, since started: UInt64) -> Item {
+        selectOwner()
+        var metrics = CommunityResourceMetrics(objectID: item.communityObjectID,
+            likeNum: item.likeNum, commentNum: item.commentNum, rate: item.communityRate)
+        if let pending = confirmed[item.communityObjectID] {
+            if pending.revision > started {
+                metrics.likeNum = pending.metrics.likeNum ?? metrics.likeNum
+                metrics.commentNum = pending.metrics.commentNum ?? metrics.commentNum
+                metrics.rate = pending.metrics.rate ?? metrics.rate
+            } else { confirmed[item.communityObjectID] = (pending.revision, metrics) }
+        }
+        subject.send(metrics)
+        return item.updatingCommunityMetrics(metrics)
+    }
+
+    private func selectOwner() {
+        let selected = currentOwner()
+        guard selected != owner else { return }
+        owner = selected; revision = 0; confirmed.removeAll()
+    }
+}
 
 /// 连续四个非空源页缺少新标识时终止当前分页，调用方保留已加载内容和重试位置。
 public struct CommunityPageProgress<ID: Hashable> {
@@ -50,6 +138,16 @@ public nonisolated struct CommunityPagedItems<Item: Identifiable> {
     public mutating func replace(with values: [Item]) { items = []; ids = []; append(values) }
     public mutating func append(_ values: [Item]) {
         items.append(contentsOf: values.filter { ids.insert($0.id).inserted })
+    }
+}
+
+extension CommunityPagedItems where Item: CommunityResourceItem {
+    @discardableResult public mutating func apply(_ metrics: CommunityResourceMetrics) -> Bool {
+        guard let index = items.firstIndex(where: { $0.communityObjectID == metrics.objectID }) else { return false }
+        let updated = items[index].updatingCommunityMetrics(metrics)
+        guard items[index] != updated else { return false }
+        items[index] = updated
+        return true
     }
 }
 

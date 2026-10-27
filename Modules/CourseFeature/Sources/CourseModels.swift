@@ -33,14 +33,24 @@ enum CourseRatingText {
 /// 课程列表单项。
 ///
 /// 模型保留课程列表与详情入口所需的基础字段。
-public nonisolated struct CourseSummary: Decodable, Identifiable, Equatable, Hashable, Sendable {
+public nonisolated struct CourseSummary: CommunityResourceItem, Decodable, Identifiable, Equatable, Hashable, Sendable {
+    public var communityObjectID: String { "course\(id)" }
+    public var communityRate: Double? { rate }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        value.rate = metrics.rate ?? rate
+        return value
+    }
+
     public let id: Int
     public let name: String
     public let number: String
     public let credit: Double?
-    public let likeNum: Int
-    public let commentNum: Int
-    public let rate: Double
+    public private(set) var likeNum: Int
+    public private(set) var commentNum: Int
+    public private(set) var rate: Double
     public let teachersName: String
     public let teachersNumber: String
 
@@ -144,14 +154,24 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
 /// 课程详情。
 ///
 /// 详情接口在课程基础信息外，还会返回当前用户的点赞状态。
-public nonisolated struct CourseDetail: Decodable, Hashable, Sendable {
+public nonisolated struct CourseDetail: CommunityResourceItem, Decodable, Hashable, Sendable {
+    public var communityObjectID: String { "course\(id)" }
+    public var communityRate: Double? { rate }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        value.rate = metrics.rate ?? rate
+        return value
+    }
+
     public let id: Int
     public let name: String
     public let number: String
     public let credit: Double?
-    public let likeNum: Int
-    public let commentNum: Int
-    public let rate: Double
+    public private(set) var likeNum: Int
+    public private(set) var commentNum: Int
+    public private(set) var rate: Double
     public let teachersName: String
     public let teachersNumber: String
     public let like: Bool

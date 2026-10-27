@@ -1,3 +1,4 @@
+import Combine
 import CommunityTransport
 import CommunityCore
 //
@@ -44,6 +45,9 @@ public nonisolated struct PaperEditConflict: LocalizedError {
 /// 文章列表和详情接口独立于话廊。文章点赞和评论沿用 reaction 接口。
 public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
+    private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
+    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+
     private let session: CommunitySession
     private let details = PaperDetailRequestStore()
 
@@ -84,13 +88,15 @@ public struct PaperService {
         }
     }
 
-    public init(session: CommunitySession) {
+    public init(session: CommunitySession, resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         self.session = session
         api = session.client(errorDomain: "BIT101.Paper")
     }
 
     /// 拉取文章列表。
     public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        let revision = resourceUpdates.beginRead()
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
         if let search, !search.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: search))
@@ -105,7 +111,7 @@ public struct PaperService {
                 }
             })
         if page == 0 { details.invalidate(ids: Set(papers.map(\.id))) }
-        return papers
+        return papers.map { resourceUpdates.resolve($0, since: revision) }
     }
 
     /// 读取作者预览交接的文章内容。
@@ -130,12 +136,13 @@ public struct PaperService {
     }
 
     private func loadPaper(id: Int, credentials: CommunityCredentials) async throws -> PaperDetail {
+        let revision = resourceUpdates.beginRead()
         guard session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
         let response: CommunityAPIResponse<PaperDetail> = try await api.response(path: "papers/\(id)", authentication: .optional,
             validate: { detail in guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse } })
         var detail = response.value
         detail.isViewerAuthenticated = response.isAuthenticated
-        return detail
+        return resourceUpdates.resolve(detail, since: revision)
     }
 
     /// 拉取文章评论。
@@ -164,11 +171,13 @@ public struct PaperService {
     /// 文章详情评论通过 reaction 接口处理。这个方法为评论点赞提供通用入口。
     public func sendLike(objectID: String) async throws -> CommunityLikeResult {
         defer { details.invalidate() }
-        return try await api.request(
+        let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
             method: "POST",
             body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
+        resourceUpdates.confirmLike(objectID: objectID, count: result.likeNum)
+        return result
     }
 
     /// 发送文章评论或回复。
@@ -180,7 +189,7 @@ public struct PaperService {
         anonymous: Bool = false
     ) async throws -> CommunityComment {
         defer { details.invalidate() }
-        return try await api.request(
+        let result: CommunityComment = try await api.request(
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
@@ -195,6 +204,8 @@ public struct PaperService {
             ),
             validate: { guard $0.id > 0 else { throw PaperServiceError.invalidResponse } }
         )
+        resourceUpdates.invalidateComments(objectID: objectID)
+        return result
     }
 
     /// 新建文章。

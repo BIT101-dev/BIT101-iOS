@@ -2,6 +2,34 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testArticleCountersUpdateTheVisibleListFromItsDetail() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "gallery")
+        tapHeader(app.sectionTab("文章"))
+        let summary = app.descendants(matching: .any)["paper.summary.1"]
+        summary.tapBriefly()
+        let like = app.buttons["paper.detail.header-like"]
+        assertUI(like.appears(timeout: 5), "文章详情应加载可用交互。")
+        like.tapBriefly()
+        func countersAre(_ values: [String]) -> Bool {
+            let parts = summary.label.split(whereSeparator: { ",，、".contains($0) })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            return Array(parts.suffix(2)) == values
+        }
+        let isWide = app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+        if !isWide { back() }
+        assertUI(waitUntil(NSPredicate { _, _ in countersAre(["2", "1"]) }, on: app), "文章卡片应接收详情确认的点赞数。")
+        if !isWide { summary.tapBriefly() }
+        tap("评论文章")
+        replaceText("计数更新回归", in: app.textFields.firstMatch)
+        dismissKeyboard()
+        tap("发布")
+        assertUI(app.buttons["paper.detail.header-like"].appears(timeout: 5), "评论成功后应回到文章详情。")
+        if !isWide { back() }
+        assertUI(waitUntil(NSPredicate { _, _ in countersAre(["2", "2"]) }, on: app), "文章卡片应同步社区返回的评论计数。")
+    }
+
+    @MainActor
     @objc func testPosterDeepLinkKeepsItsTargetAfterAnInitialFailure() throws {
         XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, content: true, animations: true, posterFailureOnce: true, initialTab: "gallery")

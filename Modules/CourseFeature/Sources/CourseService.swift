@@ -1,3 +1,4 @@
+import Combine
 import CommunityTransport
 import CommunityCore
 //
@@ -39,13 +40,18 @@ public struct CourseService {
 
 
     private let api: CommunityAPIClient<CourseServiceError>
+    private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
+    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
 
-    public init(session: CommunitySession) {
+
+    public init(session: CommunitySession, resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Course")
     }
 
     /// 拉取课程列表。
     public func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
+        let revision = resourceUpdates.beginRead()
         var queryItems = [
             URLQueryItem(name: "order", value: Self.defaultCourseOrder),
             URLQueryItem(name: "page", value: String(page)),
@@ -56,19 +62,22 @@ public struct CourseService {
             queryItems.insert(URLQueryItem(name: "search", value: keyword), at: 0)
         }
 
-        return try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
+        let result: [CourseSummary] = try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
             for course in courses {
                 try Self.validateCourseFields(id: course.id, likeNum: course.likeNum, commentNum: course.commentNum, rate: course.rate)
             }
         })
+        return result.map { resourceUpdates.resolve($0, since: revision) }
     }
 
     /// 拉取单门课程详情。
     public func fetchCourse(id: Int) async throws -> CourseDetail {
-        try await api.request(path: "courses/\(id)", validate: { detail in
+        let revision = resourceUpdates.beginRead()
+        let result: CourseDetail = try await api.request(path: "courses/\(id)", validate: { detail in
             guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
             try Self.validateCourseFields(id: detail.id, likeNum: detail.likeNum, commentNum: detail.commentNum, rate: detail.rate)
         })
+        return resourceUpdates.resolve(result, since: revision)
     }
 
     private nonisolated static func validateCourseFields(id: Int, likeNum: Int, commentNum: Int, rate: Double) throws {
@@ -104,11 +113,13 @@ public struct CourseService {
 
     /// 对课程评论执行点赞或取消点赞。
     public func like(objectID: String) async throws -> CommunityLikeResult {
-        try await api.request(
+        let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
             method: "POST",
             body: try api.encode(CommunityLikeRequest(obj: objectID))
         )
+        resourceUpdates.confirmLike(objectID: objectID, count: result.likeNum)
+        return result
     }
 
     /// 创建课程评论或回复。
@@ -120,7 +131,7 @@ public struct CourseService {
         anonymous: Bool = false,
         rate: Int? = nil
     ) async throws -> CommunityComment {
-        try await api.request(
+        let result: CommunityComment = try await api.request(
             path: "reaction/comments",
             method: "POST",
             body: try api.encode(
@@ -136,6 +147,8 @@ public struct CourseService {
             ),
             validate: { guard $0.id > 0 else { throw CourseServiceError.invalidResponse } }
         )
+        resourceUpdates.invalidateComments(objectID: objectID)
+        return result
     }
 
 }

@@ -129,7 +129,15 @@ public nonisolated struct CommunityClaim: Codable, Hashable, Identifiable, Senda
 /// 信息流帖子卡片模型。
 ///
 /// 模型按列表预览预算保留正文，完整正文由详情请求承接。
-public nonisolated struct CommunityPoster: Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+    public var communityObjectID: String { "poster\(id)" }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        return value
+    }
+
     public init(anonymous: Bool, claim: CommunityClaim, commentNum: Int, createTime: String, editTime: String, id: Int, images: [CommunityImage], likeNum: Int, `public`: Bool, tags: [String], text: String, title: String, updateTime: String, user: CommunityUser) {
         self.anonymous = anonymous
         self.claim = claim
@@ -149,12 +157,12 @@ public nonisolated struct CommunityPoster: Decodable, Identifiable, Hashable, Se
 
     public let anonymous: Bool
     public let claim: CommunityClaim
-    public let commentNum: Int
+    public private(set) var commentNum: Int
     public let createTime: String
     public let editTime: String
     public let id: Int
     public let images: [CommunityImage]
-    public let likeNum: Int
+    public private(set) var likeNum: Int
     public let `public`: Bool
     public let tags: [String]
     public let text: String

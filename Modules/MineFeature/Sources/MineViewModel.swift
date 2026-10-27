@@ -107,6 +107,7 @@ final class MineViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any MineOverviewServicing
+    private var resourceSubscription: AnyCancellable?
     /// 记录主页首次加载流程的执行状态。
     private var hasBootstrapped = false
     private var profileGeneration = 0
@@ -116,6 +117,17 @@ final class MineViewModel: ObservableObject {
 
     init(service: any MineOverviewServicing) {
         self.service = service
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
+            guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
+            if metrics.commentNum == nil {
+                self.posterGeneration &+= 1
+                self.posterState.isLoadingMore = false
+                if self.posterState.status == .loading { self.posterState.status = .loaded }
+            }
+            var updated = self.posterState
+            if updated.pagedItems.apply(metrics) { self.posterState = updated }
+            if metrics.needsRefresh { self.posterState.needsRefresh = true }
+        }
     }
 
 
@@ -257,6 +269,7 @@ final class UserProfileViewModel: ObservableObject {
 
     private let userID: Int
     private let service: any UserProfileServicing
+    private var resourceSubscription: AnyCancellable?
     /// 记录首次加载流程的执行状态。
     private var hasBootstrapped = false
     private var profileGeneration = 0
@@ -268,6 +281,17 @@ final class UserProfileViewModel: ObservableObject {
     init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID
         self.service = service
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
+            guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
+            if metrics.commentNum == nil {
+                self.posterGeneration &+= 1
+                self.posterState.isLoadingMore = false
+                if self.posterState.status == .loading { self.posterState.status = .loaded }
+            }
+            var updated = self.posterState
+            if updated.pagedItems.apply(metrics) { self.posterState = updated }
+            if metrics.needsRefresh { self.posterState.needsRefresh = true }
+        }
     }
 
 

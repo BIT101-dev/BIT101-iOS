@@ -154,16 +154,24 @@ public struct GallerySearchQuery: Equatable {
 /// 帖子详情模型。
 ///
 /// 详情包含当前用户的点赞、归属和插件字段。
-public nonisolated struct GalleryPosterDetail: Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct GalleryPosterDetail: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+    public var communityObjectID: String { "poster\(id)" }
+    public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
+        var value = self
+        value.likeNum = metrics.likeNum ?? likeNum
+        value.commentNum = metrics.commentNum ?? commentNum
+        return value
+    }
+
     public let anonymous: Bool
     public let claim: CommunityClaim
-    public let commentNum: Int
+    public private(set) var commentNum: Int
     public let createTime: String
     public let editTime: String
     public let id: Int
     public let images: [CommunityImage]
     public let like: Bool
-    public let likeNum: Int
+    public private(set) var likeNum: Int
     public let own: Bool
     public let plugins: String
     public let `public`: Bool

@@ -610,9 +610,9 @@ final class UITestHTTPTransport: HTTPTransport {
     }
 
     private var poster: [String: Any] {
-        let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": 1,
+        let base: [String: Any] = ["id": 1, "anonymous": false, "claim": ["id": 1, "text": "日常"], "comment_num": commentCount(for: "poster1"),
          "create_time": timestamp, "edit_time": timestamp, "update_time": timestamp,
-         "images": mediaEnabled ? posterImages : [], "like": likedObjects.contains("poster1"), "like_num": 1, "own": true,
+         "images": mediaEnabled ? posterImages : [], "like": likedObjects.contains("poster1"), "like_num": likedObjects.contains("poster1") ? 2 : 1, "own": true,
          "plugins": "[]", "public": true, "tags": AppUITestBootstrap.environment["BIT101_UI_TEST_LONG_TAGS"] == "1"
             ? (1...8).map { "横向滚动标签\($0)" } : ["测试", "自动化"],
          "text": readingText("自动化测试话题正文", ending: "长帖末尾"), "title": "自动化测试话题", "user": user,
@@ -639,7 +639,7 @@ final class UITestHTTPTransport: HTTPTransport {
     private var paper: [String: Any] {
         ["id": 1, "title": "自动化测试文章", "intro": "测试文章简介", "content": paperContent,
          "create_time": timestamp, "update_time": timestamp, "update_user": user, "anonymous": false,
-         "like_num": 1, "comment_num": 1, "public_edit": true, "like": likedObjects.contains("paper1"), "own": true]
+         "like_num": likedObjects.contains("paper1") ? 2 : 1, "comment_num": commentCount(for: "paper1"), "public_edit": true, "like": likedObjects.contains("paper1"), "own": true]
     }
 
     private var paperContent: String {
@@ -656,9 +656,15 @@ final class UITestHTTPTransport: HTTPTransport {
     }
 
     private var course: [String: Any] {
-        ["id": 1, "name": "自动化测试课程", "number": "UI-001", "credit": 3, "like_num": 1,
-         "comment_num": 1, "rate": 4, "teachers_name": "测试教师", "teachers_number": "T001",
+        ["id": 1, "name": "自动化测试课程", "number": "UI-001", "credit": 3, "like_num": likedObjects.contains("course1") ? 2 : 1,
+         "comment_num": commentCount(for: "course1"), "rate": 4, "teachers_name": "测试教师", "teachers_number": "T001",
          "like": likedObjects.contains("course1")]
+    }
+
+    private func commentCount(for object: String) -> Int {
+        (deletedCommentIDs.contains(1) ? 0 : 1) + comments.filter {
+            $0["obj"] as? String == object && !deletedCommentIDs.contains($0["id"] as? Int ?? 0)
+        }.count
     }
 
     private func makeComment(id: Int, text: String) -> [String: Any] {

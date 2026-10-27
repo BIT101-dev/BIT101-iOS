@@ -123,6 +123,7 @@ final class GalleryViewModel: ObservableObject {
     }
 
     private let service: any GalleryFeedServicing
+    private var resourceSubscription: AnyCancellable?
     private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
     private var refreshGenerations: [GalleryFeedKind: Int] = [:]
     private var refreshPreviousStates: [GalleryFeedKind: GalleryFeedState] = [:]
@@ -133,6 +134,29 @@ final class GalleryViewModel: ObservableObject {
     init(service: any GalleryFeedServicing) {
         self.service = service
         recommendPrefetch = GalleryRecommendPrefetchCoordinator(service: service)
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in self?.applyResourceMetrics(metrics) }
+    }
+
+    private func applyResourceMetrics(_ metrics: CommunityResourceMetrics) {
+        if metrics.commentNum == nil,
+           feedStorage.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
+            || refreshPreviousStates.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
+            || searchStorage.posters.contains(where: { $0.communityObjectID == metrics.objectID }) {
+            cancelPendingOperations()
+        }
+        func apply(to state: inout GalleryFeedState) -> Bool {
+            guard state.posters.contains(where: { $0.communityObjectID == metrics.objectID }) else { return false }
+            let changed = state.pagedItems.apply(metrics)
+            if metrics.needsRefresh { state.needsRefresh = true }
+            return changed || metrics.needsRefresh
+        }
+        var feeds = feedStorage, search = searchStorage
+        var changed = apply(to: &search)
+        for feed in GalleryFeedKind.allCases {
+            var state = feeds[feed] ?? GalleryFeedState()
+            if apply(to: &state) { feeds[feed] = state; changed = true }
+        }
+        if changed { objectWillChange.send(); feedStorage = feeds; searchStorage = search }
     }
 
 

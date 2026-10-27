@@ -32,6 +32,7 @@ class PaperCollectionViewModel: ObservableObject {
     @Published var alert: AppAlert?
 
     private let service: any PaperListServicing
+    private var resourceSubscription: AnyCancellable?
     private let requiresSearchText: Bool
     private var hasBootstrapped = false
     private var pageQuery: (search: String?, order: PaperSortOrder)?
@@ -49,6 +50,16 @@ class PaperCollectionViewModel: ObservableObject {
     init(service: any PaperListServicing, requiresSearchText: Bool) {
         self.service = service
         self.requiresSearchText = requiresSearchText
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
+            guard let self else { return }
+            let contains = self.state.items.contains { $0.communityObjectID == metrics.objectID }
+                || self.refreshPreviousState?.state.items.contains { $0.communityObjectID == metrics.objectID } == true
+            guard contains else { return }
+            if metrics.commentNum == nil { self.cancelRefreshOperations() }
+            var updated = self.state
+            if updated.pagedItems.apply(metrics) { self.state = updated }
+            if metrics.needsRefresh { self.needsRefresh = true }
+        }
     }
 
     deinit { refreshTask?.cancel() }
