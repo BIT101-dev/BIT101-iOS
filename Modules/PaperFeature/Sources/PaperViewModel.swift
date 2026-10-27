@@ -310,6 +310,8 @@ final class PaperDetailViewModel: ObservableObject {
         commentRefreshGeneration &+= 1
         if paperStatus == .loading { paperStatus = paper == nil ? .idle : .loaded }
         if commentState.status == .loading { commentState.status = commentState.items.isEmpty ? .idle : .loaded }
+        commentState.isLoadingMore = false
+        commentOrder = commentState.order
     }
 
     func refreshAll() async {

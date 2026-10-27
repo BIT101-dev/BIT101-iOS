@@ -40,17 +40,17 @@ private struct PaperSearchScene: View {
         ScrollView {
             LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                 CommunityResultsContext(viewModel.displayedQueryDescription)
-                if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || viewModel.state.status == .idle && viewModel.state.items.isEmpty {
                     AppEmptyState(
                         title: "搜索文章",
                         systemImage: "magnifyingglass",
-                        message: "输入关键词后再搜索文章。"
+                        message: "输入关键词后，点击键盘上的搜索。"
                     )
                     .frame(maxWidth: .infinity)
                 } else {
                     switch viewModel.state.status {
-                    case .idle where viewModel.state.items.isEmpty,
-                         .loading where viewModel.state.items.isEmpty:
+                    case .loading where viewModel.state.items.isEmpty:
                         AppInlineLoadingState("正在搜索文章")
                     case let .failed(message) where viewModel.state.items.isEmpty:
                         AppScrollStateContainer {

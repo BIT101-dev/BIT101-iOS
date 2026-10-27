@@ -21,14 +21,21 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         tapHeader(app.sectionTab("文章"))
         tap("搜索文章")
         assertUI(app.navigationBars["搜索"].appears(timeout: 5), "搜索入口应打开原生搜索页面。")
-        replaceText("分页文章\n", in: app.textFields.firstMatch)
+        _ = UITestControlClient.request(["command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章"])
+        replaceText("分页文章", in: app.textFields.firstMatch)
+        assertUI(textElement("输入关键词后，点击键盘上的搜索。").exists, "提交前应呈现搜索操作提示。")
+        assertUI(UITestControlClient.request(["command": "request-state", "key": "papers"]) == "queued", "输入关键词后应等待用户提交。")
+        app.textFields.firstMatch.typeText("\n")
+        waitForRequest("papers")
+        releaseRequest("papers")
         dismissKeyboard()
         assertUI(textElement("分页文章 1").appears(timeout: 5), "搜索应先展示当前查询的结果。")
         _ = UITestControlClient.request(["command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章"])
-        pullToRefresh()
-        assertUI(app.navigationBars["搜索"].exists, "下拉刷新应保留搜索页面。")
-        waitForRequest("papers")
-        releaseRequest("papers")
+        pullToRefresh {
+            assertUI(app.navigationBars["搜索"].exists, "下拉刷新应保留搜索页面。")
+            waitForRequest("papers")
+            releaseRequest("papers")
+        }
         assertUI(app.textFields.firstMatch.value as? String == "分页文章", "刷新应保留搜索条件。")
         assertUI(textElement("分页文章 1").appears(timeout: 5), "刷新后应继续展示当前查询。")
     }
@@ -66,11 +73,10 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         assertUI(textElement("分页话题 1").appears(timeout: 5), "信息流应提供稳定的首屏内容。")
         assertUI(UITestControlClient.request(["command": "hold-request", "key": "posters"]) == "queued", "刷新请求应进入受控等待。")
         defer { _ = UITestControlClient.request(["command": "release-request", "key": "posters"]) }
-        pullToRefresh()
-        assertUI(waitUntil(NSPredicate { _, _ in
-            UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending"
-        }, on: app), "下拉刷新应请求相同首屏。")
-        _ = UITestControlClient.request(["command": "release-request", "key": "posters"])
+        pullToRefresh {
+            waitForRequest("posters")
+            releaseRequest("posters")
+        }
         _ = UITestControlClient.request(["command": "hold-request", "key": "posters", "query.page": "1"])
         for _ in 1...8 {
             if UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending" { break }
@@ -256,6 +262,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 extension CommunityInteractionUITests {
     @MainActor
     @objc func testStableRowsPaginateAgainAfterRefreshingTheSameResults() {
+        XCUIDevice.shared.orientation = .portrait
         for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
             app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
             tapHeader(app.segmentedControls.buttons[section])
@@ -271,18 +278,13 @@ extension CommunityInteractionUITests {
                 assertUI(secondPage.isHittable && abs(secondPage.frame.minY - readingY) < 1, "切换成绩与课程应保留课程阅读位置。")
             }
             let request = tab == "home" ? "courses" : "papers"
-            _ = UITestControlClient.request(["command": "hold-request", "key": request, "query.page": "0"])
-            for _ in 0..<8 {
-                if first.exists && first.isHittable { break }
-                pullToRefresh()
-            }
+            reveal(first, description: "刷新前首屏", searchFromTop: true)
             assertUI(first.isHittable, "刷新前应回到首屏。")
-            for _ in 0..<3 {
-                if UITestControlClient.request(["command": "request-state", "key": request]) == "pending" { break }
-                pullToRefresh()
+            _ = UITestControlClient.request(["command": "hold-request", "key": request, "query.page": "0"])
+            pullToRefresh {
+                waitForRequest(request)
+                releaseRequest(request)
             }
-            waitForRequest(request)
-            releaseRequest(request)
             assertUI(first.appears(timeout: 5), "刷新应保留相同的首屏对象。")
             reveal(secondPage, description: "刷新后第二页")
             assertUI(secondPage.isHittable, "刷新相同结果后应继续加载第二页。")

@@ -125,6 +125,9 @@ struct PaperCommentPagingTests {
         var commentFailure: (any Error)?
         var commentID: Int?
         var pendingDetail: CheckedContinuation<Void, Error>?
+        var holdsComments = false
+        var pendingComments: CheckedContinuation<Void, Error>?
+        var orders: [String] = []
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
             if url.path.hasSuffix("/papers/1") {
@@ -137,6 +140,8 @@ struct PaperCommentPagingTests {
             let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "page" }?.value.flatMap(Int.init) ?? 0
             pages.append(page)
+            orders.append(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "order" }?.value ?? "")
+            if holdsComments { try await withCheckedThrowingContinuation { pendingComments = $0 } }
             if let commentFailure { throw commentFailure }
             let id = commentID ?? (stalls || page < 3 ? 1 : 2)
             let user = #"{"id":1,"create_time":"","nickname":"用户","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
@@ -167,6 +172,34 @@ struct PaperCommentPagingTests {
         #expect(model.commentState.items.map(\.id) == (pagination ? [1, 2] : [2]))
         #expect(transport.pages == (pagination ? [0, 1, 1] : [0, 0, 0]))
         #expect(!model.commentState.needsRefresh && model.commentState.paginationError == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func leavingAnArticleKeepsCommentPagingReadyAndItsLoadedSort(sort: Bool) async throws {
+        let transport = Transport()
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: .init(accountIdentifier: "paper-cancel"), cookie: "fixture") }, refresh: { _ in })
+        let model = PaperDetailViewModel(initialPaper: .init(id: 1, title: "文章", intro: "", likeNum: 0, commentNum: 0, updateTime: ""),
+            service: PaperService(session: session))
+        await model.refreshComments()
+        transport.holdsComments = true
+        let loading = Task {
+            if sort { await model.setCommentOrder(.like) }
+            else { await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last) }
+        }
+        defer { loading.cancel(); transport.pendingComments?.resume(throwing: CancellationError()); transport.pendingComments = nil }
+        try await waitForTestEvent { transport.pendingComments != nil }
+        model.cancelPendingOperations()
+        loading.cancel()
+        transport.pendingComments?.resume(throwing: CancellationError()); transport.pendingComments = nil
+        await loading.value
+        #expect(!model.commentState.isLoadingMore && model.commentState.status == .loaded)
+        #expect(model.commentOrder == .newest && model.commentState.order == .newest)
+        transport.holdsComments = false; transport.commentID = 2
+        await model.loadMoreCommentsIfNeeded(currentComment: model.commentState.items.last)
+        #expect(model.commentState.items.map(\.id) == [1, 2])
+        #expect(transport.orders.last == transport.orders.first)
     }
 
     @Test(.timeLimit(.minutes(1))) func commentsAppearWhilePaperDetailsArePending() async throws {
