@@ -124,7 +124,7 @@ public struct CoursePageContent: View {
                 .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
                     await viewModel.loadMoreIfNeeded(currentCourse: course)
                 }
-                .appInteractiveListRow()
+                .appInteractiveListRow(isSelected: selection?.id == course.id)
                     .accessibilityIdentifier("ui.course-page-content.course")
             }
 

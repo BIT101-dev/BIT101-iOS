@@ -320,6 +320,13 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             return viewport.exists && viewport.frame.intersection(detailFrame).width >= detailFrame.width * 0.9
         }, on: app),
             "右侧详情应使用所属分栏的主要宽度。")
+        let list = pane.elementType == .collectionView ? pane : pane.collectionViews.firstMatch
+        if list.exists {
+            let cell = list.cells.firstMatch
+            assertUI(waitUntil(NSPredicate { _, _ in
+                cell.exists && cell.frame.minX >= sidebar.frame.maxX && cell.frame.maxX <= window.maxX
+            }, on: app), "详情分组应完整位于所属分栏内，保留两侧圆角。")
+        }
     }
     @MainActor private func capture(_ title: String) {
         assertUI(app.native.descendants(matching: .any)["app.navigation.adaptive"].exists, "主导航应由系统 TabView 承载。")

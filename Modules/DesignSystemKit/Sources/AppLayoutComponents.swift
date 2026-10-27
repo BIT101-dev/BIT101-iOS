@@ -107,7 +107,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
                     if let selection { detail(selection) }
                     else { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, layout.isLandscape ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none)
                 .background(AppDesignSystem.Palette.Background.grouped)
                 .toolbar(.visible, for: .navigationBar)
             }
@@ -472,14 +472,24 @@ private struct AppInteractiveLabeledContentStyle: LabeledContentStyle {
     }
 }
 
+private struct AppInteractiveListRowBackground: View {
+    let isSelected: Bool
+    var body: some View {
+        AppDesignSystem.Palette.Background.secondaryGrouped
+            .overlay { if isSelected { AppSelectionHighlight() } }
+    }
+}
+
 /// 统一所有分组列表的系统样式、section 间距和横向内容边距。
 extension View {
     /// 列表标题沿系统主文字色，右侧值沿页面主题，删除动作沿警示色。
-    public func appInteractiveListRow(isDestructive: Bool = false) -> some View {
-        foregroundStyle(isDestructive
+    @ViewBuilder public func appInteractiveListRow(isDestructive: Bool = false, isSelected: Bool? = nil) -> some View {
+        let row = foregroundStyle(isDestructive
             ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
             : AnyShapeStyle(AppDesignSystem.Foreground.primary))
             .labeledContentStyle(AppInteractiveLabeledContentStyle(isDestructive: isDestructive))
+        if let isSelected { row.listRowBackground(AppInteractiveListRowBackground(isSelected: isSelected)) }
+        else { row }
     }
 
     public func appGroupedListStyle() -> some View {

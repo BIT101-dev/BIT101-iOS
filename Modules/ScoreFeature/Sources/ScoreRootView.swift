@@ -33,6 +33,8 @@ public struct ScoreListPage: View {
 
     private enum ScorePageSelection: Hashable {
         case score(ScoreRow), pending(ScoreCourseSummary), transcript, terms, types, sort
+        var scoreID: String? { if case let .score(row) = self { row.id } else { nil } }
+        var pendingID: String? { if case let .pending(course) = self { course.id } else { nil } }
     }
 
     public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
@@ -97,7 +99,7 @@ public struct ScoreListPage: View {
                                     ScoreListRowCard(row: row)
                                 }
                                 .buttonStyle(.plain)
-                                .appInteractiveListRow()
+                                .appInteractiveListRow(isSelected: selectedPage?.scoreID == row.id)
                                     .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                             }
                         }
@@ -110,7 +112,7 @@ public struct ScoreListPage: View {
                                     ScoreListRowCard(course: course)
                                 }
                                 .buttonStyle(.plain)
-                                .appInteractiveListRow()
+                                .appInteractiveListRow(isSelected: selectedPage?.pendingID == course.id)
                                     .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
                             }
                         }
@@ -172,26 +174,26 @@ public struct ScoreListPage: View {
                 Text("申请可信成绩单")
             }
             .disabled(viewModel.isSyncing)
-            .appInteractiveListRow()
+            .appInteractiveListRow(isSelected: selectedPage == .transcript)
         }
 
         Section {
             NavigationLink(value: ScorePageSelection.terms) {
                 LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
             }
-            .appInteractiveListRow()
+            .appInteractiveListRow(isSelected: selectedPage == .terms)
 
             if !viewModel.availableCourseTypes.isEmpty {
                 NavigationLink(value: ScorePageSelection.types) {
                     LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
                 }
-                .appInteractiveListRow()
+                .appInteractiveListRow(isSelected: selectedPage == .types)
             }
 
             NavigationLink(value: ScorePageSelection.sort) {
                 LabeledContent("排序", value: viewModel.sortDescription)
             }
-            .appInteractiveListRow()
+            .appInteractiveListRow(isSelected: selectedPage == .sort)
                 .accessibilityIdentifier("ui.score-list-page.排序")
         }
 

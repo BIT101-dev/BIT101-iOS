@@ -1,6 +1,13 @@
 #if os(iOS)
 import SwiftUI
 
+public struct AppSelectionHighlight: View {
+    public init() {}
+    public var body: some View {
+        Rectangle().fill(.tint.opacity(AppDesignSystem.Opacity.subtle)).allowsHitTesting(false)
+    }
+}
+
 /// AppFeedRow 为信息流提供零间距行容器，并为非末行显示缩进分割线。
 public struct AppFeedRow<Content: View>: View {
     let isLast: Bool
@@ -24,7 +31,7 @@ public struct AppFeedRow<Content: View>: View {
             }
         }
         .overlay {
-            if isSelected { AppDesignSystem.Palette.Accent.subtleSurface.allowsHitTesting(false) }
+            if isSelected { AppSelectionHighlight() }
         }
     }
 }
