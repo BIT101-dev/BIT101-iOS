@@ -77,7 +77,7 @@ private struct ScoreRootScene: View {
     var body: some View {
         pages
         .accessibilityElement(children: .contain)
-        .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: selectedSurface)
+        .animation(surfaceAnimation, value: selectedSurface)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation { surfaceTabs }
         }
@@ -118,6 +118,10 @@ private struct ScoreRootScene: View {
 
     private var displayedSurface: ScoreSurface {
         showingCourses.map { $0 ? .course : .score } ?? selectedSurface
+    }
+
+    private var surfaceAnimation: Animation? {
+        showingCourses == nil ? AppDesignSystem.Motion.transition(reduceMotion: reduceMotion) : nil
     }
 
     private var surfaceTabs: some View {
@@ -172,7 +176,7 @@ private struct ScoreRootScene: View {
     private func switchSurface(to surface: ScoreSurface) {
         guard surface != selectedSurface else { return }
 
-        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+        withAnimation(surfaceAnimation) {
             selectedSurface = surface
         }
     }

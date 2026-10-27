@@ -269,6 +269,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @MainActor private func checkAcademicBrowsers() {
         app.mainTab("成绩").tapBriefly()
         assertPanes("browser.master", "browser.detail")
+        assertUI(app.native.buttons["score.query"].exists, "成绩浏览器应保留系统可访问的逐行操作。")
         app.buttons["score.query"].tapBriefly()
         let code = app.textFields["verification.code"]
         assertUI(code.appears(timeout: 5), "成绩查询应打开所属验证流程。")
