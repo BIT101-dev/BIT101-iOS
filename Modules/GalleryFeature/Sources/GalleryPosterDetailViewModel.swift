@@ -429,7 +429,4 @@ final class GalleryPosterDetailViewModel: ObservableObject {
         commentState.isLoadingMore = false
     }
 
-    /// 把抛错的异步操作包装为 `Result`，并行加载详情和评论时统一处理结果。
-
-
 }

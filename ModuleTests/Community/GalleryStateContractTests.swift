@@ -57,6 +57,29 @@ struct GalleryStateContractTests {
         #expect(updates.resolve(listPoster(2), since: updates.beginRead()).likeNum == 0)
     }
 
+    @Test func resourceMetricsMergeIndependentFieldsAcrossConcurrentLikesAndReads() throws {
+        let updates = CommunityResourceUpdates(currentOwner: { 1 })
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let initial = try decoder.decode(CourseSummary.self, from: Data(#"{"id":1,"name":"课程","number":"CS1","credit":3,"like_num":1,"comment_num":3,"rate":8,"teachers_name":"教师","teachers_number":"T1"}"#.utf8))
+        let earlier = updates.beginRead()
+        updates.confirmLike(objectID: "course1", count: 1)
+        _ = updates.resolve(initial, since: updates.beginRead())
+        let concurrent = updates.beginRead()
+        updates.confirmLike(objectID: "course1", count: 2)
+        let incoming = initial.updatingCommunityMetrics(.init(objectID: "course1", commentNum: 4, rate: 9))
+        let resolved = updates.resolve(incoming, since: concurrent)
+        #expect(resolved.likeNum == 2 && resolved.commentNum == 4 && resolved.rate == 9)
+        let delayed = updates.resolve(initial, since: earlier)
+        #expect(delayed.likeNum == 2 && delayed.commentNum == 4 && delayed.rate == 9)
+        updates.invalidateComments(objectID: "course1")
+        let refreshed = updates.beginRead()
+        updates.confirmLike(objectID: "course1", count: 7)
+        let fresh = updates.resolve(initial.updatingCommunityMetrics(.init(objectID: "course1", commentNum: 6, rate: 7.5)), since: refreshed)
+        #expect(fresh.likeNum == 7 && fresh.commentNum == 6 && fresh.rate == 7.5)
+        let late = updates.resolve(initial, since: concurrent)
+        #expect(late.likeNum == 7 && late.commentNum == 6 && late.rate == 7.5)
+    }
+
     @Test(.timeLimit(.minutes(1))) func confirmedInteractionsProjectAcrossCommunityListsWithoutReloadingTheirPages() async throws {
         let user = #"{"id":1,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
         let paper = #"{"id":1,"title":"文章","intro":"摘要","like_num":1,"comment_num":1,"update_time":""}"#

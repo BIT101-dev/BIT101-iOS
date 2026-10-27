@@ -38,7 +38,13 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
     private let currentOwner: () -> Owner
     private var owner: Owner
     private var revision: UInt64 = 0
-    private var confirmed: [String: (revision: UInt64, metrics: CommunityResourceMetrics)] = [:]
+    private struct Confirmed {
+        var metrics: CommunityResourceMetrics
+        var likeRevision: UInt64 = 0
+        var commentRevision: UInt64 = 0
+        var rateRevision: UInt64 = 0
+    }
+    private var confirmed: [String: Confirmed] = [:]
     private let subject = PassthroughSubject<CommunityResourceMetrics, Never>()
 
     public init(currentOwner: @escaping () -> Owner) { self.currentOwner = currentOwner; owner = currentOwner() }
@@ -52,17 +58,18 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
 
     public func confirmLike(objectID: String, count: Int) {
         selectOwner(); revision &+= 1
-        var metrics = confirmed[objectID]?.metrics ?? .init(objectID: objectID)
-        metrics.likeNum = count
-        confirmed[objectID] = (revision, metrics)
+        var value = confirmed[objectID] ?? Confirmed(metrics: .init(objectID: objectID))
+        value.metrics.likeNum = count; value.likeRevision = revision
+        confirmed[objectID] = value
         subject.send(.init(objectID: objectID, likeNum: count))
     }
 
     public func invalidateComments(objectID: String) {
         selectOwner(); revision &+= 1
-        var metrics = confirmed[objectID]?.metrics ?? .init(objectID: objectID)
-        metrics.commentNum = nil; metrics.rate = nil
-        confirmed[objectID] = (revision, metrics)
+        var value = confirmed[objectID] ?? Confirmed(metrics: .init(objectID: objectID))
+        value.metrics.commentNum = nil; value.metrics.rate = nil
+        value.commentRevision = revision; value.rateRevision = revision
+        confirmed[objectID] = value
         subject.send(.init(objectID: objectID))
     }
 
@@ -70,15 +77,19 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
         selectOwner()
         var metrics = CommunityResourceMetrics(objectID: item.communityObjectID,
             likeNum: item.likeNum, commentNum: item.commentNum, rate: item.communityRate)
-        if let pending = confirmed[item.communityObjectID] {
-            if pending.revision > started {
-                metrics.likeNum = pending.metrics.likeNum ?? metrics.likeNum
-                metrics.commentNum = pending.metrics.commentNum ?? metrics.commentNum
-                metrics.rate = pending.metrics.rate ?? metrics.rate
-            } else { confirmed[item.communityObjectID] = (pending.revision, metrics) }
+        if var pending = confirmed[item.communityObjectID] {
+            Self.merge(&metrics.likeNum, confirmed: &pending.metrics.likeNum, revision: &pending.likeRevision, since: started)
+            Self.merge(&metrics.commentNum, confirmed: &pending.metrics.commentNum, revision: &pending.commentRevision, since: started)
+            Self.merge(&metrics.rate, confirmed: &pending.metrics.rate, revision: &pending.rateRevision, since: started)
+            confirmed[item.communityObjectID] = pending
         }
         subject.send(metrics)
         return item.updatingCommunityMetrics(metrics)
+    }
+
+    private static func merge<Value>(_ value: inout Value?, confirmed: inout Value?, revision: inout UInt64, since started: UInt64) {
+        if revision > started { value = confirmed ?? value }
+        else { confirmed = value; revision = started }
     }
 
     private func selectOwner() {
