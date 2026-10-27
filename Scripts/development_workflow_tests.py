@@ -17,6 +17,7 @@ def development_workflow_self_test() -> None:
     shutil.rmtree(fixture, ignore_errors=True)
     fixture.mkdir(parents=True)
     try:
+        interrupted_self_test_recovery(fixture)
         cache_and_ui_products(fixture)
         incremental_archives(fixture)
         focused_result_retention(fixture)
@@ -34,6 +35,20 @@ def development_workflow_self_test() -> None:
         mac_process_identity(fixture)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
+
+
+def interrupted_self_test_recovery(fixture: Path) -> None:
+    from validation_artifacts import main as audit_artifacts
+    folder = fixture / '.build/static-audit'
+    for name in ('source-identity-self-test', 'simulator-startup-self-test'):
+        residual = folder / name
+        residual.mkdir(parents=True)
+        (residual / 'interrupted.log').write_text('interrupted producer')
+    retained = folder / 'checkers.log'
+    retained.write_text('current diagnostics')
+    audit_artifacts(fixture)
+    assert sorted(path.name for path in folder.iterdir()) == ['checkers.log', 'compilation-conditions.lock']
+    assert retained.read_text() == 'current diagnostics'
 
 
 def shared_source_facts(fixture: Path) -> None:
@@ -338,7 +353,18 @@ def cache_and_ui_products(fixture: Path) -> None:
         try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
         except SystemExit as status: assert status.code == 0
     automatic.assert_not_called()
-    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())['projectBytes'] > 0
+    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())['space']['projectBytes'] > 0
+    import ci_evidence
+    metadata = fixture / '.build/compiler-cache/compilation-cache.json'
+    identity = {'toolchain': 'compiler', 'architecture': 'arm64'}
+    from validation_artifacts import record_cache_space
+    with patch.object(ci_evidence, 'CACHE_ROOT', metadata.parent), \
+            patch.object(ci_evidence, 'cache_identity', return_value=identity), redirect_stdout(StringIO()):
+        ci_evidence.export_cache('simulator-app')
+    saved = json.loads(metadata.read_text())
+    assert saved['identity'] == identity and saved['flavor'] == 'simulator-app' and saved['space']['projectBytes'] > 0
+    current = record_cache_space(fixture)
+    assert json.loads(metadata.read_text()) == dict(identity=identity, flavor='simulator-app', space=current)
     from validation_artifacts import cache_space_report
     measured = cache_space_report(fixture)
     assert measured['projectBytes'] > 0 and measured['casGenerationLimitBytes'] == CAS_GENERATION_LIMIT
@@ -350,7 +376,7 @@ def cache_and_ui_products(fixture: Path) -> None:
                 patch('validation_artifacts.prune_compilation_cache', return_value=(0, 0)):
             try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
             except SystemExit as status: assert status.code == 0
-        return json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())
+        return json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())['space']
     before = sample_after_build()
     for name in ('.build/release-network-smoke/Build', '.build/icloud-cross-device-smoke/Phone/Build',
                  '.build/icloud-cross-device-smoke/Mac/Build'):
@@ -359,7 +385,7 @@ def cache_and_ui_products(fixture: Path) -> None:
         product.write_bytes(b'product' * 4096)
     after = sample_after_build()
     assert after['buildBytes'] > before['buildBytes'] and after['projectBytes'] > before['projectBytes']
-    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text()) == after
+    assert json.loads((fixture / '.build/compiler-cache/compilation-cache.json').read_text())['space'] == after
     for name in ('.build/extended-automation/test-results.xcresult', '.build/icloud-cross-device-smoke/test-results.xcresult'):
         result = fixture / name / 'result'
         result.parent.mkdir(parents=True, exist_ok=True)

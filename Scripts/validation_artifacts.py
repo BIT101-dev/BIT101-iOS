@@ -42,6 +42,7 @@ SELF_TEST_ARTIFACTS = frozenset({
     "test-results-self-test",
     "campus-fixture-self-test", "report-inbox-self-test", "report-write-self-test", "explanatory-self-test",
     "cache-self-test", "cache-download-self-test", "development-workflow-self-test", "performance-results-self-test", "workflow-lock-self-test", "audit-cancellation-self-test",
+    "source-identity-self-test", "simulator-startup-self-test",
     "row-color-self-test.swift", "source-digest-self-test.sh", "module-manifest-lock", "script-snapshot.sh",
 })
 
@@ -212,10 +213,17 @@ def cache_space_report(root: Path) -> dict:
         'casGenerationLimitBytes': CAS_GENERATION_LIMIT}
 
 
+def update_cache_metadata(output: Path, fields: dict) -> dict:
+    metadata = json.loads(output.read_text()) if output.is_file() else {}
+    metadata.update(fields)
+    output.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
+    return metadata
+
+
 def record_cache_space(root: Path) -> dict:
     output = root / '.build/compiler-cache/compilation-cache.json'
     report = cache_space_report(root)
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+    update_cache_metadata(output, {'space': report})
     return report
 
 

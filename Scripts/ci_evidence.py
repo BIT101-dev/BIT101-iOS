@@ -118,9 +118,10 @@ def cache_identity() -> dict:
 
 
 def export_cache(flavor: str) -> None:
+    from validation_artifacts import update_cache_metadata
     if flavor not in CACHE_FLAVORS: raise ValueError('编译缓存需要登记的构建分组。')
     if not (CACHE_ROOT / CACHE_STORE).is_dir(): raise ValueError('编译完成后需要生成原生缓存。')
-    (CACHE_ROOT / CACHE_METADATA).write_text(json.dumps(dict(identity=cache_identity(), flavor=flavor)))
+    update_cache_metadata(CACHE_ROOT / CACHE_METADATA, dict(identity=cache_identity(), flavor=flavor))
     files = [*(CACHE_ROOT / CACHE_STORE).rglob('*'), *(CACHE_ROOT / name for name in CACHE_TOOLS | {CACHE_METADATA})]
     size = sum(path.stat().st_size for path in files if path.is_file())
     print(f'编译缓存原始文件：{size / 1024**3:.2f} GiB。')
@@ -131,7 +132,7 @@ def restore_cache_payload(payload, flavor: str) -> bool:
     from pathlib import PurePosixPath
     with zipfile.ZipFile(payload) as archive:
         metadata = json.loads(archive.read(CACHE_METADATA))
-        if metadata != dict(identity=cache_identity(), flavor=flavor): return False
+        if metadata.get('identity') != cache_identity() or metadata.get('flavor') != flavor: return False
         members = [row for row in archive.infolist() if row.filename != CACHE_METADATA]
         if not any(not row.is_dir() for row in members): raise ValueError('原生缓存需要包含编译数据。')
         tools = CACHE_TOOLS.intersection(row.filename for row in members)
@@ -465,10 +466,12 @@ def cache_self_test() -> None:
         restore_cache('simulator-app')
         restore.assert_not_called()
     identity = {'toolchain': 'compiler', 'architecture': 'arm64'}
-    def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False):
+    def payload(name=CACHE_STORE + '/data', *, context=identity, link=False, tools=False, space=None):
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_STORED) as archive:
-            archive.writestr(CACHE_METADATA, json.dumps(dict(identity=context, flavor='simulator-app')))
+            metadata = dict(identity=context, flavor='simulator-app')
+            if space is not None: metadata['space'] = space
+            archive.writestr(CACHE_METADATA, json.dumps(metadata))
             entry = zipfile.ZipInfo(name)
             if link: entry.external_attr = 0o120777 << 16
             archive.writestr(entry, b'compiled')
@@ -485,14 +488,17 @@ def cache_self_test() -> None:
         assert restore_cache_payload(payload(tools=True), 'simulator-app')
         assert transferred[1:] == [b'compiled', *(name.encode() for name in sorted(CACHE_TOOLS))]
         permissions.assert_called_once_with(0o755)
+        assert restore_cache_payload(payload(space={'projectBytes': 123}), 'simulator-app')
         copied.reset_mock()
         assert not restore_cache_payload(payload(context={}), 'simulator-app')
         assert not restore_cache_payload(payload(), 'catalyst-tests')
         copied.assert_not_called()
     with patch.object(module, 'cache_identity', return_value=identity), patch.object(Path, 'is_dir', return_value=True), \
+            patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'read_text', return_value='{"space":{"projectBytes":123}}'), \
+            patch.object(Path, 'rglob', return_value=[]), patch.object(Path, 'stat', return_value=type('Stat', (), {'st_size': 1})()), \
             patch.object(Path, 'write_text') as saved, redirect_stdout(io.StringIO()):
         export_cache('simulator-app')
-        assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-app')
+        assert json.loads(saved.call_args.args[0]) == dict(identity=identity, flavor='simulator-app', space={'projectBytes': 123})
         for name, link in [('../escape', False), ('/escape', False), (CACHE_STORE + '/../escape', False),
                            (CACHE_STORE, False), (CACHE_STORE + '/link', True),
                            ('swift-syntax-indexer', False), ('swift-syntax-indexer/escape', False)]:

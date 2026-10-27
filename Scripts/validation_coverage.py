@@ -21,6 +21,17 @@ def restore_test_host_permissions(products: Path) -> None:
                 executable.chmod(executable.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def prepare_simulator_photos(device: str, root: Path) -> None:
+    import subprocess
+    marker = ['xcrun', 'simctl', 'spawn', device, 'defaults']
+    domain = 'BIT101-dev.BIT101-ui-fixtures'
+    ready = subprocess.run([*marker, 'read', domain, 'photosReady'], capture_output=True, text=True)
+    if ready.returncode == 0 and ready.stdout.strip() == '1': return
+    subprocess.run(['xcrun', 'simctl', 'addmedia', device,
+        str(root / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')], check=True)
+    subprocess.run([*marker, 'write', domain, 'photosReady', '-bool', 'true'], check=True)
+
+
 def prepare_simulator_system(device: str, root: Path, *, ui: bool) -> None:
     import os
     import subprocess
@@ -35,9 +46,7 @@ def prepare_simulator_system(device: str, root: Path, *, ui: bool) -> None:
     subprocess.run(['defaults', '-container', 'com.apple.dt.Devices', 'write', 'com.apple.dt.Devices',
         'alwaysSimulateHardwareKeyboard', '-bool', 'true'], check=True)
     subprocess.run(['xcrun', 'simctl', 'bootstatus', device, '-b'], check=True)
-    if ui:
-        subprocess.run(['xcrun', 'simctl', 'addmedia', device,
-            str(root / 'BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png')], check=True)
+    if ui: prepare_simulator_photos(device, root)
 
 
 def prepare_simulator_ui(device: str, products: Path) -> None:
@@ -357,15 +366,27 @@ def simulator_ui_preparation_self_test() -> None:
         bundles.assert_called_once_with('Info.plist')
         permissions.assert_called_once_with(0o100755)
     for ui in (False, True):
-        with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=True), \
+        with patch('subprocess.run', return_value=SimpleNamespace(returncode=1, stdout='')) as run, patch.object(Path, 'is_dir', return_value=True), \
                 patch.dict('os.environ', {'DEVELOPER_DIR': '/Applications/Xcode.app/Contents/Developer'}):
             prepare_simulator_system('device', Path('/repo'), ui=ui)
             commands = [call.args[0] for call in run.call_args_list]
             assert commands[0] == ['open', '-g', '-a', '/Applications/Xcode.app/Contents/Applications/DeviceHub.app']
             assert commands[1][-3:] == ['alwaysSimulateHardwareKeyboard', '-bool', 'true']
             assert commands[2] == ['xcrun', 'simctl', 'bootstatus', 'device', '-b']
-            assert len(commands) == (4 if ui else 3)
-            if ui: assert commands[3] == ['xcrun', 'simctl', 'addmedia', 'device', '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png']
+            assert len(commands) == (6 if ui else 3)
+            if ui:
+                assert commands[3] == ['xcrun', 'simctl', 'spawn', 'device', 'defaults', 'read', 'BIT101-dev.BIT101-ui-fixtures', 'photosReady']
+                assert commands[4] == ['xcrun', 'simctl', 'addmedia', 'device', '/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png']
+                assert commands[5][-5:] == ['write', 'BIT101-dev.BIT101-ui-fixtures', 'photosReady', '-bool', 'true']
+    with patch('subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='1\n')) as run:
+        prepare_simulator_photos('device', Path('/repo'))
+        assert run.call_count == 1 and run.call_args.args[0][5] == 'read'
+    import subprocess
+    with patch('subprocess.run', side_effect=[SimpleNamespace(returncode=1, stdout=''),
+            subprocess.CalledProcessError(1, ['addmedia'])]) as run:
+        try: prepare_simulator_photos('device', Path('/repo'))
+        except subprocess.CalledProcessError: assert run.call_count == 2
+        else: raise AssertionError('导入失败后保留样本待准备状态。')
     for developer in ('/Applications/Xcode.app/Contents/Developer', ''):
         with patch('subprocess.run') as run, patch.object(Path, 'is_dir', return_value=False), \
                 patch.dict('os.environ', {'DEVELOPER_DIR': developer}), \

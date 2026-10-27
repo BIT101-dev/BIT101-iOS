@@ -264,13 +264,16 @@ bit101_verify_step() {
 
 bit101_prepare_simulator_test_host() {
   simulator_prepare_pid=
-  if [[ "${GITHUB_ACTIONS:-false}" == true ]]; then
-    bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器系统就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" <<'PYREADY' &
+  if [[ "${GITHUB_ACTIONS:-false}" == true || "$mode" == ui ]]; then
+    bit101_run_logged "$DERIVED_ROOT/simulator.log" "模拟器测试环境就绪" python3 - "$ROOT_DIR/Scripts" "$SIMULATOR_DEVICE" "$ROOT_DIR" "$mode" "${GITHUB_ACTIONS:-false}" <<'PYREADY' &
 from pathlib import Path
 import sys
 sys.path.insert(0, sys.argv[1])
-from validation_coverage import prepare_simulator_system
-prepare_simulator_system(sys.argv[2], Path(sys.argv[3]), ui=sys.argv[4] == 'ui')
+from validation_coverage import prepare_simulator_photos, prepare_simulator_system
+if sys.argv[5] == 'true':
+    prepare_simulator_system(sys.argv[2], Path(sys.argv[3]), ui=sys.argv[4] == 'ui')
+else:
+    prepare_simulator_photos(sys.argv[2], Path(sys.argv[3]))
 PYREADY
     simulator_prepare_pid=$!
   fi

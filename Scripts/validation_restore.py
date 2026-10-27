@@ -334,13 +334,16 @@ def simulator_startup_findings(source: str) -> list[str]:
         if json.loads(saved.call_args.args[0])['identifier'] != expected or executed.call_count != (1 if hosted == 'true' else 2):
             findings.append('模拟器选择自测：托管环境优先复用已启动 iPhone，本机维护项目独立设备')
         if hosted == 'true' and prepared.call_count: findings.append('模拟器选择自测：已启动库存设备保持运行')
-    for operation in ('app', 'release-runtime', 'ui'):
-        with patch.object(sys, 'argv', ['ready', str(ROOT / 'Scripts'), 'device', '/fixture', operation]), \
-                patch('validation_coverage.prepare_simulator_system') as prepared:
+    for hosted, operation in (('true', 'app'), ('true', 'release-runtime'), ('true', 'ui'), ('false', 'ui')):
+        with patch.object(sys, 'argv', ['ready', str(ROOT / 'Scripts'), 'device', '/fixture', operation, hosted]), \
+                patch('validation_coverage.prepare_simulator_system') as system, \
+                patch('validation_coverage.prepare_simulator_photos') as photos:
             exec(compile(programs['PYREADY'], '<simulator-ready>', 'exec'), {})
+        prepared = system if hosted == 'true' else photos
         if prepared.call_count != 1 or prepared.call_args.args != ('device', Path('/fixture')) \
-                or prepared.call_args.kwargs != {'ui': operation == 'ui'}:
-            findings.append('模拟器启动自测：系统初始化接入实际设备及所属测试模式')
+                or prepared.call_args.kwargs != ({'ui': operation == 'ui'} if hosted == 'true' else {}) \
+                or (photos if hosted == 'true' else system).called:
+            findings.append('模拟器启动自测：托管环境准备系统，本地 UI 准备选图样本')
     with patch.object(sys, 'argv', ['app-ready', str(ROOT / 'Scripts'), 'device', '/fixture/Build/Products']), \
             patch('validation_coverage.prepare_simulator_ui') as prepared:
         exec(compile(programs['PYAPPREADY'], '<simulator-app-ready>', 'exec'), {})
@@ -351,46 +354,49 @@ def simulator_startup_findings(source: str) -> list[str]:
     body = shell_function(support, 'bit101_prepare_simulator_test_host')
     log_root = ROOT / '.build/static-audit/simulator-startup-self-test'
     log_root.mkdir(parents=True, exist_ok=True)
-    for hosted in ('true', 'false'):
-        for operation in ('app', 'release-runtime', 'ui'):
-            for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+    try:
+        for hosted in ('true', 'false'):
+            for operation in ('app', 'release-runtime', 'ui'):
+                for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+                    harness = f'''set -euo pipefail
+    exec 3>&1
+    ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=0
+    only_testing=()
+    bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; [[ " $* " == *" ONLY_ACTIVE_ARCH=YES "* ]] || return 64; return {build_status}; fi; }}
+    python3() {{ cat >/dev/null; print -u3 APPREADY; }}
+    '''
+                    result = subprocess.run(['zsh', '-c', harness + body + '\nbit101_prepare_simulator_test_host\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
+                    prepares = hosted == 'true' or operation == 'ui'
+                    expected = build_status or (ready_status if prepares else 0)
+                    rows = result.stdout.splitlines()
+                    complete = result.returncode == expected and 'BUILD' in rows and ('PREPARE' in rows) == prepares \
+                        and ('COMPLETE' in rows) == (expected == 0)
+                    app_ready = hosted == 'true' and operation == 'ui' and expected == 0
+                    complete = complete and ('APPREADY' in rows) == app_ready
+                    if complete and app_ready:
+                        complete = rows.index('APPREADY') > max(rows.index('BUILD'), rows.index('PREPARE'))
+                    if not complete:
+                        findings.append('模拟器启动自测：两项完成后初始化 App，失败状态归集后结束')
+        for hosted in ('true', 'false'):
+            for ready_status in (0, 9):
                 harness = f'''set -euo pipefail
-exec 3>&1
-ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode={operation} scheme=scheme configuration=Release destination=target conditions= GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=0
-only_testing=()
-bit101_run_logged() {{ if [[ "$3" == python3 ]]; then cat >/dev/null; print PREPARE; return {ready_status}; else print BUILD; [[ " $* " == *" ONLY_ACTIVE_ARCH=YES "* ]] || return 64; return {build_status}; fi; }}
-python3() {{ cat >/dev/null; print -u3 APPREADY; }}
-'''
+    exec 3>&1
+    ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
+    bit101_run_logged() {{ cat >/dev/null; print PREPARE; return {ready_status}; }}
+    python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print -u3 APPREADY; else print -u3 PERMISSIONS; fi; }}
+    '''
                 result = subprocess.run(['zsh', '-c', harness + body + '\nbit101_prepare_simulator_test_host\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
-                expected = build_status or (ready_status if hosted == 'true' else 0)
                 rows = result.stdout.splitlines()
-                complete = result.returncode == expected and 'BUILD' in rows and ('PREPARE' in rows) == (hosted == 'true') \
-                    and ('COMPLETE' in rows) == (expected == 0)
-                app_ready = hosted == 'true' and operation == 'ui' and expected == 0
-                complete = complete and ('APPREADY' in rows) == app_ready
-                if complete and app_ready:
-                    complete = rows.index('APPREADY') > max(rows.index('BUILD'), rows.index('PREPARE'))
-                if not complete:
-                    findings.append('模拟器启动自测：两项完成后初始化 App，失败状态归集后结束')
-    for hosted in ('true', 'false'):
-        for ready_status in (0, 9):
-            harness = f'''set -euo pipefail
-exec 3>&1
-ROOT_DIR=/fixture DERIVED_ROOT="{log_root}" SIMULATOR_DEVICE=device mode=ui GITHUB_ACTIONS={hosted} BIT101_REUSE_UI_HOST=1
-bit101_run_logged() {{ cat >/dev/null; print PREPARE; return {ready_status}; }}
-python3() {{ cat >/dev/null; if [[ "$3" == device ]]; then print -u3 APPREADY; else print -u3 PERMISSIONS; fi; }}
-'''
-            result = subprocess.run(['zsh', '-c', harness + body + '\nbit101_prepare_simulator_test_host\nprint COMPLETE'], capture_output=True, text=True, timeout=10)
-            rows = result.stdout.splitlines()
-            expected = ready_status if hosted == 'true' else 0
-            complete = result.returncode == expected and 'PERMISSIONS' in rows \
-                and ('PREPARE' in rows) == (hosted == 'true') and ('COMPLETE' in rows) == (expected == 0) \
-                and ('APPREADY' in rows) == (hosted == 'true' and expected == 0)
-            if complete and 'APPREADY' in rows:
-                complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('PERMISSIONS'))
-            if not complete: findings.append('共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化')
-    import shutil
-    shutil.rmtree(log_root)
+                expected = ready_status
+                complete = result.returncode == expected and 'PERMISSIONS' in rows \
+                    and 'PREPARE' in rows and ('COMPLETE' in rows) == (expected == 0) \
+                    and ('APPREADY' in rows) == (hosted == 'true' and expected == 0)
+                if complete and 'APPREADY' in rows:
+                    complete = rows.index('APPREADY') > max(rows.index('PREPARE'), rows.index('PERMISSIONS'))
+                if not complete: findings.append('共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化')
+    finally:
+        import shutil
+        shutil.rmtree(log_root)
     return findings
 
 

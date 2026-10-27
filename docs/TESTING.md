@@ -115,7 +115,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并沿固定设备记录复用后续测试与恢复。Duo 布局沿 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转合同验收选中周次、主导航和内容操作区。
 
-`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收成绩与课程并排、空教室和个人页分栏、话题与文章的列表和详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。
+`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收成绩与课程并排、空教室和个人页分栏、话题与文章的列表和详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
 
 `simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
@@ -288,7 +288,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 
 ### 公共缓存与工作流资源
 
-缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引，保留当前产物与测试宿主的配套符号；孤立符号按产物生命周期回收。每次编译完成后自动检查原生 CAS 容量，每代按 2 GiB 设置增长边界，由工具链保留当前代与上游代、回收历史代。并行构建结束时由可取得写锁的入口完成回收。固定报告 `.build/compiler-cache/compilation-cache.json` 在编译与回收完成后重新采样，保存项目、CAS、SDK、模块、索引、构建及诊断占用，构建分类涵盖网络与 iCloud 专项产物。`cache info` 提供当前分项查询，`cache` 执行引用分析与完整维护。完整静态审计同时更新空间采样。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
+缓存维护保留增量编译所需文件，共享 SDK、模块、原生 CompilationCache 和索引，保留当前产物与测试宿主的配套符号；孤立符号按产物生命周期回收。每次编译完成后自动检查原生 CAS 容量，每代按 2 GiB 设置增长边界，由工具链保留当前代与上游代、回收历史代。并行构建结束时由可取得写锁的入口完成回收。固定报告 `.build/compiler-cache/compilation-cache.json` 在编译与回收完成后重新采样，在 `space` 字段保存项目、CAS、SDK、模块、索引、构建及诊断占用；根层的 `identity`、`flavor` 记录 CI 传输身份，构建分类涵盖网络与 iCloud 专项产物。`cache info` 提供当前分项查询，`cache` 执行引用分析与完整维护。完整静态审计同时更新空间采样。远端缓存按来源提交与工具链选择，恢复失败后沿当前源码编译。缓存与诊断保持原始形式，CI 产物使用零压缩传输。
 
 构建与静态条件求值共享编译缓存的读锁；已有缓存布局沿共享锁直接进入构建，目录初始化、迁移和回收持有写锁。中断工作流时先归集当前用户的子进程所属的进程组，完成后台任务清理后释放工作流锁。
 
