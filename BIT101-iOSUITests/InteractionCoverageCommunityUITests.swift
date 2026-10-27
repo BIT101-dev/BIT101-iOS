@@ -359,7 +359,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         let refresh = app.descendants(matching: .any)["schedule.refresh-status"].buttons["app.refresh-status.action"]
         refresh.tapBriefly()
         assertUI(app.navigationBars["短信验证"].appears(timeout: 5), "课表刷新应呈现学校验证码。")
-        assertUI(app.buttons["验证并同步课表"].exists, "课表刷新应由课程同步面板继续。")
+        assertUI(app.buttons["验证并继续"].exists, "短信验证应继续所属学校请求。")
         tap("取消")
         refresh.tapBriefly()
         let field = app.textFields["verification.code"]

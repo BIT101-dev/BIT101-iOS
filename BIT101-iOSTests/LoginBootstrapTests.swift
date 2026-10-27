@@ -35,7 +35,6 @@ struct LoginBootstrapTests {
         }
 
         let savedStudentID: String
-        let savedPassword = "saved-password"
         let hasCachedSession: Bool
         let checkResult: CheckResult
         private(set) var checkLoginCalls = 0

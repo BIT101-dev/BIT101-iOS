@@ -29,6 +29,7 @@ extension EnvironmentValues {
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
+    @Environment(\.appPageIsVisible) private var isPageVisible
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
@@ -39,6 +40,9 @@ public struct ScheduleRootView: View {
         guard let showingClassrooms else { return viewModel.selectedSection }
         if showingClassrooms { return .classroom }
         return viewModel.selectedSection == .ddl ? .ddl : .courses
+    }
+    private var isCurrentSectionVisible: Bool {
+        isPageVisible && displayedSection == viewModel.selectedSection
     }
     @ObservedObject private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
@@ -114,8 +118,8 @@ public struct ScheduleRootView: View {
         .task {
             await viewModel.loadIfNeeded()
         }
-        .task(id: displayedSection == .classroom && viewModel.selectedSection == .classroom && !viewModel.isLoadingCache) {
-            guard displayedSection == .classroom, viewModel.selectedSection == .classroom, !viewModel.isLoadingCache else { return }
+        .task(id: isCurrentSectionVisible && displayedSection == .classroom && !viewModel.isLoadingCache) {
+            guard isCurrentSectionVisible, displayedSection == .classroom, !viewModel.isLoadingCache else { return }
             // 每个自然日首次进入更新学校数据，其余进入复用当天缓存。
             viewModel.classroom.startClassroomPageRefresh()
         }
@@ -127,9 +131,9 @@ public struct ScheduleRootView: View {
         }
         .sheet(
             item: Binding(
-                get: { showingClassrooms == true ? nil : viewModel.smsChallenge },
+                get: { isCurrentSectionVisible ? viewModel.smsChallenge : nil },
                 set: { challenge in
-                    if showingClassrooms != true, challenge == nil {
+                    if isCurrentSectionVisible, challenge == nil {
                         viewModel.dismissSMSChallenge()
                     }
                 }
@@ -139,14 +143,14 @@ public struct ScheduleRootView: View {
                 maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingSMSCode,
                 errorMessage: viewModel.smsVerificationError,
-                submitTitle: "验证并同步课表",
+                submitTitle: "验证并继续",
                 onCancel: viewModel.dismissSMSChallenge,
                 onSubmit: { code in
                     await viewModel.submitSMSCode(code)
                 }
             )
         }
-        .scheduleSchoolVerification(viewModel: viewModel.ddl, isEnabled: showingClassrooms != true)
+        .scheduleSchoolVerification(viewModel: viewModel.ddl, isEnabled: isCurrentSectionVisible && displayedSection != .classroom)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if viewModel.hasPersistenceConflict {
                 SchedulePersistenceConflictView(repository: viewModel.repository)

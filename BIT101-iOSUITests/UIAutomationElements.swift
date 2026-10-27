@@ -466,8 +466,7 @@ final class UIElement: NSObject {
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
-        let primary = descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@",
-            "app.tab.", primaryTitle)).firstMatch
+        let primary = buttons.matching(NSPredicate(format: "label == %@", primaryTitle)).firstMatch
         return primary.isHittable ? primary : segmentedControls.buttons[title]
     }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }

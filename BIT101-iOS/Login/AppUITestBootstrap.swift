@@ -690,6 +690,7 @@ extension UITestHTTPTransport {
 /// 学校交互场景使用课程、考试和空教室端口的固定响应。
 final class UITestSchoolService: ScheduleServicing {
     private var authenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_SMS"] != "1"
+    private var classroomAuthenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_CLASSROOM_SMS"] != "1"
     private let challenge = BITLoginAuthenticationChallenge(challengeID: "ui-school-sms", accessToken: "ui-school-token",
         status: "sms_required", maskedPhone: "138****0000", expiresIn: 600)
     static var payload: CourseSyncPayload { payload(term: "ui-test-term") }
@@ -749,16 +750,23 @@ final class UITestSchoolService: ScheduleServicing {
     }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
         try requireSchoolAvailability()
+        guard classroomAuthenticated else { throw ScheduleServiceError.secondFactorRequired(challenge) }
+        return Self.buildings(campusCode: campusCode)
+    }
+    static func buildings(campusCode: String?) -> [BuildingRecord] {
         return [BuildingRecord(id: "A", name: "文萃楼A", buildingCode: "A", campusName: "良乡校区", campusCode: campusCode ?? "1"),
          BuildingRecord(id: "B", name: "文萃楼B", buildingCode: "B", campusName: "良乡校区", campusCode: campusCode ?? "1")]
     }
     func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
         try requireSchoolAvailability()
-        return [ClassroomRecord(id: buildingID + "101", name: buildingID + "101", busyTimeCodes: [])]
+        guard classroomAuthenticated else { throw ScheduleServiceError.secondFactorRequired(challenge) }
+        let prefix = AppUITestBootstrap.environment["BIT101_UI_TEST_CLASSROOM_SMS"] == "1" ? "已验证" : ""
+        return [ClassroomRecord(id: buildingID + "101", name: prefix + buildingID + "101", busyTimeCodes: [])]
     }
     private func verify(_ code: String) throws {
         guard code == "123456" else { throw ScheduleServiceError.schoolSMSCodeInvalid("测试学校验证码错误。") }
         authenticated = true
+        classroomAuthenticated = true
     }
 }
 

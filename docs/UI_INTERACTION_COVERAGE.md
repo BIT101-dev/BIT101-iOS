@@ -44,6 +44,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击 |
 | `ScheduleLayoutUITests/testScheduleKeepsWeekAndControlsAcrossWindowRotation` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
 | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards` | 当前窗口的资料 / 成绩 / 空教室分栏、话题 / 文章列表与详情分栏、课表与单列 DDL 并排、地图图层切换、编辑草稿与键盘收起、辅助功能字号单列 |
+| `LandscapeLayoutUITests/testClassroomSMSUsesTheCurrentNativeDestination` | 空教室入口触发短信验证、当前页面承载验证、验证后续接查询与分区保持 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayAndTransferConfirmationCancellation` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |
 | `ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations` | 放假确认、调休日期控件、调休确认、原日期和目标日期课程变更 |
 | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边界对齐 |
@@ -351,7 +352,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearScheduleHeader` | `{"Button":1}` | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollContainer` | `{"UIScrollView":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
 | `Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift:LinearTimelineScrollView` | `{"UIPinchGestureRecognizer":1}` | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` |
-| `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView` | `{"AppSMSVerificationSheet":1,"AppSegmentedPicker":1,"DragGesture":1,"simultaneousGesture":1}` | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards,LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
+| `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView` | `{"AppSMSVerificationSheet":1,"AppSegmentedPicker":1,"DragGesture":1,"simultaneousGesture":1}` | `LandscapeLayoutUITests/testClassroomSMSUsesTheCurrentNativeDestination,LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards,LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:SchedulePersistenceConflictView` | `{"Button":2}` | `ScheduleConflictUITests/testKeepLocalConflictContentPersists,ScheduleConflictUITests/testUseSyncedConflictContentPersists` |
 | `Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleCacheRecoveryView` | `{"Button":5}` | `ScheduleConflictUITests/testDDLSettingsResumeAfterCacheRecoveryConfirmation,ScheduleConflictUITests/testDamagedRootRebuildRequiresConfirmationAndRestoresEditing,ScheduleConflictUITests/testRecoveredScheduleRequiresConfirmationAndPersistsSubsequentEdits` |
 | `Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification` | `{"AppSchoolSMSVerificationSheet":1}` | `ServiceInteractionUITests/testSchoolSSODDLVerificationCancelAndContinuation` |

@@ -33,11 +33,6 @@ struct LoginService {
         storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 当前本地保存的密码。
-    var savedPassword: String {
-        storage.currentPassword
-    }
-
     /// 表示本地会话是否足以支撑“乐观进入主界面”。
     ///
     /// 该属性读取本地会话状态；远端有效性由后台异步校验。

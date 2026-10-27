@@ -116,6 +116,17 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
 nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var navigationWidth: CGFloat?
     @MainActor
+    @objc func testClassroomSMSUsesTheCurrentNativeDestination() {
+        app = configureApp(resetStorage: true, animations: true, school: true, classroomSMS: true)
+        tapHeader(app.sectionTab("空教室"))
+        assertUI(app.navigationBars["短信验证"].appears(timeout: 5), "空教室认证应由当前可见页面呈现。")
+        assertUI(app.buttons["验证并继续"].exists, "短信验证应继续所属学校请求。")
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
+        assertUI(app.navigationBars["短信验证"].disappears(timeout: 10), "验证完成应关闭短信面板。")
+        assertUI(textElement("已验证A101").appears(timeout: 10), "验证完成应重新查询空教室。")
+        assertUI(app.sectionTab("空教室").isSelected, "空教室查询应保留当前分区。")
+    }
+    @MainActor
     @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
         app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true, pagination: true, initialTab: "mine")
         let traits = windowTraits()
@@ -267,7 +278,9 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         if navigation.allSatisfy({ $0.exists }) {
             let frame = navigation.reduce(CGRect.null) { $0.union($1.frame) }
             assertUI(app.native.windows.firstMatch.frame.contains(frame), "原生导航应位于窗口内。")
-            assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "主导航应位于窗口中央。")
+            if frame.width > frame.height {
+                assertUI(abs(frame.midX - app.native.windows.firstMatch.frame.midX) <= 1, "横向主导航应位于窗口中央。")
+            }
             if let navigationWidth { assertUI(abs(frame.width - navigationWidth) <= 1, "页面切换应保持主导航宽度。") }
             else { navigationWidth = frame.width }
             for cell in app.native.cells.containing(.button, identifier: "app.refresh-status.action").allElementsBoundByIndex {

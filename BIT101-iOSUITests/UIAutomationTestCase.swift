@@ -760,6 +760,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         imageImportHold: Bool = false,
         update: String? = nil,
         schoolSMS: Bool = false,
+        classroomSMS: Bool = false,
         scheduleConflict: Bool = false,
         scheduleRecovery: Bool = false,
         scheduleRootDamage: Bool = false,
@@ -852,6 +853,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] = imageImportHold ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_CLASSROOM_SMS"] = classroomSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = resetStorage ? "1" : "0"
         if let ddlFixture { application.launchEnvironment["BIT101_UI_TEST_DDL_FIXTURE"] = ddlFixture }

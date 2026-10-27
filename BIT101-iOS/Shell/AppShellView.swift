@@ -160,6 +160,12 @@ private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
         default: tab.systemImage
         }
     }
+    var accessibilityIdentifier: String {
+        switch self {
+        case .classroom, .papers: "app.tab.\(rawValue)"
+        default: "app.tab.\(tab.rawValue)"
+        }
+    }
 }
 
 /// 登录后的应用壳层。
@@ -281,11 +287,12 @@ struct AppShellView: View {
             ForEach(AppDestination.allCases) { destination in
                 Tab(value: destination) {
                     destinationContent(destination)
+                        .environment(\.appPageIsVisible, destination == destinationSelection.wrappedValue)
                 } label: {
                     Label(usesExpandedNavigation ? destination.title : destination.tab.title,
                         systemImage: destination.systemImage)
                 }
-                .accessibilityIdentifier("app.tab.\(destination.tab.rawValue)")
+                .accessibilityIdentifier(destination.accessibilityIdentifier)
                 .hidden(isHidden(destination))
             }
         }
@@ -299,6 +306,7 @@ struct AppShellView: View {
                     if tab == .gallery { tabContent(tab) }
                     else { NavigationStack { tabContent(tab) } }
                 }
+                .environment(\.appPageIsVisible, tab == selectedTab)
                 .tag(tab)
                 .tabItem {
                     Label(tab.title, systemImage: tab.systemImage)

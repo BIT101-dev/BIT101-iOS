@@ -12,7 +12,6 @@ struct ExtendedLoginTests {
         let changes = PassthroughSubject<Void, Never>()
         var sessionChanges: AnyPublisher<Void, Never> { changes.eraseToAnyPublisher() }
         var savedStudentID: String
-        let savedPassword: String
         var hasCachedSession: Bool
         let bootstrapError: Error?
         let checkLoginResult: String?
@@ -23,13 +22,11 @@ struct ExtendedLoginTests {
 
         init(
             studentID: String = "1120260001",
-            password: String = "saved",
             hasCachedSession: Bool = false,
             bootstrapError: Error? = nil,
             checkLoginResult: String? = nil
         ) {
             savedStudentID = studentID
-            savedPassword = password
             self.hasCachedSession = hasCachedSession
             self.bootstrapError = bootstrapError
             self.checkLoginResult = checkLoginResult
@@ -151,7 +148,7 @@ struct ExtendedLoginTests {
     @Test("Logout keeps the saved student identifier but clears the session")
     @MainActor
     func logoutKeepsStudentID() {
-        let service = ServiceStub(password: "")
+        let service = ServiceStub()
         let viewModel = LoginViewModel(service: service)
         viewModel.logout()
 

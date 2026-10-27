@@ -600,8 +600,6 @@ final class ErrorReportViewModel: ObservableObject {
         }
     }
 
-    private static var networkStatus: String { NetworkConnectionDescription.shared.current }
-
     private static var deviceModel: String {
         var info = utsname(); uname(&info)
         return withUnsafePointer(to: &info.machine) {

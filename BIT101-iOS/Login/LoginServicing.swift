@@ -76,7 +76,7 @@ struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
                 let payload = UITestSchoolService.payload
                 cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: firstDayString,
                     courses: payload.courses, exams: payload.exams ?? [], updatedAt: .distantPast))
-                cache.cachedClassroomBuildingsByCampusCode["1"] = try await UITestSchoolService().fetchBuildings(campusCode: "1")
+                cache.cachedClassroomBuildingsByCampusCode["1"] = UITestSchoolService.buildings(campusCode: "1")
             }
             if let count = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_COURSES"].flatMap(Int.init),
                let weeks = AppUITestBootstrap.environment["BIT101_UI_TEST_PERFORMANCE_WEEKS"].flatMap(Int.init) {
