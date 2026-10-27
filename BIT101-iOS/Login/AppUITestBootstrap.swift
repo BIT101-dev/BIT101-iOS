@@ -458,11 +458,12 @@ final class UITestHTTPTransport: HTTPTransport {
                 else { comments.append(comment) }
                 payload = comment
             } else {
-                payload = page == "0" ? ([makeComment(id: 1, text: "自动化测试评论")] + comments)
+                let object = query.first { $0.name == "obj" }?.value ?? "poster1"
+                payload = page == "0" ? ([makeComment(id: 1, text: "自动化测试评论")] + comments.filter { $0["obj"] as? String == object })
                     .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) }
                     .map { value in
                         var value = value
-                        value["obj"] = query.first { $0.name == "obj" }?.value ?? "poster1"
+                        value["obj"] = object
                         return value
                     } : []
             }

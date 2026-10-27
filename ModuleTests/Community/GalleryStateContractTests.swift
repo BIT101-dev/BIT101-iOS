@@ -14,7 +14,7 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
-    @Test func satisfiedEventsCompleteAtTheWaitingBoundary() async throws {
+    @Test(.timeLimit(.minutes(1))) func satisfiedEventsCompleteAtTheWaitingBoundary() async throws {
         try await waitForTestEvent(timeout: .zero) { true }
     }
     @Test func resourceMetricsKeepConfirmedWritesAcrossOlderReadsAndAccountChanges() {
@@ -84,14 +84,25 @@ struct GalleryStateContractTests {
         _ = try await papers.createComment(objectID: "paper1", text: "新评论", replyObjectID: nil, replyUID: nil, anonymous: false)
         #expect(paperModel.needsRefresh)
         transport.responseForRequest = { request in
-            guard request.url?.path == "/papers/1" else { throw URLError(.unsupportedURL) }
-            return (200, String(paper.dropLast()).replacingOccurrences(of: #""comment_num":1"#, with: #""comment_num":5"#)
+            switch request.url?.path {
+            case "/reaction/comments": return (200, comment.replacingOccurrences(of: "OBJECT", with: "course1"))
+            case "/courses/1":
+                return (200, String(course.dropLast()).replacingOccurrences(of: #""rate":8"#, with: #""rate":9.5"#)
+                    .replacingOccurrences(of: #""comment_num":1"#, with: #""comment_num":6"#)
+                    .replacingOccurrences(of: #""like_num":1"#, with: #""like_num":9"#) + #", "like":true}"#)
+            case "/papers/1": return (200, String(paper.dropLast()).replacingOccurrences(of: #""comment_num":1"#, with: #""comment_num":5"#)
                 .replacingOccurrences(of: #""like_num":1"#, with: #""like_num":9"#)
                 + #", "content":"正文","create_time":"","update_user":\#(user),"anonymous":false,"public_edit":true,"like":true,"own":true}"#)
+            default: throw URLError(.unsupportedURL)
+            }
         }
         _ = try await papers.fetchPaper(id: 1)
         #expect(paperModel.state.items.first?.commentNum == 5 && paperModel.state.items.first?.likeNum == 9 && paperModel.state.items.map(\.id) == [1])
         #expect(transport.requests.count == 9)
+        _ = try await courses.createComment(objectID: "course1", text: "新评价", replyObjectID: nil, replyUID: nil, anonymous: false, rate: 8)
+        _ = try await courses.fetchCourse(id: 1)
+        #expect(courseModel.state.items.first?.rate == 9.5 && courseModel.state.items.first?.commentNum == 6)
+        #expect(transport.requests.count == 11)
     }
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func commentRecoveryKeepsTheReadPositionAndClearsItsFailure(pagination: Bool) async {
