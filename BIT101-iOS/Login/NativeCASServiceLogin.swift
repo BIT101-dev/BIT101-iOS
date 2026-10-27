@@ -11,14 +11,8 @@ struct SchoolCASLoginPage {
 
 extension BIT101APIClient {
     /// 部分 CAS service 要求重新提交学校密码，并携带本次页面的风控令牌。
-    func submitSchoolServiceLogin(url: URL, html: String, storage: LoginStorage, cookieStorage: HTTPCookieStorage? = nil) async throws -> URL {
-        try await submitSchoolServiceLogin(url: url, html: html, credentials: storage,
-            cookieStorage: cookieStorage ?? AppSchoolSession.teachingCenter.cookieStorage,
-            updateCredentials: { try await storage.updateSchoolCredentials() })
-    }
-
     func submitSchoolServiceLogin(url: URL, html: String, credentials: any SchoolCredentialsProviding,
-        cookieStorage cookies: HTTPCookieStorage,
+        cookieStorage: () -> HTTPCookieStorage,
         updateCredentials: () async throws -> Void = { throw LoginServiceError.schoolPasswordRejected }) async throws -> URL {
         let owner = credentials.schoolSessionIdentity
         var html = html
@@ -26,7 +20,7 @@ extension BIT101APIClient {
             try Task.checkCancellation()
             guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
             let (data, response) = try await submitSchoolLoginForm(url: url, html: html,
-                credentials: credentials, cookies: cookies)
+                credentials: credentials, cookies: cookieStorage())
             guard let action = response.url else { throw NativeSchoolAuthenticationError.invalidResponse }
             if (300 ..< 400).contains(response.statusCode), let location = response.value(forHTTPHeaderField: "Location"),
                let next = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: action) { return next }
@@ -65,7 +59,7 @@ extension BIT101APIClient {
             let token = try await schoolRiskToken(referer: url, cookies: cookies)
             try Task.checkCancellation()
             guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
-            let group = cookies.cookies?.first { $0.name == "riskSystemGroupId" && $0.domain.hasSuffix("bit.edu.cn") }?.value ?? ""
+            let group = cookies.cookies(for: AppURL.required("https://sso.bit.edu.cn"))?.first { $0.name == "riskSystemGroupId" }?.value ?? ""
             let payload = try JSONSerialization.data(withJSONObject: ["token": token, "groupId": group])
             fields += [("risk_payload", try LoginCrypto.encryptPassword(String(decoding: payload, as: UTF8.self), saltBase64: salt)),
                 ("targetSystem", Self.casField("targetSystem", in: html) ?? "sso"),

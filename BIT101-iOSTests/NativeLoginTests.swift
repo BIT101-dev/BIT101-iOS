@@ -316,7 +316,7 @@ struct NativeLoginTests {
             let html = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p><p id="riskSystemSwitch">USTC</p>"#
             let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
             let next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
-                html: html, storage: storage, cookieStorage: cookies)
+                html: html, credentials: storage, cookieStorage: { cookies })
             #expect(next.host == "webvpn.bit.edu.cn" && prompts() == 0)
             #expect(transport.requests.compactMap { $0.url?.path } == ["/ustc-rba-front/fp", "/cas/login"])
             let post = try #require(transport.requests.last)
@@ -327,6 +327,59 @@ struct NativeLoginTests {
             #expect(fields.first { $0.name == "riskEngine" }?.value == "true")
             #expect(fields.first { $0.name == "risk_payload" }?.value?.isEmpty == false)
             #expect(storage.fakeCookie == "community-cookie" && storage.currentPassword == "school-B")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func correctedCASPasswordUsesTheReplacementCookieContainerAndFlow() async throws {
+        let domain = "BIT101Tests.cas-cookie-replacement"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let transport = Transport(), state = AppSchoolSession.isolatedState()
+        let original = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let replacement = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        func cookie(_ name: String, value: String, domain: String = "sso.bit.edu.cn") throws -> HTTPCookie {
+            try #require(HTTPCookie(properties: [.domain: domain, .path: "/", .name: name, .value: value, .secure: "TRUE"]))
+        }
+        var prompts = 0
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: {
+            state.clearSchoolAuthenticationCookies()
+            state.replaceCookieStorage(with: replacement)
+        }, requestSchoolPassword: { _ in prompts += 1; return "school-B" })
+        try storage.saveLoginState(studentID: "owner", password: "old-B", fakeCookie: "community-cookie")
+        state.replaceCookieStorage(with: original)
+        replacement.setCookie(try cookie("riskSystemGroupId", value: "new-group"))
+        original.setCookie(try cookie("riskSystemGroupId", value: "other-service", domain: "jwms.bit.edu.cn"))
+        original.setCookie(try cookie("riskSystemGroupId", value: "old-group"))
+        original.setCookie(try cookie("device", value: "old-device"))
+        transport.schoolPasswordRejections = 1; transport.schoolRisk = true; transport.serviceTicket = true
+        let client = HTTPClient(transport: transport, observer: nil)
+        let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+        let salt = "MTIzNDU2Nzg5MDEyMzQ1Ng=="
+        let html = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">old-flow</p><p id="riskSystemSwitch">USTC</p>"#
+        let next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
+            html: html, credentials: storage, cookieStorage: { state.cookieStorage },
+            updateCredentials: { try await storage.updateSchoolCredentials() })
+        #expect(next.host == "webvpn.bit.edu.cn" && prompts == 1 && storage.fakeCookie == "community-cookie")
+        let profiles = try transport.requests.filter { $0.url?.path == "/ustc-rba-front/fp" }.map {
+            let body = try #require($0.httpBody)
+            return try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+        }
+        #expect(profiles.map { $0["localgroupId"] } == ["old-group", "new-group"])
+        #expect(profiles.first?["cookieValue"] == "old-device")
+        let device = replacement.cookies(for: AppURL.required("https://sso.bit.edu.cn"))?.first { $0.name == "device" }?.value
+        #expect(device != nil && device != "old-device" && profiles.last?["cookieValue"] == device)
+        let posts = try transport.requests.filter { $0.url?.path == "/cas/login" && $0.httpMethod == "POST" }.map {
+            URLComponents(string: "https://fixture.invalid?" + String(decoding: try #require($0.httpBody), as: UTF8.self))?.queryItems ?? []
+        }
+        #expect(posts.count == 2)
+        for (index, fields) in posts.enumerated() {
+            #expect(fields.first { $0.name == "execution" }?.value == (index == 0 ? "old-flow" : "flow"))
+            #expect(fields.first { $0.name == "password" }?.value == (try LoginCrypto.encryptPassword(index == 0 ? "old-B" : "school-B", saltBase64: salt)))
+            let group = index == 0 ? "old-group" : "new-group"
+            let payloads = [#"{"token":"risk-token","groupId":"\#(group)"}"#, #"{"groupId":"\#(group)","token":"risk-token"}"#]
+            let encrypted = try payloads.map { try LoginCrypto.encryptPassword($0, saltBase64: salt) }
+            #expect(encrypted.contains(fields.first { $0.name == "risk_payload" }?.value ?? ""))
         }
     }
 

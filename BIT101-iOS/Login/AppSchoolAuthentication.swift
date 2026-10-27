@@ -88,7 +88,7 @@ enum AppNativeSchoolAuthentication {
             serviceLogin: { url, html in
                 do {
                     return try await api.submitSchoolServiceLogin(url: url, html: html, credentials: credentials,
-                        cookieStorage: state.cookieStorage, updateCredentials: updateCredentials)
+                        cookieStorage: { state.cookieStorage }, updateCredentials: updateCredentials)
                 } catch LoginServiceError.schoolSMSRequired(let context) {
                     try await secondFactor(context)
                     return url
