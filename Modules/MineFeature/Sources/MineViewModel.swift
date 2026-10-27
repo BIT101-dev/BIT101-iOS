@@ -10,7 +10,7 @@ import Foundation
 private func refreshMinePage<Item: Identifiable>(
     read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
     isCurrent: () -> Bool, fetch: () async throws -> [Item], failureTitle: String,
-    onAlert: (AppAlert) -> Void
+    onAlert: (AppAlert) -> Void, restoringItems: ([Item], [Item]) -> [Item] = { previous, _ in previous }
 ) async {
     let previous = read()
     var loading = previous
@@ -31,6 +31,7 @@ private func refreshMinePage<Item: Identifiable>(
     } catch {
         guard isCurrent() else { return }
         var state = previous
+        state.pagedItems.replace(with: restoringItems(previous.items, read().items))
         state.isLoadingMore = false
         let hadItems = !previous.items.isEmpty || previous.status == .loaded
         if TaskCancellation.matches(error) {
@@ -240,7 +241,8 @@ final class MineViewModel: ObservableObject {
         let generation = posterGeneration
         await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
             isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: 0) },
-            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 })
+            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 },
+            restoringItems: { $0.preservingCommunityMetrics(from: $1) })
     }
 
     /// “我的帖子”列表的分页加载。
@@ -397,7 +399,8 @@ final class UserProfileViewModel: ObservableObject {
         let generation = posterGeneration
         await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
             isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: 0) },
-            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 })
+            failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 },
+            restoringItems: { $0.preservingCommunityMetrics(from: $1) })
     }
 
     /// 指定用户帖子列表分页加载。

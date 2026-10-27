@@ -22,6 +22,20 @@ public nonisolated protocol CommunityResourceItem: Identifiable, Equatable {
 
 extension CommunityResourceItem {
     public nonisolated var communityRate: Double? { nil }
+    public nonisolated var communityMetrics: CommunityResourceMetrics {
+        .init(objectID: communityObjectID, likeNum: likeNum, commentNum: commentNum, rate: communityRate)
+    }
+}
+
+extension Array where Element: CommunityResourceItem {
+    public func preservingCommunityMetrics(from current: Self) -> Self {
+        var metrics: [String: CommunityResourceMetrics] = [:]
+        for item in current { metrics[item.communityObjectID] = item.communityMetrics }
+        return map { item in
+            guard let value = metrics[item.communityObjectID] else { return item }
+            return item.updatingCommunityMetrics(value)
+        }
+    }
 }
 
 public protocol CommunityResourceObserving {
@@ -75,8 +89,7 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
 
     public func resolve<Item: CommunityResourceItem>(_ item: Item, since started: UInt64) -> Item {
         selectOwner()
-        var metrics = CommunityResourceMetrics(objectID: item.communityObjectID,
-            likeNum: item.likeNum, commentNum: item.commentNum, rate: item.communityRate)
+        var metrics = item.communityMetrics
         if var pending = confirmed[item.communityObjectID] {
             Self.merge(&metrics.likeNum, confirmed: &pending.metrics.likeNum, revision: &pending.likeRevision, since: started)
             Self.merge(&metrics.commentNum, confirmed: &pending.metrics.commentNum, revision: &pending.commentRevision, since: started)

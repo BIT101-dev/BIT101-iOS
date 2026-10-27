@@ -70,7 +70,9 @@ class PaperCollectionViewModel: ObservableObject {
         previewRevalidationIDs.formUnion(previewLoadingIDs)
         previewLoadingIDs.removeAll()
         if let refreshPreviousState {
+            let items = refreshPreviousState.state.items.preservingCommunityMetrics(from: state.items)
             state = refreshPreviousState.state
+            state.items = items
             previewMetadataByPaperID = refreshPreviousState.metadata
             previewFailedIDs = refreshPreviousState.failures
         }
@@ -152,6 +154,7 @@ class PaperCollectionViewModel: ObservableObject {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
                 var restoredState = previousState
+                restoredState.items = restoredState.items.preservingCommunityMetrics(from: state.items)
                 restoredState.isLoadingMore = false
                 if !restoredState.items.isEmpty {
                     restoredState.status = .loaded
@@ -164,7 +167,9 @@ class PaperCollectionViewModel: ObservableObject {
                 return
             }
             needsRefresh = true
+            let items = previousState.items.preservingCommunityMetrics(from: state.items)
             state = previousState
+            state.items = items
             previewMetadataByPaperID = previousMetadata
             previewFailedIDs = previousFailures
             state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded

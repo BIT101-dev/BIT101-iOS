@@ -91,7 +91,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
         case .schoolTransportFailure:
             return schoolTransportFailureMessage
         case .schoolSecondFactorRequired:
-            return "学校统一身份认证要求短信二次验证。"
+            return "学校仍要求短信验证，请在 App 中重试当前操作，并完成弹出的学校验证。"
         case let .schoolSMSCodeInvalid(message):
             return message
         case let .schoolSMSUnavailable(message):

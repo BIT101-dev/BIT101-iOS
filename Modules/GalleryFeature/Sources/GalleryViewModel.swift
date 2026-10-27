@@ -170,8 +170,9 @@ final class GalleryViewModel: ObservableObject {
         interactionTaskTokens.removeAll()
         recommendPrefetch.reset()
         for feed in GalleryFeedKind.allCases {
-            if let previousState = refreshPreviousStates[feed] {
-                feedStates[feed] = previousState
+            if var previous = refreshPreviousStates[feed] {
+                previous.posters = previous.posters.preservingCommunityMetrics(from: state(for: feed).posters)
+                feedStates[feed] = previous
             }
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
             setState(for: feed) {
@@ -388,7 +389,7 @@ final class GalleryViewModel: ObservableObject {
             guard refreshGenerations[feed] == generation else { return }
             let cancelled = TaskCancellation.matches(error)
             setState(for: feed) {
-                $0.posters = previousState.posters
+                $0.posters = previousState.posters.preservingCommunityMetrics(from: $0.posters)
                 $0.needsRefresh = cancelled ? previousState.needsRefresh : true
                 $0.paginationError = previousState.paginationError
                 $0.status = cancelled ? (previousState.status == .loading ? (previousState.posters.isEmpty ? .idle : .loaded) : previousState.status)
@@ -500,15 +501,17 @@ final class GalleryViewModel: ObservableObject {
             searchState.needsRefresh = false
         } catch {
             guard searchGeneration == generation else { return }
+            var restored = previousState
+            restored.posters = restored.posters.preservingCommunityMetrics(from: searchState.posters)
             if TaskCancellation.matches(error) {
-                searchState = previousState
+                searchState = restored
                 if previousState.status == .loading {
                     searchState.status = previousState.posters.isEmpty ? .idle : .loaded
                     searchState.isLoadingMore = false
                 }
                 return
             }
-            searchState = previousState
+            searchState = restored
             searchState.needsRefresh = true
             searchState.status = previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded
             searchState.isLoadingMore = false

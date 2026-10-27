@@ -53,7 +53,10 @@ public final class CourseListViewModel: ObservableObject {
     func cancelRefreshOperations() {
         refreshTask?.cancel(); refreshTask = nil
         refreshGeneration &+= 1
-        if let refreshPreviousState { state = refreshPreviousState }
+        if var previous = refreshPreviousState {
+            previous.items = previous.items.preservingCommunityMetrics(from: state.items)
+            state = previous
+        }
         refreshPreviousState = nil
         if state.status == .loading { state.status = state.items.isEmpty ? .idle : .loaded }
         state.isLoadingMore = false
@@ -156,6 +159,7 @@ public final class CourseListViewModel: ObservableObject {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
                 var restoredState = previousState
+                restoredState.items = restoredState.items.preservingCommunityMetrics(from: state.items)
                 restoredState.isLoadingMore = false
                 if !restoredState.items.isEmpty {
                     restoredState.status = .loaded

@@ -398,7 +398,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     func testSecondFactorNoticeDoesNotOfferErrorReporting() {
         let notice = ScheduleNotice.userInput(
             title: "需要短信验证",
-            message: "学校要求短信二次验证，请先在学校登录页面完成验证后再重试。"
+            message: ScheduleServiceError.schoolSecondFactorRequired.localizedDescription
         )
 
         XCTAssertFalse(notice.allowsDiagnostics)

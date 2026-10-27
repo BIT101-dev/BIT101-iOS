@@ -14,6 +14,100 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["course", "paper", "gallery", "search", "mine", "profile"], ["error", "cancel", "exit"])
+    func restoredListsKeepMetricsReceivedDuringRefresh(kind: String, ending: String) async throws {
+        let user = #"{"id":7,"create_time":"","nickname":"作者","avatar":{"mid":"","url":"","low_url":""},"motto":"","identity":{"id":0,"color":"","text":"","create_time":"","update_time":""}}"#
+        let poster = #"{"id":1,"anonymous":false,"claim":{"id":0,"text":""},"comment_num":1,"create_time":"","edit_time":"","images":[],"like_num":1,"public":true,"tags":[],"text":"正文","title":"帖子","update_time":"","user":\#(user)}"#
+        let course = #"{"id":1,"name":"课程","number":"CS1","credit":3,"like_num":1,"comment_num":1,"rate":8,"teachers_name":"教师","teachers_number":"T1"}"#
+        let paper = #"{"id":1,"title":"文章","intro":"摘要","like_num":1,"comment_num":1,"update_time":""}"#
+        let transport = PausedMetricsTransport()
+        let base = transport.base
+        base.responseForRequest = { request in
+            let object: String
+            switch request.url?.path {
+            case "/courses": object = course
+            case "/papers": object = paper
+            case "/posters": object = poster
+            default: throw URLError(.unsupportedURL)
+            }
+            return (200, "[" + object + "," + object.replacingOccurrences(of: #""id":1,"#, with: #""id":2,"#) + "]")
+        }
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: {
+                .init(identity: .init(accountIdentifier: "metrics-restore"), cookie: "fixture")
+            }, refresh: { _ in })
+        let updates = CommunityResourceUpdates(currentOwner: { session.currentCredentials.identity })
+        let preferences = { CommunityPreferenceSnapshot(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }
+        let refresh: () async -> Void, snapshot: () -> [CommunityResourceMetrics], page: () -> Int
+        let publish: () throws -> Void, exit: () -> Void
+        func publishCurrent<Item: CommunityResourceItem>(_ items: [Item]) throws {
+            let item = try #require(items.first)
+            _ = updates.resolve(item.updatingCommunityMetrics(.init(objectID: item.communityObjectID,
+                likeNum: 9, commentNum: 4, rate: 9.5)), since: updates.beginRead())
+        }
+        switch kind {
+        case "course":
+            let model = CourseListViewModel(service: CourseService(session: session, resourceUpdates: updates))
+            refresh = { await model.refresh() }; snapshot = { model.state.items.map(\.communityMetrics) }; page = { model.state.nextPage }
+            publish = { try publishCurrent(model.state.items) }; exit = { model.cancelRefreshOperations() }
+        case "paper":
+            let model = PaperListViewModel(service: PaperService(session: session, resourceUpdates: updates))
+            refresh = { await model.refresh() }; snapshot = { model.state.items.map(\.communityMetrics) }; page = { model.state.nextPage }
+            publish = { try publishCurrent(model.state.items) }; exit = { model.cancelRefreshOperations() }
+        case "gallery", "search":
+            let model = GalleryViewModel(service: GalleryService(session: session, preferences: preferences, resourceUpdates: updates))
+            if kind == "search" {
+                model.searchQuery.text = "内容"
+                refresh = { await model.performSearch() }; snapshot = { model.searchState.posters.map(\.communityMetrics) }; page = { model.searchState.nextPage }
+                publish = { try publishCurrent(model.searchState.posters) }
+            } else {
+                refresh = { await model.refresh(feed: .newest) }; snapshot = { model.state(for: .newest).posters.map(\.communityMetrics) }; page = { model.state(for: .newest).nextPage }
+                publish = { try publishCurrent(model.state(for: .newest).posters) }
+            }
+            exit = { model.cancelPendingOperations() }
+        case "mine":
+            let model = MineViewModel(service: MineService(session: session, preferences: preferences, resourceUpdates: updates))
+            refresh = { await model.refreshPosters() }; snapshot = { model.posterState.items.map(\.communityMetrics) }; page = { model.posterState.nextPage }
+            publish = { try publishCurrent(model.posterState.items) }; exit = {}
+        default:
+            let model = UserProfileViewModel(userID: 7, service: MineService(session: session, preferences: preferences, resourceUpdates: updates))
+            refresh = { await model.refreshPosters() }; snapshot = { model.posterState.items.map(\.communityMetrics) }; page = { model.posterState.nextPage }
+            publish = { try publishCurrent(model.posterState.items) }; exit = {}
+        }
+        await refresh()
+        let identities = snapshot().map(\.objectID), nextPage = page()
+        #expect(identities.count == 2)
+        let (events, entered) = AsyncStream<Void>.makeStream()
+        var pending: CheckedContinuation<Void, any Error>?
+        transport.beforeRequest = { try await withCheckedThrowingContinuation { pending = $0; entered.yield(()) } }
+        let request = Task { await refresh() }
+        defer { request.cancel(); pending?.resume(throwing: CancellationError()); entered.finish() }
+        var starts = events.makeAsyncIterator()
+        _ = await starts.next()
+        try publish()
+        #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 4)
+        if ending != "error" {
+            if ending == "exit" { exit() }
+            request.cancel()
+        }
+        let held = try #require(pending); pending = nil
+        held.resume(throwing: ending == "error" ? URLError(.networkConnectionLost) : CancellationError())
+        await request.value
+        #expect(snapshot().map(\.objectID) == identities && page() == nextPage)
+        #expect(snapshot().first?.likeNum == 9 && snapshot().first?.commentNum == 4)
+        if kind == "course" { #expect(snapshot().first?.rate == 9.5) }
+    }
+
+    private final class PausedMetricsTransport: HTTPTransport {
+        let base = ServiceContractTests.Transport([])
+        var beforeRequest: (() async throws -> Void)?
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) { try await data(for: request, maximumBytes: nil) }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            try await beforeRequest?()
+            return try await base.data(for: request, maximumBytes: maximumBytes)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1))) func imageOnlyCommentsKeepTheirUploadedAttachments() async {
         let service = SubscriptionDetails(), user = CommunityUser.placeholder(id: 7, nickname: "用户")
         let image = CommunityImage(mid: "photo", url: "https://example.invalid/photo.jpg", lowUrl: "")
