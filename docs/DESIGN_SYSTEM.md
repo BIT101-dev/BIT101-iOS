@@ -43,7 +43,7 @@
 
 - 间距：`none = 0`、`micro = 2`、`tiny = 4`、`regular = 8`、`content = 12`、`section = 16`。
 - 圆角：`small = 8`、`card = 12`、`grouped = 16`。
-- 透明度：`subtle`、`surface`、`softOverlay`、`overlay`、`controlOverlay`、`emphasis` 六档；`full` 表示完全不透明。
+- 透明度：`selection = 0.06` 用于选中行底色；`subtle`、`surface`、`softOverlay`、`overlay`、`controlOverlay`、`emphasis` 表达其他层级；`full` 表示完全不透明。
 - 基础字号：`title / body / subheadline / footnote / caption` 五档，全部使用系统动态字体。
 - 常规头像：40；资料头像：80。评论共享常规头像尺寸。
 - 浮动按钮视觉尺寸与触控区域统一为 44；徽标偏移直接复用基础间距。
@@ -99,4 +99,4 @@ UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树�
 
 主 Tab UI 用例在辅助功能大字号及浅色、深色外观下验证可见区域、触达性、名称和窗口边界，失败时保存元素树与截图。设备截图覆盖 `.build/screenshot.png`；较长静态结果覆盖 `.build/ui-consistency-report.txt`。流程见 [构建与测试](TESTING.md)。
 
-横屏日程将课表与单列 DDL 并排呈现。话题、文章、成绩和课程共用 `AppBrowserLayout`，由系统 `NavigationSplitView` 承载左侧列表与右侧详情；操作按钮沿列表底部预留区排列。侧栏宽度统一为窗口安全区域高度的 9/16，`AppBrowserLayout` 与 `AppSidebarLayout` 共用同一计算结果，切换页面保持列宽。主导航由系统 `TabView` 承载；iOS 18 起，宽幅窗口展开日程 / DDL、空教室、地图、话题、文章、成绩、课程、我的八个入口，窄窗口沿当前子页归入五个主入口，页面身份保持稳定。主导航周围沿公共分组背景呈现，刷新信息位于各自模块的分组列表内，沿公共刷新行高度布局。课表网格沿分栏可用高度延伸至标准底部间距。横竖屏共用所属业务主题色；窗口切换保留编辑草稿、详情和阅读位置。
+横屏日程将课表与单列 DDL 并排呈现。话题、文章、成绩和课程共用 `AppBrowserLayout`，由系统 `NavigationSplitView` 承载左侧列表与右侧详情；话题和文章的操作按钮竖向悬浮于所属列表右下角，列表延伸至底部。横屏侧栏宽度统一为窗口安全区域高度的 9/16，`AppBrowserLayout` 与 `AppSidebarLayout` 共用同一计算结果，切换页面保持列宽；竖屏浏览列表与详情使用完整可用宽度，横屏详情转回竖屏时回到列表。选中态沿内容下方的浅色主题底呈现。主导航由系统 `TabView` 承载；iOS 18 起，宽幅窗口展开日程 / DDL、空教室、地图、话题、文章、成绩、课程、我的八个入口，窄窗口沿当前子页归入五个主入口，页面身份保持稳定。分区栏放在原生导航栏下方，日程与成绩分区直接更新选择。主导航周围沿公共分组背景呈现，刷新信息位于各自模块的分组列表内，沿公共刷新行高度与分组底色布局。课表网格沿分栏可用高度延伸至标准底部间距。横竖屏共用所属业务主题色；页面同时提供当前主题的 tint 与 accentColor。

@@ -40,7 +40,6 @@ struct ScoreRootView: View {
 }
 
 private struct ScoreRootScene: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
     @EnvironmentObject private var scoreViewModel: ScoreViewModel
@@ -77,10 +76,7 @@ private struct ScoreRootScene: View {
     var body: some View {
         pages
         .accessibilityElement(children: .contain)
-        .animation(surfaceAnimation, value: selectedSurface)
-        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation { surfaceTabs }
-        }
+        .appBrowserHeader(isPresented: !expandedNavigation) { surfaceTabs }
         .background(AppDesignSystem.Palette.Background.grouped)
         .task(id: requestedCourse?.id) {
             guard displayedSurface == .course, let requestedCourse else { return }
@@ -120,10 +116,6 @@ private struct ScoreRootScene: View {
         showingCourses.map { $0 ? .course : .score } ?? selectedSurface
     }
 
-    private var surfaceAnimation: Animation? {
-        showingCourses == nil ? AppDesignSystem.Motion.transition(reduceMotion: reduceMotion) : nil
-    }
-
     private var surfaceTabs: some View {
         AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
             ForEach(ScoreSurface.allCases) { surface in Text(surface.title).tag(surface) }
@@ -150,7 +142,7 @@ private struct ScoreRootScene: View {
 
     /// 页面使用受控绑定切换顶部 segmented 分区。
     ///
-    /// 点击和滑动切换都调用同一条分区切换路径并播放动画。
+    /// 点击和滑动切换都调用同一条分区切换路径。
     private var surfaceSelection: Binding<ScoreSurface> {
         Binding(
             get: { selectedSurface },
@@ -172,12 +164,10 @@ private struct ScoreRootScene: View {
         switchSurface(to: allSurfaces[nextIndex])
     }
 
-    /// 该方法切换指定分区并播放渐变动画。
+    /// 该方法切换指定分区。
     private func switchSurface(to surface: ScoreSurface) {
         guard surface != selectedSurface else { return }
 
-        withAnimation(surfaceAnimation) {
-            selectedSurface = surface
-        }
+        selectedSurface = surface
     }
 }

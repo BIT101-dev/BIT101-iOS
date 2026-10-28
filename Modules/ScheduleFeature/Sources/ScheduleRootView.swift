@@ -31,7 +31,6 @@ public struct ScheduleRootView: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
     @Environment(\.appPageIsVisible) private var isPageVisible
     @Environment(\.appWindowLayout) private var layout
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
     let destinations: ScheduleDestinations
@@ -87,22 +86,8 @@ public struct ScheduleRootView: View {
             .accessibilityIdentifier("schedule.section-surface")
         }
         .background(AppDesignSystem.Palette.Background.grouped)
-        // 与成绩、话廊共用同一套 safeAreaInset 结构。列表内容从顶部切换栏之后开始，
-        // 日程分栏保持单层 VStack 间距。
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation {
-                if layout.isLandscape {
-                    AppSegmentedPicker(title: "日程分区",
-                        selection: Binding(get: { viewModel.selectedSection == .classroom },
-                            set: { viewModel.selectedSection = $0 ? .classroom : .courses })) {
-                        Text("课表与 DDL").tag(false); Text("空教室").tag(true)
-                    }
-                    .padding(.horizontal, AppDesignSystem.Spacing.section)
-                    .padding(.vertical, AppDesignSystem.Spacing.regular)
-                } else {
-                    ScheduleSectionTabs(selectedSection: $viewModel.selectedSection, courseTitle: viewModel.activeCourseScheduleTitle)
-                }
-            }
+            if !expandedNavigation { sectionTabs }
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。
@@ -110,7 +95,7 @@ public struct ScheduleRootView: View {
                 .frame(height: displayedSection == .courses
                     ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(expandedNavigation ? .hidden : .visible, for: .navigationBar)
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {
             if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }
@@ -166,6 +151,18 @@ public struct ScheduleRootView: View {
         .environmentObject(viewModel.ddl)
     }
 
+    @ViewBuilder private var sectionTabs: some View {
+        if layout.isLandscape {
+            AppSegmentedPicker(title: "日程分区",
+                selection: Binding(get: { viewModel.selectedSection == .classroom },
+                    set: { viewModel.selectedSection = $0 ? .classroom : .courses })) {
+                Text("课表与 DDL").tag(false); Text("空教室").tag(true)
+            }
+        } else {
+            ScheduleSectionTabs(selectedSection: $viewModel.selectedSection, courseTitle: viewModel.activeCourseScheduleTitle)
+        }
+    }
+
     /// 轻扫切换课表 / DDL / 空教室的手势。
     ///
     /// 课表上方四分之一专用于周次滑动条，剩余区域支持横向轻扫切换分区。
@@ -190,23 +187,19 @@ public struct ScheduleRootView: View {
         let nextIndex = currentIndex + step
         guard allSections.indices.contains(nextIndex) else { return }
 
-        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
-            viewModel.selectedSection = allSections[nextIndex]
-        }
+        viewModel.selectedSection = allSections[nextIndex]
     }
 
     /// 消费来自 App 壳层的深链跳转请求。
     private func consumeRequestedSectionIfNeeded() {
         guard let requestedSection else { return }
 
-        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
-            viewModel.selectedSection = requestedSection
-            if requestedSection == .courses {
+        viewModel.selectedSection = requestedSection
+        if requestedSection == .courses {
                 // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，
                 // 让课表分栏按正常 dismiss 路径收起当前 sheet。
                 courseTabResetSignal &+= 1
                 viewModel.showCurrentPrimarySchedule()
-            }
         }
 
         self.requestedSection = nil

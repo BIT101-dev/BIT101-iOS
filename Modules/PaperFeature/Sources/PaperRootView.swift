@@ -30,7 +30,6 @@ public struct PaperRootView: View {
 }
 
 private struct PaperRootViewScene: View {
-    @Environment(\.appWindowLayout) private var layout
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
@@ -163,7 +162,6 @@ private struct PaperRootViewScene: View {
                         }
                 }
             }
-            .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionContentInset)
             }
             .scrollPosition(id: Binding(get: { currentTopPaperID },
                 set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top)
@@ -177,7 +175,7 @@ private struct PaperRootViewScene: View {
 
 
         }
-        .appBrowserActions(expanded: layout.isLandscape) {
+        .appBrowserActions {
                 AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
                     isShowingComposer = true
                 }

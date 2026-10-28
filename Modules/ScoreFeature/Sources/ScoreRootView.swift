@@ -51,7 +51,7 @@ public struct ScoreListPage: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score.browse")
         } detail: { page in
-            detail(page).appReadableContent(expandsInLandscape: true)
+            detail(page).appReadableContent(fillsAvailableWidth: true)
         }
     }
 
@@ -206,6 +206,7 @@ public struct ScoreListPage: View {
             LabeledContent("加权平均分", value: formatOptionalScore(summary.weightedAverageScore))
             LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
         }
+        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
 
     }
 

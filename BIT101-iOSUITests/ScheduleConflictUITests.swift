@@ -223,7 +223,10 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertDetailWidth()
         capture("话题详情")
         XCUIDevice.shared.orientation = .portrait
-        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "竖屏应保留当前帖子详情。")
+        assertPortraitBrowser(detailTitle: "帖子详情")
+        first.tapBriefly()
+        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "竖屏应支持从列表进入帖子详情。")
+        assertPortraitDetailWidth()
         XCUIDevice.shared.orientation = .landscapeLeft
         assertUI(first.appears(timeout: 5) && app.navigationBars["帖子详情"].exists, "返回横屏应保留阅读位置与详情。")
         tapHeader(app.sectionTab("文章"))
@@ -236,6 +239,12 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5) && paper.exists, "文章详情应在右侧打开并保留左侧列表。")
         assertDetailWidth()
         capture("文章详情")
+        XCUIDevice.shared.orientation = .portrait
+        assertPortraitBrowser(detailTitle: "文章详情")
+        paper.tapBriefly()
+        assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "竖屏文章列表应继续打开详情。")
+        assertPortraitDetailWidth()
+        XCUIDevice.shared.orientation = .landscapeLeft
         app.mainTab("地图").tapBriefly()
         let layer = app.buttons["切换地图图层"]
         assertUI(layer.appears(timeout: 5) && app.windows.firstMatch.frame.contains(layer.frame), "横屏地图应完整显示图层工具。")
@@ -261,9 +270,50 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             return window.width > window.height
         }, on: app, timeout: 10), "分栏验收使用实际横屏窗口。")
         checkAcademicBrowsers()
+        XCUIDevice.shared.orientation = .portrait
+        assertPortraitBrowser(detailTitle: "成绩详情")
+        let score = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch
+        score.tapBriefly()
+        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "竖屏成绩列表应继续打开详情。")
+        assertPortraitDetailWidth()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.mainTab("课程").tapBriefly()
+        XCUIDevice.shared.orientation = .portrait
+        assertPortraitBrowser(detailTitle: "课程详情")
+        app.buttons["ui.course-page-content.course"].tapBriefly()
+        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "竖屏课程列表应继续打开详情。")
+        assertPortraitDetailWidth()
+        XCUIDevice.shared.orientation = .landscapeLeft
         for (tab, title) in [("日程", "课表与DDL"), ("话廊", "话题列表"), ("文章", "文章列表")] {
             app.mainTab(tab).tapBriefly()
             capture(title)
+        }
+    }
+    @MainActor private func assertPortraitBrowser(detailTitle: String) {
+        let master = app.native.descendants(matching: .any)["browser.master"]
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let window = self.app.native.windows.firstMatch.frame
+            return window.height > window.width && master.exists && master.frame.width >= window.width * 0.95
+                && !self.app.native.navigationBars[detailTitle].exists
+        }, on: app, timeout: 10), "竖屏应回到全宽浏览列表。")
+        assertCompactNavigation()
+    }
+    @MainActor private func assertPortraitDetailWidth() {
+        let pane = app.native.descendants(matching: .any)["browser.detail"]
+        let window = app.native.windows.firstMatch.frame
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let content = [.collectionView, .scrollView].contains(pane.elementType) ? pane
+                : (pane.scrollViews.firstMatch.exists ? pane.scrollViews.firstMatch : pane.collectionViews.firstMatch)
+            return content.exists && content.frame.width >= window.width * 0.95
+        }, on: app),
+            "竖屏详情应使用完整可用宽度。")
+        assertCompactNavigation()
+    }
+    @MainActor private func assertCompactNavigation() {
+        let tabs = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+        let frame = tabs.reduce(CGRect.null) { $0.union($1) }
+        for control in app.native.segmentedControls.allElementsBoundByIndex where control.isHittable {
+            assertUI(!control.frame.intersects(frame), "页面分区栏应与系统主导航分别布局。")
         }
     }
     @MainActor private func checkAcademicBrowsers() {
@@ -280,14 +330,24 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
         }, on: app, timeout: 5), "短信验证结束后应释放键盘焦点。")
         capture("成绩")
+        let refresh = app.native.cells.containing(.button, identifier: "score.query").firstMatch
+        let groupedBackground = backgroundColor(at: CGPoint(x: refresh.frame.midX, y: refresh.frame.midY))
+        let statistics = app.native.cells.containing(NSPredicate(format: "label BEGINSWITH %@", "参与加权")).firstMatch
+        assertPlainRow(statistics, matches: groupedBackground)
         let score = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch
         reveal(score, description: "成绩记录")
         score.tapBriefly()
         assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "成绩详情应在右侧打开。")
         assertDetailWidth()
+        let selected = app.native.cells.containing(.button, identifier: score.native.identifier).firstMatch
+        let edge = backgroundColor(at: CGPoint(x: selected.frame.minX + 1, y: selected.frame.midY))
+        let fill = backgroundColor(at: CGPoint(x: selected.frame.minX + 6, y: selected.frame.midY))
+        assertUI(zip(edge, fill).allSatisfy { abs($0 - $1) <= 20 }, "成绩选中态应使用浅色背景。")
         capture("成绩详情")
         app.mainTab("课程").tapBriefly()
         assertPanes("browser.master", "browser.detail")
+        let search = app.native.cells.containing(.textField, identifier: "在这里搜索课程哦").firstMatch
+        assertPlainRow(search, matches: groupedBackground)
         let course = app.buttons["ui.course-page-content.course"]
         assertUI(course.appears(timeout: 5), "课程列表应加载可选记录。")
         course.tapBriefly()
@@ -329,6 +389,16 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         }
     }
     @MainActor private func capture(_ title: String) {
+        if title == "话题列表" || title == "文章列表" {
+            let labels = title == "话题列表" ? ["我的收藏", "消息", "发布话题", "搜索话廊"] : ["发布文章", "搜索文章"]
+            let buttons = labels.map { app.native.buttons[$0].frame }
+            assertUI(zip(buttons, buttons.dropFirst()).allSatisfy { abs($0.minX - $1.minX) <= 1 && $0.maxY <= $1.minY },
+                "浏览操作应竖向悬浮排列。")
+            let master = app.native.descendants(matching: .any)["browser.master"]
+            let scroll = master.elementType == .scrollView ? master : master.scrollViews.firstMatch
+            assertUI(scroll.exists && scroll.frame.maxY >= buttons[labels.count - 1].maxY,
+                "浏览列表应延伸至悬浮按钮后方。")
+        }
         assertUI(app.native.descendants(matching: .any)["app.navigation.adaptive"].exists, "主导航应由系统 TabView 承载。")
         let navigation = ["日程", "空教室", "地图", "话廊", "文章", "成绩", "课程", "我的"].map { app.mainTab($0) }
         assertUI(navigation.allSatisfy { $0.exists }, "原生主导航应呈现八个入口。")
@@ -365,17 +435,30 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         add(attachment)
     }
 
+    @MainActor private func assertPlainRow(_ row: XCUIElement, matches expected: [Int]) {
+        assertUI(row.exists, "分组背景验收需要实际列表行。")
+        guard row.exists else { return }
+        let color = backgroundColor(at: CGPoint(x: row.frame.midX, y: row.frame.midY))
+        assertUI(zip(color, expected).allSatisfy { abs($0 - $1) <= 2 },
+            "刷新、统计与搜索行应沿公共分组背景呈现：\(color)，参考 \(expected)，行 \(row.frame)。")
+    }
     @MainActor private func assertNavigationBackground(_ navigation: CGRect) {
+        let color = backgroundColor(at: CGPoint(x: 12, y: navigation.midY))
+        if let navigationBackground { assertUI(zip(color, navigationBackground).allSatisfy { abs($0 - $1) <= 2 },
+            "页面切换应保持主导航周围的公共背景：\(color)，参考 \(navigationBackground)。") }
+        else { navigationBackground = color }
+    }
+    @MainActor private func backgroundColor(at point: CGPoint) -> [Int] {
         let window = app.windows.firstMatch.frame
-        let screenshot = app.screenshot().image
+        let screenshot = XCUIScreen.main.screenshot().image
         let rendered = UIGraphicsImageRenderer(size: window.size).image { _ in
             screenshot.draw(in: CGRect(origin: .zero, size: window.size))
         }
-        guard let image = rendered.cgImage else { XCTFail("导航背景验收需要实际截图。"); return }
+        guard let image = rendered.cgImage else { XCTFail("背景验收需要实际截图。"); return [] }
         let scale = CGFloat(image.width) / window.width
-        let region = CGRect(x: 12 * scale, y: (navigation.midY - window.minY) * scale,
-                            width: 4 * scale, height: 4 * scale).integral
-        guard let sample = image.cropping(to: region) else { XCTFail("导航背景采样点应位于窗口内。"); return }
+        let region = CGRect(x: (point.x - window.minX) * scale, y: (point.y - window.minY) * scale,
+                            width: 2 * scale, height: 2 * scale).integral
+        guard let sample = image.cropping(to: region) else { XCTFail("背景采样点应位于窗口内。"); return [] }
         var pixels = [UInt8](repeating: 0, count: sample.width * sample.height * 4)
         let color = pixels.withUnsafeMutableBytes { bytes -> [Int] in
             guard let context = CGContext(data: bytes.baseAddress, width: sample.width, height: sample.height,
@@ -388,9 +471,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
                 stride(from: channel, to: bytes.count, by: 4).reduce(0) { $0 + Int(bytes[$1]) } / (sample.width * sample.height)
             }
         }
-        if let navigationBackground { assertUI(zip(color, navigationBackground).allSatisfy { abs($0 - $1) <= 2 },
-            "页面切换应保持主导航周围的公共背景：\(color)，参考 \(navigationBackground)。") }
-        else { navigationBackground = color }
+        return color
     }
 
 }

@@ -73,7 +73,6 @@ public struct GalleryRootView: View {
 
 private struct GalleryRootViewScene: View {
     let includesPaperSurface: Bool
-    @Environment(\.appWindowLayout) private var layout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let dependencies: GalleryDependencies
     private let destinations: CommunityPaperDestination
@@ -147,13 +146,13 @@ private struct GalleryRootViewScene: View {
     var body: some View {
         content.systemImagePreview(item: $feedImageViewer)
             .environment(dependencies).environment(media).environment(profiles)
+            .appBrowserHeader(isPresented: !expandedNavigation && !appSettings.galleryUseWebView) {
+                GallerySurfacePicker(selection: surfaceSelection)
+            }
     }
 
     private var content: some View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation && !appSettings.galleryUseWebView {
-                GallerySurfacePicker(selection: surfaceSelection)
-            }
             if appSettings.galleryUseWebView && !isShowingNativePaperRoute && selectedContent == nil {
                 GalleryWebContentView()
             } else if !includesPaperSurface {
@@ -374,7 +373,7 @@ private struct GalleryRootViewScene: View {
 
 
         }
-        .appBrowserActions(expanded: layout.isLandscape) {
+        .appBrowserActions {
                 AppFloatingActionButton(systemImage: "bookmark", accessibilityLabel: "我的收藏") {
                     isShowingSubscriptions = true
                 }

@@ -81,6 +81,7 @@ public struct CoursePageContent: View {
 
     private var searchRow: some View {
         CourseSearchRow(text: $viewModel.searchText, onSubmit: { Task { await viewModel.submitSearch() } })
+            .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 
     @ViewBuilder

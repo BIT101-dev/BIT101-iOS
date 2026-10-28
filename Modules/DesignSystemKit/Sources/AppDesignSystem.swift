@@ -34,7 +34,6 @@ extension AppDesignSystem {
             public static let expandedNavigationMinimumWidth: CGFloat = 900
             public static let readingWidth: CGFloat = 760
             public static let floatingActionBottomInset: CGFloat = 20
-            public static let floatingActionContentInset: CGFloat = 84
         }
         public enum Control {
             public static let detailActionButton: CGFloat = 34

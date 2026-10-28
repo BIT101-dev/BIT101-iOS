@@ -88,6 +88,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
 
     @MainActor
     func testRefreshStatusRowsUseConsistentNativeGeometry() throws {
+        XCUIDevice.shared.orientation = .portrait
         for largeText in [false, true] {
             app = configureApp(resetStorage: !largeText, restartProcess: largeText,
                 accessibilityTextSize: largeText, content: true, school: true)
@@ -99,15 +100,22 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                     app.native.segmentedControls.buttons[page].tap()
                 }
                 UITestSnapshotReader.invalidate()
+                let containerID = switch page {
+                case "课表": "interaction.CourseScheduleTabView.list"
+                case "DDL": "interaction.DDLScheduleTabView.list"
+                case "空教室": "schedule.section-surface"
+                default: "browser.master"
+                }
+                let container = app.descendants(matching: .any)[containerID]
                 let actionID = page == "成绩" ? "score.query" : "app.refresh-status.action"
-                let action = app.native.buttons[actionID]
-                let timestamp = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
-                let cell = app.native.cells.containing(.button, identifier: actionID).firstMatch
+                let action = container.native.buttons[actionID]
+                let timestamp = container.native.staticTexts["app.refresh-status.timestamp"].firstMatch
+                let cell = container.native.cells.containing(.button, identifier: actionID).firstMatch
                 assertUI(timestamp.waitForExistence(timeout: 5) && cell.exists,
                     "\(page)应呈现更新时间行。")
-                assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: app.buttons[actionID], timeout: 5),
+                assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: container.buttons[actionID], timeout: 5),
                     "\(page)刷新完成后应开放操作。")
-                for element in [app.buttons[actionID], app.staticTexts["app.refresh-status.timestamp"]] { try assertNativeControlParity(element) }
+                for element in [container.buttons[actionID], container.staticTexts["app.refresh-status.timestamp"]] { try assertNativeControlParity(element) }
                 let frames = (page: page, cell: cell.frame, text: timestamp.frame, action: action.frame)
                 samples.append(frames)
                 assertUI(frames.cell.height >= max(44, frames.text.height, frames.action.height) + 7,

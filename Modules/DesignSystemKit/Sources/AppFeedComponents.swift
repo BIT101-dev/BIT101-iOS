@@ -4,7 +4,7 @@ import SwiftUI
 public struct AppSelectionHighlight: View {
     public init() {}
     public var body: some View {
-        Rectangle().fill(.tint.opacity(AppDesignSystem.Opacity.subtle)).allowsHitTesting(false)
+        Rectangle().fill(.tint.opacity(AppDesignSystem.Opacity.selection)).allowsHitTesting(false)
     }
 }
 
@@ -30,9 +30,7 @@ public struct AppFeedRow<Content: View>: View {
                     .accessibilityHidden(true)
             }
         }
-        .overlay {
-            if isSelected { AppSelectionHighlight() }
-        }
+        .environment(\.appFeedRowIsSelected, isSelected)
     }
 }
 #endif

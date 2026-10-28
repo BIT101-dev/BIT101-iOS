@@ -65,6 +65,7 @@ public struct AppRefreshStatusRow: View {
         }
         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
         .appListRowInsets()
+        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 }
 #endif

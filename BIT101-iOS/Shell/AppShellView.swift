@@ -289,6 +289,8 @@ struct AppShellView: View {
             ForEach(AppDestination.allCases) { destination in
                 Tab(value: destination) {
                     destinationContent(destination)
+                        .tint(destination.tab.tintColor)
+                        .accentColor(destination.tab.tintColor)
                         .environment(\.appPageIsVisible, destination == destinationSelection.wrappedValue)
                 } label: {
                     Label(usesExpandedNavigation ? destination.title : destination.tab.title,
@@ -309,6 +311,8 @@ struct AppShellView: View {
                     else { NavigationStack { tabContent(tab) } }
                 }
                 .environment(\.appPageIsVisible, tab == selectedTab)
+                .tint(tab.tintColor)
+                .accentColor(tab.tintColor)
                 .tag(tab)
                 .tabItem {
                     Label(tab.title, systemImage: tab.systemImage)
@@ -336,10 +340,8 @@ struct AppShellView: View {
         switch destination {
         case .topics: galleryContent(includesPaperSurface: false)
         case .papers:
-            VStack(spacing: AppDesignSystem.Spacing.none) {
-                if !usesExpandedNavigation { GallerySurfacePicker(selection: $gallerySurface) }
-                destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
-            }
+            destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
+                .appBrowserHeader(isPresented: !usesExpandedNavigation) { GallerySurfacePicker(selection: $gallerySurface) }
         case .schedule, .classroom:
             NavigationStack { scheduleContent(showingClassrooms: destination == .classroom) }
         case .scores, .courses:

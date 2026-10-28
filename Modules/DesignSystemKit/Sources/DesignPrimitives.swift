@@ -22,6 +22,7 @@ public nonisolated enum AppDesignSystem {
     /// 跨模块共享的透明度基础刻度；语义颜色和模块令牌从这里派生。
     public enum Opacity {
         public static let full: CGFloat = 1
+        public static let selection: CGFloat = 0.06
         public static let subtle: CGFloat = 0.12
         public static let surface: CGFloat = 0.18
         public static let softOverlay: CGFloat = 0.35

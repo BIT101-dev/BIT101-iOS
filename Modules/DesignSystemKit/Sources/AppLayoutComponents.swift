@@ -35,6 +35,8 @@ private struct AppWindowLayoutKey: EnvironmentKey {
 extension EnvironmentValues {
     @Entry public var appExpandedNavigation = false
     @Entry public var appPageIsVisible = true
+    @Entry public var appBrowserHeader: AnyView? = nil
+    @Entry public var appFeedRowIsSelected = false
     public var appWindowLayout: AppWindowLayout {
         get { self[AppWindowLayoutKey.self] }
         set { self[AppWindowLayoutKey.self] = newValue }
@@ -79,7 +81,9 @@ public struct AppPairedPages<First: View, Second: View>: View {
 
 public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>: View {
     @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appBrowserHeader) private var header
     @Binding private var selection: Selection?
+    @State private var compactColumn = NavigationSplitViewColumn.sidebar
     private let title: String
     private let symbol: String
     private let master: Master
@@ -90,16 +94,16 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
         self.master = master(); self.detail = detail
     }
     public var body: some View {
-        NavigationSplitView(columnVisibility: .constant(.all), preferredCompactColumn: Binding(
-            get: { selection == nil ? .sidebar : .detail },
-            set: { if $0 == .sidebar { selection = nil } }
-        )) {
+        NavigationSplitView(columnVisibility: .constant(.all), preferredCompactColumn: $compactColumn) {
             NavigationStack {
                 master.environment(\.appWindowLayout, layout.singleColumn)
-                    .toolbar(.hidden, for: .navigationBar)
+                    .focusEffectDisabled()
+                    .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
+                    .toolbar(header == nil ? .hidden : .visible, for: .navigationBar)
             }
-            .navigationSplitViewColumnWidth(min: layout.sidebarWidth,
-                ideal: layout.sidebarWidth, max: layout.sidebarWidth)
+            .navigationSplitViewColumnWidth(min: layout.isLandscape ? layout.sidebarWidth : nil,
+                ideal: layout.isLandscape ? layout.sidebarWidth : (layout.availableWidth ?? layout.size.width),
+                max: layout.isLandscape ? layout.sidebarWidth : nil)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
         } detail: {
             NavigationStack {
@@ -117,6 +121,16 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
         .navigationSplitViewStyle(.balanced)
         .environment(\.horizontalSizeClass, layout.isLandscape ? .regular : .compact)
         .background(AppDesignSystem.Palette.Background.grouped)
+        .onChange(of: layout.isLandscapeWindow) { wasLandscape, isLandscape in
+            if wasLandscape && !isLandscape { selection = nil; compactColumn = .sidebar }
+        }
+        .onChange(of: selection, initial: true) { _, selected in
+            compactColumn = selected == nil ? .sidebar : .detail
+        }
+        .onChange(of: compactColumn) { _, column in
+            if column == .sidebar && !layout.isLandscape { selection = nil }
+            else if selection == nil { compactColumn = .sidebar }
+        }
     }
 }
 
@@ -168,8 +182,11 @@ private struct AppWindowSizeReader: UIViewRepresentable {
 
 extension View {
     public func appWindowLayout() -> some View { modifier(AppWindowLayoutModifier()) }
-    public func appReadableContent(expandsInLandscape: Bool = false) -> some View {
-        modifier(AppReadableContentModifier(expandsInLandscape: expandsInLandscape))
+    public func appReadableContent(fillsAvailableWidth: Bool = false) -> some View {
+        modifier(AppReadableContentModifier(fillsAvailableWidth: fillsAvailableWidth))
+    }
+    public func appBrowserHeader<Header: View>(isPresented: Bool = true, @ViewBuilder content: () -> Header) -> some View {
+        environment(\.appBrowserHeader, isPresented ? AnyView(content()) : nil)
     }
     @ViewBuilder public func appScrollEdgeEffectHidden(_ hidden: Bool) -> some View {
         if #available(iOS 26.0, *) { scrollEdgeEffectHidden(hidden, for: .top) }
@@ -178,10 +195,9 @@ extension View {
 }
 
 private struct AppReadableContentModifier: ViewModifier {
-    @Environment(\.appWindowLayout) private var layout
-    let expandsInLandscape: Bool
+    let fillsAvailableWidth: Bool
     func body(content: Content) -> some View {
-        content.frame(maxWidth: expandsInLandscape && layout.isLandscape ? .infinity : AppDesignSystem.Size.Layout.readingWidth)
+        content.frame(maxWidth: fillsAvailableWidth ? .infinity : AppDesignSystem.Size.Layout.readingWidth)
             .frame(maxWidth: .infinity)
     }
 }
@@ -439,22 +455,8 @@ public struct AppFloatingActionStack<Content: View>: View {
 }
 
 extension View {
-    public func appBrowserActions<Actions: View>(expanded: Bool, @ViewBuilder actions: () -> Actions) -> some View {
-        let buttons = actions()
-        return self
-            .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
-                if expanded {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Spacer(minLength: AppDesignSystem.Spacing.none)
-                        AppFloatingActionStack(axis: .horizontal) { buttons }
-                    }
-                    .padding(.top, AppDesignSystem.Spacing.regular)
-                    .background(AppDesignSystem.Palette.Background.grouped)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if !expanded { AppFloatingActionStack { buttons } }
-            }
+    public func appBrowserActions<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
+        overlay(alignment: .bottomTrailing) { AppFloatingActionStack { actions() } }
     }
 }
 
@@ -472,11 +474,14 @@ private struct AppInteractiveLabeledContentStyle: LabeledContentStyle {
     }
 }
 
-private struct AppInteractiveListRowBackground: View {
+private struct AppSelectableRowBackground: View {
     let isSelected: Bool
+    var color = AppDesignSystem.Palette.Background.secondaryGrouped
     var body: some View {
-        AppDesignSystem.Palette.Background.secondaryGrouped
-            .overlay { if isSelected { AppSelectionHighlight() } }
+        ZStack {
+            color
+            if isSelected { AppSelectionHighlight() }
+        }
     }
 }
 
@@ -488,7 +493,10 @@ extension View {
             ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
             : AnyShapeStyle(AppDesignSystem.Foreground.primary))
             .labeledContentStyle(AppInteractiveLabeledContentStyle(isDestructive: isDestructive))
-        if let isSelected { row.listRowBackground(AppInteractiveListRowBackground(isSelected: isSelected)) }
+        if let isSelected {
+            row.listRowBackground(AppSelectableRowBackground(isSelected: isSelected))
+                .focusEffectDisabled()
+        }
         else { row }
     }
 
@@ -521,9 +529,16 @@ extension View {
     }
 
     public func appFeedCardStyle() -> some View {
-        padding(AppDesignSystem.Spacing.content)
+        modifier(AppFeedCardStyleModifier())
+    }
+}
+
+private struct AppFeedCardStyleModifier: ViewModifier {
+    @Environment(\.appFeedRowIsSelected) private var isSelected
+    func body(content: Content) -> some View {
+        content.padding(AppDesignSystem.Spacing.content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppDesignSystem.Palette.Background.system)
+            .background(AppSelectableRowBackground(isSelected: isSelected, color: AppDesignSystem.Palette.Background.system))
             .contentShape(Rectangle())
     }
 }

@@ -21,7 +21,7 @@ public struct CourseDetailView: View {
     public var body: some View {
         scene.id(identity)
             .id(resourceID)
-            .appReadableContent(expandsInLandscape: true)
+        .appReadableContent(fillsAvailableWidth: true)
     }
 }
 
