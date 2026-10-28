@@ -302,8 +302,14 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @MainActor private func assertCompactNavigation() {
         let tabs = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
         let frame = tabs.reduce(CGRect.null) { $0.union($1) }
-        for control in app.native.segmentedControls.allElementsBoundByIndex where control.isHittable {
+        let controls = app.native.segmentedControls.allElementsBoundByIndex.filter(\.isHittable)
+        for control in controls {
             assertUI(!control.frame.intersects(frame), "页面分区栏应与系统主导航分别布局。")
+        }
+        if frame.midY < app.native.windows.firstMatch.frame.midY,
+           let first = controls.min(by: { $0.frame.minY < $1.frame.minY }) {
+            let gap = first.frame.minY - frame.maxY
+            assertUI(gap >= 0 && gap <= first.frame.height, "顶部导航与分区栏应沿内容间距排列。")
         }
     }
     @MainActor private func checkAcademicBrowsers() {

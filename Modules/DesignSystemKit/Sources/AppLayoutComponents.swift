@@ -26,6 +26,9 @@ public struct AppWindowLayout: Equatable {
         return value
     }
     public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
+    public var usesTopTabBar: Bool {
+        if #available(iOS 18.0, *) { isRegularWidth } else { false }
+    }
 }
 
 private struct AppWindowLayoutKey: EnvironmentKey {
@@ -98,8 +101,9 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
             NavigationStack {
                 master.environment(\.appWindowLayout, layout.singleColumn)
                     .focusEffectDisabled()
+                    .navigationBarTitleDisplayMode(.inline)
                     .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
-                    .toolbar(header == nil || !layout.isRegularWidth ? .hidden : .visible, for: .navigationBar)
+                    .toolbar(header == nil || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
             }
             .navigationSplitViewColumnWidth(min: layout.isLandscape ? layout.sidebarWidth : nil,
                 ideal: layout.isLandscape ? layout.sidebarWidth : (layout.availableWidth ?? layout.size.width),
