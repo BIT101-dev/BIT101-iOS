@@ -226,7 +226,6 @@ struct AppShellView: View {
         mainTabs
             .environment(\.appExpandedNavigation, usesExpandedNavigation)
             .tint(selectedTab.tintColor)
-            .appScrollEdgeEffectHidden(layout.isLandscape)
     }
 
     private var mainTabs: some View {
@@ -291,6 +290,7 @@ struct AppShellView: View {
                     destinationContent(destination)
                         .tint(destination.tab.tintColor)
                         .accentColor(destination.tab.tintColor)
+                        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                         .environment(\.appPageIsVisible, destination == destinationSelection.wrappedValue)
                 } label: {
                     Label(usesExpandedNavigation ? destination.title : destination.tab.title,
@@ -307,12 +307,13 @@ struct AppShellView: View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
                 Group {
-                    if tab == .gallery || tab == .score { tabContent(tab) }
+                    if tab == .gallery || tab == .score || tab == .mine { tabContent(tab) }
                     else { NavigationStack { tabContent(tab) } }
                 }
                 .environment(\.appPageIsVisible, tab == selectedTab)
                 .tint(tab.tintColor)
                 .accentColor(tab.tintColor)
+                .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                 .tag(tab)
                 .tabItem {
                     Label(tab.title, systemImage: tab.systemImage)
@@ -347,6 +348,7 @@ struct AppShellView: View {
         case .scores, .courses:
             ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse,
                 selection: $scoreSurface, showingCourses: destination == .courses)
+        case .mine: tabContent(.mine)
         default:
             NavigationStack { tabContent(destination.tab) }
         }
@@ -369,14 +371,20 @@ struct AppShellView: View {
         case .gallery:
             galleryContent()
         case .mine:
-            MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters, settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout)
-#if BIT101_UI_TESTING
-                .navigationDestination(item: $uiTestSettingsRoute) { route in
-                    SettingsRootView(initialRoute: route, studentID: studentID, onLogout: onLogout,
-                                     dependencies: destinations.settingsDependencies)
-                }
-#endif
+            MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters,
+                settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout,
+                requestedSettings: requestedMineSettings)
         }
+    }
+
+    private var requestedMineSettings: Binding<CommunitySettingsEntry?> {
+#if BIT101_UI_TESTING
+        Binding(get: {
+            uiTestSettingsRoute.flatMap { route in destinations.settings.settingsEntries.first { $0.id == route.rawValue } }
+        }, set: { uiTestSettingsRoute = $0.flatMap { SettingsRoute(rawValue: $0.id) } })
+#else
+        .constant(nil)
+#endif
     }
 
     private func scheduleContent(showingClassrooms: Bool? = nil) -> some View {

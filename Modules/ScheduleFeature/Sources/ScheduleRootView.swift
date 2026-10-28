@@ -60,6 +60,7 @@ public struct ScheduleRootView: View {
         TimelineView(.everyMinute) { context in
             content.environment(\.scheduleCurrentDate, context.date)
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private var content: some View {
@@ -97,6 +98,7 @@ public struct ScheduleRootView: View {
         }
         .toolbar(expandedNavigation || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
+        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {
             if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }

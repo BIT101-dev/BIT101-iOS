@@ -29,6 +29,12 @@ public struct AppWindowLayout: Equatable {
     public var usesTopTabBar: Bool {
         if #available(iOS 18.0, *) { isRegularWidth } else { false }
     }
+    public var usesOpaqueNavigation: Bool {
+        switch UIDevice.current.userInterfaceIdiom {
+        case .phone: false
+        default: true
+        }
+    }
 }
 
 private struct AppWindowLayoutKey: EnvironmentKey {
@@ -85,8 +91,9 @@ public struct AppPairedPages<First: View, Second: View>: View {
 public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>: View {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.appBrowserHeader) private var header
+    @Environment(\.appPageIsVisible) private var isVisible
     @Binding private var selection: Selection?
-    @State private var compactColumn = NavigationSplitViewColumn.sidebar
+    @State private var wasLandscapeWindow = false
     private let title: String
     private let symbol: String
     private let master: Master
@@ -97,42 +104,103 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
         self.master = master(); self.detail = detail
     }
     public var body: some View {
-        NavigationSplitView(columnVisibility: .constant(.all), preferredCompactColumn: $compactColumn) {
-            master.environment(\.appWindowLayout, layout.singleColumn)
-                .focusEffectDisabled()
-                .navigationBarTitleDisplayMode(.inline)
-                .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
-                .toolbar(header == nil || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
-            .navigationSplitViewColumnWidth(min: layout.isLandscape ? layout.sidebarWidth : nil,
-                ideal: layout.isLandscape ? layout.sidebarWidth : (layout.availableWidth ?? layout.size.width),
-                max: layout.isLandscape ? layout.sidebarWidth : nil)
-            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
-        } detail: {
-            NavigationStack {
-                Group {
-                    if let selection { detail(selection) }
-                    else { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") }
+        let arrangement = layout.isLandscape
+            ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.none))
+            : AnyLayout(ZStackLayout(alignment: .leading))
+        let showsDetail = layout.isLandscape || selection != nil
+        arrangement {
+            NavigationStack { masterContent }
+            .frame(width: layout.isLandscape ? layout.sidebarWidth : nil)
+            .frame(maxWidth: layout.isLandscape ? nil : .infinity, maxHeight: .infinity)
+            .overlay(alignment: .trailing) {
+                if layout.isLandscape {
+                    HStack(spacing: AppDesignSystem.Spacing.none) {
+                        Spacer(minLength: AppDesignSystem.Spacing.none)
+                        Divider()
+                    }
+                    .allowsHitTesting(false)
                 }
-                .padding(.horizontal, layout.isLandscape ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none)
-                .background(AppDesignSystem.Palette.Background.grouped)
-                .toolbar(.visible, for: .navigationBar)
             }
-            .toolbar(removing: .sidebarToggle)
+            .allowsHitTesting(layout.isLandscape || selection == nil)
+            .accessibilityHidden(!layout.isLandscape && selection != nil)
+            .environment(\.appPageIsVisible, isVisible && (layout.isLandscape || selection == nil))
+            NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
+                Group {
+                    if layout.isLandscape {
+                        AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容")
+                    } else { Color.clear }
+                }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppDesignSystem.Palette.Background.grouped)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(layout.isLandscape ? .visible : .hidden, for: .navigationBar)
+                    .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+                    .navigationDestination(for: Selection.self) { selected in
+                        detailContent(selected).navigationBarBackButtonHidden(layout.isLandscape)
+                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(showsDetail ? 1 : 0)
+            .allowsHitTesting(showsDetail)
+            .accessibilityHidden(!showsDetail)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
         }
-        .navigationSplitViewStyle(.balanced)
-        .environment(\.horizontalSizeClass, layout.isLandscape ? .regular : .compact)
         .background(AppDesignSystem.Palette.Background.grouped)
-        .onChange(of: layout.isLandscapeWindow) { wasLandscape, isLandscape in
-            if wasLandscape && !isLandscape { selection = nil; compactColumn = .sidebar }
+        .onChange(of: layout.isLandscapeWindow, initial: true) { _, isLandscape in
+            if wasLandscapeWindow && !isLandscape {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { selection = nil }
+            }
+            wasLandscapeWindow = isLandscape
         }
-        .onChange(of: selection, initial: true) { _, selected in
-            compactColumn = selected == nil ? .sidebar : .detail
+    }
+
+    private var masterContent: some View {
+        master.environment(\.appWindowLayout, layout.singleColumn)
+            .ignoresSafeArea(.container, edges: layout.isLandscape ? .trailing : [])
+            .scrollContentBackground(.hidden)
+            .background(AppDesignSystem.Palette.Background.grouped)
+            .focusEffectDisabled()
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
+            .toolbar(.hidden, for: .navigationBar)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
+    }
+
+    private func detailContent(_ selected: Selection) -> some View {
+        detail(selected)
+            .padding(.horizontal, layout.isLandscape ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none)
+            .background(AppDesignSystem.Palette.Background.grouped)
+            .toolbar(.visible, for: .navigationBar)
+            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+    }
+}
+
+public struct AppBrowserListRow<Content: View>: View {
+    private let isSelected: Bool
+    private let action: () -> Void
+    private let content: Content
+    public init(isSelected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+        self.isSelected = isSelected; self.action = action; self.content = content()
+    }
+    public var body: some View {
+        Button(action: action) {
+            content.frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, AppDesignSystem.Spacing.section)
+                .contentShape(Rectangle())
         }
-        .onChange(of: compactColumn) { _, column in
-            if column == .sidebar && !layout.isLandscape { selection = nil }
-            else if selection == nil { compactColumn = .sidebar }
+        .overlay(alignment: .trailing) {
+            Image(systemName: "chevron.right")
+                .font(AppDesignSystem.Typography.footnoteEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.tertiary)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("ui.app-browser-list-row.action")
+        .appInteractiveListRow(isSelected: isSelected)
     }
 }
 
@@ -190,9 +258,11 @@ extension View {
     public func appBrowserHeader<Header: View>(isPresented: Bool = true, @ViewBuilder content: () -> Header) -> some View {
         environment(\.appBrowserHeader, isPresented ? AnyView(content()) : nil)
     }
-    @ViewBuilder public func appScrollEdgeEffectHidden(_ hidden: Bool) -> some View {
-        if #available(iOS 26.0, *) { scrollEdgeEffectHidden(hidden, for: .top) }
-        else { self }
+    public func appNativeBarBackground(isPresented: Bool) -> some View {
+        toolbarBackground(isPresented ? AnyShapeStyle(AppDesignSystem.Palette.Background.grouped) : AnyShapeStyle(Material.bar),
+                          for: .tabBar, .navigationBar)
+            .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
+            .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
     }
 }
 
@@ -499,7 +569,7 @@ extension View {
             row.listRowBackground(AppSelectableRowBackground(isSelected: isSelected))
                 .focusEffectDisabled()
         }
-        else { row }
+        else { row.listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped) }
     }
 
     public func appGroupedListStyle() -> some View {
@@ -507,6 +577,10 @@ extension View {
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
+    }
+
+    public func appGroupedSectionStyle() -> some View {
+        listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 
     /// 在实际列表行上设置内容边距。

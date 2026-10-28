@@ -270,7 +270,7 @@ COMPONENT_GROUPS = (
     ("内容控制", ("AppSegmentedPicker", "AppTopSegmentedPicker", "AppOrderedSearchBar", "AppSearchBarContainer", "AppNavigationRowLabel")),
     ("头像标签", ("AppAvatarView", "AppTagChip")),
     ("状态", ("AppLoadingState", "AppInlineLoadingState", "AppScrollStateContainer", "AppFailureState", "AppEmptyState")),
-    ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppCourseEvaluationRow")),
+    ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppBrowserListRow", "AppCourseEvaluationRow")),
     ("验证码", ("AppSMSVerificationSheet",)),
 )
 
@@ -283,6 +283,12 @@ COMPONENT_INHERITANCE = {
     },
     "AppComposerToolbar": "ToolbarContent",
     "AppFixedColumnItem": None,
+}
+
+GROUPED_BROWSER_MASTER_ROLES = {
+    ("Modules/ScoreFeature/Sources/ScoreRootView.swift", "ScoreListPage"),
+    ("Modules/CourseFeature/Sources/CourseRootView.swift", "CoursePageContent"),
+    ("Modules/MineFeature/Sources/MineRootView.swift", "MineRootViewScene"),
 }
 
 

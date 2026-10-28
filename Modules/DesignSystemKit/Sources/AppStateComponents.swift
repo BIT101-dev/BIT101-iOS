@@ -37,6 +37,7 @@ public struct AppLoadingState: View {
     public var body: some View {
         ProgressView(title)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 }
 
@@ -59,6 +60,7 @@ public struct AppInlineLoadingState: View {
             Spacer()
         }
         .padding(.vertical, AppDesignSystem.Spacing.content)
+        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 }
 
@@ -125,6 +127,7 @@ public struct AppFailureState: View {
             }
         }
         .buttonStyle(.borderless)
+        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 }
 
@@ -163,6 +166,7 @@ public struct AppEmptyState: View {
                     .accessibilityIdentifier("ui.app-empty-state.action")
             }
         }
+        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 }
 #endif

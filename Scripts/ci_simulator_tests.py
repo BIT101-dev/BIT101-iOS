@@ -1,6 +1,7 @@
 """Exercise the real simulator producer, CI aggregation and portable-result export together."""
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from unittest.mock import patch
 
 
 def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
+    maintenance_self_test()
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
     from validation_simulator import METADATA_PREFIX
     from script_test_support import heredoc_body
@@ -167,3 +169,51 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         try: ci.merge_simulator_ci()
         except ValueError: pass
         else: raise AssertionError('正式组装产物需要自己的生产记录。')
+
+
+def maintenance_self_test() -> None:
+    from validation_simulator import clean_device_caches, prune_devices
+    root = Path('/fixture/Library/Developer/CoreSimulator/Devices')
+    inventory = dict(runtimes=[dict(identifier='ios'), dict(identifier='watch')], devices={
+        'ios': [dict(udid='keep', state='Booted'), dict(udid='unused', state='Shutdown'),
+                dict(udid='external', state='Shutdown')], 'watch': []})
+    images = {name: dict(runtimeIdentifier=name, sizeBytes=1024) for name in ('ios', 'watch')}
+    commands, removed = [], []
+    folders = {root / 'keep/data' / part for part in ('Library/Caches', 'tmp',
+        'Containers/Data/Application/app/Library/Caches', 'Containers/Data/Application/app/tmp')}
+
+    def output(command, **kwargs):
+        if command[:3] == ['xcrun', 'simctl', 'list']: return json.dumps(inventory)
+        if command[:4] == ['xcrun', 'simctl', 'runtime', 'list']: return json.dumps(images)
+        assert command[:2] == ['du', '-sk'], command
+        return '1024\t' + command[2]
+
+    def glob(path, pattern):
+        if path == root / 'keep/data/Containers/Data/Application': return [path / 'app']
+        if path == root / 'external/data/Containers/Bundle/Application': return [path / 'app/App.app/Info.plist']
+        return []
+
+    with patch.object(Path, 'home', return_value=Path('/fixture')), \
+            patch.object(Path, 'glob', glob), \
+            patch.object(Path, 'read_bytes', return_value=plistlib.dumps(dict(CFBundleIdentifier='org.example.personal'))), \
+            patch.object(Path, 'is_dir', lambda path: path in folders), \
+            patch.object(Path, 'iterdir', lambda path: iter([path / 'entry', path / 'images'])), \
+            patch.object(Path, 'is_file', lambda path: path.name == 'entry'), \
+            patch.object(Path, 'is_symlink', return_value=False), \
+            patch.object(Path, 'unlink', lambda path: removed.append(path)), \
+            patch.object(shutil, 'rmtree', lambda path: removed.append(path)), \
+            patch.object(subprocess, 'check_output', output), \
+            patch.object(subprocess, 'run', lambda command, **kwargs: commands.append(command)), \
+            redirect_stdout(StringIO()):
+        prune_devices(['keep'])
+        assert commands == [['xcrun', 'simctl', 'delete', 'unused'], ['xcrun', 'simctl', 'runtime', 'delete', 'watch']]
+        commands.clear()
+        for action in (clean_device_caches, prune_devices):
+            for identifiers in ([], ['missing']):
+                try: action(identifiers)
+                except ValueError: pass
+                else: raise AssertionError('设备维护需要有效的显式清单。')
+        assert commands == [] and removed == []
+        clean_device_caches(['keep'])
+        assert commands == [['xcrun', 'simctl', 'shutdown', 'keep']]
+        assert set(removed) == {folder / name for folder in folders for name in ('entry', 'images')}

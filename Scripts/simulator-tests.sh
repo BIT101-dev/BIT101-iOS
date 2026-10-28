@@ -9,7 +9,16 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
-case "$operation" in info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || exit 64;; app|release-runtime|ui) ;; *) exit 64;; esac
+case "$operation" in
+  info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || exit 64;;
+  runtime)
+    [[ $# -eq 1 && "$1" == info ]] \
+      || [[ $# -eq 2 && "$1" == (upgrade|prune) && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ '^([0-9]+(\.[0-9]+){1,2}|[0-9]+[A-Z][0-9]+[a-z]?)$' ]] || exit 64;;
+  devices) [[ $# -ge 2 && "$1" == (prune|clean) ]] || exit 64;;
+  app|release-runtime|ui) ;;
+  *) exit 64;;
+esac
 if [[ "$operation" == preview && "${GITHUB_ACTIONS:-false}" == true ]]; then
   echo "界面预览使用本地授权设备。" >&2
   exit 64
@@ -22,6 +31,54 @@ if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"
+if [[ "$operation" == devices ]]; then
+  python3 - "$ROOT_DIR/Scripts" "$@" <<'PYDEVICEPRUNE'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_simulator import clean_device_caches, prune_devices
+if sys.argv[2] == 'clean': clean_device_caches(sys.argv[3:])
+else: prune_devices(sys.argv[3:])
+PYDEVICEPRUNE
+  exit 0
+fi
+if [[ "$operation" == runtime ]]; then
+  if [[ "$1" == (upgrade|prune) ]]; then
+    python3 - "$ROOT_DIR/Scripts" "$1" "$2" <<'PYRUNTIMEMANAGE'
+import sys
+sys.path.insert(0, sys.argv[1])
+from validation_simulator import manage_runtimes
+manage_runtimes(sys.argv[2], sys.argv[3])
+PYRUNTIMEMANAGE
+    exit 0
+  fi
+  if [[ "$1" == info ]]; then
+    python3 - <<'PYRUNTIMEINFO'
+import json
+import subprocess
+inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
+for runtime in inventory['runtimes']:
+    devices = inventory['devices'].get(runtime['identifier'], [])
+    print(f"{runtime['name']} · {runtime['buildversion']} · 可用={runtime['isAvailable']} · 设备={len(devices)}")
+    for device in devices:
+        print(f"  {device['name']} · {device['udid']} · {device['deviceTypeIdentifier']} · {device['state']}")
+images = json.loads(subprocess.check_output(['xcrun', 'simctl', 'runtime', 'list', '--json'], text=True))
+for identifier, image in images.items():
+    print(f"镜像 {identifier} · {image['runtimeIdentifier']} · {image['sizeBytes'] / 1024 ** 3:.2f} GiB")
+PYRUNTIMEINFO
+    exit 0
+  fi
+  bit101_run_logged "$DERIVED_ROOT/runtime.log" "运行时更新" script -q /dev/null xcodebuild -downloadPlatform "$1" -buildVersion "$2" -architectureVariant arm64
+  python3 - "$1" "$2" <<'PYRUNTIME'
+import json
+import subprocess
+import sys
+platform, version = sys.argv[1:]
+rows = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '--json'], text=True))['runtimes']
+if not any(row['isAvailable'] and version in (row['version'], row['buildversion']) and row['name'].startswith(platform + ' ') for row in rows):
+    raise SystemExit(f'{platform} {version} 运行时需要安装完成并可用。')
+PYRUNTIME
+  exit 0
+fi
 if [[ "$operation" == verify ]]; then
   python3 "$ROOT_DIR/Scripts/validation_restore.py" simulator-verify
   exit $?

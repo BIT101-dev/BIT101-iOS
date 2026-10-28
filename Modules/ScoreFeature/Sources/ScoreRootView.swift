@@ -83,7 +83,7 @@ public struct ScoreListPage: View {
                 }
                 .background(AppDesignSystem.Palette.Background.grouped)
             case .loaded:
-                List(selection: $selectedPage) {
+                List {
                     scoreControls
                     Section("成绩列表") {
                         if visibleRows.isEmpty {
@@ -95,27 +95,27 @@ public struct ScoreListPage: View {
                             .frame(maxWidth: .infinity)
                         } else {
                             ForEach(visibleRows) { row in
-                                NavigationLink(value: ScorePageSelection.score(row)) {
+                                AppBrowserListRow(isSelected: selectedPage?.scoreID == row.id,
+                                    action: { selectedPage = .score(row) }) {
                                     ScoreListRowCard(row: row)
                                 }
-                                .buttonStyle(.plain)
-                                .appInteractiveListRow(isSelected: selectedPage?.scoreID == row.id)
-                                    .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
+                                .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
                             }
                         }
                     }
+                    .appGroupedSectionStyle()
 
                     if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
                         Section("未出分") {
                             ForEach(pendingCourses) { course in
-                                NavigationLink(value: ScorePageSelection.pending(course)) {
+                                AppBrowserListRow(isSelected: selectedPage?.pendingID == course.id,
+                                    action: { selectedPage = .pending(course) }) {
                                     ScoreListRowCard(course: course)
                                 }
-                                .buttonStyle(.plain)
-                                .appInteractiveListRow(isSelected: selectedPage?.pendingID == course.id)
-                                    .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
+                                .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
                             }
                         }
+                        .appGroupedSectionStyle()
                     }
                 }
                 .accessibilityIdentifier("interaction.ScoreListPage.list")
@@ -168,34 +168,33 @@ public struct ScoreListPage: View {
                 storageRecoveryButton
             }
         }
+        .appGroupedSectionStyle()
 
         Section {
-            NavigationLink(value: ScorePageSelection.transcript) {
+            AppBrowserListRow(isSelected: selectedPage == .transcript, action: { selectedPage = .transcript }) {
                 Text("申请可信成绩单")
             }
             .disabled(viewModel.isSyncing)
-            .appInteractiveListRow(isSelected: selectedPage == .transcript)
         }
+        .appGroupedSectionStyle()
 
         Section {
-            NavigationLink(value: ScorePageSelection.terms) {
+            AppBrowserListRow(isSelected: selectedPage == .terms, action: { selectedPage = .terms }) {
                 LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
             }
-            .appInteractiveListRow(isSelected: selectedPage == .terms)
 
             if !viewModel.availableCourseTypes.isEmpty {
-                NavigationLink(value: ScorePageSelection.types) {
+                AppBrowserListRow(isSelected: selectedPage == .types, action: { selectedPage = .types }) {
                     LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
                 }
-                .appInteractiveListRow(isSelected: selectedPage == .types)
             }
 
-            NavigationLink(value: ScorePageSelection.sort) {
+            AppBrowserListRow(isSelected: selectedPage == .sort, action: { selectedPage = .sort }) {
                 LabeledContent("排序", value: viewModel.sortDescription)
             }
-            .appInteractiveListRow(isSelected: selectedPage == .sort)
-                .accessibilityIdentifier("ui.score-list-page.排序")
+            .accessibilityIdentifier("ui.score-list-page.排序")
         }
+        .appGroupedSectionStyle()
 
         Section("统计") {
             LabeledContent("参与加权", value: "\(summary.selectedCourseCount)")
@@ -206,7 +205,7 @@ public struct ScoreListPage: View {
             LabeledContent("加权平均分", value: formatOptionalScore(summary.weightedAverageScore))
             LabeledContent("加权 GPA", value: formatOptionalScore(summary.weightedAverageGPA))
         }
-        .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
+        .appGroupedSectionStyle()
 
     }
 

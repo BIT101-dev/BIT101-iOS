@@ -279,6 +279,17 @@ def list_row_layout_boundary_findings() -> list[str]:
     for source, expected in cases:
         if bool(list_row_layout_findings(swift_syntax_index_sources({'ui-self-test.swift': source}))) != expected:
             findings.append('UI 布局自测：列表容器、行组件和闲置修饰的边距归属')
+    path = str(ROOT / 'Modules/ScoreFeature/Sources/ScoreRootView.swift')
+    browser = 'struct ScoreListPage: View { var body: some View { List { Section { Text("空态") }.appGroupedSectionStyle() } } }'
+    for source, expected in [
+        (browser, False),
+        (browser.replace('.appGroupedSectionStyle()', ''), True),
+        (browser.replace('Text("空态")', 'Text("空态").appGroupedSectionStyle()').replace(' }.appGroupedSectionStyle()', ' }'), True),
+        (browser.replace('List {', 'List(selection: .constant(nil)) {'), True),
+        (browser.replace('.appGroupedSectionStyle()', '/* .appGroupedSectionStyle() */'), True),
+    ]:
+        if bool(list_row_layout_findings(swift_syntax_index_sources({path: source}))) != expected:
+            findings.append('UI 布局自测：浏览器分组底色与一级选择沿公共组件验收')
     return findings
 
 

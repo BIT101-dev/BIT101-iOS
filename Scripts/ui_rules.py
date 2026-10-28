@@ -56,8 +56,20 @@ def rendered_component_counts(facts: dict, syntax: dict[str, dict]) -> Counter:
 
 
 def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
+    from ui_design_contracts import GROUPED_BROWSER_MASTER_ROLES
     findings = []
     for path, facts in syntax.items():
+        relative = Path(path).relative_to(ROOT).as_posix() if Path(path).is_relative_to(ROOT) else path
+        owners = {owner for source, owner in GROUPED_BROWSER_MASTER_ROLES if source == relative}
+        sections = {(tuple(node['scope']), node['start']) for node in facts.get('invocations', [])
+            if call_name(node['calledExpression']) == 'appGroupedSectionStyle'}
+        for node in facts.get('invocations', []):
+            if not node['scope'] or node['scope'][0] not in owners: continue
+            name = call_name(node['calledExpression'])
+            if name == 'Section' and (tuple(node['scope']), node['start']) not in sections:
+                findings.append(f'{path}: 浏览器一级列表的分组需要使用 appGroupedSectionStyle')
+            if name == 'List' and 'selection' in node.get('argumentLabels', []):
+                findings.append(f'{path}: 浏览器一级列表选择需要由 AppBrowserListRow 统一控制')
         containers = {(tuple(node['scope']), node['start']) for node in facts.get('invocations', [])
             if call_name(node['calledExpression']) in {'List', 'Form', 'listStyle', 'appGroupedListStyle'}}
         for invocation in facts.get('invocations', []):

@@ -1,11 +1,117 @@
 """Record simulator producers and validate complete CI inventories independently of device evidence."""
 import json
 import os
+import plistlib
 import shutil
 import subprocess
 from pathlib import Path
 
 METADATA_PREFIX = '模拟器记录：'
+
+
+def clean_device_caches(identifiers: list[str]) -> None:
+    inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', '--json'], text=True))
+    devices = {device['udid']: device for rows in inventory['devices'].values() for device in rows}
+    if not identifiers or set(identifiers) - devices.keys():
+        raise ValueError('缓存清理需要指定实际存在的设备。')
+    root = Path.home() / 'Library/Developer/CoreSimulator/Devices'
+    removed = 0
+    for identifier in dict.fromkeys(identifiers):
+        if devices[identifier]['state'] != 'Shutdown':
+            subprocess.run(['xcrun', 'simctl', 'shutdown', identifier], check=True, capture_output=True)
+        data = root / identifier / 'data'
+        folders = [data / 'Library/Caches', data / 'tmp']
+        for container in (data / 'Containers/Data/Application').glob('*'):
+            folders.extend([container / 'Library/Caches', container / 'tmp'])
+        for folder in folders:
+            if not folder.is_dir(): continue
+            removed += int(subprocess.check_output(['du', '-sk', str(folder)], text=True).split()[0]) * 1024
+            for child in folder.iterdir():
+                if child.is_symlink() or child.is_file(): child.unlink()
+                else: shutil.rmtree(child)
+    print(f'模拟器缓存与临时文件已回收：{removed / 1024 ** 3:.2f} GiB；App、登录与设置数据保留。')
+
+
+def prune_devices(keep: list[str]) -> None:
+    inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
+    devices = [device for rows in inventory['devices'].values() for device in rows]
+    identifiers = {device['udid'] for device in devices}
+    if not keep or set(keep) - identifiers:
+        raise ValueError('设备清理需要指定实际存在的保留设备。')
+    root = Path.home() / 'Library/Developer/CoreSimulator/Devices'
+    removed = set()
+    for device in devices:
+        if device['udid'] in keep or device['state'] != 'Shutdown': continue
+        apps = root / device['udid'] / 'data/Containers/Bundle/Application'
+        bundles = [plistlib.loads(path.read_bytes()).get('CFBundleIdentifier', '') for path in apps.glob('*/*.app/Info.plist')]
+        if any(not bundle.startswith(('com.apple.', 'BIT101-dev.')) for bundle in bundles): continue
+        subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, capture_output=True)
+        removed.add(device['udid'])
+    print(f'闲置模拟器设备已回收：{len(removed)} 台；保留指定设备与其他 App 所属设备。')
+    unused = {row['identifier'] for row in inventory['runtimes']
+        if not any(device['udid'] not in removed for device in inventory['devices'].get(row['identifier'], []))}
+    remove_runtime_images(unused)
+
+
+def remove_runtime_images(identifiers: set[str]) -> None:
+    images = json.loads(subprocess.check_output(['xcrun', 'simctl', 'runtime', 'list', '--json'], text=True))
+    removed = 0
+    for identifier, image in images.items():
+        if image['runtimeIdentifier'] in identifiers:
+            subprocess.run(['xcrun', 'simctl', 'runtime', 'delete', identifier], check=True)
+            removed += image['sizeBytes']
+    print(f'运行时已回收，系统登记大小 {removed / 1024 ** 3:.2f} GiB。')
+
+
+def manage_runtimes(action: str, version: str) -> None:
+    def inventory():
+        return json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
+
+    def version_tuple(value):
+        return tuple(map(int, value.split('.')))
+
+    def platform(runtime):
+        return runtime['name'].split()[0]
+
+    data = inventory()
+    target_version = version_tuple(version)
+    targets = [row for row in data['runtimes'] if row['isAvailable'] and row['version'] == version]
+    older = [row for row in data['runtimes'] if version_tuple(row['version']) < target_version]
+    families = {platform(row) for row in older}
+    if missing := families - {platform(row) for row in targets}:
+        raise ValueError('目标运行时需要覆盖已安装平台：' + ', '.join(sorted(missing)))
+    if action == 'upgrade':
+        plan = []
+        for runtime in older:
+            for device in data['devices'].get(runtime['identifier'], []):
+                matches = [row for row in targets if platform(row) == platform(runtime)
+                    and any(kind['identifier'] == device['deviceTypeIdentifier'] for kind in row['supportedDeviceTypes'])]
+                if not matches:
+                    raise ValueError(f"{device['name']} 的目标运行时需要支持 {device['deviceTypeIdentifier']}。")
+                plan.append((device, max(matches, key=lambda row: row['buildversion'])))
+        for device, target in plan:
+            if device['state'] == 'Booted':
+                subprocess.run(['xcrun', 'simctl', 'shutdown', device['udid']], check=True, capture_output=True)
+            subprocess.run(['xcrun', 'simctl', 'upgrade', device['udid'], target['identifier']], check=True)
+            print(f"已升级 {device['name']} → {target['name']}，保留设备数据。", flush=True)
+        refreshed = inventory()
+        actual = {row['udid']: runtime for runtime, rows in refreshed['devices'].items() for row in rows}
+        if any(actual.get(device['udid']) != target['identifier'] for device, target in plan):
+            raise ValueError('设备升级需要保留原标识并进入目标运行时。')
+        record = Path(__file__).resolve().parent.parent / '.build/extended-automation/simulator-device.json'
+        if record.is_file():
+            owned = json.loads(record.read_text())
+            if runtime := actual.get(owned['identifier']):
+                owned['runtime'] = runtime
+                record.write_text(json.dumps(owned) + '\n')
+        print(f'运行时迁移完成：{len(plan)} 台设备。')
+        manage_runtimes('prune', version)
+    elif action == 'prune':
+        if any(data['devices'].get(row['identifier']) for row in older):
+            raise ValueError('旧运行时的全部设备需要先完成迁移。')
+        remove_runtime_images({row['identifier'] for row in older})
+    else:
+        raise ValueError('运行时维护动作需要为 upgrade 或 prune。')
 
 
 def result_metadata(group: str, scope: str, commit: str, device: str, coverage_lines=None) -> dict:

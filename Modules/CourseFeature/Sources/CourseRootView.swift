@@ -54,9 +54,9 @@ public struct CoursePageContent: View {
     }
 
     private var content: some View {
-        List(selection: $selection) {
-            Section { searchRow }
-            Section { courseSection }
+        List {
+            Section { searchRow }.appGroupedSectionStyle()
+            Section { courseSection }.appGroupedSectionStyle()
         }
         .accessibilityIdentifier("interaction.CoursePageContent.list")
         .appGroupedListStyle()
@@ -81,7 +81,6 @@ public struct CoursePageContent: View {
 
     private var searchRow: some View {
         CourseSearchRow(text: $viewModel.searchText, onSubmit: { Task { await viewModel.submitSearch() } })
-            .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
     }
 
     @ViewBuilder
@@ -118,15 +117,13 @@ public struct CoursePageContent: View {
             }
         } else {
             ForEach(viewModel.state.items) { course in
-                NavigationLink(value: course) {
+                AppBrowserListRow(isSelected: selection?.id == course.id, action: { selection = course }) {
                     CourseListRow(course: course)
                 }
-                .buttonStyle(.plain)
                 .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
                     await viewModel.loadMoreIfNeeded(currentCourse: course)
                 }
-                .appInteractiveListRow(isSelected: selection?.id == course.id)
-                    .accessibilityIdentifier("ui.course-page-content.course")
+                .accessibilityIdentifier("ui.course-page-content.course")
             }
 
             CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,

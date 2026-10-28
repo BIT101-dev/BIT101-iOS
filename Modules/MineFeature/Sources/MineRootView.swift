@@ -15,11 +15,12 @@ import SwiftUI
 
 /// “我的”页内部导航。
 ///
-/// 这里承载“我的主页”内部 push 的三个子列表，设置页使用独立路由，保持导航状态分离。
+/// 资料子列表和设置入口沿同一浏览层级呈现。
 private enum MineRoute: Hashable, Identifiable {
     case followers
     case followings
     case posters
+    case settings(CommunitySettingsEntry)
 
     /// 供导航绑定使用的稳定标识。
     var id: Self { self }
@@ -32,8 +33,8 @@ public struct MineRootView: View {
     private let scene: MineRootViewScene
     private let identity: [ObjectIdentifier]
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
-        scene = MineRootViewScene(dependencies: dependencies, media: media, posters: posters, settings: settings, fallbackStudentID: fallbackStudentID, onLogout: onLogout)
+    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void, requestedSettings: Binding<CommunitySettingsEntry?> = .constant(nil)) {
+        scene = MineRootViewScene(dependencies: dependencies, media: media, posters: posters, settings: settings, fallbackStudentID: fallbackStudentID, onLogout: onLogout, requestedSettings: requestedSettings)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -55,7 +56,7 @@ private struct MineRootViewScene: View {
     /// “我的”主页状态机。
     @StateObject private var viewModel: MineViewModel
 
-    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void) {
+    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void, requestedSettings: Binding<CommunitySettingsEntry?>) {
         self.dependencies = dependencies
         self.media = media
         self.posters = posters
@@ -63,12 +64,16 @@ private struct MineRootViewScene: View {
         _viewModel = StateObject(wrappedValue: MineViewModel(service: dependencies.overview))
         self.fallbackStudentID = fallbackStudentID
         self.onLogout = onLogout
+        _requestedSettings = requestedSettings
     }
-    /// 粉丝 / 关注 / 帖子子列表路由。
+    /// 资料与设置的一级选择。
     @State private var route: MineRoute?
     @State private var selectedUserID: Int?
-    /// 设置页内部路由。
-    @State private var settingsRoute: CommunitySettingsEntry?
+    @Binding private var requestedSettings: CommunitySettingsEntry?
+    private var settingsRoute: CommunitySettingsEntry? {
+        if case let .settings(entry)? = route { return entry }
+        return nil
+    }
     /// 建议入口通过独立 sheet 呈现，设置入口使用设置导航路由。
     @State private var isShowingSuggestion = false
     @State private var profileRefreshID = 0
@@ -81,19 +86,18 @@ private struct MineRootViewScene: View {
     }
 
     private var content: some View {
-        AppSidebarLayout {
-            List { Section { profileSection } }.appGroupedListStyle()
-                .accessibilityIdentifier("mine.sidebar")
-        } content: { usesSidebar in
+        AppBrowserLayout(selection: $route, title: "选择一个入口", symbol: "person.crop.circle") {
             List {
-                if !usesSidebar { Section { profileSection } }
-                Section { settingsSection }
+                Section { profileSection }.appGroupedSectionStyle()
+                Section { settingsSection }.appGroupedSectionStyle()
             }
             .accessibilityIdentifier("interaction.MineRootViewScene.list")
             .appGroupedListStyle()
-        }
-        .toolbar(.hidden, for: .navigationBar)
-        .navigationDestination(item: $route) { destination in
+            .refreshable {
+                interactionEvidence?("interaction.MineRootViewScene.refreshable", "refresh")
+                await viewModel.refreshAll()
+            }
+        } detail: { destination in
             Group {
                 switch destination {
                 case .followers:
@@ -133,6 +137,8 @@ private struct MineRootViewScene: View {
                         onRefresh: { await viewModel.refreshPosters() },
                         onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
                     )
+                case let .settings(entry):
+                    destinations.settings(CommunitySettingsRequest(entry: entry, studentID: fallbackStudentID, onLogout: onLogout))
                 }
             }
             .navigationDestination(item: $selectedUserID) { userID in
@@ -142,9 +148,12 @@ private struct MineRootViewScene: View {
             .environment(media)
             .environment(posters)
         }
-        .navigationDestination(item: $settingsRoute) { destination in
-            destinations.settings(CommunitySettingsRequest(entry: destination, studentID: fallbackStudentID, onLogout: onLogout))
+        .task(id: requestedSettings?.id) {
+            guard let requestedSettings else { return }
+            route = .settings(requestedSettings)
+            self.requestedSettings = nil
         }
+        .onChange(of: route) { _, _ in selectedUserID = nil }
         .sheet(isPresented: $isShowingSuggestion) {
             NavigationStack {
                 destinations.suggestion()
@@ -153,10 +162,6 @@ private struct MineRootViewScene: View {
         .task(id: settingsRoute == nil ? profileRefreshID : nil) {
             guard settingsRoute == nil else { return }
             await viewModel.refreshOverview()
-        }
-        .refreshable {
-            interactionEvidence?("interaction.MineRootViewScene.refreshable", "refresh")
-            await viewModel.refreshAll()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath,
             isEnabled: route == nil && settingsRoute == nil && !isShowingSuggestion && selectedUserID == nil) {
@@ -200,22 +205,16 @@ private struct MineRootViewScene: View {
     /// 设置入口进入 `SettingsRootView`，建议入口使用独立 sheet 呈现。
     private var settingsSection: some View {
         ForEach(destinations.settingsEntries) { route in
-            Button {
+            AppBrowserListRow(isSelected: self.route == .settings(route), action: {
                 if route.id == "suggestion" {
                     isShowingSuggestion = true
                 } else {
-                    settingsRoute = route
+                    self.route = .settings(route)
                 }
-            } label: {
-                AppNavigationRowLabel(
-                    title: route.title,
-                    showsDisclosureIndicator: true
-                )
-                .contentShape(Rectangle())
+            }) {
+                Text(route.title)
             }
-            .buttonStyle(.plain)
             .accessibilityIdentifier("settings.route.\(route.id)")
-            .appInteractiveListRow()
         }
     }
 }
