@@ -371,8 +371,9 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let pane = app.native.descendants(matching: .any)["browser.detail"]
         let sidebar = app.descendants(matching: .any)["browser.master"]
         let window = app.windows.firstMatch.frame
+        let available = app.windows.firstMatch.scrollGestureFrame(in: window) ?? window
         let detailFrame = CGRect(x: sidebar.frame.maxX, y: window.minY,
-            width: window.maxX - sidebar.frame.maxX, height: window.height)
+            width: available.maxX - sidebar.frame.maxX, height: window.height)
         assertUI(waitUntil(NSPredicate { _, _ in
             let scroll = pane.scrollViews.firstMatch
             let list = pane.collectionViews.firstMatch
