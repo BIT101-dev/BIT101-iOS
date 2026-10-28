@@ -193,6 +193,7 @@ private struct SettingsIndexCard: View {
 /// 其它模块通过 `route` 进入对应的设置页面。
 private struct SettingsRoutePage: View {
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
+    @Environment(\.appWindowLayout) private var layout
     let route: SettingsRoute
     let studentID: String
     let onLogout: () -> Void
@@ -216,7 +217,7 @@ private struct SettingsRoutePage: View {
                     updates: dependencies.updates, prompts: dependencies.prompts)
             }
         }
-        .appReadableContent()
+        .appReadableContent(fillsAvailableWidth: layout.isLandscape)
     }
 }
 

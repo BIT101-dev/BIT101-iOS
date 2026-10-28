@@ -109,7 +109,9 @@ struct ScheduleInlineWeekSlider: View {
                         WeekSliderViewport(width: viewport.size.width, padding: horizontalPadding)
                     } action: { viewport in
                         guard viewport.width > 0 else { return }
-                        reader.scrollTo(currentWeek, anchor: .center)
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { reader.scrollTo(currentWeek, anchor: .center) }
                     }
                 }
 

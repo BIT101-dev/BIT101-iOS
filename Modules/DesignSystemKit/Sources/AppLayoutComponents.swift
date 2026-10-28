@@ -27,7 +27,7 @@ public struct AppWindowLayout: Equatable {
     }
     public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
     public var usesTopTabBar: Bool {
-        if #available(iOS 18.0, *) { isRegularWidth } else { false }
+        if #available(iOS 18.0, *) { isRegularWidth && usesOpaqueNavigation } else { false }
     }
     public var usesOpaqueNavigation: Bool {
         switch UIDevice.current.userInterfaceIdiom {

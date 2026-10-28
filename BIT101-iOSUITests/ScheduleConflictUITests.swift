@@ -129,6 +129,63 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.sectionTab("空教室").native.isSelected, "空教室查询应保留当前分区。")
     }
     @MainActor
+    @objc func testMineSettingsFillTheAvailableDetailWidth() {
+        let rotates = UIDevice.current.userInterfaceIdiom != .phone
+        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
+        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true,
+            initialTab: "mine", initialSettings: "account")
+        if app.native.windows.firstMatch.frame.height > app.native.windows.firstMatch.frame.width {
+            assertPortraitDetailWidth()
+            return
+        }
+        for route in ["account", "calendar", "ddl", "gallery", "about"] {
+            let entry = app.buttons["settings.route.\(route)"]
+            entry.tapBriefly()
+            let detail = app.native.descendants(matching: .any)["browser.detail"]
+            let master = app.native.descendants(matching: .any)["browser.master"]
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let window = self.app.windows.firstMatch.frame
+                let available = self.app.windows.firstMatch.scrollGestureFrame(in: window) ?? window
+                let viewport = detail.collectionViews.firstMatch.exists
+                    ? detail.collectionViews.firstMatch : detail.scrollViews.firstMatch
+                return entry.native.isSelected && viewport.exists
+                    && viewport.frame.width >= (available.maxX - master.frame.maxX) * 0.95
+            }, on: app, timeout: 5), "设置二级页面应填满右侧可用宽度：\(route)，详情 \(detail.frame)。")
+        }
+    }
+
+    @MainActor
+    @objc func testScheduleChromeSurvivesRotationsWhileSelected() {
+        guard UIDevice.current.userInterfaceIdiom != .phone else { return }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true,
+            initialTab: "mine", initialSettings: "account")
+        app.mainTab("日程").tapBriefly()
+        for orientation: UIDeviceOrientation in [.portrait, .landscapeRight, .portraitUpsideDown,
+                                                  .landscapeLeft, .portrait, .landscapeRight] {
+            XCUIDevice.shared.orientation = orientation
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let window = self.app.native.windows.firstMatch.frame
+                return (window.width > window.height) == orientation.isLandscape
+            }, on: app, timeout: 5), "日程应完成当前方向的窗口布局。")
+            let tabs = orientation.isLandscape
+                ? ["日程", "空教室", "地图", "话廊", "文章", "成绩", "课程", "我的"]
+                : ["日程", "地图", "话廊", "成绩", "我的"]
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let navigation = tabs.map { self.app.mainTab($0).native.frame }.reduce(CGRect.null) { $0.union($1) }
+                let window = self.app.native.windows.firstMatch.frame
+                let stamps = self.app.native.staticTexts.matching(identifier: "app.refresh-status.timestamp")
+                    .allElementsBoundByIndex.filter { window.intersects($0.frame) }
+                return !stamps.isEmpty && stamps.allSatisfy { $0.frame.minY >= navigation.maxY - 0.5 }
+            }, on: app, timeout: 5), "日程保持选中并旋转后，刷新行应位于系统主导航下方：\(orientation.rawValue)。")
+            assertSelectedWeek(1)
+            if !orientation.isLandscape { assertCompactNavigation(requiresSections: true) }
+        }
+    }
+
+    @MainActor
     @objc func testCurrentWindowUsesAdaptivePanesAndReadableCards() {
         app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true, pagination: true, initialTab: "mine")
         let traits = windowTraits()

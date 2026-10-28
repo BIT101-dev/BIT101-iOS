@@ -96,7 +96,7 @@ public struct ScheduleRootView: View {
                 .frame(height: displayedSection == .courses
                     ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
-        .toolbar(expandedNavigation || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
+        .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
         .allowsHitTesting(!viewModel.isLoadingCache)

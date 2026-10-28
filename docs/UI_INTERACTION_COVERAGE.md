@@ -45,6 +45,8 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `ScheduleLayoutUITests/testScheduleKeepsWeekAndControlsAcrossWindowRotation` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
 | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards` | 当前窗口的资料 / 空教室分栏、话题 / 文章 / 成绩 / 课程列表与详情分栏、公共侧栏宽度、导航背景像素与刷新行边界、课表与单列 DDL 并排、地图图层切换、编辑草稿与键盘收起、辅助功能字号单列 |
 | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome` | 成绩 / 课程原生入口、列表与详情分栏、切页详情保留、与日程 / 话题 / 文章共享侧栏宽度及顶部背景 |
+| `LandscapeLayoutUITests/testMineSettingsFillTheAvailableDetailWidth` | 逐一选中账号 / 日历 / DDL / 话廊 / 关于设置，核对右侧列表或滚动区域占满可用详情宽度 |
+| `LandscapeLayoutUITests/testScheduleChromeSurvivesRotationsWhileSelected` | 从设置详情进入日程并保持选中，连续六次横竖旋转，核对刷新行与主导航边界、竖屏分区入口及当前周次 |
 | `CommunityRecoveryUITests/testArticleCountersUpdateTheVisibleListFromItsDetail` | 文章详情点赞与评论后的卡片计数、横屏同屏展示与紧凑窗口返回列表 |
 | `LandscapeLayoutUITests/testClassroomSMSUsesTheCurrentNativeDestination` | 空教室入口触发短信验证、当前页面承载验证、验证后续接查询与分区保持 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayAndTransferConfirmationCancellation` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |
