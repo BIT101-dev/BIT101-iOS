@@ -98,13 +98,11 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
     }
     public var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all), preferredCompactColumn: $compactColumn) {
-            NavigationStack {
-                master.environment(\.appWindowLayout, layout.singleColumn)
-                    .focusEffectDisabled()
-                    .navigationBarTitleDisplayMode(.inline)
-                    .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
-                    .toolbar(header == nil || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
-            }
+            master.environment(\.appWindowLayout, layout.singleColumn)
+                .focusEffectDisabled()
+                .navigationBarTitleDisplayMode(.inline)
+                .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
+                .toolbar(header == nil || !layout.usesTopTabBar ? .hidden : .visible, for: .navigationBar)
             .navigationSplitViewColumnWidth(min: layout.isLandscape ? layout.sidebarWidth : nil,
                 ideal: layout.isLandscape ? layout.sidebarWidth : (layout.availableWidth ?? layout.size.width),
                 max: layout.isLandscape ? layout.sidebarWidth : nil)

@@ -144,7 +144,7 @@ private struct GalleryRootViewScene: View {
     }
 
     var body: some View {
-        content.systemImagePreview(item: $feedImageViewer)
+        content
             .environment(dependencies).environment(media).environment(profiles)
             .appBrowserHeader(isPresented: !expandedNavigation && !appSettings.galleryUseWebView) {
                 GallerySurfacePicker(selection: surfaceSelection)
@@ -152,7 +152,7 @@ private struct GalleryRootViewScene: View {
     }
 
     private var content: some View {
-        VStack(spacing: AppDesignSystem.Spacing.none) {
+        Group {
             if appSettings.galleryUseWebView && !isShowingNativePaperRoute && selectedContent == nil {
                 GalleryWebContentView()
             } else if !includesPaperSurface {
@@ -200,7 +200,6 @@ private struct GalleryRootViewScene: View {
             if settings.galleryHideBotPosterInSearch && viewModel.selectedFeed == .bot { viewModel.selectedFeed = .recommend }
             viewModel.contentPreferencesDidChange()
         }
-        .toolbar(.hidden, for: .navigationBar)
     }
 
     private struct GalleryWebContentView: View {
@@ -373,6 +372,7 @@ private struct GalleryRootViewScene: View {
 
 
         }
+        .systemImagePreview(item: $feedImageViewer)
         .appBrowserActions {
                 AppFloatingActionButton(systemImage: "bookmark", accessibilityLabel: "我的收藏") {
                     isShowingSubscriptions = true
