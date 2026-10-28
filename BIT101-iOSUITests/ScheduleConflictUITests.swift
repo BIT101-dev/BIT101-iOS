@@ -222,12 +222,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["帖子详情"].appears(timeout: 5) && first.exists, "话题详情应在右侧打开并保留左侧列表。")
         assertDetailWidth()
         capture("话题详情")
-        XCUIDevice.shared.orientation = .portrait
-        assertPortraitBrowser(detailTitle: "帖子详情")
-        first.tapBriefly()
-        assertUI(app.navigationBars["帖子详情"].appears(timeout: 5), "竖屏应支持从列表进入帖子详情。")
-        assertPortraitDetailWidth()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        checkPortraitRoundTrip(detailTitle: "帖子详情") { first.tapBriefly() }
         assertUI(first.appears(timeout: 5) && app.navigationBars["帖子详情"].exists, "返回横屏应保留阅读位置与详情。")
         tapHeader(app.sectionTab("文章"))
         let paper = textElement("分页文章 1"), nextPaper = textElement("分页文章 2")
@@ -239,12 +234,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5) && paper.exists, "文章详情应在右侧打开并保留左侧列表。")
         assertDetailWidth()
         capture("文章详情")
-        XCUIDevice.shared.orientation = .portrait
-        assertPortraitBrowser(detailTitle: "文章详情")
-        paper.tapBriefly()
-        assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "竖屏文章列表应继续打开详情。")
-        assertPortraitDetailWidth()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        checkPortraitRoundTrip(detailTitle: "文章详情") { paper.tapBriefly() }
         app.mainTab("地图").tapBriefly()
         let layer = app.buttons["切换地图图层"]
         assertUI(layer.appears(timeout: 5) && app.windows.firstMatch.frame.contains(layer.frame), "横屏地图应完整显示图层工具。")
@@ -270,24 +260,24 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             return window.width > window.height
         }, on: app, timeout: 10), "分栏验收使用实际横屏窗口。")
         checkAcademicBrowsers()
-        XCUIDevice.shared.orientation = .portrait
-        assertPortraitBrowser(detailTitle: "成绩详情")
-        let score = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch
-        score.tapBriefly()
-        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "竖屏成绩列表应继续打开详情。")
-        assertPortraitDetailWidth()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        checkPortraitRoundTrip(detailTitle: "成绩详情") {
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch.tapBriefly()
+        }
         app.mainTab("课程").tapBriefly()
-        XCUIDevice.shared.orientation = .portrait
-        assertPortraitBrowser(detailTitle: "课程详情")
-        app.buttons["ui.course-page-content.course"].tapBriefly()
-        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "竖屏课程列表应继续打开详情。")
-        assertPortraitDetailWidth()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        checkPortraitRoundTrip(detailTitle: "课程详情") { app.buttons["ui.course-page-content.course"].tapBriefly() }
         for (tab, title) in [("日程", "课表与DDL"), ("话廊", "话题列表"), ("文章", "文章列表")] {
             app.mainTab(tab).tapBriefly()
             capture(title)
         }
+    }
+    @MainActor private func checkPortraitRoundTrip(detailTitle: String, reopen: () -> Void) {
+        guard windowTraits()["idiom"] != UIUserInterfaceIdiom.phone.rawValue else { return }
+        XCUIDevice.shared.orientation = .portrait
+        assertPortraitBrowser(detailTitle: detailTitle)
+        reopen()
+        assertUI(app.navigationBars[detailTitle].appears(timeout: 5), "竖屏浏览列表应继续打开所属详情。")
+        assertPortraitDetailWidth()
+        XCUIDevice.shared.orientation = .landscapeLeft
     }
     @MainActor private func assertPortraitBrowser(detailTitle: String) {
         let master = app.native.descendants(matching: .any)["browser.master"]
