@@ -152,7 +152,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }),
             !selected.identifier.isEmpty else { return nil }
         return app.descendants(matching: selected.elementType).matching(identifier: selected.identifier)
-            .allElementsBoundByIndex.first { $0.native.frame == selected.frame }
+            .allElementsBoundByIndex.first {
+                let actual = $0.native.frame, expected = selected.frame
+                return abs(actual.minX - expected.minX) <= 0.5 && abs(actual.minY - expected.minY) <= 0.5
+                    && abs(actual.width - expected.width) <= 0.5 && abs(actual.height - expected.height) <= 0.5
+            }
     }
 
     @MainActor

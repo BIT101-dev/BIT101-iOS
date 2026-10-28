@@ -99,7 +99,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
                 master.environment(\.appWindowLayout, layout.singleColumn)
                     .focusEffectDisabled()
                     .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
-                    .toolbar(header == nil ? .hidden : .visible, for: .navigationBar)
+                    .toolbar(header == nil || !layout.isRegularWidth ? .hidden : .visible, for: .navigationBar)
             }
             .navigationSplitViewColumnWidth(min: layout.isLandscape ? layout.sidebarWidth : nil,
                 ideal: layout.isLandscape ? layout.sidebarWidth : (layout.availableWidth ?? layout.size.width),

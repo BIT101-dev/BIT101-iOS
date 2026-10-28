@@ -95,7 +95,7 @@ public struct ScheduleRootView: View {
                 .frame(height: displayedSection == .courses
                     ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
-        .toolbar(expandedNavigation ? .hidden : .visible, for: .navigationBar)
+        .toolbar(expandedNavigation || !layout.isRegularWidth ? .hidden : .visible, for: .navigationBar)
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {
             if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }
