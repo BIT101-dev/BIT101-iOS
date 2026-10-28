@@ -115,7 +115,6 @@ struct CourseScheduleTabView: View {
                     CourseScheduleFABLabel(systemImage: "plus")
                 }
                 .buttonStyle(.plain)
-                .tint(.primary)
                 .contentShape(Circle())
                 .accessibilityLabel("添加课表内容")
                 .accessibilityIdentifier("schedule.add-content")
