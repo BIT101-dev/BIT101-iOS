@@ -34,9 +34,11 @@ public nonisolated enum SchoolLoginHTMLParser {
 
     /// CAS 明确的密码拒绝码触发凭据更新；风控和页面异常沿原错误呈现。
     public static func rejectsPassword(html: String) -> Bool {
-        guard let code = field(in: html, id: "login-error-code") else { return false }
+        guard let code = loginErrorCode(html: html) else { return false }
         return ["1030027", "1030031"].contains(code)
     }
+
+    public static func loginErrorCode(html: String) -> String? { field(in: html, id: "login-error-code") }
 
     /// 从学校 CAS 短信验证页提取继续提交所需的表单上下文。
     public static func parseSecondFactorPage(html: String, baseURL: URL, documentURL: URL? = nil) -> SchoolSecondFactorContext? {

@@ -33,7 +33,7 @@ struct TrustedTranscriptRecoveryTests {
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             try await replacementPages(onPage: onPage)
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
@@ -43,7 +43,7 @@ struct TrustedTranscriptRecoveryTests {
         await model.applyIfNeeded()
         let original = model.images
         model.prepareReapplication(); await model.applyIfNeeded()
-        if sms { await model.submitSMSCode("123456") }
+        if sms { await model.submitVerificationCode("123456") }
         #expect(model.images.elementsEqual(original, by: { $0 === $1 }) && model.deliveryWarning != nil)
         model.prepareRetry(); await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil)
@@ -54,6 +54,7 @@ struct TrustedTranscriptRecoveryTests {
         let challenge = BITLoginAuthenticationChallenge(challengeID: "transcript", accessToken: "fixture",
             status: "requires_sms", maskedPhone: nil, expiresIn: 60)
         var downloading = false, cancelled = false
+        var codeFailure: (any Error)?
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             throw ScoreServiceError.secondFactorRequired(challenge)
         }
@@ -63,22 +64,35 @@ struct TrustedTranscriptRecoveryTests {
             catch { cancelled = Task.isCancelled; throw error }
             throw URLError(.timedOut)
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+            if let codeFailure { throw codeFailure }
+            return challenge
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aSchoolAccountLockClosesTranscriptVerificationAndKeepsItsOrigin() async throws {
+        let service = SMSService(), model = TrustedTranscriptViewModel(service: service)
+        service.codeFailure = ScoreServiceError.queryFailed("账号已被锁定 (code:1030028)")
+        await model.applyIfNeeded(); await model.submitVerificationCode("123456")
+        #expect(model.verificationChallenge == nil && model.verificationError == nil && !service.downloading)
+        #expect(SchoolServiceFailure.from(model.failureCause) == .accountLocked)
+        if case .failed = model.state {} else { Issue.record("学校账号状态应展示在原业务页面。") }
     }
 
     @Test(.timeLimit(.minutes(1)))
     func leavingThePageCancelsTheAuthenticatedDownloadAndKeepsSMSClosed() async throws {
         let service = SMSService(), model = TrustedTranscriptViewModel(service: service)
         await model.applyIfNeeded()
-        #expect(model.smsChallenge != nil)
-        let submission = Task { await model.submitSMSCode("123456") }
-        defer { submission.cancel(); model.cancelSMSContinuation() }
+        #expect(model.verificationChallenge != nil)
+        let submission = Task { await model.submitVerificationCode("123456") }
+        defer { submission.cancel(); model.cancelVerificationContinuation() }
         try await waitForTestEvent { service.downloading }
-        #expect(model.smsChallenge == nil && model.isLoadingPages)
-        model.cancelSMSContinuation()
+        #expect(model.verificationChallenge == nil && model.isLoadingPages)
+        model.cancelVerificationContinuation()
         await submission.value
-        #expect(service.cancelled && model.smsChallenge == nil)
-        #expect(!model.isLoadingPages && !model.isSubmittingSMSCode && model.state == .idle)
+        #expect(service.cancelled && model.verificationChallenge == nil)
+        #expect(!model.isLoadingPages && !model.isSubmittingVerificationCode && model.state == .idle)
     }
 
     private final class StreamingService: TrustedTranscriptServicing {
@@ -110,7 +124,7 @@ struct TrustedTranscriptRecoveryTests {
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             try await fetchTrustedTranscriptPages(onPage: onPage)
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -203,7 +217,7 @@ struct TrustedTranscriptRecoveryTests {
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             try await fetchTrustedTranscriptPages(onPage: onPage)
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -243,7 +257,7 @@ struct TrustedTranscriptRecoveryTests {
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             try await fetchTrustedTranscriptPages()
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))

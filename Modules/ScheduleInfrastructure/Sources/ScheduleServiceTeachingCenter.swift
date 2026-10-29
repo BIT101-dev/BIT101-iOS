@@ -175,6 +175,7 @@ extension ScheduleService {
 
     /// WebVPN 网络路线或 bit-login 暂态故障时，继续使用校内直连。
     func shouldAttemptDirectTeachingCenterFallback(for error: Error) -> Bool {
+        if SchoolServiceFailure.from(error) == .accountLocked { return false }
         if isScheduleTransientNetworkError(error) {
             return true
         }

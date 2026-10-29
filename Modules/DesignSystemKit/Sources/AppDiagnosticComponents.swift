@@ -80,12 +80,21 @@ public nonisolated struct AppAlert: DiagnosticAlertPresentable {
 
 #if os(iOS)
 public typealias AppDiagnosticAlertHandler = @MainActor (any DiagnosticAlertPresentable) -> Void
+public typealias AppDiagnosticModalHandler = @MainActor (UUID, Bool) -> Void
 
 private struct AppDiagnosticAlertKey: EnvironmentKey {
     static let defaultValue: AppDiagnosticAlertHandler? = nil
 }
 
+private struct AppDiagnosticModalKey: EnvironmentKey {
+    static let defaultValue: AppDiagnosticModalHandler? = nil
+}
+
 extension EnvironmentValues {
+    public var appDiagnosticModalActivity: AppDiagnosticModalHandler? {
+        get { self[AppDiagnosticModalKey.self] }
+        set { self[AppDiagnosticModalKey.self] = newValue }
+    }
     public var appDiagnosticAlert: AppDiagnosticAlertHandler? {
         get { self[AppDiagnosticAlertKey.self] }
         set { self[AppDiagnosticAlertKey.self] = newValue }

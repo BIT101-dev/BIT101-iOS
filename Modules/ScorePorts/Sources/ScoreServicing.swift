@@ -10,7 +10,7 @@ public protocol ScoreListServicing {
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
     ) async throws -> [ScoreRow]
-    func submitScoreSMSCode(
+    func submitScoreVerificationCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge
@@ -32,7 +32,7 @@ public protocol TrustedTranscriptServicing {
     var transcriptServiceIdentity: AnyHashable { get }
     func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
     func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
-    func submitTranscriptSMSCode(
+    func submitTranscriptVerificationCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge
@@ -104,7 +104,7 @@ public nonisolated enum ScoreServiceError: LocalizedError, SchoolServiceFailureP
         case .requestTimedOut:
             return "请求超时，请稍后重试。"
         case .secondFactorRequired:
-            return "需要短信验证码才能继续执行此操作。"
+            return "需要完成学校验证码验证才能继续执行此操作。"
         case let .challengeInvalid(message):
             return message
         case let .queryFailed(message):

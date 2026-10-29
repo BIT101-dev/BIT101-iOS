@@ -62,11 +62,14 @@ extension EnvironmentValues {
     @Entry public var appPageIsVisible = true
     @Entry public var appBrowserHeader: AnyView? = nil
     @Entry public var appFeedRowIsSelected = false
+    @Entry public var appContentColumn: AppContentColumn? = nil
     public var appWindowLayout: AppWindowLayout {
         get { self[AppWindowLayoutKey.self] }
         set { self[AppWindowLayoutKey.self] = newValue }
     }
 }
+
+public enum AppContentColumn: Equatable { case leading, trailing }
 
 public struct AppPairedPages<First: View, Second: View>: View {
     @Environment(\.appWindowLayout) private var layout
@@ -91,9 +94,12 @@ public struct AppPairedPages<First: View, Second: View>: View {
             if hasShownFirst || firstVisible {
                 pane(first, visible: firstVisible)
                     .frame(width: isPaired && layout.hasLandscapeDivision ? layout.sidebarWidth : nil)
+                    .environment(\.appContentColumn, isPaired ? .leading : nil)
             }
             if isPaired { Divider() }
-            if hasShownSecond || secondVisible { pane(second, visible: secondVisible) }
+            if hasShownSecond || secondVisible {
+                pane(second, visible: secondVisible).environment(\.appContentColumn, isPaired ? .trailing : nil)
+            }
         }
         .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
         .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
@@ -107,19 +113,26 @@ public struct AppPairedPages<First: View, Second: View>: View {
     }
 }
 
-public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>: View {
+public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, DefaultDetail: View>: View {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.appBrowserHeader) private var header
     @Environment(\.appPageIsVisible) private var isVisible
     @Binding private var selection: Selection?
     @State private var wasLandscapeWindow = false
-    private let title: String
-    private let symbol: String
     private let master: Master
     private let detail: (Selection) -> Detail
+    private let defaultDetail: DefaultDetail
     public init(selection: Binding<Selection?>, title: String, symbol: String,
-                @ViewBuilder master: () -> Master, @ViewBuilder detail: @escaping (Selection) -> Detail) {
-        _selection = selection; self.title = title; self.symbol = symbol
+                @ViewBuilder master: () -> Master, @ViewBuilder detail: @escaping (Selection) -> Detail)
+                where DefaultDetail == AppEmptyState {
+        self.init(selection: selection, master: master,
+            defaultDetail: { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") },
+            detail: detail)
+    }
+    public init(selection: Binding<Selection?>, @ViewBuilder master: () -> Master,
+                @ViewBuilder defaultDetail: () -> DefaultDetail,
+                @ViewBuilder detail: @escaping (Selection) -> Detail) {
+        _selection = selection; self.defaultDetail = defaultDetail()
         self.master = master(); self.detail = detail
     }
     public var body: some View {
@@ -129,6 +142,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
         let showsDetail = layout.isLandscape || selection != nil
         arrangement {
             NavigationStack { masterContent }
+            .environment(\.appContentColumn, layout.isLandscape ? .leading : nil)
             .frame(width: layout.isLandscape ? layout.sidebarWidth : nil)
             .frame(maxWidth: layout.isLandscape ? nil : .infinity, maxHeight: .infinity)
             .overlay(alignment: .trailing) {
@@ -146,7 +160,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
             NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
                 Group {
                     if layout.isLandscape {
-                        AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容")
+                        defaultDetail
                     } else { Color.clear }
                 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -163,6 +177,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
             .allowsHitTesting(showsDetail)
             .accessibilityHidden(!showsDetail)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
+            .environment(\.appContentColumn, layout.isLandscape ? .trailing : nil)
         }
         .padding(.top, layout.contentTopInset)
         .ignoresSafeArea(.keyboard, edges: layout.isLandscapeWindow ? .bottom : [])
@@ -191,7 +206,6 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
 
     private func detailContent(_ selected: Selection) -> some View {
         detail(selected)
-            .padding(.horizontal, layout.isLandscape ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none)
             .background(AppDesignSystem.Palette.Background.grouped)
             .toolbar(.visible, for: .navigationBar)
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
@@ -327,28 +341,6 @@ private struct AppReadableContentModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.frame(maxWidth: fillsAvailableWidth ? .infinity : AppDesignSystem.Size.Layout.readingWidth)
             .frame(maxWidth: .infinity)
-    }
-}
-
-public struct AppSidebarLayout<Sidebar: View, Content: View>: View {
-    @Environment(\.appWindowLayout) private var layout
-    private let sidebar: Sidebar
-    private let content: (Bool) -> Content
-    public init(@ViewBuilder sidebar: () -> Sidebar, @ViewBuilder content: @escaping (Bool) -> Content) {
-        self.sidebar = sidebar(); self.content = content
-    }
-    public var body: some View {
-        GeometryReader { geometry in
-            let usesSidebar = layout.isLandscape && geometry.size.width >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
-            HStack(spacing: AppDesignSystem.Spacing.none) {
-                if usesSidebar {
-                    sidebar.frame(width: layout.sidebarWidth)
-                    Divider()
-                }
-                content(usesSidebar).frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .accessibilityElement(children: .contain)
     }
 }
 
@@ -637,9 +629,10 @@ extension View {
 
 private struct AppGroupedListStyleModifier: ViewModifier {
     @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appContentColumn) private var column
     let insetViewport: Bool
     func body(content: Content) -> some View {
-        let inset = insetViewport || layout.hasHorizontalSystemInsets
+        let inset = insetViewport || (layout.hasHorizontalSystemInsets && column != .leading)
         content.listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)

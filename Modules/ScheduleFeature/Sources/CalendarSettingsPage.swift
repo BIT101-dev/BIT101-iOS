@@ -364,23 +364,24 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         }
         .sheet(
             item: Binding(
-                get: { viewModel.smsChallenge },
+                get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissSMSChallenge()
+                        viewModel.dismissVerificationChallenge()
                     }
                 }
             )
         ) { challenge in
-            AppSMSVerificationSheet(
+            AppVerificationSheet(
                 maskedPhone: challenge.maskedPhone,
-                isSubmitting: viewModel.isSubmittingSMSCode,
-                errorMessage: viewModel.smsVerificationError,
+                isSubmitting: viewModel.isSubmittingVerificationCode,
+                errorMessage: viewModel.verificationError,
                 submitTitle: "验证并同步课表",
-                onCancel: viewModel.dismissSMSChallenge,
+                onCancel: viewModel.dismissVerificationChallenge,
                 onSubmit: { code in
-                    await viewModel.submitSMSCode(code)
-                }
+                    await viewModel.submitVerificationCode(code)
+                },
+                isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
             )
         }
         .onDisappear {

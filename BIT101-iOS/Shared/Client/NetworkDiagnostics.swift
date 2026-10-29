@@ -191,14 +191,24 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
 }
 
 nonisolated struct SchoolServiceIssue: Sendable {
+    static let serviceActionTitle = "万一学校服务 g 了？"
     let title: String
     let message: String
     let serviceURL = AppURL.required("https://sso.bit.edu.cn/cas/login")
+    let actionTitle: String
+    let usesAuthenticationEntry: Bool
 
     init?(error: (any Error)?) {
         guard let failure = SchoolServiceFailure.from(error) else { return nil }
-        if case .authenticationChannel = failure { title = "学校认证通道异常" }
-        else { title = "学校服务异常" }
+        switch failure {
+        case .authenticationChannel: title = "学校认证通道异常"
+        case .authenticationRestricted: title = "学校认证受限"
+        case .accountLocked: title = "学校账号已锁定"
+        default: title = "学校服务异常"
+        }
+        usesAuthenticationEntry = [.authenticationRestricted, .accountLocked].contains(failure)
+        actionTitle = usesAuthenticationEntry
+            ? "打开学校统一认证" : Self.serviceActionTitle
         message = failure.localizedDescription
     }
 }

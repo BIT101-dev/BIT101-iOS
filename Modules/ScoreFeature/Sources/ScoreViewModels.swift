@@ -46,16 +46,16 @@ public final class ScoreViewModel: ObservableObject {
     @Published private(set) var lastUpdatedAt: Date?
     /// 已缓存课表可确认的未出分课程；对应学期课表缺失时返回 nil。
     @Published private(set) var pendingCourses: [ScoreCourseSummary]?
-    /// 当前等待用户输入短信验证码的短期认证挑战。
-    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge? {
+    /// 当前等待用户输入图形或短信验证码的短期认证挑战。
+    @Published private(set) var verificationChallenge: BITLoginAuthenticationChallenge? {
         didSet {
-            if smsChallenge != nil { refreshPhase = .awaitingVerification }
+            if verificationChallenge != nil { refreshPhase = .awaitingVerification }
             else if refreshPhase == .awaitingVerification { refreshPhase = .idle }
         }
     }
-    /// 短信验证码提交过程的行内错误提示。
-    @Published private(set) var smsVerificationError: String?
-    @Published private(set) var isSubmittingSMSCode = false
+    /// 验证码提交过程的行内错误提示。
+    @Published private(set) var verificationError: String?
+    @Published private(set) var isSubmittingVerificationCode = false
     @Published var alert: AppAlert?
     @Published private(set) var needsStorageRecovery = false
     @Published private(set) var isRecoveringStorage = false
@@ -149,9 +149,9 @@ public final class ScoreViewModel: ObservableObject {
         failureCause = nil
         allowsDiagnostics = true
         pendingCourses = nil
-        smsChallenge = nil
-        smsVerificationError = nil
-        isSubmittingSMSCode = false
+        verificationChallenge = nil
+        verificationError = nil
+        isSubmittingVerificationCode = false
         refreshPhase = .idle
         syncStatusText = "同步中"
         lastUpdatedAt = nil
@@ -167,10 +167,10 @@ public final class ScoreViewModel: ObservableObject {
 
     /// 进入成绩页时恢复本地缓存；学校请求由用户操作触发。
     ///
-    /// “查询成绩”和刷新按钮触发真实成绩查询，短信验证码在当前操作链路中展示。
+    /// “查询成绩”和刷新按钮触发真实成绩查询，验证码在当前操作链路中展示。
     func restoreCachedDataIfNeeded() async {
         guard state == .idle || !didRestoreCachedRows,
-              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+              !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil else { return }
         let presentation = presentationGeneration
         let session = currentScoreCacheSession()
         let generation = accountGeneration
@@ -206,15 +206,15 @@ public final class ScoreViewModel: ObservableObject {
     ///
     /// 页面已有内容时在原列表上刷新数据。
     func refresh(showErrors: Bool = true) async {
-        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+        guard !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil, !isRecoveringStorage else { return }
         alert = nil
         presentationGeneration &+= 1
 
         let session = currentScoreCacheSession()
         let generation = accountGeneration
         let hadContent = hasContent
-        smsChallenge = nil
-        smsVerificationError = nil
+        verificationChallenge = nil
+        verificationError = nil
         refreshPhase = .authenticating
         failureCause = nil
         allowsDiagnostics = true
@@ -225,7 +225,7 @@ public final class ScoreViewModel: ObservableObject {
 
         defer {
             if isCurrent(session, generation: generation) {
-                refreshPhase = smsChallenge == nil ? .idle : .awaitingVerification
+                refreshPhase = verificationChallenge == nil ? .idle : .awaitingVerification
             }
         }
 
@@ -242,13 +242,13 @@ public final class ScoreViewModel: ObservableObject {
             )
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard isCurrent(session, generation: generation) else { return }
-            smsChallenge = challenge
+            verificationChallenge = challenge
             state = hasContent ? .loaded : .loading
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard isCurrent(session, generation: generation) else { return }
             failureCause = ScoreServiceError.challengeInvalid(message)
-            smsChallenge = nil
-            smsVerificationError = nil
+            verificationChallenge = nil
+            verificationError = nil
             if hasContent {
                 state = .loaded
                 if showErrors {
@@ -297,37 +297,37 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     /// 提交原生验证码输入框中的一次性代码，并在认证成功后完成成绩刷新。
-    func submitSMSCode(_ code: String) async {
-        guard let challenge = smsChallenge, !isSubmittingSMSCode else { return }
+    func submitVerificationCode(_ code: String) async {
+        guard let challenge = verificationChallenge, !isSubmittingVerificationCode else { return }
         let session = currentScoreCacheSession()
         let generation = accountGeneration
 
-        let normalizedCode = code.filter(\.isNumber)
-        guard (4 ... 8).contains(normalizedCode.count) else {
-            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
+        let normalizedCode = AppVerificationCode.normalize(code, isCaptcha: challenge.isCaptcha)
+        guard AppVerificationCode.isValid(normalizedCode, isCaptcha: challenge.isCaptcha) else {
+            verificationError = AppVerificationCode.validationMessage(isCaptcha: challenge.isCaptcha)
             return
         }
 
-        isSubmittingSMSCode = true
-        smsVerificationError = nil
+        isSubmittingVerificationCode = true
+        verificationError = nil
         defer {
             if isCurrent(session, generation: generation) {
-                isSubmittingSMSCode = false
+                isSubmittingVerificationCode = false
             }
         }
 
         do {
             let submitTask = Task { @MainActor [service = self.service] in
-                try await service.submitScoreSMSCode(normalizedCode, for: challenge)
+                try await service.submitScoreVerificationCode(normalizedCode, for: challenge)
             }
             let authenticatedChallenge = try await awaitTrackedRequest(submitTask)
             guard isCurrent(session, generation: generation) else { return }
-            smsChallenge = nil
+            verificationChallenge = nil
             refreshPhase = .summary
             syncStatusText = "同步简略成绩中"
             defer {
                 if isCurrent(session, generation: generation) {
-                    refreshPhase = smsChallenge == nil ? .idle : .awaitingVerification
+                    refreshPhase = verificationChallenge == nil ? .idle : .awaitingVerification
                 }
             }
             try await synchronizeScores(
@@ -337,13 +337,13 @@ public final class ScoreViewModel: ObservableObject {
             )
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard isCurrent(session, generation: generation) else { return }
-            smsChallenge = challenge
-            smsVerificationError = "请输入最新收到的短信验证码。"
+            verificationChallenge = challenge
+            verificationError = nil
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard isCurrent(session, generation: generation) else { return }
             failureCause = ScoreServiceError.challengeInvalid(message)
-            smsChallenge = nil
-            smsVerificationError = nil
+            verificationChallenge = nil
+            verificationError = nil
             allowsDiagnostics = false
             if rows.isEmpty {
                 state = .failed(message)
@@ -355,9 +355,10 @@ public final class ScoreViewModel: ObservableObject {
                 state = rows.isEmpty ? .idle : .loaded
                 return
             }
-            if smsChallenge != nil {
-                smsVerificationError = error.localizedDescription
+            if verificationChallenge != nil, SchoolServiceFailure.from(error) == nil {
+                verificationError = error.localizedDescription
             } else {
+                verificationChallenge = nil
                 failureCause = error
                 state = rows.isEmpty ? .failed(error.localizedDescription) : .loaded
                 alert = AppAlert(title: error is ScorePersistenceError ? "成绩保存失败" : "成绩查询失败", error: error)
@@ -461,13 +462,13 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     /// 用户关闭验证码面板后释放内存中的短期令牌，服务端清理过期挑战。
-    func dismissSMSChallenge() {
-        guard !isSubmittingSMSCode else { return }
-        smsChallenge = nil
-        smsVerificationError = nil
+    func dismissVerificationChallenge() {
+        guard !isSubmittingVerificationCode else { return }
+        verificationChallenge = nil
+        verificationError = nil
         allowsDiagnostics = false
         if rows.isEmpty {
-            state = .failed("需要完成短信验证才能查询成绩。")
+            state = .failed("需要完成学校验证才能查询成绩。")
         }
     }
 
@@ -661,12 +662,12 @@ public final class ScoreViewModel: ObservableObject {
         do { snapshot = try await cacheStore.loadSnapshot(for: session) }
         catch {
             guard isCurrent(session, generation: generation), presentation == presentationGeneration,
-                  !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+                  !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil else { return }
             presentCacheReadFailure(error)
             return
         }
         guard isCurrent(session, generation: generation), presentation == presentationGeneration,
-              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+              !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil else { return }
         didRestoreCachedRows = true
         guard let snapshot, let rows = snapshot.rows else { state = .idle; return }
         lastUpdatedAt = snapshot.updatedAt
@@ -675,7 +676,7 @@ public final class ScoreViewModel: ObservableObject {
 
     /// iCloud 成绩缓存到达时立即刷新当前页面，页面继续使用本地缓存数据。
     func applySyncedScoreCacheIfAvailable() async {
-        guard !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+        guard !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil, !isRecoveringStorage else { return }
         presentationGeneration &+= 1
         let presentation = presentationGeneration
         let session = currentScoreCacheSession()
@@ -684,13 +685,13 @@ public final class ScoreViewModel: ObservableObject {
         do { snapshot = try await cacheStore.loadSnapshot(for: session) }
         catch {
             guard isCurrent(session, generation: generation), presentation == presentationGeneration,
-                  !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil else { return }
+                  !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil else { return }
             didRestoreCachedRows = false
             presentCacheReadFailure(error)
             return
         }
         guard let snapshot, isCurrent(session, generation: generation), presentation == presentationGeneration,
-              !isRefreshing, !isSubmittingSMSCode, smsChallenge == nil, let cachedRows = snapshot.rows else { return }
+              !isRefreshing, !isSubmittingVerificationCode, verificationChallenge == nil, let cachedRows = snapshot.rows else { return }
         didRestoreCachedRows = true
         lastUpdatedAt = snapshot.updatedAt
         applyRows(cachedRows)
@@ -848,7 +849,7 @@ public final class ScoreViewModel: ObservableObject {
     }
 
     func requestStorageRecovery() {
-        guard !isSyncing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+        guard !isSyncing, !isSubmittingVerificationCode, verificationChallenge == nil, !isRecoveringStorage else { return }
         recoverySession = currentScoreCacheSession()
         alert = nil
         isStorageRecoveryPresented = true
@@ -861,7 +862,7 @@ public final class ScoreViewModel: ObservableObject {
 
     func recoverStorage() async {
         guard let session = recoverySession, session == currentScoreCacheSession(),
-              !isSyncing, !isSubmittingSMSCode, smsChallenge == nil, !isRecoveringStorage else { return }
+              !isSyncing, !isSubmittingVerificationCode, verificationChallenge == nil, !isRecoveringStorage else { return }
         recoverySession = nil
         isStorageRecoveryPresented = false
         let generation = accountGeneration

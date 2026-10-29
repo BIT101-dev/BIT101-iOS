@@ -25,7 +25,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let result: TrustedTranscriptPages
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     @MainActor
@@ -275,7 +275,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var pending: CheckedContinuation<Void, Never>?
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: AppSMSVerificationSheet(
+        let controller = UIHostingController(rootView: AppVerificationSheet(
             maskedPhone: "138****0000", isSubmitting: false, errorMessage: nil,
             submitTitle: "验证", onCancel: {}, onSubmit: { code in
                 submissions.append(code)
@@ -490,7 +490,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
 
-        viewModel.dismissSMSChallenge()
+        viewModel.dismissVerificationChallenge()
 
         XCTAssertFalse(viewModel.allowsDiagnostics)
     }
@@ -499,19 +499,19 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     func testTranscriptSheetDismissalPreservesSuccessfulPages() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
-        XCTAssertNotNil(viewModel.smsChallenge)
-        await viewModel.submitSMSCode("123456")
+        XCTAssertNotNil(viewModel.verificationChallenge)
+        await viewModel.submitVerificationCode("123456")
         XCTAssertEqual(viewModel.state, .loaded)
         XCTAssertEqual(viewModel.images.count, 1)
-        XCTAssertNil(viewModel.smsChallenge)
+        XCTAssertNil(viewModel.verificationChallenge)
 
-        viewModel.dismissSMSChallenge()
-        viewModel.dismissSMSChallenge()
+        viewModel.dismissVerificationChallenge()
+        viewModel.dismissVerificationChallenge()
         await viewModel.applyIfNeeded()
 
         XCTAssertEqual(viewModel.state, .loaded)
         XCTAssertEqual(viewModel.images.count, 1)
-        XCTAssertNil(viewModel.smsChallenge)
+        XCTAssertNil(viewModel.verificationChallenge)
         XCTAssertTrue(viewModel.allowsDiagnostics)
     }
 
@@ -519,17 +519,17 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     func testTranscriptVerificationFailurePreservesChallengeAndRetryLoadsPages() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
-        let challengeID = viewModel.smsChallenge?.challengeID
+        let challengeID = viewModel.verificationChallenge?.challengeID
         XCTAssertNotNil(challengeID)
-        await viewModel.submitSMSCode("000000")
-        XCTAssertEqual(viewModel.smsChallenge?.challengeID, challengeID)
-        XCTAssertEqual(viewModel.smsVerificationError, "验证码错误")
+        await viewModel.submitVerificationCode("000000")
+        XCTAssertEqual(viewModel.verificationChallenge?.challengeID, challengeID)
+        XCTAssertEqual(viewModel.verificationError, "验证码错误")
         XCTAssertEqual(viewModel.state, .idle)
         XCTAssertTrue(viewModel.images.isEmpty)
-        XCTAssertFalse(viewModel.isSubmittingSMSCode)
-        await viewModel.submitSMSCode("123456")
-        XCTAssertNil(viewModel.smsChallenge)
-        XCTAssertNil(viewModel.smsVerificationError)
+        XCTAssertFalse(viewModel.isSubmittingVerificationCode)
+        await viewModel.submitVerificationCode("123456")
+        XCTAssertNil(viewModel.verificationChallenge)
+        XCTAssertNil(viewModel.verificationError)
         XCTAssertEqual(viewModel.state, .loaded)
         XCTAssertEqual(viewModel.images.count, 1)
     }
@@ -547,7 +547,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             throw ScoreServiceError.secondFactorRequired(.init(challengeID: "fixture", accessToken: "token", status: "waiting_sms",
                 maskedPhone: nil, expiresIn: 600))
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
             submissions += 1
             return .init(challengeID: challenge.challengeID, accessToken: challenge.accessToken, status: "authenticated", maskedPhone: nil, expiresIn: 600)
         }
@@ -569,9 +569,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             let service = RecoverableTranscriptService(page: page, mode: mode)
             let model = TrustedTranscriptViewModel(service: service)
             await model.apply()
-            await model.submitSMSCode("123456")
-            XCTAssertNil(model.smsChallenge)
-            XCTAssertNil(model.smsVerificationError)
+            await model.submitVerificationCode("123456")
+            XCTAssertNil(model.verificationChallenge)
+            XCTAssertNil(model.verificationError)
             if mode == "download" { if case .failed = model.state {} else { XCTFail("Expected download retry") } }
             else {
                 XCTAssertEqual(model.state, .loaded)
@@ -612,7 +612,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             }
             return .init([page])
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([page]) }
     }
 
@@ -633,7 +633,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             XCTAssertTrue(service.cancelled)
             XCTAssertEqual(model.state, .idle)
             XCTAssertTrue(model.images.isEmpty)
-            XCTAssertNil(model.smsChallenge)
+            XCTAssertNil(model.verificationChallenge)
             await model.applyIfNeeded()
             XCTAssertEqual(model.state, .loaded)
             XCTAssertEqual(service.requests, 3)
@@ -644,7 +644,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let transcriptServiceIdentity: AnyHashable = UUID()
         let pages: [Data]
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
     }
 
@@ -688,7 +688,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             ))
         }
 
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
             guard code == "123456" else { throw ScoreServiceError.queryFailed("验证码错误") }
             return challenge
         }

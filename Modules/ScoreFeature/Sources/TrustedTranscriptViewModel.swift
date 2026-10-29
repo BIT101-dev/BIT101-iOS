@@ -1,5 +1,6 @@
 import ScoreDomain
 import ScorePorts
+import DesignSystemKit
 import MediaKit
 #if os(iOS)
 import TransportCore
@@ -8,7 +9,7 @@ import Combine
 import Foundation
 import UIKit
 
-/// 成绩单页面持有报告来源与可用分页，短信认证和图片恢复各自推进。
+/// 成绩单页面持有报告来源与可用分页，认证和图片恢复各自推进。
 @MainActor
 final class TrustedTranscriptViewModel: ObservableObject {
     enum State: Equatable { case idle, loading, loaded, failed(String) }
@@ -17,9 +18,9 @@ final class TrustedTranscriptViewModel: ObservableObject {
     @Published private(set) var pageNumbers: [Int] = []
     @Published private(set) var expectedPageCount = 0
     @Published private(set) var deliveryWarning: String?
-    @Published private(set) var smsChallenge: BITLoginAuthenticationChallenge?
-    @Published private(set) var smsVerificationError: String?
-    @Published private(set) var isSubmittingSMSCode = false
+    @Published private(set) var verificationChallenge: BITLoginAuthenticationChallenge?
+    @Published private(set) var verificationError: String?
+    @Published private(set) var isSubmittingVerificationCode = false
     @Published private(set) var isLoadingPages = false
     @Published private(set) var allowsDiagnostics = true
     @Published private(set) var failureCause: (any Error)?
@@ -33,16 +34,16 @@ final class TrustedTranscriptViewModel: ObservableObject {
     private var stagedBytes: [Int: Int] = [:]
     private var stagedReport: TrustedTranscriptReport?
     private var retryRequested = false
-    private var smsContinuation: Task<Void, Never>?
+    private var verificationContinuation: Task<Void, Never>?
 
     init(service: any TrustedTranscriptServicing, limits: TrustedTranscriptResourceLimits = .init()) {
         self.service = service
         self.limits = limits
     }
 
-    deinit { smsContinuation?.cancel() }
+    deinit { verificationContinuation?.cancel() }
 
-    func cancelSMSContinuation() { smsContinuation?.cancel() }
+    func cancelVerificationContinuation() { verificationContinuation?.cancel() }
 
     var decodedImageBytes: Int {
         BoundedStillImageDecoder.decodedBytes(in: images + Array(stagedImages.values))
@@ -55,13 +56,13 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
     func prepareRetry() {
-        guard !isLoadingPages, !isSubmittingSMSCode else { return }
+        guard !isLoadingPages, !isSubmittingVerificationCode else { return }
         if case .failed = state { retryRequested = true; state = .idle }
         else if deliveryWarning != nil { retryRequested = true }
     }
 
     func prepareReapplication() {
-        guard !isLoadingPages, !isSubmittingSMSCode else { return }
+        guard !isLoadingPages, !isSubmittingVerificationCode else { return }
         report = nil
         stagedReport = nil; stagedImages = [:]; stagedBytes = [:]
         retryRequested = true
@@ -69,24 +70,24 @@ final class TrustedTranscriptViewModel: ObservableObject {
     }
 
     func apply() async {
-        guard !Task.isCancelled, state != .loading, !isLoadingPages, !isSubmittingSMSCode, smsChallenge == nil else { return }
+        guard !Task.isCancelled, state != .loading, !isLoadingPages, !isSubmittingVerificationCode, verificationChallenge == nil else { return }
         isLoadingPages = true
         defer {
             isLoadingPages = false
             if stagedReport == nil { stagedImages = [:]; stagedBytes = [:] }
         }
-        smsVerificationError = nil
+        verificationError = nil
         allowsDiagnostics = true
         failureCause = nil
         if images.isEmpty { state = .loading }
         do { try await loadImages(from: fetchPages()) }
         catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard !Task.isCancelled else { finishCancellation(); return }
-            smsChallenge = challenge
+            verificationChallenge = challenge
             state = images.isEmpty ? .idle : .loaded
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard !Task.isCancelled else { finishCancellation(); return }
-            authenticatedChallenge = nil; report = nil; smsChallenge = nil
+            authenticatedChallenge = nil; report = nil; verificationChallenge = nil
             allowsDiagnostics = false
             presentDeliveryFailure(ScoreServiceError.challengeInvalid(message))
         } catch {
@@ -120,29 +121,29 @@ final class TrustedTranscriptViewModel: ObservableObject {
         return try await service.fetchTrustedTranscriptPages(onPage: onPage)
     }
 
-    func submitSMSCode(_ code: String) async {
-        guard !Task.isCancelled, let challenge = smsChallenge, !isSubmittingSMSCode else { return }
-        let normalized = code.filter(\.isNumber)
-        guard (4...8).contains(normalized.count) else { smsVerificationError = "请输入短信中的 4 至 8 位验证码。"; return }
-        isSubmittingSMSCode = true
-        smsVerificationError = nil
+    func submitVerificationCode(_ code: String) async {
+        guard !Task.isCancelled, let challenge = verificationChallenge, !isSubmittingVerificationCode else { return }
+        let normalized = AppVerificationCode.normalize(code, isCaptcha: challenge.isCaptcha)
+        guard AppVerificationCode.isValid(normalized, isCaptcha: challenge.isCaptcha) else { verificationError = AppVerificationCode.validationMessage(isCaptcha: challenge.isCaptcha); return }
+        isSubmittingVerificationCode = true
+        verificationError = nil
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.continueAfterSMSCode(normalized, challenge: challenge)
+            await self.continueAfterVerificationCode(normalized, challenge: challenge)
         }
-        smsContinuation = task
+        verificationContinuation = task
         await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
     }
 
-    private func continueAfterSMSCode(_ normalized: String, challenge: BITLoginAuthenticationChallenge) async {
+    private func continueAfterVerificationCode(_ normalized: String, challenge: BITLoginAuthenticationChallenge) async {
         defer {
-            isSubmittingSMSCode = false; isLoadingPages = false
+            isSubmittingVerificationCode = false; isLoadingPages = false
             if stagedReport == nil { stagedImages = [:]; stagedBytes = [:] }
-            smsContinuation = nil
+            verificationContinuation = nil
         }
         do {
-            authenticatedChallenge = try await service.submitTranscriptSMSCode(normalized, for: challenge)
-            smsChallenge = nil
+            authenticatedChallenge = try await service.submitTranscriptVerificationCode(normalized, for: challenge)
+            verificationChallenge = nil
             report = nil
             try Task.checkCancellation()
             isLoadingPages = true
@@ -150,28 +151,31 @@ final class TrustedTranscriptViewModel: ObservableObject {
             try await loadImages(from: fetchPages())
         } catch ScoreServiceError.challengeInvalid(let message) {
             guard !Task.isCancelled else { finishCancellation(); return }
-            smsChallenge = nil; authenticatedChallenge = nil; report = nil
+            verificationChallenge = nil; authenticatedChallenge = nil; report = nil
             allowsDiagnostics = false
             presentDeliveryFailure(ScoreServiceError.challengeInvalid(message))
         } catch ScoreServiceError.secondFactorRequired(let challenge) {
             guard !Task.isCancelled else { finishCancellation(); return }
-            smsChallenge = challenge
+            verificationChallenge = challenge
             state = images.isEmpty ? .idle : .loaded
-            smsVerificationError = "请输入最新收到的短信验证码。"
+            verificationError = nil
         } catch {
             if TaskCancellation.matches(error) || Task.isCancelled { finishCancellation() }
-            else if smsChallenge != nil { smsVerificationError = error.localizedDescription }
-            else { presentDeliveryFailure(error) }
+            else if verificationChallenge != nil, SchoolServiceFailure.from(error) == nil { verificationError = error.localizedDescription }
+            else {
+                verificationChallenge = nil; authenticatedChallenge = nil
+                presentDeliveryFailure(error)
+            }
         }
     }
 
-    func dismissSMSChallenge() {
-        guard smsChallenge != nil, !isSubmittingSMSCode else { return }
-        smsChallenge = nil
-        smsVerificationError = nil
+    func dismissVerificationChallenge() {
+        guard verificationChallenge != nil, !isSubmittingVerificationCode else { return }
+        verificationChallenge = nil
+        verificationError = nil
         allowsDiagnostics = false
         failureCause = nil
-        if images.isEmpty { state = .failed("已取消短信验证，未申请可信成绩单。") }
+        if images.isEmpty { state = .failed("已取消学校验证，未申请可信成绩单。") }
         else { state = .loaded; deliveryWarning = "本次验证已取消，已加载的成绩单继续保留。" }
     }
 

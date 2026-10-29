@@ -833,7 +833,7 @@ private final class ModuleSemesterStartDateService: ScheduleServicing {
     func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { throw ScheduleServiceError.invalidResponse }
     func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
-    func submitSMSCodeForTeachingCenterAuthentication(
+    func submitVerificationCodeForTeachingCenterAuthentication(
         _ code: String, for challenge: BITLoginAuthenticationChallenge
     ) async throws { throw ScheduleServiceError.invalidResponse }
     func syncDDLEvents(

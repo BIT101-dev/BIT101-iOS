@@ -887,7 +887,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { throw ScoreServiceError.invalidResponse }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
+        func submitScoreVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { throw ScoreServiceError.invalidResponse }
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
             if stage == "sampleGap" { throw NetworkSmokePaging.SamplingError.insufficientSample("维护样本需要补齐") }
             if stage == "nativeBlocked" { throw ScheduleServiceError.schoolSecondFactorRequired }
@@ -895,7 +895,7 @@ struct ReleaseNetworkSmokeLifecycleTests {
             throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture",
                 status: "sms_required", maskedPhone: "***", expiresIn: 60))
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
             submissions += 1
             if stage == "smsFailure" { throw ScoreServiceError.challengeInvalid("验证码错误") }
             return challenge

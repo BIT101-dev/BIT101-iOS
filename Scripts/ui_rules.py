@@ -284,9 +284,10 @@ def alert_coverage_findings(facts: dict, path: Path) -> list[str]:
 def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> None:
     schedule_notice_presenters = 0
     for path in swift_files():
-        source = mask_literals_and_comments(source_text(path))
-        schedule_notice_presenters += len(re.findall(r"\bscheduleViewModel\.\$notice\.compactMap", source))
         facts = syntax[str(path)]
+        schedule_notice_presenters += sum(call_name(node.get('calledExpression', '')) == 'diagnosticAlert'
+            and any(re.search(r'\bscheduleViewModel\.notice\b', argument) for argument in node.get('arguments', []))
+            for node in facts.get('invocations', []))
         errors.extend(alert_coverage_findings(facts, path.relative_to(ROOT)))
         for scope in view_scopes(facts):
             failed_states = [

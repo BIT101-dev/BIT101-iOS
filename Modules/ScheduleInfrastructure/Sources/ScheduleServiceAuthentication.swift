@@ -33,10 +33,10 @@ extension ScheduleService {
         }
     }
 
-    /// 完成短信认证，由调用方继续处理课表操作。
+    /// 完成图形或短信认证，由调用方继续处理课表操作。
     ///
-    /// 认证成功后由调用方清除短信挑战，再续接课表、学期列表或空教室请求。
-    public func submitSMSCodeForTeachingCenterAuthentication(
+    /// 认证成功后由调用方清除验证挑战，再续接课表、学期列表或空教室请求。
+    public func submitVerificationCodeForTeachingCenterAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws {
@@ -45,19 +45,13 @@ extension ScheduleService {
         }
         guard let owner = challenge.ownerIdentity else { throw CancellationError() }
         try validateAuthenticationOwner(owner)
-        var request = URLRequest(
-            url: bitLoginBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
-        )
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
-        request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
+        let request = try BITLoginChallengeSupport.verificationRequest(code: code, for: challenge, baseURL: bitLoginBaseURL)
 
         let wire = try await sendObservedRequest(request)
         let data = wire.data, response = wire.response
         try validateAuthenticationOwner(owner)
         guard (200 ..< 300).contains(response.statusCode) else {
-            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
+            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
                 throw ScheduleServiceError.challengeInvalid(
                     "本次验证已失效或验证码已提交，请重新同步课表。\n\(message)"
@@ -72,6 +66,9 @@ extension ScheduleService {
             accessToken: challenge.accessToken,
             owner: owner
         )
+        if current.status == "failed" {
+            throw ScheduleServiceError.challengeInvalid(current.error ?? "验证码验证失败，请重新发起当前操作。")
+        }
         try await finishTeachingCenterAuthentication(current, owner: owner)
     }
 
@@ -247,12 +244,12 @@ extension ScheduleService {
                 accessToken: challenge.accessToken,
                 owner: owner
             )
-        case "waiting_sms":
+        case "waiting_sms", "waiting_captcha":
             throw ScheduleServiceError.secondFactorRequired(challenge)
         case "expired":
             throw ScheduleServiceError.challengeInvalid("验证码已过期，请重新同步课表。")
         case "failed":
-            throw ScheduleServiceError.authenticationFailed("教学中心统一认证失败，请重新同步课表。")
+            throw ScheduleServiceError.authenticationFailed(challenge.error ?? "教学中心统一认证失败，请重新同步课表。")
         default:
             throw ScheduleServiceError.authenticationFailed("统一身份认证处理超时，请重试。")
         }
@@ -285,9 +282,6 @@ extension ScheduleService {
         }
 
         try validateAuthenticationOwner(owner)
-        if payload.status == "failed", let error = payload.error, !error.isEmpty {
-            throw ScheduleServiceError.authenticationFailed(error)
-        }
         return BITLoginChallengeSupport.challenge(from: payload, accessToken: accessToken, ownerIdentity: owner)
     }
 

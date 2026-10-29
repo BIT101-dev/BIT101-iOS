@@ -9,12 +9,12 @@ extension ScheduleViewModel {
 
     public func loadAvailableTerms() async { await courseSyncCoordinator.loadAvailableTerms() }
 
-    public func submitSMSCode(_ code: String) async {
-        await courseSyncCoordinator.submitSMSCode(code, applyPayload: applyCourseSyncPayload,
+    public func submitVerificationCode(_ code: String) async {
+        await courseSyncCoordinator.submitVerificationCode(code, applyPayload: applyCourseSyncPayload,
             refreshClassrooms: { [classroom] in await classroom.refreshClassroomPage() })
     }
 
-    public func dismissSMSChallenge() { courseSyncCoordinator.dismissSMSChallenge() }
+    public func dismissVerificationChallenge() { courseSyncCoordinator.dismissVerificationChallenge() }
 
     /// 先保存用户选择的学期，再独立请求课表。
     ///

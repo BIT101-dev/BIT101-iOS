@@ -519,7 +519,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         var observed = Set<String>()
         var webvpnVerified = false
         var ssoVerified = false
-        private var smsChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
+        private var verificationChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         private var user: CommunityUser {
             CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
@@ -680,7 +680,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
         func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
         func fetchCurrentTermOnly() async throws -> String {
-            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" && !webvpnVerified { throw ScheduleServiceError.secondFactorRequired(smsChallenge) }
+            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" && !webvpnVerified { throw ScheduleServiceError.secondFactorRequired(verificationChallenge) }
             return "fixture-1"
         }
         func fetchAvailableTerms() async throws -> [String] { ["fixture-1"] }
@@ -697,7 +697,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return CourseSyncPayload(term: stage == "schedule-term-failure" ? "other-term" : term ?? "fixture-1", firstDayString: "2026-03-02", sourceFirstDayString: "2026-03-02",
                 normalizationOffset: 0, rawWeeksByCourse: courses.map(\.weeks), sourceDisplayWeeksByCourse: courses.map { _ in nil }, courses: courses, exams: exams)
         }
-        func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
+        func submitVerificationCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { webvpnVerified = true }
         func prepareTeachingCenterAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] { [CampusRecord(id: "campus", name: "fixture", code: "campus")] }
         func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { [BuildingRecord(id: "building", name: "fixture", buildingCode: "building", campusName: "fixture", campusCode: stage == "campus-selection-failure" ? "other" : "campus")] }
@@ -728,18 +728,18 @@ extension ReleaseNetworkSmokeLifecycleTests {
             return DDLSyncPayload(url: storedURL, events: [])
         }
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
-            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
+            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" { throw ScoreServiceError.secondFactorRequired(verificationChallenge) }
             return BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] {
             return [ScoreRow(index: 0, headers: ["序号", "课程编号", "课程名称", "成绩", "开课学期", "学分"],
                 values: ["1", "CS101", "课程", stage == "all-score-mismatch-failure" && detail ? "80" : "90", "2025", "2"])]
         }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
+        func submitScoreVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "authenticated", maskedPhone: nil, expiresIn: 60) }
         func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" { throw ScoreServiceError.secondFactorRequired(smsChallenge) }
+            if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" { throw ScoreServiceError.secondFactorRequired(verificationChallenge) }
             return .init([image])
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
         func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([image]) }
     }
     private final class External: HTTPTransport {

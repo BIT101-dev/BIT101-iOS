@@ -720,7 +720,7 @@ struct ScoreFeatureTests {
             return detail ? detailedRows : briefRowsOverride ?? briefRows
         }
 
-        func submitScoreSMSCode(
+        func submitScoreVerificationCode(
             _ code: String,
             for challenge: BITLoginAuthenticationChallenge
         ) async throws -> BITLoginAuthenticationChallenge {
@@ -793,7 +793,7 @@ struct ScoreFeatureTests {
             return []
         }
 
-        func submitScoreSMSCode(
+        func submitScoreVerificationCode(
             _ code: String,
             for challenge: BITLoginAuthenticationChallenge
         ) async throws -> BITLoginAuthenticationChallenge {
@@ -841,7 +841,7 @@ struct ScoreFeatureTests {
             if stage == (detail ? "details" : "summary") { try await suspend() }
             return detail ? [] : briefRows
         }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitScoreVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     private final class RejectingScoreCache: ScoreCaching {
@@ -906,7 +906,7 @@ struct ScoreFeatureTests {
         await viewModel.refresh()
         #expect(viewModel.refreshPhase == .awaitingVerification)
         #expect(viewModel.isSyncing == false)
-        await viewModel.submitSMSCode("123456")
+        await viewModel.submitVerificationCode("123456")
         #expect(viewModel.refreshPhase == .idle)
         #expect(viewModel.isSyncing == false)
 
@@ -941,7 +941,7 @@ struct ScoreFeatureTests {
         let fetchCount = service.fetchCount
         #expect(fetchCount == 0)
         #expect(viewModel.rows.isEmpty)
-        #expect(viewModel.smsChallenge == nil)
+        #expect(viewModel.verificationChallenge == nil)
         #expect(!viewModel.isSyncing)
     }
 

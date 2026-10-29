@@ -697,9 +697,19 @@ extension UITestHTTPTransport {
 /// 学校交互场景使用课程、考试和空教室端口的固定响应。
 final class UITestSchoolService: ScheduleServicing {
     private var authenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_SMS"] != "1"
+        && AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_CAPTCHA"] != "1"
+    private var needsCaptcha = AppUITestBootstrap.environment["BIT101_UI_TEST_SCHOOL_CAPTCHA"] == "1"
     private var classroomAuthenticated = AppUITestBootstrap.environment["BIT101_UI_TEST_CLASSROOM_SMS"] != "1"
-    private let challenge = BITLoginAuthenticationChallenge(challengeID: "ui-school-sms", accessToken: "ui-school-token",
-        status: "sms_required", maskedPhone: "138****0000", expiresIn: 600)
+    private var challenge: BITLoginAuthenticationChallenge {
+        let image = needsCaptcha ? UIGraphicsImageRenderer(size: CGSize(width: 160, height: 48)).pngData { context in
+            UIColor.systemBackground.setFill(); context.fill(CGRect(x: 0, y: 0, width: 160, height: 48))
+            ("aB12" as NSString).draw(at: CGPoint(x: 8, y: 8),
+                withAttributes: [.font: UIFont.preferredFont(forTextStyle: .title2), .foregroundColor: UIColor.label])
+        } : nil
+        return BITLoginAuthenticationChallenge(challengeID: "ui-school-sms", accessToken: "ui-school-token",
+            status: needsCaptcha ? "waiting_captcha" : "waiting_sms", maskedPhone: "138****0000", expiresIn: 600,
+            captchaImage: image.map { "data:image/png;base64," + $0.base64EncodedString() })
+    }
     static var payload: CourseSyncPayload { payload(term: "ui-test-term") }
 
     private func requireSchoolAvailability() throws {
@@ -736,7 +746,14 @@ final class UITestSchoolService: ScheduleServicing {
     }
     func fetchCurrentTermOnly() async throws -> String { try requireSchoolAvailability(); return "ui-test-term" }
     func prepareTeachingCenterAccess() async throws { try requireSchoolAvailability() }
-    func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws { try verify(code) }
+    func submitVerificationCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {
+        if needsCaptcha {
+            guard code == "aB12" else { throw ScheduleServiceError.challengeInvalid("图形验证码验证失败，请重新发起验证。") }
+            needsCaptcha = false
+            throw ScheduleServiceError.secondFactorRequired(self.challenge)
+        }
+        try verify(code)
+    }
     func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
         try requireSchoolAvailability()
         if !authenticated, let schoolSMSCodeHandler {

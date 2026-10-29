@@ -1,4 +1,5 @@
 import ClientCore
+import DesignSystemKit
 import Combine
 import BIT101TestSupport
 import Foundation
@@ -12,6 +13,113 @@ import StorageCore
 
 @MainActor
 struct NativeSchoolScoreTests {
+    private final class VerificationTransport: HTTPTransport {
+        var requests: [URLRequest] = []
+        var rejectsCaptcha = false
+        var locksAccount = false
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            let result = try await data(for: request)
+            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            return result
+        }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            requests.append(request)
+            let url = try #require(request.url)
+            let step = requests.count
+            var snapshot: [String: Any] = ["challenge_id": "captcha-flow", "access_token": "token", "expires_in": 300,
+                "status": step == 1 ? "waiting_captcha" : (step == 2 ? "waiting_sms" : "authenticated")]
+            if step == 1 { snapshot["captcha_image"] = "data:image/png;base64,AQID" }
+            if step == 2, rejectsCaptcha { snapshot["status"] = "failed"; snapshot["error"] = "验证码错误或已失效 (1320007)" }
+            if step == 2, locksAccount { snapshot["error"] = "账号已被锁定 (code:1030028)" }
+            let body: [String: Any] = step == 1 && url.path.hasSuffix("/cjd/cookies") ? ["detail": snapshot] : snapshot
+            return (try JSONSerialization.data(withJSONObject: body),
+                try #require(HTTPURLResponse(url: url, statusCode: step == 2 && locksAccount ? 401 : (step == 1 ? 202 : 200),
+                    httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func relayCaptchaContinuesToSMSForScoresAndTranscripts(transcript: Bool) async throws {
+        let credentials = Credentials(), transport = VerificationTransport()
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://login.fixture.invalid"))
+        var initial: BITLoginAuthenticationChallenge?
+        do {
+            if transcript { _ = try await service.fetchTrustedTranscriptPages() }
+            else { _ = try await service.startScoreChallenge() }
+        } catch ScoreServiceError.secondFactorRequired(let challenge) { initial = challenge }
+        let captcha = try #require(initial)
+        #expect(captcha.isCaptcha && captcha.requiresVerification && captcha.captchaImageData == Data([1, 2, 3]))
+        #expect(captcha.ownerIdentity == credentials.schoolSessionIdentity)
+        var pendingSMS: BITLoginAuthenticationChallenge?
+        do {
+            if transcript { _ = try await service.submitTranscriptVerificationCode("aB12", for: captcha) }
+            else { _ = try await service.submitScoreVerificationCode("aB12", for: captcha) }
+        } catch ScoreServiceError.secondFactorRequired(let challenge) { pendingSMS = challenge }
+        let sms = try #require(pendingSMS)
+        #expect(!sms.isCaptcha && sms.requiresVerification && sms.captchaImageData == nil)
+        let authenticated = try await (transcript ? service.submitTranscriptVerificationCode("123456", for: sms)
+            : service.submitScoreVerificationCode("123456", for: sms))
+        #expect(authenticated.status == "authenticated" && authenticated.ownerIdentity == captcha.ownerIdentity)
+        #expect(transport.requests.map { $0.url?.lastPathComponent }.suffix(2) == ["captcha", "sms"])
+        for (request, code) in zip(transport.requests.suffix(2), ["aB12", "123456"]) {
+            #expect(request.httpMethod == "POST" && request.value(forHTTPHeaderField: "X-Challenge-Token") == "token")
+            let body = try JSONSerialization.jsonObject(with: #require(request.httpBody)) as? [String: String]
+            #expect(body?["code"] == code)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func rejectedRelayCaptchaRetainsItsReasonAndEndsTheChallenge() async throws {
+        let transport = VerificationTransport(); transport.rejectsCaptcha = true
+        let credentials = Credentials(), client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://login.fixture.invalid"))
+        var initial: BITLoginAuthenticationChallenge?
+        do { _ = try await service.startScoreChallenge() }
+        catch ScoreServiceError.secondFactorRequired(let challenge) { initial = challenge }
+        do {
+            _ = try await service.submitScoreVerificationCode("wrong", for: #require(initial))
+            Issue.record("失败的图形验证应结束当前挑战。")
+        } catch ScoreServiceError.challengeInvalid(let message) { #expect(message.contains("1320007")) }
+        #expect(transport.requests.count == 2)
+    }
+
+    @Test func captchaValidationPreservesCaseAndTheProtocolLength() {
+        #expect(AppVerificationCode.normalize(" aB12 ", isCaptcha: true) == "aB12")
+        #expect(AppVerificationCode.isValid("aB12", isCaptcha: true))
+        #expect(AppVerificationCode.isValid("Ab12Cd34Ef56Gh78", isCaptcha: true))
+        #expect(!AppVerificationCode.isValid("Ab12 Cd34", isCaptcha: true))
+        #expect(!AppVerificationCode.isValid("", isCaptcha: true))
+        #expect(!AppVerificationCode.isValid("Ab12Cd34Ef56Gh789", isCaptcha: true))
+    }
+
+    @Test(.timeLimit(.minutes(1))) func lockedVerificationEndsTheScoreChallengeAndKeepsCachedGrades() async throws {
+        let credentials = Credentials(), transport = VerificationTransport(); transport.locksAccount = true
+        let client = HTTPClient(transport: transport, observer: nil)
+        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+            endpointBaseURL: AppURL.required("https://login.fixture.invalid"))
+        let domain = "BIT101ModulesTests.locked-score"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let session = AppStorageSession(accountIdentifier: "locked-score")
+        let cache = ScoreCacheStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/locked-score"),
+            defaults: defaults, session: { session })
+        let old = ScoreRow(index: 0, headers: ["课程编号", "课程名称", "成绩"], values: ["old", "缓存课程", "95"])
+        let savedAt = try #require(await cache.saveDetailed(rows: [old]))
+        let model = ScoreViewModel(service: service, cacheStore: cache,
+            preferenceStore: ScoreFilterPreferenceStore(defaults: defaults, session: { session }), currentScoreCacheSession: { session },
+            scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
+        await model.restoreCachedDataIfNeeded(); await model.refresh()
+        #expect(model.verificationChallenge?.isCaptcha == true)
+        await model.submitVerificationCode("aB12")
+        #expect(model.verificationChallenge == nil && model.verificationError == nil)
+        #expect(SchoolServiceFailure.from(model.alert?.underlyingError) == .accountLocked)
+        #expect(model.rows.map(\.values) == [old.values] && model.lastUpdatedAt == savedAt)
+        #expect(transport.requests.count == 2)
+    }
+
     private final class TranscriptPort: TrustedTranscriptServicing {
         var challenge: BITLoginAuthenticationChallenge?
         var hadDelivery = false
@@ -24,7 +132,7 @@ struct NativeSchoolScoreTests {
             self.challenge = challenge
             return try await fetchTrustedTranscriptPages(onPage: onPage)
         }
-        func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
             challenge
         }
     }

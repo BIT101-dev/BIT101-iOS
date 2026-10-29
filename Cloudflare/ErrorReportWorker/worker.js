@@ -56,12 +56,14 @@ function validReport(report, request) {
 function isSchoolServiceReport(report) {
   if (!["sanitized", "raw"].includes(report.mode)) return false;
   const title = report.errorTitle;
-  if (["学校服务异常", "学校认证通道异常"].includes(title)) return true;
+  if (["学校服务异常", "学校认证通道异常", "学校认证受限", "学校账号已锁定"].includes(title)) return true;
   const value = report.errorMessage.toLowerCase();
   if (value.includes("初始化webvpn验证失败")) return true;
   const schoolOperation = ["课表", "学期", "空教室", "成绩", "DDL", "学校"].some(part => title.includes(part));
   if (!schoolOperation && !["登录失败", "身份验证失败", "验证已失效"].includes(title)) return false;
   return value.includes("无权访问该资源")
+    || ["账号已被锁定", "账号被锁定", "帐号已被锁定", "帐号被锁定"].some(part => value.includes(part))
+    || /\bcode["']?\s*[:=]\s*["']?1030028\b/i.test(value)
     || value.includes("jxzxehall: 解析 service url 失败") || value.includes("risk=ustc-token")
     || value.includes("学校统一认证服务暂时无法建立安全连接")
     || schoolOperation && (value.includes("学校会话自动恢复失败") || value.includes("学校教务服务暂时无法恢复会话")
@@ -491,7 +493,7 @@ export default {
       catch { return json({ error: "storage_unavailable" }, 503); }
     }
     if (!validReport(report, request)) return json({ error: "invalid_report" }, 400);
-    if (isSchoolServiceReport(report)) return json({ error: "school_service_issue", msg: "学校服务异常，请通过学校官方渠道处理。" }, 422);
+    if (isSchoolServiceReport(report)) return json({ error: "school_service_issue", msg: "请通过学校官方入口核对账号、认证要求或服务状态。" }, 422);
     if (report.attachments != null && !Array.isArray(report.attachments)) return json({ error: "invalid_attachment" }, 400);
     if (Array.isArray(report.attachments)) {
       if (report.attachments.length > MAX_ATTACHMENTS) {

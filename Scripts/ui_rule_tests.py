@@ -571,7 +571,7 @@ struct TitledMenuSample: View {
 }
 
 enum AppTagChip { case sample }
-class AppSMSVerificationSheet: View {}
+class AppVerificationSheet: View {}
 extension AppSearchBarContainer: View {}
 struct AppLoadingState {}
 struct AppAvatarView: View { var body: some View { Text("avatar") } }
@@ -843,7 +843,7 @@ struct VisualRuleSample: View {
     declarations = facts["declarations"]
     if has_component_declaration("AppTagChip", declarations):
         findings.append("UI 检查器自测：非 View 同名枚举通过公共组件声明检查")
-    if has_component_declaration("AppSMSVerificationSheet", declarations):
+    if has_component_declaration("AppVerificationSheet", declarations):
         findings.append("UI 检查器自测：同名 class 通过公共组件声明检查")
     if has_component_declaration("AppSearchBarContainer", declarations):
         findings.append("UI 检查器自测：同名 extension 通过公共组件声明检查")

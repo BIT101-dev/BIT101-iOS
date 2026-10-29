@@ -162,19 +162,36 @@ struct ScheduleFeatureTests {
         let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
         await model.syncCourses(term: "term")
         service.onSync = { term in
-            #expect(term == "term" && model.isSyncingCourses && model.smsChallenge == nil)
+            #expect(term == "term" && model.isSyncingCourses && model.verificationChallenge == nil)
             if failure == "timeout" { throw URLError(.timedOut) }
             if failure == "unpublished" { throw ScheduleServiceError.schoolResponse("课表尚未发布") }
             throw ScheduleServiceError.invalidResponse
         }
-        await model.submitSMSCode("123456")
-        #expect(model.smsChallenge == nil && model.smsVerificationError == nil && !model.isSyncingCourses)
+        await model.submitVerificationCode("123456")
+        #expect(model.verificationChallenge == nil && model.verificationError == nil && !model.isSyncingCourses)
         #expect(model.notice != nil && service.submittedCodes == ["123456"])
         service.onSync = nil
         service.payload = CourseSyncPayload(term: "term", firstDayString: "2026-09-07", sourceFirstDayString: "2026-09-07",
             normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
         await model.syncCourses(term: "term")
-        #expect(model.smsChallenge == nil && model.notice?.allowsDiagnostics == false && service.submittedCodes == ["123456"])
+        #expect(model.verificationChallenge == nil && model.notice?.allowsDiagnostics == false && service.submittedCodes == ["123456"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) func lockedVerificationEndsTheScheduleChallengeAndPreventsResubmission() async throws {
+        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "locked-verification") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = ModuleScheduleService()
+        service.challenge = BITLoginAuthenticationChallenge(challengeID: "locked", accessToken: "token",
+            status: "waiting_captcha", maskedPhone: nil, expiresIn: 300)
+        service.submissionError = .authenticationFailed("账号已被锁定 (code:1030028)")
+        let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
+        await model.syncCourses(term: "term")
+        await model.submitVerificationCode("aB12")
+        #expect(model.verificationChallenge == nil && model.verificationError == nil)
+        #expect(SchoolServiceFailure.from(model.notice?.underlyingError) == .accountLocked)
+        await model.submitVerificationCode("aB12")
+        #expect(service.submittedCodes == ["aB12"])
     }
 
     private func editableCourse(_ id: String, weekday: Int, weeks: String, title: String = "同一课程",
@@ -415,13 +432,13 @@ struct ScheduleFeatureTests {
         await model.loadIfNeeded()
         #expect(model.activeCourseSchedule.currentTerm.isEmpty && !model.hasCourseData)
         await model.syncCourses()
-        if requiresSMS { await model.submitSMSCode("123456") }
+        if requiresSMS { await model.submitVerificationCode("123456") }
         #expect(model.activeCourseSchedule.currentTerm == "term")
         #expect(model.hasCourseData && model.activeCourseSchedule.courses == [course])
         #expect(model.activeCourseSchedule.firstDayString == payload.firstDayString)
         #expect(model.courseState.coursesUpdatedAt != .distantPast)
         #expect(saved?.currentTerm == "term" && saved?.courses == [course])
-        #expect(!model.isSyncingCourses && model.smsChallenge == nil)
+        #expect(!model.isSyncingCourses && model.verificationChallenge == nil)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
@@ -470,17 +487,17 @@ struct ScheduleFeatureTests {
             sourceFirstDayString: "2026-09-07", normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: [])
         let model = makeViewModel(repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
         await model.syncCourses(term: "verified-term")
-        let challenge = try #require(model.smsChallenge)
-        await model.submitSMSCode("000000")
-        #expect(model.smsChallenge?.challengeID == challenge.challengeID)
-        #expect(model.smsVerificationError == "验证码错误")
+        let challenge = try #require(model.verificationChallenge)
+        await model.submitVerificationCode("000000")
+        #expect(model.verificationChallenge?.challengeID == challenge.challengeID)
+        #expect(model.verificationError == "验证码错误")
         #expect(model.courseSyncCoordinator.courseSyncTerm == "verified-term")
-        #expect(!model.isSubmittingSMSCode)
+        #expect(!model.isSubmittingVerificationCode)
         service.submissionError = nil
-        await model.submitSMSCode("123456")
+        await model.submitVerificationCode("123456")
         #expect(service.submittedCodes == ["000000", "123456"])
-        #expect(model.smsChallenge == nil)
-        #expect(model.smsVerificationError == nil)
+        #expect(model.verificationChallenge == nil)
+        #expect(model.verificationError == nil)
         #expect(model.courseSyncCoordinator.continuation == nil)
         #expect(saved?.currentTerm == "verified-term")
     }
@@ -508,7 +525,7 @@ struct ScheduleFeatureTests {
             sourceFirstDayString: "", normalizationOffset: 0, rawWeeksByCourse: [], courses: [], exams: []))
         await request.value
         #expect(pending.wasCancelled)
-        #expect(model.smsChallenge?.challengeID == "new-account")
+        #expect(model.verificationChallenge?.challengeID == "new-account")
         #expect(model.courseSyncCoordinator.courseSyncTerm == "second-term")
         #expect(model.persistenceSnapshot.currentTerm != "first-term")
         #expect(model.isSyncingCourses == false)
@@ -529,7 +546,7 @@ struct ScheduleFeatureTests {
         await request.value
         #expect(pending.wasCancelled)
         #expect(model.isSyncingCourses == false)
-        #expect(model.smsChallenge == nil)
+        #expect(model.verificationChallenge == nil)
         #expect(model.notice == nil)
         await model.loadAvailableTerms()
         #expect(service.termRequests == 1)
@@ -708,7 +725,7 @@ final class ModuleScheduleService: ScheduleServicing {
         throw CancellationError()
     }
     func fetchAvailableTerms() async throws -> [String] { termRequests += 1; return [] }
-    func submitSMSCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {
+    func submitVerificationCodeForTeachingCenterAuthentication(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws {
         submittedCodes.append(code)
         if let submissionError { throw submissionError }
         self.challenge = nil

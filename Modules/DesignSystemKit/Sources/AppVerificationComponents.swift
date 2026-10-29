@@ -1,13 +1,22 @@
-nonisolated enum AppVerificationCode {
+import Foundation
+
+public nonisolated enum AppVerificationCode {
     static let minimumLength = 4
     static let maximumLength = 8
+    private static let captchaMaximumLength = 16
 
-    static func normalize(_ value: String) -> String {
-        String(decimalDigits(value).prefix(maximumLength))
+    public static func normalize(_ value: String, isCaptcha: Bool = false) -> String {
+        if isCaptcha { return String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(captchaMaximumLength)) }
+        return String(decimalDigits(value).prefix(maximumLength))
     }
 
-    static func isValid(_ value: String) -> Bool {
-        (minimumLength ... maximumLength).contains(value.utf8.count) && value.utf8.allSatisfy { (48...57).contains($0) }
+    public static func isValid(_ value: String, isCaptcha: Bool = false) -> Bool {
+        if isCaptcha { return !value.isEmpty && value.count <= captchaMaximumLength && value.allSatisfy { !$0.isWhitespace } }
+        return (minimumLength ... maximumLength).contains(value.utf8.count) && value.utf8.allSatisfy { (48...57).contains($0) }
+    }
+
+    public static func validationMessage(isCaptcha: Bool) -> String {
+        isCaptcha ? "请输入图形验证码。" : "请输入短信中的 4 至 8 位验证码。"
     }
 
     private static func decimalDigits(_ value: String) -> String {
@@ -19,7 +28,8 @@ nonisolated enum AppVerificationCode {
         })
     }
 
-    static func shouldSubmitAutomatically(insertedText: String, code: String) -> Bool {
+    static func shouldSubmitAutomatically(insertedText: String, code: String, isCaptcha: Bool = false) -> Bool {
+        if isCaptcha { return false }
         let insertedCode = decimalDigits(insertedText)
         return isValid(insertedCode) && insertedCode == code
     }
@@ -33,6 +43,7 @@ private struct VerificationCodeField: UIViewRepresentable {
     @Binding var code: String
     @Binding var isFocused: Bool
     let onAutomaticSubmit: (String) -> Void
+    let isCaptcha: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -41,11 +52,10 @@ private struct VerificationCodeField: UIViewRepresentable {
         field.delegate = context.coordinator
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.textChanged),
                                                name: UITextField.textDidChangeNotification, object: field)
-        field.keyboardType = .numberPad
-        field.textContentType = .oneTimeCode
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
         field.textAlignment = .center
         field.adjustsFontForContentSizeCategory = true
-        field.accessibilityLabel = "短信验证码"
         field.accessibilityIdentifier = "verification.code"
         return field
     }
@@ -53,12 +63,17 @@ private struct VerificationCodeField: UIViewRepresentable {
     func updateUIView(_ field: CodeTextField, context: Context) {
         context.coordinator.parent = self
         let isEnabled = context.environment.isEnabled
+        let keyboard: UIKeyboardType = isCaptcha ? .asciiCapable : .numberPad
+        if field.keyboardType != keyboard { field.keyboardType = keyboard; field.reloadInputViews() }
+        field.textContentType = isCaptcha ? nil : .oneTimeCode
+        let label = isCaptcha ? "图形验证码" : "短信验证码"
+        field.accessibilityLabel = label
         if field.text != code { field.text = code }
         field.font = .monospacedDigitSystemFont(
             ofSize: UIFont.preferredFont(forTextStyle: .headline, compatibleWith: field.traitCollection).pointSize,
             weight: .semibold
         )
-        field.attributedPlaceholder = NSAttributedString(string: "短信验证码", attributes: [
+        field.attributedPlaceholder = NSAttributedString(string: label, attributes: [
             .font: UIFont.preferredFont(forTextStyle: .body, compatibleWith: field.traitCollection),
             .foregroundColor: UIColor.placeholderText,
         ])
@@ -119,10 +134,10 @@ private struct VerificationCodeField: UIViewRepresentable {
             guard let field = notification.object as? CodeTextField else { return }
             let insertion = insertedText
             insertedText = ""
-            let digits = AppVerificationCode.normalize(field.text ?? "")
+            let digits = AppVerificationCode.normalize(field.text ?? "", isCaptcha: parent.isCaptcha)
             if field.text != digits { field.text = digits }
             parent.code = digits
-            if AppVerificationCode.shouldSubmitAutomatically(insertedText: insertion, code: digits) {
+            if AppVerificationCode.shouldSubmitAutomatically(insertedText: insertion, code: digits, isCaptcha: parent.isCaptcha) {
                 field.shouldFocus = false
                 parent.isFocused = false
                 field.resignFirstResponder()
@@ -140,21 +155,25 @@ private struct VerificationCodeField: UIViewRepresentable {
     }
 }
 
-/// 课表、成绩和可信成绩单共用的短信验证码面板。
+/// 课表、成绩和可信成绩单共用的图形与短信验证码面板。
 ///
 /// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入掩码手机号、
 /// 提交文案、取消操作和提交操作。
-public struct AppSMSVerificationSheet: View {
+public struct AppVerificationSheet: View {
+    @Environment(\.appDiagnosticModalActivity) private var modalActivity
     let maskedPhone: String?
     let isSubmitting: Bool
     let errorMessage: String?
     let submitTitle: String
     let onCancel: () -> Void
     let onSubmit: (String) async -> Void
+    let isCaptcha: Bool
+    let captchaImage: Data?
 
     @State private var code = ""
     @State private var isCodeFieldFocused = false
     @State private var isSubmitInFlight = false
+    @State private var presentationID = UUID()
 
     public init(
         maskedPhone: String?,
@@ -162,7 +181,9 @@ public struct AppSMSVerificationSheet: View {
         errorMessage: String?,
         submitTitle: String,
         onCancel: @escaping () -> Void,
-        onSubmit: @escaping (String) async -> Void
+        onSubmit: @escaping (String) async -> Void,
+        isCaptcha: Bool = false,
+        captchaImage: Data? = nil
     ) {
         self.maskedPhone = maskedPhone
         self.isSubmitting = isSubmitting
@@ -170,19 +191,33 @@ public struct AppSMSVerificationSheet: View {
         self.submitTitle = submitTitle
         self.onCancel = onCancel
         self.onSubmit = onSubmit
+        self.isCaptcha = isCaptcha
+        self.captchaImage = captchaImage
     }
 
     public var body: some View {
+        let image = captchaImage.flatMap { UIImage(data: $0) }
         NavigationStack {
             Form {
                 Section {
+                    if isCaptcha {
+                        if let image {
+                            Image(uiImage: image).resizable().scaledToFit()
+                                .accessibilityLabel("学校图形验证码")
+                                .accessibilityIdentifier("verification.captcha")
+                        } else {
+                            Text("验证码图片加载失败，请取消后重试。")
+                                .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                        }
+                    }
                     if let maskedPhone, !maskedPhone.isEmpty {
                         LabeledContent("手机号", value: maskedPhone)
                     }
                     VerificationCodeField(
                         code: $code,
                         isFocused: $isCodeFieldFocused,
-                        onAutomaticSubmit: submitCode
+                        onAutomaticSubmit: submitCode,
+                        isCaptcha: isCaptcha
                     )
                     .disabled(submissionInProgress)
                 } header: {
@@ -212,11 +247,11 @@ public struct AppSMSVerificationSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(submissionInProgress || !AppVerificationCode.isValid(code))
+                    .disabled(submissionInProgress || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha) || isCaptcha && image == nil)
                     .appInteractiveListRow()
                 }
             }
-            .navigationTitle("短信验证")
+            .navigationTitle(isCaptcha ? "图形验证" : "短信验证")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -226,15 +261,20 @@ public struct AppSMSVerificationSheet: View {
                 }
             }
             .interactiveDismissDisabled(submissionInProgress)
-            .onAppear { isCodeFieldFocused = true }
+            .onAppear { modalActivity?(presentationID, true); isCodeFieldFocused = true }
+            .onDisappear { modalActivity?(presentationID, false) }
+            .onChange(of: isCaptcha) { _, _ in resetInput() }
+            .onChange(of: captchaImage) { _, _ in resetInput() }
         }
         .presentationDetents([.medium])
     }
 
     private var submissionInProgress: Bool { isSubmitting || isSubmitInFlight }
 
+    private func resetInput() { code = ""; isCodeFieldFocused = true }
+
     private func submitCode(_ submittedCode: String) {
-        guard !submissionInProgress, AppVerificationCode.isValid(submittedCode) else { return }
+        guard !submissionInProgress, AppVerificationCode.isValid(submittedCode, isCaptcha: isCaptcha) else { return }
         isSubmitInFlight = true
         isCodeFieldFocused = false
         Task {
@@ -261,7 +301,7 @@ public struct AppSchoolSMSVerificationSheet: View {
     }
 
     public var body: some View {
-        AppSMSVerificationSheet(
+        AppVerificationSheet(
             maskedPhone: maskedPhone,
             isSubmitting: false,
             errorMessage: nil,

@@ -357,10 +357,10 @@ struct ScheduleCourseSyncCoordinatorTests {
         let (coordinator, _, challenge) = context()
         coordinator.waitForClassroomAuthentication(challenge)
         #expect(coordinator.continuation == .classroomRefresh)
-        #expect(coordinator.smsChallenge?.challengeID == challenge.challengeID)
+        #expect(coordinator.verificationChallenge?.challengeID == challenge.challengeID)
         #expect(coordinator.courseSyncTerm == nil)
-        coordinator.dismissSMSChallenge()
-        #expect(coordinator.smsChallenge == nil)
+        coordinator.dismissVerificationChallenge()
+        #expect(coordinator.verificationChallenge == nil)
     }
 
     @Test("Service responses select the suspended operation and block overlapping requests", .timeLimit(.minutes(1)))
@@ -371,7 +371,7 @@ struct ScheduleCourseSyncCoordinatorTests {
         #expect(coordinator.continuation == .courseSync(term: "2025-2026-2"))
         await coordinator.loadAvailableTerms()
         #expect(coordinator.courseSyncTerm == "2025-2026-2")
-        coordinator.dismissSMSChallenge()
+        coordinator.dismissVerificationChallenge()
         await coordinator.loadAvailableTerms()
         #expect(coordinator.continuation == .availableTerms)
         #expect(coordinator.courseSyncTerm == nil)

@@ -139,6 +139,7 @@ struct BIT101APIClient {
         }
 
         let html = String(decoding: data, as: UTF8.self)
+        if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
         let documentURL = response.url ?? requestURL
         if let secondFactor = SchoolLoginHTMLParser.parseSecondFactorPage(html: html,
             baseURL: schoolBaseURL, documentURL: documentURL) {
@@ -163,7 +164,9 @@ struct BIT101APIClient {
             return try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
         }
 
-        if SchoolLoginHTMLParser.rejectsPassword(html: String(decoding: data, as: UTF8.self)) {
+        let html = String(decoding: data, as: UTF8.self)
+        if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
+        if SchoolLoginHTMLParser.rejectsPassword(html: html) {
             throw LoginServiceError.schoolPasswordRejected
         }
         guard (200 ..< 300).contains(response.statusCode) else {
@@ -175,6 +178,7 @@ struct BIT101APIClient {
 
     private func schoolLoginResult(_ data: Data, documentURL: URL) throws -> Bool {
         let html = String(decoding: data, as: UTF8.self)
+        if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
         if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
             html: html,
             baseURL: schoolBaseURL, documentURL: documentURL

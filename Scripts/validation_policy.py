@@ -204,7 +204,7 @@ NETWORK_CAPABILITIES = {
                                             'completeSchoolAuthentication(:SchoolSecondFactorContext,acceptingServiceTicket:Bool,handler:@escapingSchoolSMSCodeHandler)': 'web-interactions',
                                             'syncCourses(term:String?)': 'network',
                                             'fetchAvailableTerms()': 'network',
-                                            'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'web-interactions',
+                                            'submitVerificationCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'web-interactions',
                                             'fetchCurrentTermOnly()': 'network',
                                             'prepareTeachingCenterAccess()': 'network',
                                             'fetchCampuses()': 'network',
@@ -216,10 +216,10 @@ NETWORK_CAPABILITIES = {
                                             'refreshLexueCalendarURLForPreflight()': 'network'},
  'ScoreInfrastructure.ScoreService': {'startScoreChallenge()': 'network',
                                       'fetchScores(detail:Bool,authenticatedBy:BITLoginAuthenticationChallenge)': 'network',
-                                      'submitScoreSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
+                                      'submitScoreVerificationCode(:String,for:BITLoginAuthenticationChallenge)': 'network',
                                       'fetchTrustedTranscriptPages(onPage:TrustedTranscriptPageDelivery?)': 'network',
                                       'fetchTrustedTranscriptPages(authenticatedBy:BITLoginAuthenticationChallenge,onPage:TrustedTranscriptPageDelivery?)': 'network',
-                                      'submitTranscriptSMSCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
+                                      'submitTranscriptVerificationCode(:String,for:BITLoginAuthenticationChallenge)': 'network'}}
 
 
 
@@ -262,7 +262,7 @@ MANUAL_CAPABILITY_SCENARIOS = {
     'webViewWebContentProcessDidTerminate(:WKWebView)': 'gallery-login'},
  'ScheduleInfrastructure.ScheduleService': {
     'completeSchoolAuthentication(:SchoolSecondFactorContext,acceptingServiceTicket:Bool,handler:@escapingSchoolSMSCodeHandler)': 'school-sms',
-    'submitSMSCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'school-sms',
+    'submitVerificationCodeForTeachingCenterAuthentication(:String,for:BITLoginAuthenticationChallenge)': 'school-sms',
     'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?,onSource:DDLSyncSourceDelivery?)': 'school-calendar',
     'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': 'school-calendar'},
 }

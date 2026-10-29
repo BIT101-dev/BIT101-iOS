@@ -4,6 +4,7 @@ import DesignSystemKit
 import ScoreDomain
 import ScoreInfrastructure
 import SchedulePorts
+import ScheduleInfrastructure
 import ScorePorts
 import Testing
 import TransportCore
@@ -16,6 +17,7 @@ struct NetworkBusinessDiagnosticsTests {
             (ScheduleServiceError.teachingCenterSessionExpired, .sessionExpired),
             (ScheduleServiceError.schoolTransportFailure, .secureConnection),
             (ScheduleServiceError.authenticationFailed("[status=401, risk=ustc-token]"), .authenticationRestricted),
+            (ScheduleServiceError.authenticationFailed("账号已被锁定 (code: 1030028) [risk=ustc-token]"), .accountLocked),
             (ScheduleServiceError.schoolResponse("对不起，无权访问该资源"), .accessDenied),
             (ScoreServiceError.queryFailed("jxzxehall: 解析 service url 失败"), .authenticationChannel),
             (NativeSchoolAuthenticationError.serviceUnavailable(503), .unavailable)
@@ -35,25 +37,46 @@ struct NetworkBusinessDiagnosticsTests {
         for (title, failure) in [
             ("登录失败", SchoolServiceFailure.authenticationChannel),
             ("身份验证失败", .authenticationChannel), ("加载话廊失败", .authenticationChannel),
-            ("课表同步失败", .authenticationRestricted), ("学期列表加载失败", .sessionExpired),
+            ("课表同步失败", .authenticationRestricted), ("课表同步失败", .accountLocked), ("学期列表加载失败", .sessionExpired),
             ("验证已失效", .authenticationChannel), ("成绩查询失败", .authenticationChannel),
             ("可信成绩单申请失败", .sessionExpired), ("课表同步失败", .accessDenied),
             ("学校服务连接失败", .secureConnection), ("课表同步失败", .sessionExpired)
         ] {
             let alert = AppAlert(title: title, message: "可独立调整的页面文案", underlyingError: failure)
             let presentation = AppErrorPresentation(alert: alert)
-            let expectedTitle = failure == .authenticationChannel ? "学校认证通道异常" : "学校服务异常"
+            let expectedTitle: String
+            switch failure {
+            case .authenticationChannel: expectedTitle = "学校认证通道异常"
+            case .authenticationRestricted: expectedTitle = "学校认证受限"
+            case .accountLocked: expectedTitle = "学校账号已锁定"
+            default: expectedTitle = "学校服务异常"
+            }
             #expect(presentation.title == expectedTitle && presentation.message.contains("学校"))
+            if [.authenticationRestricted, .accountLocked].contains(failure) {
+                #expect(presentation.schoolServiceLinkTitle == "打开学校统一认证")
+            }
             #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)
             let inline = DiagnosticRecoveryActions(title: title, message: "页面错误提示", allowsDiagnostics: false, underlyingError: failure).presentation
             #expect(inline.title == expectedTitle && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
             #expect(!presentation.message.contains("risk="))
             let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
-            #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == page)
+            let destination = [.authenticationRestricted, .accountLocked].contains(failure)
+                ? AppURL.required("https://sso.bit.edu.cn/cas/login") : page
+            #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == destination)
             var submitted = false
             let model = ErrorReportViewModel(alert: alert, submitReport: { _ in submitted = true })
             #expect(!model.allowsSubmission)
             #expect(!(await model.submit()) && !submitted)
+        }
+    }
+
+    @Test func accountLockParsingRequiresAnExplicitSchoolSignal() {
+        for message in ["账号被锁定 (code: 1030028)", "帐号已被锁定", "{\"code\":1030028}",
+            "<span id='login-error-code'>1030028</span>"] {
+            #expect(SchoolServiceFailure.authenticationResponse(message) == .accountLocked)
+        }
+        for message in ["1030028", "<span id='student-id'>1030028</span>", "code: 1030027"] {
+            #expect(SchoolServiceFailure.authenticationResponse(message) == nil)
         }
     }
 
@@ -93,6 +116,34 @@ struct NetworkBusinessDiagnosticsTests {
             let result = try await data(for: request)
             if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
             return result
+        }
+    }
+
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func teachingCenterCaptchaAdvancesToSMSOrEndsWithItsFailure(rejected: Bool) async throws {
+        let domain = "BIT101Tests.teaching-center-captcha"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
+        try storage.saveLoginState(studentID: "captcha-owner", password: "fixture", fakeCookie: "fixture")
+        let body = rejected
+            ? #"{"challenge_id":"captcha","status":"failed","error":"验证码错误或已失效 (1320007)"}"#
+            : #"{"challenge_id":"captcha","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#
+        let service = ScheduleService(credentials: storage, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { storage.currentStudentID }),
+            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+            transport: Transport(body: body))
+        let challenge = BITLoginAuthenticationChallenge(challengeID: "captcha", accessToken: "token", status: "waiting_captcha",
+            maskedPhone: nil, expiresIn: 120, ownerIdentity: storage.schoolSessionIdentity)
+        do {
+            try await service.submitVerificationCodeForTeachingCenterAuthentication("aB12", for: challenge)
+            Issue.record("验证码提交应返回下一阶段或明确失败。")
+        } catch ScheduleServiceError.secondFactorRequired(let next) {
+            #expect(!rejected && !next.isCaptcha && next.requiresVerification && next.maskedPhone == "138****0000")
+            #expect(next.ownerIdentity == challenge.ownerIdentity && next.accessToken == challenge.accessToken)
+        } catch ScheduleServiceError.challengeInvalid(let message) {
+            #expect(rejected && message.contains("1320007"))
         }
     }
 

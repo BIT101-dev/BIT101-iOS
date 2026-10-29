@@ -834,7 +834,7 @@ struct NetworkClientTests {
         )
 
         do {
-            try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: challenge)
+            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
             Issue.record("Expected the server to keep the challenge in its SMS state")
         } catch ScheduleServiceError.secondFactorRequired(let updatedChallenge) {
             #expect(updatedChallenge.challengeID == challenge.challengeID)
@@ -869,7 +869,7 @@ struct NetworkClientTests {
         )
 
         do {
-            try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: challenge)
+            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
             Issue.record("Expected the expired challenge to be rejected")
         } catch ScheduleServiceError.challengeInvalid(let message) {
             #expect(message.contains("challenge expired"))

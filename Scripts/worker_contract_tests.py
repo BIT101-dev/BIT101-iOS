@@ -94,6 +94,9 @@ export class QuotaFixture extends ReportQuota {
       ["加载话廊失败", "服务器响应异常（HTTP 500）：初始化WebVPN验证失败Orz"],
       ["学校认证通道异常", "101 的学校认证通道暂时无法连接 WebVPN。"],
       ["课表同步失败", "认证信息无效。 [status=401, risk=ustc-token, flow=replaced]"],
+      ["学校账号已锁定", "学校统一认证提示账号已被锁定。"],
+      ["学校认证受限", "学校统一认证拒绝了本次认证请求。"],
+      ["课表同步失败", "账号被锁定 (code: 1030028) [risk=error-fallback, flow=replaced]"],
       ["学期列表加载失败", "您的会话已经过期，请重新登录"],
       ["验证已失效", "jxzxehall: 解析 service url 失败"],
       ["课表同步失败", "学校教务服务返回“无权访问该资源”"],
@@ -159,7 +162,8 @@ export class QuotaFixture extends ReportQuota {
     }
     await seed({ day: today, count: 0 });
     const requestID = crypto.randomUUID();
-    const identical = { mode: "suggestion", comment: "idempotent fixture", requestID };
+    const identical = { mode: "suggestion", comment: "账号被锁定 (code:1030028)，希望改进认证提示。",
+      errorTitle: "学校账号已锁定", errorMessage: "账号被锁定 (code:1030028)", requestID };
     const receipts = await Promise.all(Array.from({ length: 5 }, () => send(identical)));
     for (const response of receipts) { assert.equal(response.status, 201); assert.equal((await response.json()).id, requestID); }
     assert.equal((await inspect()).count, 1);

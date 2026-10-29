@@ -49,6 +49,9 @@ struct ScheduleICSParserTests {
         #expect(!service.shouldAttemptDirectTeachingCenterFallback(
             for: ScheduleServiceError.authenticationFailed("用户名或密码错误")
         ))
+        #expect(!service.shouldAttemptDirectTeachingCenterFallback(
+            for: ScheduleServiceError.authenticationFailed("账号被锁定 (code:1030028) [risk=ustc-token, flow=replaced]")
+        ))
     }
 
     @Test("Events are unfolded, decoded and sorted")

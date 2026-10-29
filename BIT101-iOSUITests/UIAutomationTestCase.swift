@@ -763,7 +763,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         commentMediaLinks: Bool = false,
         imageImportHold: Bool = false,
         update: String? = nil,
-        schoolSMS: Bool = false,
+        schoolSMS: Bool = false, schoolCaptcha: Bool = false,
         classroomSMS: Bool = false, classroomLoading: Bool = false,
         scheduleConflict: Bool = false,
         scheduleRecovery: Bool = false,
@@ -857,6 +857,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] = imageImportHold ? "1" : "0"
         if let update { application.launchEnvironment["BIT101_UI_TEST_UPDATE"] = update }
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL_SMS"] = schoolSMS ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_SCHOOL_CAPTCHA"] = schoolCaptcha ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CLASSROOM_SMS"] = classroomSMS ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CLASSROOM_LOADING"] = classroomLoading ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RUN_ID"] = runIdentifier

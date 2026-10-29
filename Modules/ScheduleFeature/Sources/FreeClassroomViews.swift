@@ -10,48 +10,21 @@ struct FreeClassroomTabView: View {
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.appWindowLayout) private var layout
     @ObservedObject var viewModel: ScheduleClassroomViewModel
-    @State private var isShowingSectionFilter = false
+    @State private var selectedPage: ClassroomPage?
+    private enum ClassroomPage: Hashable { case sections }
 
     var body: some View {
-        AppSidebarLayout {
-            NavigationStack {
+        AppBrowserLayout(selection: $selectedPage) {
+            if layout.isLandscape {
                 List { classroomControls(usesSidebar: true) }.appGroupedListStyle()
-                    .scrollContentBackground(.hidden)
-                    .background(AppDesignSystem.Palette.Background.grouped)
-                    .toolbar(.hidden, for: .navigationBar)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                     .accessibilityIdentifier("interaction.FreeClassroomTabView.sidebar")
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("classroom.sidebar")
-        } content: { usesSidebar in
-            if usesSidebar {
-                NavigationStack {
-                    classroomResults(usesSidebar: true)
-                        .toolbar(.hidden, for: .navigationBar)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        .navigationDestination(isPresented: $isShowingSectionFilter) {
-                            sectionFilterPage
-                                .scrollContentBackground(.hidden)
-                                .background(AppDesignSystem.Palette.Background.grouped)
-                                .appPaneBackButton(isPresented: true) { isShowingSectionFilter = false }
-                                .toolbar(.visible, for: .navigationBar)
-                                .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        }
-                }
             } else {
-                NavigationStack {
-                    classroomResults(usesSidebar: false)
-                        .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
-                        .navigationBarTitleDisplayMode(.inline)
-                        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                }
+                classroomResults(usesSidebar: false)
             }
-        }
-        .onChange(of: layout.isLandscape) { _, isLandscape in
-            if !isLandscape { isShowingSectionFilter = false }
+        } defaultDetail: {
+            classroomResults(usesSidebar: true)
+        } detail: { _ in
+            sectionFilterPage.scrollContentBackground(.hidden)
         }
     }
 
@@ -146,18 +119,10 @@ struct FreeClassroomTabView: View {
             .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
             .appInteractiveListRow()
 
-            Group {
-                if usesSidebar {
-                    AppBrowserListRow(isSelected: isShowingSectionFilter, action: { isShowingSectionFilter = true }) {
-                        sectionFilterLabel
-                    }
-                    .accessibilityIdentifier("classroom.section-filter")
-                } else {
-                    NavigationLink { sectionFilterPage } label: { sectionFilterLabel }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("classroom.section-filter")
-                }
+            AppBrowserListRow(isSelected: usesSidebar && selectedPage == .sections, action: { selectedPage = .sections }) {
+                sectionFilterLabel
             }
+            .accessibilityIdentifier("classroom.section-filter")
         }
 
     }

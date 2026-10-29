@@ -7,7 +7,7 @@ public nonisolated protocol SchoolServiceFailureProviding: Error {
 
 /// 学校协议适配层保留错误来源，页面文案独立调整。
 public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolServiceFailureProviding {
-    case authenticationChannel, authenticationRestricted, sessionExpired, accessDenied, secureConnection, unavailable
+    case authenticationChannel, authenticationRestricted, accountLocked, sessionExpired, accessDenied, secureConnection, unavailable
 
     public var schoolServiceFailure: Self? { self }
 
@@ -24,6 +24,7 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolS
     /// 这些标记来自学校与认证网关的响应协议。
     public static func authenticationResponse(_ message: String) -> Self? {
         let value = message.lowercased()
+        if accountIsLocked(message) { return .accountLocked }
         if value.contains("risk=ustc-token") { return .authenticationRestricted }
         if value.contains("初始化webvpn验证失败") || value.contains("jxzxehall: 解析 service url 失败") {
             return .authenticationChannel
@@ -32,9 +33,17 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolS
     }
 
     public static func schoolResponse(_ message: String) -> Self? {
+        if accountIsLocked(message) { return .accountLocked }
         if message.contains("无权访问该资源") { return .accessDenied }
         if message.contains("会话已经过期") { return .sessionExpired }
         return nil
+    }
+
+    private static func accountIsLocked(_ message: String) -> Bool {
+        ["账号已被锁定", "账号被锁定", "帐号已被锁定", "帐号被锁定"].contains(where: message.contains)
+            || SchoolLoginHTMLParser.loginErrorCode(html: message) == "1030028"
+            || message.range(of: #"\bcode["']?\s*[:=]\s*["']?1030028\b"#,
+                options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     public var errorDescription: String? {
@@ -43,6 +52,8 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolS
             "学校认证通道暂时无法完成请求。请稍后重试，也可通过学校官方入口核对服务状态。"
         case .authenticationRestricted:
             "学校统一认证拒绝了本次认证请求。请通过学校官方入口核对账号与验证要求，稍后重试。"
+        case .accountLocked:
+            "学校统一认证提示账号已被锁定。请通过学校官方入口确认解锁方式，或联系学校服务渠道处理。"
         case .sessionExpired:
             "学校教务服务会话暂时失效，请稍后重试，或通过学校官方入口处理。"
         case .accessDenied:
@@ -64,8 +75,17 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
     public let ownerIdentity: SchoolSessionIdentity?
     public let receivedAt: Date
     public let nativeSession: SchoolAuthenticatedSession?
+    public let captchaImage: String?
+    public let error: String?
 
     public var id: String { challengeID }
+    public var isCaptcha: Bool { status == "waiting_captcha" }
+    public var requiresVerification: Bool { isCaptcha || status == "waiting_sms" }
+    public var captchaImageData: Data? {
+        guard let captchaImage, captchaImage.hasPrefix("data:image/"), let comma = captchaImage.firstIndex(of: ","),
+              captchaImage[..<comma].hasSuffix(";base64") else { return nil }
+        return Data(base64Encoded: String(captchaImage[captchaImage.index(after: comma)...]))
+    }
 
     public var isExpired: Bool {
         guard let expiresIn else { return false }
@@ -80,7 +100,9 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
         expiresIn: Int?,
         receivedAt: Date = Date(),
         ownerIdentity: SchoolSessionIdentity? = nil,
-        nativeSession: SchoolAuthenticatedSession? = nil
+        nativeSession: SchoolAuthenticatedSession? = nil,
+        captchaImage: String? = nil,
+        error: String? = nil
     ) {
         self.challengeID = challengeID
         self.accessToken = accessToken
@@ -90,6 +112,8 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
         self.receivedAt = receivedAt
         self.ownerIdentity = ownerIdentity
         self.nativeSession = nativeSession
+        self.captchaImage = captchaImage
+        self.error = error
     }
 }
 
@@ -97,7 +121,7 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
 ///
 /// `accessToken` 的生命周期限于内存，UserDefaults 与 Keychain 承载长期凭据。
 
-public struct BITLoginSMSCodeRequest: Encodable, Sendable {
+public nonisolated struct BITLoginCodeRequest: Encodable, Sendable {
     public let code: String
 
     public init(code: String) {
@@ -116,6 +140,7 @@ public nonisolated struct BITLoginChallengePayload: Decodable, Sendable {
     public let maskedPhone: String?
     public let expiresIn: Int?
     public let error: String?
+    public let captchaImage: String?
 
     enum CodingKeys: String, CodingKey {
         case status, error
@@ -123,6 +148,7 @@ public nonisolated struct BITLoginChallengePayload: Decodable, Sendable {
         case accessToken = "access_token"
         case maskedPhone = "masked_phone"
         case expiresIn = "expires_in"
+        case captchaImage = "captcha_image"
     }
 }
 
@@ -210,8 +236,21 @@ public enum BITLoginChallengeSupport {
             status: payload.status,
             maskedPhone: payload.maskedPhone,
             expiresIn: payload.expiresIn,
-            ownerIdentity: ownerIdentity
+            ownerIdentity: ownerIdentity,
+            captchaImage: payload.captchaImage,
+            error: payload.error
         )
+    }
+
+    public nonisolated static func verificationRequest(code: String, for challenge: BITLoginAuthenticationChallenge,
+        baseURL: URL) throws -> URLRequest {
+        let step = challenge.isCaptcha ? "captcha" : "sms"
+        var request = URLRequest(url: baseURL.appending(path: "api/auth/\(challenge.challengeID)/\(step)"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
+        request.httpBody = try JSONEncoder().encode(BITLoginCodeRequest(code: code))
+        return request
     }
 
     public nonisolated static func errorMessage(from data: Data) -> String? {

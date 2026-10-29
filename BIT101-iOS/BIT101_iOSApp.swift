@@ -316,7 +316,7 @@ struct BIT101_iOSApp: App {
                     }
                 }
                 .sheet(item: $networkSmokeSMS.request) { request in
-                    AppSMSVerificationSheet(maskedPhone: request.maskedPhone, isSubmitting: false, errorMessage: nil,
+                    AppVerificationSheet(maskedPhone: request.maskedPhone, isSubmitting: false, errorMessage: nil,
                         submitTitle: "验证并继续", onCancel: networkSmokeSMS.cancel,
                         onSubmit: { networkSmokeSMS.submit($0) })
                         .interactiveDismissDisabled()

@@ -451,7 +451,7 @@ final class ReleaseNetworkSmokeRunner {
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
-                let authenticated = try await transcriptService.submitTranscriptSMSCode(code, for: challenge)
+                let authenticated = try await transcriptService.submitTranscriptVerificationCode(code, for: challenge)
                 result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated, onPage: nil)
             }
             if let failure = result.failure { throw failure }
@@ -589,7 +589,7 @@ final class ReleaseNetworkSmokeRunner {
             catch ScoreServiceError.secondFactorRequired(let challenge) {
                 guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb"))
-                return try await scoreService.submitScoreSMSCode(code, for: challenge)
+                return try await scoreService.submitScoreVerificationCode(code, for: challenge)
             }
         }
         if let scoreChallenge {
@@ -782,7 +782,7 @@ final class ReleaseNetworkSmokeRunner {
                 throw ScheduleServiceError.secondFactorRequired(challenge)
             }
             let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "webvpn"))
-            try await schedule.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
+            try await schedule.submitVerificationCodeForTeachingCenterAuthentication(code, for: challenge)
             return try await operation()
         }
     }

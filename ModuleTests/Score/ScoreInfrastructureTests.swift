@@ -368,7 +368,7 @@ struct ScoreInfrastructureBoundaryTests {
                 switch stage {
                 case "auth": _ = try await service.startScoreChallenge()
                 case "score": _ = try await service.fetchScores(detail: false, authenticatedBy: challenge)
-                case "sms": _ = try await service.submitScoreSMSCode("123456", for: challenge)
+                case "sms": _ = try await service.submitScoreVerificationCode("123456", for: challenge)
                 default: _ = try await service.fetchTrustedTranscriptPages()
                 }
             }
@@ -471,7 +471,7 @@ struct ScoreInfrastructureBoundaryTests {
             endpointBaseURL: AppURL.required("https://example.invalid"))
         let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token", status: "waiting_sms",
             maskedPhone: nil, expiresIn: 120, ownerIdentity: Credentials().schoolSessionIdentity)
-        let authenticated = try await service.submitTranscriptSMSCode("123456", for: challenge)
+        let authenticated = try await service.submitTranscriptVerificationCode("123456", for: challenge)
         #expect(authenticated.status == "authenticated" && transport.paths == ["/api/auth/fixture/sms"])
         var delivered: [Int] = []
         let partial = try await service.fetchTrustedTranscriptPages(authenticatedBy: authenticated, onPage: { page in
@@ -846,7 +846,7 @@ struct ScorePublicContractTests {
     private struct Service: ScoreListServicing {
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge { throw URLError(.notConnectedToInternet) }
         func fetchScores(detail: Bool, authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> [ScoreRow] { [] }
-        func submitScoreSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitScoreVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
     }
 
     private final class Account {

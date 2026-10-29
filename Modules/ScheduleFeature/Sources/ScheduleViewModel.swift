@@ -83,9 +83,9 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         }
     }
     @Published public internal(set) var notice: ScheduleNotice?
-    public var smsChallenge: BITLoginAuthenticationChallenge? { courseSyncCoordinator.smsChallenge }
-    public var smsVerificationError: String? { courseSyncCoordinator.smsVerificationError }
-    public var isSubmittingSMSCode: Bool { courseSyncCoordinator.isSubmittingSMSCode }
+    public var verificationChallenge: BITLoginAuthenticationChallenge? { courseSyncCoordinator.verificationChallenge }
+    public var verificationError: String? { courseSyncCoordinator.verificationError }
+    public var isSubmittingVerificationCode: Bool { courseSyncCoordinator.isSubmittingVerificationCode }
     public var availableTerms: [String] { courseSyncCoordinator.availableTerms }
     public var isLoadingTerms: Bool { courseSyncCoordinator.isLoadingTerms }
     public var hasLoadedAvailableTerms: Bool { courseSyncCoordinator.hasLoadedAvailableTerms }

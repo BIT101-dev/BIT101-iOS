@@ -271,7 +271,7 @@ COMPONENT_GROUPS = (
     ("头像标签", ("AppAvatarView", "AppTagChip")),
     ("状态", ("AppLoadingState", "AppInlineLoadingState", "AppScrollStateContainer", "AppFailureState", "AppEmptyState")),
     ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppBrowserListRow", "AppCourseEvaluationRow")),
-    ("验证码", ("AppSMSVerificationSheet",)),
+    ("验证码", ("AppVerificationSheet",)),
 )
 
 

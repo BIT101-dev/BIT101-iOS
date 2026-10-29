@@ -5,7 +5,7 @@ import ClientCore
 public protocol ScheduleCourseServicing {
     func syncCourses(term: String?) async throws -> CourseSyncPayload
     func fetchAvailableTerms() async throws -> [String]
-    func submitSMSCodeForTeachingCenterAuthentication(
+    func submitVerificationCodeForTeachingCenterAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws

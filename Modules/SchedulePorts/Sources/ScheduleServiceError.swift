@@ -81,7 +81,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
         case .notLoggedIn:
             return "当前登录状态无效，请重新登录后再同步日程。"
         case .secondFactorRequired:
-            return "需要短信验证码才能继续访问学校教务服务。"
+            return "需要完成学校验证码验证才能继续访问学校教务服务。"
         case let .challengeInvalid(message):
             return message
         case .teachingCenterSessionExpired:

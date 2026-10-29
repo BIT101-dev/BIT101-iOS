@@ -71,7 +71,7 @@ public struct ScheduleRootView: View {
             }
             .environment(\.scheduleCurrentDate, context.date)
         }
-        .padding(.top, layout.contentTopInset)
+        .padding(.top, displayedSection == .classroom ? AppDesignSystem.Spacing.none : layout.contentTopInset)
         .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
@@ -129,23 +129,24 @@ public struct ScheduleRootView: View {
         }
         .sheet(
             item: Binding(
-                get: { isCurrentSectionVisible ? viewModel.smsChallenge : nil },
+                get: { isCurrentSectionVisible ? viewModel.verificationChallenge : nil },
                 set: { challenge in
                     if isCurrentSectionVisible, challenge == nil {
-                        viewModel.dismissSMSChallenge()
+                        viewModel.dismissVerificationChallenge()
                     }
                 }
             )
         ) { challenge in
-            AppSMSVerificationSheet(
+            AppVerificationSheet(
                 maskedPhone: challenge.maskedPhone,
-                isSubmitting: viewModel.isSubmittingSMSCode,
-                errorMessage: viewModel.smsVerificationError,
+                isSubmitting: viewModel.isSubmittingVerificationCode,
+                errorMessage: viewModel.verificationError,
                 submitTitle: "验证并继续",
-                onCancel: viewModel.dismissSMSChallenge,
+                onCancel: viewModel.dismissVerificationChallenge,
                 onSubmit: { code in
-                    await viewModel.submitSMSCode(code)
-                }
+                    await viewModel.submitVerificationCode(code)
+                },
+                isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
             )
         }
         .scheduleSchoolVerification(viewModel: viewModel.ddl, isEnabled: isCurrentSectionVisible && displayedSection != .classroom)

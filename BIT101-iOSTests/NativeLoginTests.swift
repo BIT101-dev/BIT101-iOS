@@ -20,6 +20,7 @@ struct NativeLoginTests {
         var unexpectedCASResponseURL = false
         var unexpectedCASPageURL = false
         var schoolFailureStatus: Int?
+        var schoolFailureBody: String?
         var schoolPasswordRejections = 0
         var identityPasswordRejections = 0
         var rejectedSchoolStatus = 200
@@ -69,7 +70,7 @@ struct NativeLoginTests {
                     text = #"<form id="secondSmsLoginForm" action="/cas/login"><p id="login-page-flowkey">sms-flow</p><p id="user-object-id">school-owner</p></form>"#
                 } else if request.httpMethod == "GET", schoolSessionReady { text = "cas-success"
                 } else if request.httpMethod == "POST", let failure = schoolFailureStatus {
-                    status = failure; text = failure == 200 ? "对不起，无权访问该资源" : "school unavailable"
+                    status = failure; text = schoolFailureBody ?? (failure == 200 ? "对不起，无权访问该资源" : "school unavailable")
                 } else if request.httpMethod == "POST", schoolPasswordRejections > 0 {
                     schoolPasswordRejections -= 1; status = rejectedSchoolStatus; text = "<p id='login-error-code'>1030027</p>"
                 } else if request.httpMethod == "POST", serviceTicket {
@@ -272,6 +273,23 @@ struct NativeLoginTests {
             } catch {
                 #expect(SchoolServiceFailure.from(error) == (status == 503 ? .unavailable : .accessDenied))
             }
+            #expect(!storage.hasCachedSession && transport.sessionActivations == 0 && prompts() == 0)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 401])
+    func schoolAccountLockKeepsItsMeaningAndStopsCredentialRetries(status: Int) async throws {
+        try await fixture { storage, transport, service, _, prompts in
+            transport.serverFailure = true; transport.schoolFailureStatus = status
+            transport.schoolFailureBody = "<span id='login-error-code'>1030028</span><p>账号已被锁定</p>"
+            do {
+                _ = try await service.login(studentID: "owner", password: "community-A")
+                Issue.record("学校账号锁定应交由用户处理。")
+            } catch {
+                #expect(SchoolServiceFailure.from(error) == .accountLocked)
+                #expect(!NativeSchoolAuthenticator.permitsFallback(error))
+            }
+            #expect(transport.requests.filter { $0.url?.path == "/cas/login" && $0.httpMethod == "POST" }.count == 1)
             #expect(!storage.hasCachedSession && transport.sessionActivations == 0 && prompts() == 0)
         }
     }

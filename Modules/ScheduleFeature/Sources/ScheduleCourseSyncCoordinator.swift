@@ -1,4 +1,5 @@
 import ClientCore
+import DesignSystemKit
 import Combine
 import Foundation
 import ScheduleDomain
@@ -11,19 +12,19 @@ enum ScheduleAuthenticationContinuation: Equatable {
     case classroomRefresh
 }
 
-/// 学校请求、短信续接及取消由同一阶段维护。
+/// 学校请求、图形与短信验证续接及取消由同一阶段维护。
 @MainActor
 final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsumer {
     enum Phase {
         case idle
         case syncing(term: String?)
         case loadingTerms
-        case awaitingSMS(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
-        case submittingSMS(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
+        case awaitingVerification(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
+        case submittingVerification(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
     }
 
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var smsVerificationError: String?
+    @Published private(set) var verificationError: String?
     @Published private(set) var availableTerms: [String] = []
     @Published private(set) var hasLoadedAvailableTerms = false
     @Published private(set) var notice: ScheduleNotice?
@@ -44,17 +45,17 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
 
     var isSyncingCourses: Bool { if case .syncing = phase { true } else { false } }
     var isLoadingTerms: Bool { if case .loadingTerms = phase { true } else { false } }
-    var isSubmittingSMSCode: Bool { if case .submittingSMS = phase { true } else { false } }
+    var isSubmittingVerificationCode: Bool { if case .submittingVerification = phase { true } else { false } }
     var syncingTerm: String? { if case let .syncing(term) = phase { term } else { nil } }
-    var smsChallenge: BITLoginAuthenticationChallenge? {
+    var verificationChallenge: BITLoginAuthenticationChallenge? {
         switch phase {
-        case let .awaitingSMS(_, challenge), let .submittingSMS(_, challenge): challenge
+        case let .awaitingVerification(_, challenge), let .submittingVerification(_, challenge): challenge
         default: nil
         }
     }
     var continuation: ScheduleAuthenticationContinuation? {
         switch phase {
-        case let .awaitingSMS(continuation, _), let .submittingSMS(continuation, _): continuation
+        case let .awaitingVerification(continuation, _), let .submittingVerification(continuation, _): continuation
         default: nil
         }
     }
@@ -68,7 +69,7 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         requestTask?.cancel()
         requestTask = nil
         phase = .idle
-        smsVerificationError = nil
+        verificationError = nil
         availableTerms = []
         hasLoadedAvailableTerms = false
         notice = nil
@@ -76,8 +77,8 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
 
     func waitForClassroomAuthentication(_ challenge: BITLoginAuthenticationChallenge) {
         guard case .idle = phase else { return }
-        phase = .awaitingSMS(.classroomRefresh, challenge)
-        smsVerificationError = nil
+        phase = .awaitingVerification(.classroomRefresh, challenge)
+        verificationError = nil
     }
 
     func syncCourses(term: String?, selectTerm: (String) -> Void,
@@ -116,18 +117,18 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         }
     }
 
-    func submitSMSCode(_ code: String, applyPayload: @escaping (CourseSyncPayload) async -> Void,
+    func submitVerificationCode(_ code: String, applyPayload: @escaping (CourseSyncPayload) async -> Void,
                        refreshClassrooms: @escaping () async -> Void) async {
-        guard case let .awaitingSMS(continuation, challenge) = phase else { return }
-        let code = code.filter(\.isNumber)
-        guard (4 ... 8).contains(code.count) else {
-            smsVerificationError = "请输入短信中的 4 至 8 位验证码。"
+        guard case let .awaitingVerification(continuation, challenge) = phase else { return }
+        let code = AppVerificationCode.normalize(code, isCaptcha: challenge.isCaptcha)
+        guard AppVerificationCode.isValid(code, isCaptcha: challenge.isCaptcha) else {
+            verificationError = AppVerificationCode.validationMessage(isCaptcha: challenge.isCaptcha)
             return
         }
-        smsVerificationError = nil
-        await perform(phase: .submittingSMS(continuation, challenge)) { [self] request, account in
+        verificationError = nil
+        await perform(phase: .submittingVerification(continuation, challenge)) { [self] request, account in
             do {
-                try await service.submitSMSCodeForTeachingCenterAuthentication(code, for: challenge)
+                try await service.submitVerificationCodeForTeachingCenterAuthentication(code, for: challenge)
                 guard accepts(request, account: account) else { return }
                 phase = .idle
                 switch continuation {
@@ -152,11 +153,11 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         }
     }
 
-    func dismissSMSChallenge() {
-        guard case .awaitingSMS = phase else { return }
+    func dismissVerificationChallenge() {
+        guard case .awaitingVerification = phase else { return }
         revision &+= 1
         phase = .idle
-        smsVerificationError = nil
+        verificationError = nil
     }
 
     private func accepts(_ request: Int, account: Int) -> Bool {
@@ -180,8 +181,8 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         requestTask = nil
         switch self.phase {
         case .syncing, .loadingTerms: self.phase = .idle
-        case let .submittingSMS(continuation, challenge): self.phase = .awaitingSMS(continuation, challenge)
-        case .idle, .awaitingSMS: break
+        case let .submittingVerification(continuation, challenge): self.phase = .awaitingVerification(continuation, challenge)
+        case .idle, .awaitingVerification: break
         }
     }
 
@@ -189,25 +190,28 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         guard !TaskCancellation.matches(error) else { return }
         switch error {
         case ScheduleServiceError.secondFactorRequired(let challenge):
-            let submitting = isSubmittingSMSCode
-            phase = .awaitingSMS(continuation, challenge)
-            smsVerificationError = submitting ? "请输入最新收到的短信验证码。" : nil
+            phase = .awaitingVerification(continuation, challenge)
+            verificationError = nil
         case let error as ScheduleServiceError where error.isSchoolTransportFailure:
             phase = .idle
-            smsVerificationError = nil
+            verificationError = nil
             notice = schoolFailureNotice(title: "学校服务连接失败", message: error.schoolTransportFailureMessage,
                 networkFailure: true, underlyingError: error)
+        case let error where SchoolServiceFailure.from(error) != nil:
+            phase = .idle
+            verificationError = nil
+            notice = schoolFailureNotice(title: "学校认证失败", message: error.localizedDescription, underlyingError: error)
         case ScheduleServiceError.challengeInvalid(let message):
             phase = .idle
-            smsVerificationError = nil
+            verificationError = nil
             notice = .userInput(title: "验证已失效", message: message, underlyingError: error)
-        case ScheduleServiceError.authenticationFailed(let message) where isSubmittingSMSCode:
-            smsVerificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
+        case ScheduleServiceError.authenticationFailed(let message) where isSubmittingVerificationCode:
+            verificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
         case let error as ScheduleServiceError where error.isUnpublishedCourseSchedule:
             notice = .userInput(title: "课表暂未发布", message: error.localizedDescription)
         default:
-            if isSubmittingSMSCode {
-                smsVerificationError = error.localizedDescription
+            if isSubmittingVerificationCode {
+                verificationError = error.localizedDescription
             } else {
                 notice = schoolFailureNotice(title: continuation == .availableTerms ? "学期列表加载失败" : "课表同步失败",
                     message: error.localizedDescription, networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error)

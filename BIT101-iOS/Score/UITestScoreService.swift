@@ -34,7 +34,7 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         ]
     }
 
-    func submitScoreSMSCode(
+    func submitScoreVerificationCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge {
@@ -48,8 +48,8 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         throw ScoreServiceError.secondFactorRequired(Self.challenge)
     }
 
-    func submitTranscriptSMSCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
-        _ = try await submitScoreSMSCode(code, for: challenge)
+    func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        _ = try await submitScoreVerificationCode(code, for: challenge)
         return challenge
     }
     func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {

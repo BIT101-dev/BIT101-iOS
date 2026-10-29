@@ -238,6 +238,31 @@ extension NetworkClientTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
+    func verificationModalKeepsAlertsQueuedUntilItLeaves() async throws {
+        var checks = 0
+        var pending: [CheckedContinuation<Void, Never>] = []
+        let presenter = AppErrorPresenter(presenter: { checks += 1; return nil }, retryDelay: {
+            await withCheckedContinuation { pending.append($0) }
+        })
+        defer { presenter.reset(); pending.forEach { $0.resume() } }
+        let first = UUID(), second = UUID()
+        presenter.setModalPresented(true, id: first)
+        presenter.setModalPresented(true, id: second)
+        presenter.present(AppAlert.userInput(title: "验证已失效", message: "请重新发起验证。"))
+        #expect(checks == 0 && presenter.retryTask == nil)
+        presenter.setModalPresented(false, id: first)
+        #expect(presenter.retryTask == nil)
+        presenter.setModalPresented(false, id: second)
+        try await waitForTestEvent { !pending.isEmpty }
+        let retry = presenter.retryTask
+        #expect(checks == 0 && pending.count == 1)
+        pending.removeFirst().resume()
+        try await waitForTestEvent { checks == 1 && !pending.isEmpty }
+        await retry?.value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
     func queuedBackgroundAlertsShareOneRetryAndReleaseItOnReset() async throws {
         var checks = 0, retries = 0
         var pending: [CheckedContinuation<Void, Never>] = []

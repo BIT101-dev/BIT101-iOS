@@ -272,10 +272,7 @@ struct AppShellView: View {
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }
-        .onReceive(scheduleViewModel.$notice.compactMap { $0 }) { notice in
-            scheduleViewModel.dismissNotice()
-            AppErrorPresenter.shared.present(notice)
-        }
+        .diagnosticAlert(item: Binding(get: { scheduleViewModel.notice }, set: { _ in scheduleViewModel.dismissNotice() }))
     }
 
     private var usesExpandedNavigation: Bool {

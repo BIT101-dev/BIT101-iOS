@@ -21,7 +21,7 @@ public struct ScheduleTermPickerPage: View {
                         Spacer()
                     }
                 } else if viewModel.availableTerms.isEmpty {
-                    if viewModel.smsChallenge != nil {
+                    if viewModel.verificationChallenge != nil {
                         AppEmptyState(title: "等待短信验证", systemImage: "message", message: "完成短信验证后获取学期列表。")
                     } else {
                         AppEmptyState(title: viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载",

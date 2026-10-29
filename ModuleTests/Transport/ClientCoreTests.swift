@@ -862,7 +862,7 @@ extension ScheduleInfrastructureTests {
             let challenge = BITLoginAuthenticationChallenge(challengeID: "old", accessToken: "token",
                 status: "waiting_sms", maskedPhone: nil, expiresIn: 300, ownerIdentity: owner)
             await #expect(throws: CancellationError.self) {
-                try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: challenge)
+                try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
             }
             #expect(transport.requests == 1)
         }
@@ -892,7 +892,7 @@ extension ScheduleInfrastructureTests {
         let expired = BITLoginAuthenticationChallenge(challengeID: "expired", accessToken: "token",
             status: "waiting_sms", maskedPhone: nil, expiresIn: 0, receivedAt: .distantPast)
         do {
-            try await service.submitSMSCodeForTeachingCenterAuthentication("123456", for: expired)
+            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: expired)
             Issue.record("Expected expired SMS challenge")
         } catch let ScheduleServiceError.challengeInvalid(message) {
             #expect(message.contains("验证码已过期"))

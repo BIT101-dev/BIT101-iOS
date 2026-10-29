@@ -135,23 +135,24 @@ public struct ScoreListPage: View {
         .diagnosticAlert(item: $viewModel.alert)
         .sheet(
             item: Binding(
-                get: { viewModel.smsChallenge },
+                get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissSMSChallenge()
+                        viewModel.dismissVerificationChallenge()
                     }
                 }
             )
         ) { challenge in
-            AppSMSVerificationSheet(
+            AppVerificationSheet(
                 maskedPhone: challenge.maskedPhone,
-                isSubmitting: viewModel.isSubmittingSMSCode,
-                errorMessage: viewModel.smsVerificationError,
+                isSubmitting: viewModel.isSubmittingVerificationCode,
+                errorMessage: viewModel.verificationError,
                 submitTitle: "验证并查询成绩",
-                onCancel: viewModel.dismissSMSChallenge,
+                onCancel: viewModel.dismissVerificationChallenge,
                 onSubmit: { code in
-                    await viewModel.submitSMSCode(code)
-                }
+                    await viewModel.submitVerificationCode(code)
+                },
+                isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
             )
         }
     }
@@ -345,26 +346,27 @@ private struct TrustedTranscriptPage: View {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.applyIfNeeded()
         }
-        .onDisappear { viewModel.cancelSMSContinuation() }
+        .onDisappear { viewModel.cancelVerificationContinuation() }
         .sheet(
             item: Binding(
-                get: { viewModel.smsChallenge },
+                get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissSMSChallenge()
+                        viewModel.dismissVerificationChallenge()
                     }
                 }
             )
         ) { challenge in
-            AppSMSVerificationSheet(
+            AppVerificationSheet(
                 maskedPhone: challenge.maskedPhone,
-                isSubmitting: viewModel.isSubmittingSMSCode,
-                errorMessage: viewModel.smsVerificationError,
+                isSubmitting: viewModel.isSubmittingVerificationCode,
+                errorMessage: viewModel.verificationError,
                 submitTitle: "验证并申请成绩单",
-                onCancel: viewModel.dismissSMSChallenge,
+                onCancel: viewModel.dismissVerificationChallenge,
                 onSubmit: { code in
-                    await viewModel.submitSMSCode(code)
-                }
+                    await viewModel.submitVerificationCode(code)
+                },
+                isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
             )
         }
     }

@@ -7,7 +7,7 @@ import Foundation
 /// 成绩接口层。
 ///
 /// 查询先建立短期统一认证 challenge，再复用同一会话依次获取简略与详细成绩。
-/// 服务端需要二次认证时，把 challenge 交给 SwiftUI 页面收集短信验证码。
+/// 服务端需要二次认证时，把 challenge 交给 SwiftUI 页面收集图形或短信验证码。
 public struct ScoreService {
     public let transcriptServiceIdentity: AnyHashable = UUID()
     private struct ScoreRequest: Encodable {
@@ -142,12 +142,12 @@ public struct ScoreService {
             throw ScoreServiceError.invalidResponse
         }
         let challenge = try await waitUntilActionable(payload, accessToken: accessToken, owner: owner)
-        if challenge.status == "waiting_sms" {
+        if challenge.requiresVerification {
             throw ScoreServiceError.secondFactorRequired(challenge)
         }
         guard challenge.status == "authenticated" else {
             throw ScoreServiceError.challengeInvalid(
-                payload.error ?? "统一身份认证失败，请重新查询成绩。"
+                challenge.error ?? "统一身份认证失败，请重新查询成绩。"
             )
         }
         return challenge
@@ -181,17 +181,17 @@ public struct ScoreService {
         return try await finishAuthentication(challenge, detail: detail)
     }
 
-    /// 完成短信认证，并返回可继续查询简略及详细成绩的 challenge 状态。
-    public func submitScoreSMSCode(
+    /// 完成验证，并返回可继续查询简略及详细成绩的 challenge 状态。
+    public func submitScoreVerificationCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge {
-        let current = try await submitSMSAuthentication(code, for: challenge)
+        let current = try await submitVerificationAuthentication(code, for: challenge)
         guard current.status == "authenticated" else {
-            if current.status == "waiting_sms" {
+            if current.requiresVerification {
                 throw ScoreServiceError.secondFactorRequired(current)
             }
-            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新查询成绩。")
+            throw ScoreServiceError.challengeInvalid(current.error ?? "统一身份认证失败，请重新查询成绩。")
         }
         return current
     }
@@ -247,15 +247,15 @@ public struct ScoreService {
         )
     }
 
-    /// 完成可信成绩单短信挑战，返回可继续下载的认证会话。
-    public func submitTranscriptSMSCode(
+    /// 完成可信成绩单验证挑战，返回可继续下载的认证会话。
+    public func submitTranscriptVerificationCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge {
-        let current = try await submitSMSAuthentication(code, for: challenge)
+        let current = try await submitVerificationAuthentication(code, for: challenge)
         guard current.status == "authenticated" else {
-            if current.status == "waiting_sms" { throw ScoreServiceError.secondFactorRequired(current) }
-            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新申请可信成绩单。")
+            if current.requiresVerification { throw ScoreServiceError.secondFactorRequired(current) }
+            throw ScoreServiceError.challengeInvalid(current.error ?? "统一身份认证失败，请重新申请可信成绩单。")
         }
         return current
     }
@@ -264,8 +264,8 @@ public struct ScoreService {
         try await finishTranscriptAuthentication(challenge, onPage: onPage)
     }
 
-    /// 提交任一 JWB 系列 challenge 的短信验证码，并返回认证后的 challenge 状态。
-    private func submitSMSAuthentication(
+    /// 提交任一 JWB 系列 challenge 的图形或短信验证码，返回下一阶段状态。
+    private func submitVerificationAuthentication(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge {
@@ -273,19 +273,13 @@ public struct ScoreService {
             throw ScoreServiceError.challengeInvalid("验证码已过期，请重新发起本次操作。")
         }
         let owner = try authenticationOwner(challenge)
-        var request = URLRequest(
-            url: endpointBaseURL.appending(path: "api/auth/\(challenge.challengeID)/sms")
-        )
-        request.httpMethod = "POST"
+        var request = try BITLoginChallengeSupport.verificationRequest(code: code, for: challenge, baseURL: endpointBaseURL)
         request.timeoutInterval = Self.requestTimeoutSeconds
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")
-        request.httpBody = try JSONEncoder().encode(BITLoginSMSCodeRequest(code: code))
 
         let wire = try await send(request, owner: owner)
         let data = wire.data, response = wire.response
         guard (200 ..< 300).contains(response.statusCode) else {
-            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "短信验证码验证失败。"
+            let message = BITLoginChallengeSupport.errorMessage(from: data) ?? "验证码验证失败。"
             if [403, 404, 409].contains(response.statusCode) {
                 throw ScoreServiceError.challengeInvalid(
                     "本次验证已失效或验证码已提交，请重新发起操作。\n\(message)"
@@ -471,12 +465,12 @@ public struct ScoreService {
                 owner: owner,
                 onPage: onPage
             )
-        case "waiting_sms":
+        case "waiting_sms", "waiting_captcha":
             throw ScoreServiceError.secondFactorRequired(challenge)
         case "expired":
             throw ScoreServiceError.challengeInvalid("验证码已过期，请重新申请可信成绩单。")
         case "failed":
-            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新申请可信成绩单。")
+            throw ScoreServiceError.challengeInvalid(challenge.error ?? "统一身份认证失败，请重新申请可信成绩单。")
         default:
             throw ScoreServiceError.queryFailed("统一身份认证暂未完成，请稍后重试。")
         }
@@ -546,12 +540,12 @@ public struct ScoreService {
                 owner: owner,
                 detail: detail
             )
-        case "waiting_sms":
+        case "waiting_sms", "waiting_captcha":
             throw ScoreServiceError.secondFactorRequired(challenge)
         case "expired":
             throw ScoreServiceError.challengeInvalid("验证码已过期，请重新查询成绩。")
         case "failed":
-            throw ScoreServiceError.challengeInvalid("统一身份认证失败，请重新查询成绩。")
+            throw ScoreServiceError.challengeInvalid(challenge.error ?? "统一身份认证失败，请重新查询成绩。")
         default:
             throw ScoreServiceError.queryFailed("统一身份认证暂未完成，请稍后重试。")
         }
@@ -582,10 +576,6 @@ public struct ScoreService {
                 )
             }
             return try await decodedChallenge(wire)
-        }
-
-        if payload.status == "failed", let error = payload.error, !error.isEmpty {
-            throw ScoreServiceError.challengeInvalid(error)
         }
 
         try validateOwner(owner)

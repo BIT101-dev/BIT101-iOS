@@ -15,6 +15,9 @@ nonisolated struct AppErrorPresentation: Identifiable {
     var underlyingError: (any Error)? = nil
 
     var allowsSchoolServiceLink: Bool { showsRecoveryLinks && schoolServiceURL != nil }
+    var schoolServiceLinkTitle: String {
+        SchoolServiceIssue(error: underlyingError)?.actionTitle ?? SchoolServiceIssue.serviceActionTitle
+    }
 
     func sharesFailure(with other: Self) -> Bool {
         guard message == other.message, allowsDiagnostics == other.allowsDiagnostics,
@@ -40,7 +43,7 @@ extension AppErrorPresentation {
     init(alert: any DiagnosticAlertPresentable, schoolServiceURL: URL? = nil) {
         if let issue = SchoolServiceIssue(error: alert.underlyingError) {
             self.init(title: issue.title, message: issue.message, allowsDiagnostics: false,
-                showsRecoveryLinks: true, schoolServiceURL: schoolServiceURL ?? issue.serviceURL,
+                showsRecoveryLinks: true, schoolServiceURL: issue.usesAuthenticationEntry ? issue.serviceURL : schoolServiceURL ?? issue.serviceURL,
                 recoveryAction: nil, underlyingError: alert.underlyingError)
         } else {
             self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
@@ -68,6 +71,7 @@ final class AppErrorPresenter {
     private var reportDelegate: ReportPresentationDelegate?
     private weak var reportController: UIViewController?
     private var presentationGeneration = 0
+    private var activeModals: Set<UUID> = []
     private(set) var retryTask: Task<Void, Never>?
     private let currentPresenter: @MainActor () -> UIViewController?
     private let retryDelay: @MainActor () async throws -> Void
@@ -86,6 +90,7 @@ final class AppErrorPresenter {
         retryTask?.cancel()
         retryTask = nil
         queue.removeAll()
+        activeModals.removeAll()
         reportController?.dismiss(animated: false)
         reportController = nil
         reportDelegate = nil
@@ -112,6 +117,14 @@ final class AppErrorPresenter {
             let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
             guard let self, self.presentationGeneration == generation else { return }
             enqueue(AppErrorPresentation(alert: alert, schoolServiceURL: schoolServiceURL))
+        }
+    }
+
+    func setModalPresented(_ isPresented: Bool, id: UUID) {
+        if isPresented { activeModals.insert(id) }
+        else {
+            activeModals.remove(id)
+            if activeModals.isEmpty, !queue.isEmpty { retryPresentation() }
         }
     }
 
@@ -170,7 +183,7 @@ final class AppErrorPresenter {
     }
 
     private func presentNextIfPossible() {
-        guard !isPresenting, !queue.isEmpty else { return }
+        guard !isPresenting, !queue.isEmpty, activeModals.isEmpty else { return }
         guard let presenter = currentPresenter(), !presenter.isBeingDismissed else {
             retryPresentation(); return
         }
@@ -220,7 +233,7 @@ final class AppErrorPresenter {
             })
         }
         if item.showsRecoveryLinks, item.allowsSchoolServiceLink {
-            controller.addAction(UIAlertAction(title: "万一学校服务 g 了？", style: .default) { [weak self] _ in
+            controller.addAction(UIAlertAction(title: item.schoolServiceLinkTitle, style: .default) { [weak self] _ in
                 if let schoolServiceURL = item.schoolServiceURL { UIApplication.shared.open(schoolServiceURL) }
                 self?.finishAlert()
             })
@@ -362,6 +375,12 @@ extension View {
 #endif
             AppErrorPresenter.shared.present(alert)
         }
+            .environment(\.appDiagnosticModalActivity) { id, isPresented in
+#if BIT101_UI_TESTING
+                guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else { return }
+#endif
+                AppErrorPresenter.shared.setModalPresented(isPresented, id: id)
+            }
             .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics, error in
             AnyView(DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: error))
         }
@@ -390,7 +409,8 @@ struct DiagnosticRecoveryActions: View {
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
             if presentation.allowsSchoolServiceLink, let schoolServiceURL = presentation.schoolServiceURL {
-                Link("万一学校服务 g 了？", destination: schoolServiceURL)
+                Link(presentation.schoolServiceLinkTitle, destination: schoolServiceURL)
+                    .accessibilityIdentifier("diagnostic.school-service")
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
             if presentation.allowsDiagnostics {
