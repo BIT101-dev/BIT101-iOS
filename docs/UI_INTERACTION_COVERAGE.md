@@ -49,6 +49,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LandscapeLayoutUITests/testScheduleChromeSurvivesRotationsWhileSelected` | 从设置详情进入日程并保持选中，连续六次横竖旋转，核对刷新行与主导航边界、竖屏分区入口及当前周次 |
 | `CommunityRecoveryUITests/testArticleCountersUpdateTheVisibleListFromItsDetail` | 文章详情点赞与评论后的卡片计数、横屏同屏展示与紧凑窗口返回列表 |
 | `LandscapeLayoutUITests/testClassroomSMSUsesTheCurrentNativeDestination` | 空教室入口触发短信验证、当前页面承载验证、验证后续接查询与分区保持 |
+| `LandscapeLayoutUITests/testClassroomLoadingKeepsThePageBackground` | 宽幅空教室首次查询期间，比较侧栏和空结果区域的实际背景像素并记录截图 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayAndTransferConfirmationCancellation` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |
 | `ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations` | 放假确认、调休日期控件、调休确认、原日期和目标日期课程变更 |
 | `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边界对齐 |

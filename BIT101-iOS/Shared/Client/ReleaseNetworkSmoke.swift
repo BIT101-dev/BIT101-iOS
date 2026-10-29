@@ -672,6 +672,14 @@ final class ReleaseNetworkSmokeRunner {
         report.currentTerm = currentScheduleTerm
         report.validatedTerm = validatedScheduleTerm
         report.requestEvidence = requestEvidence
+        report.diagnostics = await NetworkDiagnosticStore.shared.recent().map { record in
+            NetworkDiagnosticRecord(id: record.id, occurredAt: record.occurredAt, method: record.method,
+                url: ErrorReportRedactor.sanitized(record.url), statusCode: record.statusCode,
+                elapsedMilliseconds: record.elapsedMilliseconds, error: record.error.map(ErrorReportRedactor.sanitized),
+                responseHeaders: ErrorReportRedactor.redactHeaders(record.responseHeaders),
+                responseBody: record.responseBody.map(ErrorReportRedactor.sanitized),
+                finalURL: record.finalURL.map(ErrorReportRedactor.sanitized), finalMethod: record.finalMethod)
+        }
         report.exemptedProbes = scope.exemptedProbes
         report.requestEvidenceRequired = dependencies.requiresRequestEvidence
         return ReleaseNetworkSmokeReportStore.complete(report, writer: dependencies.writeReport)

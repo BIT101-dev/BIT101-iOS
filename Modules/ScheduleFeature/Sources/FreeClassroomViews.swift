@@ -70,6 +70,8 @@ struct FreeClassroomTabView: View {
             }
             .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
             .appGroupedListStyle()
+            .scrollContentBackground(.hidden)
+            .background(AppDesignSystem.Palette.Background.grouped)
         }
     }
 

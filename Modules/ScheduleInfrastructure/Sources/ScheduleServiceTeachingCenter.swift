@@ -74,6 +74,10 @@ extension ScheduleService {
         if let nativeAuthenticator {
             return try await withNativeTeachingCenterSession(nativeAuthenticator, operation: operation)
         }
+        return try await withRelayTeachingCenterSessionRetry(operation: operation)
+    }
+
+    private func withRelayTeachingCenterSessionRetry<T>(operation: () async throws -> T) async throws -> T {
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if teachingCenterState.shouldPreferDirect(for: studentID) {
             return try await withDirectTeachingCenterSessionRetry(operation: operation)
@@ -141,7 +145,7 @@ extension ScheduleService {
                 || shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
             let localError = error
             teachingCenterState.invalidate()
-            do { return try await withWebVPNTeachingCenterSessionRetry(operation: operation) }
+            do { return try await withRelayTeachingCenterSessionRetry(operation: operation) }
             catch {
                 try validateAuthenticationOwner(owner)
                 if case ScheduleServiceError.secondFactorRequired = error { throw error }

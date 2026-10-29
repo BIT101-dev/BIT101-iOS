@@ -30,6 +30,7 @@ struct NativeLoginTests {
         var initialSchoolSMS = false
         var schoolSessionReady = false
         var schoolRisk = false
+        var schoolRiskStatus = 200
         var onSchoolPage: (() throws -> Void)?
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
@@ -81,7 +82,9 @@ struct NativeLoginTests {
                     text = #"<form method="post"><p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p></form>"#
                         + (schoolRisk ? #"<p id="riskSystemSwitch">USTC</p>"# : "")
                 }
-            case "/ustc-rba-front/fp": text = #"{"responsetoken":"risk-token"}"#
+            case "/ustc-rba-front/fp":
+                status = schoolRiskStatus
+                text = schoolRiskStatus == 200 ? #"{"responsetoken":"risk-token"}"# : ""
             default:
                 guard url.host == "jwms.bit.edu.cn" else { throw URLError(.badURL) }
                 text = "{}"
@@ -328,6 +331,26 @@ struct NativeLoginTests {
             #expect(fields.first { $0.name == "password" }?.value == (try LoginCrypto.encryptPassword("school-B", saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))
             #expect(fields.first { $0.name == "riskEngine" }?.value == "true")
             #expect(fields.first { $0.name == "risk_payload" }?.value?.isEmpty == false)
+            #expect(storage.fakeCookie == "community-cookie" && storage.currentPassword == "school-B")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func localCASServiceSubmissionDeclaresAnUnavailableRiskService() async throws {
+        try await fixture { storage, transport, _, _, prompts in
+            try storage.saveLoginState(studentID: "owner", password: "school-B", fakeCookie: "community-cookie")
+            transport.serviceTicket = true
+            transport.schoolRiskStatus = 404
+            let client = HTTPClient(transport: transport, observer: nil)
+            let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+            let html = #"<p id="login-croypto">MTIzNDU2Nzg5MDEyMzQ1Ng==</p><p id="login-page-flowkey">flow</p><p id="riskSystemSwitch">USTC</p>"#
+            let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+            let next = try await api.submitSchoolServiceLogin(url: AppURL.required("https://sso.bit.edu.cn/cas/login?service=fixture"),
+                html: html, credentials: storage, cookieStorage: { cookies })
+            #expect(next.host == "webvpn.bit.edu.cn" && prompts() == 0)
+            let post = try #require(transport.requests.last)
+            let body = String(decoding: try #require(post.httpBody), as: UTF8.self)
+            let fields = URLComponents(string: "https://fixture.invalid?" + body)?.queryItems ?? []
+            #expect(fields.first { $0.name == "risk_payload" }?.value == (try LoginCrypto.encryptPassword(#"{"error":true}"#, saltBase64: "MTIzNDU2Nzg5MDEyMzQ1Ng==")))
             #expect(storage.fakeCookie == "community-cookie" && storage.currentPassword == "school-B")
         }
     }

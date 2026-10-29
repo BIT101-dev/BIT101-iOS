@@ -423,6 +423,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     var currentTerm: String? = nil
     var validatedTerm: String? = nil
     var requestEvidence: [NetworkSmokeRequestEvidence] = []
+    var diagnostics: [NetworkDiagnosticRecord] = []
     var exemptedProbes: [String: String] = [:]
     var requestEvidenceRequired = true
     var probeLabels = Dictionary(uniqueKeysWithValues: NetworkSmokeProbe.allCases.map { ($0.rawValue, $0.displayName) })

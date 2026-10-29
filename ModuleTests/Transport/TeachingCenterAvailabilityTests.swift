@@ -69,6 +69,24 @@ struct TeachingCenterAvailabilityTests {
         #expect(credentials.currentPassword == "password")
     }
 
+    private final class UnavailableNativeAuthenticator: SchoolServiceAuthenticating {
+        func authenticate(_ target: SchoolServiceTarget) async throws -> SchoolAuthenticatedSession {
+            throw NativeSchoolAuthenticationError.invalidResponse
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func nativeSessionRecoveryRetainsTheWorkingDirectRoute() async throws {
+        let credentials = Credentials(), restorer = DirectRestorer(), transport = RouteTransport(rejectionStatus: 200)
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        defer { state.invalidate() }
+        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: restorer,
+            teachingCenterState: state, transport: transport, nativeAuthenticator: UnavailableNativeAuthenticator())
+        #expect(try await service.fetchAvailableTerms() == ["term"])
+        #expect(transport.authenticationRequests == 3 && transport.vpnTermRequests == 3)
+        #expect(transport.directTermRequests == 1 && restorer.requests == 1)
+        #expect(state.shouldPreferDirect(for: credentials.currentStudentID))
+    }
+
     private final class Credentials: SchoolCredentialsProviding {
         var generation = 0
         let currentStudentID = "teaching-owner"

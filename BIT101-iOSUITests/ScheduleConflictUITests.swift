@@ -129,6 +129,23 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(app.sectionTab("空教室").native.isSelected, "空教室查询应保留当前分区。")
     }
     @MainActor
+    @objc func testClassroomLoadingKeepsThePageBackground() {
+        let rotates = UIDevice.current.userInterfaceIdiom != .phone
+        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
+        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        app = configureApp(resetStorage: true, animations: true, school: true, classroomLoading: true)
+        if app.native.windows.firstMatch.frame.height > app.native.windows.firstMatch.frame.width { return }
+        app.mainTab("空教室").tapBriefly()
+        let sidebar = app.descendants(matching: .any)["classroom.sidebar"]
+        let results = app.descendants(matching: .any)["interaction.FreeClassroomTabView.list"]
+        assertUI(app.staticTexts["正在加载空教室信息"].appears(timeout: 5), "空教室应处于首次查询的加载状态。")
+        assertPanes("classroom.sidebar", "interaction.FreeClassroomTabView.list")
+        let left = backgroundColor(at: CGPoint(x: sidebar.frame.midX, y: sidebar.frame.maxY - 24))
+        let right = backgroundColor(at: CGPoint(x: results.frame.midX, y: results.frame.maxY - 24))
+        assertUI(zip(left, right).allSatisfy { abs($0 - $1) <= 2 }, "空教室查询中的左右区域应沿页面分组底色呈现。")
+        capture("空教室加载")
+    }
+    @MainActor
     @objc func testMineSettingsFillTheAvailableDetailWidth() {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
         if rotates { XCUIDevice.shared.orientation = .landscapeLeft }

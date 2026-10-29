@@ -93,7 +93,20 @@ if [[ "$SMOKE_SCOPE" == community-writes ]]; then
 fi
 if $CHECK_CONFIG_ONLY; then exit 0; fi
 bit101_acquire_workflow_lock "$0" "$@"
-bit101_require_device || exit 1
+SIMULATOR_DEVICE=""
+SMOKE_PLATFORM=iphoneos
+SMOKE_SIGNING=(-allowProvisioningUpdates)
+if [[ -n "${BIT101_SIMULATOR_DEVICE_TYPE:-}" ]]; then
+  "$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare
+  SIMULATOR_DEVICE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["identifier"])' "$ROOT_DIR/.build/extended-automation/simulator-device.json")"
+  BIT101_DEVICE_NAME="$BIT101_SIMULATOR_DEVICE_TYPE"
+  SMOKE_DESTINATION="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
+  SMOKE_PLATFORM=iphonesimulator
+  SMOKE_SIGNING=(CODE_SIGN_IDENTITY=-)
+else
+  bit101_require_device || exit 1
+  SMOKE_DESTINATION="platform=iOS,id=$BIT101_XCODE_DEVICE_ID"
+fi
 validation_group=network
 validation_scope=full
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then
@@ -151,8 +164,10 @@ PY
       smoke_status=1
     fi
   fi
-  if ! $PREPARE_ONLY; then python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?; fi
-  if [[ "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
+  if ! $PREPARE_ONLY && [[ -z "$SIMULATOR_DEVICE" ]]; then
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" "$validation_scope" || smoke_status=$?
+  fi
+  if [[ -z "$SIMULATOR_DEVICE" && "$SMS_MODE" == sms && "$SMOKE_SCOPE" == all ]]; then
     BIT101_VALIDATION_INPUT_IDENTITY="$SCHOOL_SMS_STARTED_DIGEST" \
       python3 "$ROOT_DIR/Scripts/validation_evidence.py" record school-sms "$school_sms_status" "$validation_scope" || smoke_status=$?
   fi
@@ -167,8 +182,7 @@ WORKER_SNAPSHOT=""
 if ! $PREPARE_ONLY && ! WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-snapshot "$SMOKE_SCOPE")"; then
   echo "Worker 部署身份待补齐，继续归集网络健康探针。" >&2
 fi
-DEVICE_ID="$BIT101_XCODE_DEVICE_ID"
-DEVICETCL_DEVICE_ID="$BIT101_DEVICETCL_DEVICE_ID"
+DEVICETCL_DEVICE_ID="${BIT101_DEVICETCL_DEVICE_ID:-}"
 
 echo "[网络 Smoke] $SMOKE_SCOPE · $BIT101_DEVICE_NAME"
 if bit101_run_logged "$BUILD_LOG" "Release 网络采样构建输出" xcodebuild build \
@@ -176,10 +190,10 @@ if bit101_run_logged "$BUILD_LOG" "Release 网络采样构建输出" xcodebuild 
   -project "$PROJECT" \
   -scheme BIT101-iOS \
   -configuration Release \
-  -destination "platform=iOS,id=$DEVICE_ID" \
+  -destination "$SMOKE_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
   "BIT101_WORKFLOW_CONDITIONS=$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions network)" \
-  -allowProvisioningUpdates; then
+  "${SMOKE_SIGNING[@]}"; then
   BUILD_STATUS=0
 else
   BUILD_STATUS=$?
@@ -189,11 +203,33 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
   exit $BUILD_STATUS
 fi
 
-SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
+SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-$SMOKE_PLATFORM/BIT101-iOS.app"
 bit101_invalidate_restore
-xcrun devicectl device install app \
-  --device "$DEVICETCL_DEVICE_ID" \
-  "$SMOKE_APP_PATH" >/dev/null
+if [[ -n "$SIMULATOR_DEVICE" ]]; then
+  xcrun simctl install "$SIMULATOR_DEVICE" "$SMOKE_APP_PATH"
+  SIMULATOR_DATA="$(xcrun simctl get_app_container "$SIMULATOR_DEVICE" "$APP_BUNDLE_ID" data)"
+else
+  xcrun devicectl device install app --device "$DEVICETCL_DEVICE_ID" "$SMOKE_APP_PATH" >/dev/null
+fi
+
+copy_smoke_report() {
+  if [[ -n "$SIMULATOR_DEVICE" ]]; then
+    python3 - "$SIMULATOR_DATA" "$APP_GROUP_ID" "$1" "$2" <<'PYCOPYREPORT'
+from pathlib import Path
+import plistlib
+import shutil
+import sys
+groups = Path(sys.argv[1]).parents[3] / 'Containers/Shared/AppGroup'
+container = next(path for path in groups.iterdir() if plistlib.loads(
+    (path / '.com.apple.mobile_container_manager.metadata.plist').read_bytes()).get('MCMMetadataIdentifier') == sys.argv[2])
+shutil.copyfile(container / sys.argv[3], sys.argv[4])
+PYCOPYREPORT
+  else
+    xcrun devicectl device copy from --device "$DEVICETCL_DEVICE_ID" \
+      --domain-type appGroupDataContainer --domain-identifier "$APP_GROUP_ID" \
+      --source "$1" --destination "$2" >/dev/null
+  fi
+}
 
 python3 - "$LOCAL_REQUEST_PATH" "$SMOKE_SCOPE" "$RUN_ID" "$SMOKE_CAPTURE" "$SMOKE_TERM" "$SMS_MODE" "${BIT101_COMMUNITY_FOLLOW_TARGET:-}" "$SMOKE_ACCOUNT" "$SMOKE_FIXTURES" "$RECOVERY_CONFIRMATION" <<'PY'
 import json
@@ -213,19 +249,22 @@ with open(path, "w", encoding="utf-8") as stream:
         "fixtures": json.loads(fixtures) if fixtures else None,
     }, stream)
 PY
-xcrun devicectl device copy to \
-  --device "$DEVICETCL_DEVICE_ID" \
-  --domain-type appDataContainer \
-  --domain-identifier "$APP_BUNDLE_ID" \
-  --source "$LOCAL_REQUEST_PATH" \
-  --destination "Documents/network-smoke-request.json" >/dev/null
+if [[ -n "$SIMULATOR_DEVICE" ]]; then
+  cp "$LOCAL_REQUEST_PATH" "$SIMULATOR_DATA/Documents/network-smoke-request.json"
+else
+  xcrun devicectl device copy to --device "$DEVICETCL_DEVICE_ID" \
+    --domain-type appDataContainer --domain-identifier "$APP_BUNDLE_ID" \
+    --source "$LOCAL_REQUEST_PATH" --destination "Documents/network-smoke-request.json" >/dev/null
+fi
 
 : > "$CONSOLE_LOG"
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then community_started=true; fi
-xcrun devicectl device process launch \
-  --device "$DEVICETCL_DEVICE_ID" \
-  --console \
-  BIT101-dev.BIT101-iOS > "$CONSOLE_LOG" 2>&1 &
+if [[ -n "$SIMULATOR_DEVICE" ]]; then
+  SIMCTL_CHILD_NSUnbufferedIO=YES xcrun simctl launch --terminate-running-process --console "$SIMULATOR_DEVICE" "$APP_BUNDLE_ID" > "$CONSOLE_LOG" 2>&1 &
+else
+  xcrun devicectl device process launch --device "$DEVICETCL_DEVICE_ID" \
+    --console "$APP_BUNDLE_ID" > "$CONSOLE_LOG" 2>&1 &
+fi
 console_process=$!
 
 echo "[探针] 执行 $SMOKE_SCOPE"
@@ -258,12 +297,7 @@ while (( SECONDS < DEADLINE )); do
     sleep 1
     continue
   fi
-  if xcrun devicectl device copy from \
-    --device "$DEVICETCL_DEVICE_ID" \
-    --domain-type appGroupDataContainer \
-    --domain-identifier "$APP_GROUP_ID" \
-    --source "$REMOTE_REPORT_PATH" \
-    --destination "$LOCAL_REPORT_PATH" >/dev/null 2>&1; then
+  if copy_smoke_report "$REMOTE_REPORT_PATH" "$LOCAL_REPORT_PATH" 2>/dev/null; then
     if python3 - "$LOCAL_REPORT_PATH" "$RUN_ID" <<'PY'
 import json
 import sys
@@ -284,6 +318,25 @@ if ! $REPORT_READY; then
   echo "网络 Smoke 等待超过 30 分钟：$REMOTE_REPORT_PATH" >&2
   exit 1
 fi
+if [[ -n "$SIMULATOR_DEVICE" ]]; then
+  python3 - "$LOCAL_REPORT_PATH" "$SIMULATOR_DEVICE" "$ROOT_DIR/Scripts" <<'PYSIMULATORENV'
+import json
+from pathlib import Path
+import subprocess
+import sys
+sys.path.insert(0, sys.argv[3])
+from validation_environment import host_environment
+inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
+runtime_id, device = next((runtime, device) for runtime, devices in inventory['devices'].items()
+    for device in devices if device['udid'] == sys.argv[2])
+runtime = next(value for value in inventory['runtimes'] if value['identifier'] == runtime_id)
+path = Path(sys.argv[1])
+report = json.loads(path.read_text())
+report['environment'] = dict(host_environment(), device=dict(identifier=sys.argv[2], platform='iOS Simulator',
+    model=device['deviceTypeIdentifier'], systemVersion=runtime['version'], systemBuild=runtime['buildversion']))
+path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+PYSIMULATORENV
+fi
 if ! $PREPARE_ONLY && ! { [[ -n "$WORKER_SNAPSHOT" ]] && python3 "$ROOT_DIR/Scripts/validation_provenance.py" worker-attach "$LOCAL_REPORT_PATH" "$WORKER_SNAPSHOT"; }; then
   python3 - "$LOCAL_REPORT_PATH" <<'PYWORKER'
 import json
@@ -297,12 +350,7 @@ PYWORKER
 fi
 
 if [[ "$SMOKE_CAPTURE" == "rawCourseResponse" ]]; then
-  if ! xcrun devicectl device copy from \
-    --device "$DEVICETCL_DEVICE_ID" \
-    --domain-type appGroupDataContainer \
-    --domain-identifier "$APP_GROUP_ID" \
-    --source "$REMOTE_RAW_COURSE_PATH" \
-    --destination "$LOCAL_RAW_COURSE_PATH" >/dev/null 2>&1; then
+  if ! copy_smoke_report "$REMOTE_RAW_COURSE_PATH" "$LOCAL_RAW_COURSE_PATH" 2>/dev/null; then
     echo "未读取到原始课表响应：$REMOTE_RAW_COURSE_PATH" >&2
     exit 1
   fi

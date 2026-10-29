@@ -60,7 +60,8 @@ extension BIT101APIClient {
             try Task.checkCancellation()
             guard credentials.schoolSessionIdentity == owner else { throw CancellationError() }
             let group = cookies.cookies(for: AppURL.required("https://sso.bit.edu.cn"))?.first { $0.name == "riskSystemGroupId" }?.value ?? ""
-            let payload = try JSONSerialization.data(withJSONObject: ["token": token, "groupId": group])
+            let risk: [String: Any] = token.map { ["token": $0, "groupId": group] } ?? ["error": true]
+            let payload = try JSONSerialization.data(withJSONObject: risk)
             fields += [("risk_payload", try LoginCrypto.encryptPassword(String(decoding: payload, as: UTF8.self), saltBase64: salt)),
                 ("targetSystem", Self.casField("targetSystem", in: html) ?? "sso"),
                 ("siteId", Self.casField("siteId", in: html) ?? "sourceId"), ("riskEngine", "true")]
@@ -81,7 +82,7 @@ extension BIT101APIClient {
         return (data, response)
     }
 
-    private func schoolRiskToken(referer: URL, cookies: HTTPCookieStorage) async throws -> String {
+    private func schoolRiskToken(referer: URL, cookies: HTTPCookieStorage) async throws -> String? {
         let base = AppURL.required("https://sso.bit.edu.cn")
         var device = cookies.cookies(for: base)?.first { $0.name == "device" }?.value
         if device == nil {
@@ -105,12 +106,17 @@ extension BIT101APIClient {
         request.setValue(base.absoluteString, forHTTPHeaderField: "Origin")
         request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer")
         request.httpBody = try JSONSerialization.data(withJSONObject: profile)
-        let (data, response) = try await sendRequest(request, followRedirects: false)
-        guard (200 ..< 300).contains(response.statusCode),
-              let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let token = (payload["responsetoken"] as? String) ?? ((payload["data"] as? [String: Any])?["responsetoken"] as? String),
-              !token.isEmpty else { throw NativeSchoolAuthenticationError.invalidResponse }
-        return token
+        do {
+            let (data, response) = try await sendRequest(request, followRedirects: false)
+            guard (200 ..< 300).contains(response.statusCode),
+                  let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let token = (payload["responsetoken"] as? String) ?? ((payload["data"] as? [String: Any])?["responsetoken"] as? String),
+                  !token.isEmpty else { return nil }
+            return token
+        } catch {
+            if TaskCancellation.matches(error) { throw error }
+            return nil
+        }
     }
 
     private nonisolated static func riskFingerprint(_ value: String) -> String {

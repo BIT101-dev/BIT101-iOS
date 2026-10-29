@@ -101,11 +101,12 @@ def restore_installation_boundary_findings() -> list[str]:
     support = shlex.quote(str(SCRIPT_ROOT / 'script-support.sh'))
     prefix = f'set -euo pipefail\nROOT_DIR={shlex.quote(str(ROOT))}\nsource {support}\n'
     prefix += '''rm() { :; }
-xcrun() { print -ru2 INSTALL; }
+xcrun() { if [[ "$*" == 'simctl get_app_container '* ]]; then print /fixture; else print -ru2 INSTALL; fi; }
 bit101_run_logged() { print EXECUTE; }
 record_result() { print RESULT; }
 DERIVED_ROOT=/fixture DERIVED_DATA=/fixture RESULT_BUNDLE=/fixture/result
 DEVICETCL_DEVICE_ID=phone BIT101_DEVICETCL_DEVICE_ID=phone DEVICE_ID=phone TEST_CLASS=fixture
+SMOKE_PLATFORM=iphoneos SIMULATOR_DEVICE= APP_BUNDLE_ID=app APP_GROUP_ID=group
 common_args=()
 '''
     native = (SCRIPT_ROOT / 'run-extended-tests.sh').read_text()
@@ -129,6 +130,8 @@ execute_test() {
             ('ui', 'false', 13), ('catalyst', 'false', 13), ('catalyst-release-runtime', 'false', 13), ('all', 'true', 13)]]
     cases += [(program, '', status, status, ['CLEAR'] if status else ['CLEAR', 'INSTALL'])
               for program in (network, install) for status in (0, 13)]
+    cases += [(network, 'SMOKE_PLATFORM=iphonesimulator SIMULATOR_DEVICE=fixture\n', status, status,
+               ['CLEAR'] if status else ['CLEAR', 'INSTALL']) for status in (0, 13)]
     cases += [(cloud + f'\nrun_phone_test {method}\n', '', status, status,
                ['CLEAR'] if status else ['CLEAR', 'EXECUTE', 'RESULT'])
               for method in ('testPhoneRoundTrip', 'testCleanup') for status in (0, 13)]

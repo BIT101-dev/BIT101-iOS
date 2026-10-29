@@ -753,6 +753,9 @@ final class UITestSchoolService: ScheduleServicing {
     }
     func fetchCampuses() async throws -> [CampusRecord] {
         try requireSchoolAvailability()
+        if AppUITestBootstrap.environment["BIT101_UI_TEST_CLASSROOM_LOADING"] == "1" {
+            try await Task.sleep(for: .seconds(30))
+        }
         return [CampusRecord(id: "1", name: "良乡校区", code: "1"), CampusRecord(id: "2", name: "中关村校区", code: "2")]
     }
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
