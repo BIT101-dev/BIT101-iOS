@@ -449,7 +449,7 @@ final class ReleaseNetworkSmokeRunner {
             let result: TrustedTranscriptPages
             do { result = try await transcriptService.fetchTrustedTranscriptPages(onPage: nil) }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
-                guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
+                guard !challenge.isCaptcha, let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb_cjd"))
                 let authenticated = try await transcriptService.submitTranscriptVerificationCode(code, for: challenge)
                 result = try await transcriptService.fetchTrustedTranscriptPages(authenticatedBy: authenticated, onPage: nil)
@@ -587,7 +587,7 @@ final class ReleaseNetworkSmokeRunner {
         let scoreChallenge = await probe(.scoreAuthentication, area: .school, scope: scope) {
             do { return try await scoreService.startScoreChallenge() }
             catch ScoreServiceError.secondFactorRequired(let challenge) {
-                guard let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
+                guard !challenge.isCaptcha, let handler = self.schoolSMSHandler else { throw ScoreServiceError.secondFactorRequired(challenge) }
                 let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "jwb"))
                 return try await scoreService.submitScoreVerificationCode(code, for: challenge)
             }
@@ -778,7 +778,7 @@ final class ReleaseNetworkSmokeRunner {
     private func operationWithSchoolAuthentication<Value>(_ operation: () async throws -> Value) async throws -> Value {
         do { return try await operation() }
         catch ScheduleServiceError.secondFactorRequired(let challenge) {
-            guard let handler = schoolSMSHandler, let schedule = schoolSMSSchedule else {
+            guard !challenge.isCaptcha, let handler = schoolSMSHandler, let schedule = schoolSMSSchedule else {
                 throw ScheduleServiceError.secondFactorRequired(challenge)
             }
             let code = try await handler(SchoolSMSCodeRequest(maskedPhone: challenge.maskedPhone ?? "", purpose: "webvpn"))

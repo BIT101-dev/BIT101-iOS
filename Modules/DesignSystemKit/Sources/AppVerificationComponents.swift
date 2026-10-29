@@ -266,7 +266,7 @@ public struct AppVerificationSheet: View {
             .onChange(of: isCaptcha) { _, _ in resetInput() }
             .onChange(of: captchaImage) { _, _ in resetInput() }
         }
-        .presentationDetents([.medium])
+        .presentationDetents(isCaptcha ? [.large] : [.medium])
     }
 
     private var submissionInProgress: Bool { isSubmitting || isSubmitInFlight }

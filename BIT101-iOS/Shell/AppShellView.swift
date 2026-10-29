@@ -292,6 +292,7 @@ struct AppShellView: View {
                 } label: {
                     Label(usesExpandedNavigation ? destination.title : destination.tab.title,
                         systemImage: destination.systemImage)
+                        .accessibilityIdentifier(destination.accessibilityIdentifier)
                 }
                 .accessibilityIdentifier(destination.accessibilityIdentifier)
                 .hidden(isHidden(destination))

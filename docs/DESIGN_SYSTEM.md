@@ -74,7 +74,7 @@
 
 头像容器 `AppAvatarContainer` 接收已加载的 `Image`，远程图片展示和缓存由 `MediaKit` 适配。设计系统维护视图结构与视觉规则，业务依赖在 App 组装入口连接。
 
-图形与短信验证共用 `AppVerificationSheet`。验证面板通过 `appDiagnosticModalActivity` 将呈现生命周期交给宿主；失败提示沿统一队列等待面板退场，再显示所属业务的恢复入口。日程与其他页面共用 `diagnosticAlert` 转发提示。
+图形与短信验证共用 `AppVerificationSheet`。图形验证采用系统大面板容纳图片与提交操作，短信验证采用系统半屏面板。验证面板通过 `appDiagnosticModalActivity` 将呈现生命周期交给宿主；失败提示沿统一队列等待面板退场，再显示所属业务的恢复入口。日程与其他页面共用 `diagnosticAlert` 转发提示。
 
 ## 自适应
 

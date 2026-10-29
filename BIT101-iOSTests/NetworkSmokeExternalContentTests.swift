@@ -519,7 +519,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         var observed = Set<String>()
         var webvpnVerified = false
         var ssoVerified = false
-        private var verificationChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: "sms_required", maskedPhone: "***", expiresIn: 60) }
+        private var verificationChallenge: BITLoginAuthenticationChallenge { .init(challengeID: "fixture", accessToken: "fixture", status: stage == "all-sms-captcha-failure" ? "waiting_captcha" : "waiting_sms", maskedPhone: "***", expiresIn: 60) }
         init(stage: String, image: Data) { self.stage = stage; self.image = image }
         private var user: CommunityUser {
             CommunityUser(id: 1, createTime: "", nickname: "fixture", avatar: CommunityImage(mid: "image", url: "https://image.invalid/image.png", lowUrl: ""), motto: "",
@@ -801,7 +801,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
     }
     @Test("Full smoke orchestration preserves success, intermediate failures and subsequent scopes", .timeLimit(.minutes(1)), arguments:
-        ["gallery-search-ignored-failure", "course-search-ignored-failure", "paper-search-ignored-failure", "bot-empty-gap", "gallery-search-target-failure", "message-empty-gap", "all-success", "all-sms-success", "all-sms-not-required", "all-sms-community-login-failure", "all-sms-community-login-empty-failure", "all-sms-app-store-failure", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
+        ["gallery-search-ignored-failure", "course-search-ignored-failure", "paper-search-ignored-failure", "bot-empty-gap", "gallery-search-target-failure", "message-empty-gap", "all-success", "all-sms-success", "all-sms-captcha-failure", "all-sms-not-required", "all-sms-community-login-failure", "all-sms-community-login-empty-failure", "all-sms-app-store-failure", "community-failure", "schedule-success", "ddl-success", "ddl-failure", "ddl-invalid-calendar-failure", "raw-write-failure",
          "app-store-redirect-failure", "emergency-redirect-failure", "aasa-redirect-failure", "aasa-followed-redirect-failure",
          "aasa-mime-failure", "aasa-exclusion-failure", "image-budget-failure", "entity-identity-failure", "repeated-page-failure",
          "gallery-comment-page-failure", "course-comment-page-failure", "paper-comment-page-failure", "gallery-comment-ranking-failure", "paper-comment-ranking-failure", "cors-method-failure", "cors-header-failure",
@@ -812,6 +812,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
          "school-independent-success", "transcript-independent-success", "schedule-independent-success", "ddl-independent-success",
          "course-comment-ranking-failure", "course-history-statistics-failure", "poster-like-order-failure", "poster-new-order-failure", "message-account-missing-failure", "message-account-mismatch-failure", "course-search-target-failure", "paper-search-target-failure", "course-search-later-success", "report-types-empty-gap", "report-types-duplicate-failure", "report-types-text-failure"])
     func completeOrchestration(stage: String) async throws {
+        let captchaBlocked = stage == "all-sms-captcha-failure"
         let image = try #require(UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { $0.fill(CGRect(x: 0, y: 0, width: 1, height: 1)) }.pngData())
         let services = Services(stage: stage, image: image)
         let productionServices = Services(stage: stage, image: image)
@@ -846,7 +847,10 @@ extension ReleaseNetworkSmokeLifecycleTests {
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
         let scope: NetworkSmokeScope = stage.hasPrefix("gallery-search-") || stage == "message-empty-gap" || stage == "course-history-statistics-failure" || stage.hasPrefix("course-search-") || stage.hasPrefix("poster-") || stage.hasPrefix("message-account-") || stage.hasPrefix("report-types-") ? .bit101 : stage.hasPrefix("school-") ? .school : stage.hasPrefix("transcript-") ? .transcript : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") ? .all : stage == "community-failure" || stage == "image-budget-failure" || stage == "entity-identity-failure" || stage == "repeated-page-failure" || stage.contains("comment-page") || stage.contains("comment-ranking") || stage.hasPrefix("cors") || stage.hasPrefix("bot-") || stage.hasPrefix("paper-") || stage.contains("fixtures") || stage == "feed-images-missing-success" || stage == "fixture-image-missing-failure" || stage == "fixture-course-number-failure" || stage == "empty-list-failure" ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
-        let smsHandler: SchoolSMSCodeHandler = { _ in "fixture-code" }
+        let smsHandler: SchoolSMSCodeHandler = { request in
+            #expect(!captchaBlocked || request.purpose == "school_sso_second_factor")
+            return "fixture-code"
+        }
         let report = await runner.run(scope: scope, runID: stage, capture: stage == "raw-write-failure" ? .rawCourseResponse : .none,
             term: stage == "historical-term-success" ? "historical-1" : nil, communityExpectedAccount: stage == "message-account-missing-failure" ? nil : stage == "message-account-mismatch-failure" ? 2 : 1,
             fixtures: stage == "missing-fixtures-failure" ? nil : NetworkSmokeFixtures(posterID: 41, courseID: 43,
@@ -903,7 +907,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe)) == ["school.session", "schedule.current-term"])
             #expect(Set(report.verifiedSMSProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
         }
-        if stage.hasPrefix("all-sms-") {
+        if stage.hasPrefix("all-sms-") && !captchaBlocked {
             #expect(Set(report.authenticatedSchoolProbes.map(\.purpose)) == NetworkSmokeScope.all.requiredSMSPurposes)
             #expect(Set(report.requestedSMSPurposes) == Set(report.verifiedSMSProbes.map(\.purpose)))
             #expect(report.schoolSMSCoverage == (stage == "all-sms-not-required" ? "not_required" : "verified"))
@@ -926,6 +930,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
                     "course.history", "course.web", "course.search", "paper.search", "paper.detail", "paper.image", "paper.comments", "paper.web"])
         } else {
             let deferred: Set<String> = stage.contains("community-login") ? Set(NetworkSmokeProbe.allCases.filter(\.requiresCommunitySession).map(\.rawValue))
+                : captchaBlocked ? ["score.brief", "score.detail", "schedule.sync", "classroom.campuses", "classroom.buildings", "classroom.occupancy"]
                 : stage == "entity-identity-failure" ? ["paper.search", "paper.image", "gallery.image"]
                 : stage == "paper-content-failure" ? ["paper.search", "paper.image"] : stage == "campus-selection-failure" ? ["classroom.occupancy"] : []
             #expect(Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
@@ -966,11 +971,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         if stage.hasPrefix("cors") { #expect(report.failures.count == 1 && report.failures[0].contains("feedback.preflight")) }
         if stage.hasPrefix("aasa") { #expect(report.failures.count == 1 && report.failures[0].contains("web.association")) }
-        if scope.includes(.schedule) { #expect(services.observed.contains("schedule")) }
         if scope.includes(.schedule) {
-            #expect(report.currentTerm == "fixture-1")
+            #expect(services.observed.contains("schedule") == !captchaBlocked)
+            #expect(report.currentTerm == (captchaBlocked ? nil : "fixture-1"))
             #expect(report.requestedTerm == (stage == "historical-term-success" ? "historical-1" : nil))
-            #expect(report.validatedTerm == (stage == "schedule-term-failure" || stage == "invalid-exam-failure" || stage.contains("course-gap") ? nil : report.requestedTerm ?? "fixture-1"))
+            #expect(report.validatedTerm == (captchaBlocked || stage == "schedule-term-failure" || stage == "invalid-exam-failure" || stage.contains("course-gap") ? nil : report.requestedTerm ?? "fixture-1"))
         }
         if report.executedProbes.contains("classroom.occupancy") {
             let occupancy = try #require(report.requestEvidence.first { $0.probe == "classroom.occupancy" })
@@ -988,7 +993,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             #expect(report.failures.count == 1 && report.failures[0].contains(probe))
         }
         let next = await runner.run(scope: .transcript, runID: "next", schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
-        #expect(next.passed && next.failures.isEmpty && next.coverageComplete)
+        #expect(next.passed == !captchaBlocked && next.failures.isEmpty && next.authenticationBlockers.isEmpty == !captchaBlocked && next.coverageComplete == !captchaBlocked, "\(stage): \(next.summaryLine)")
         #expect(reports.count == 2)
     }
 }
