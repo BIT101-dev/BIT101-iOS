@@ -713,8 +713,13 @@ def smoke_script_boundary_findings() -> list[str]:
 
     source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
     findings: list[str] = []
+    def shell_function(name: str, script_source: str = source) -> str:
+        match = re.search(rf"(?ms)^([ \t]*){name}\(\) \{{\n.*?^\1\}}$", script_source)
+        if match is None:
+            raise RuntimeError(f"Smoke 自测需要 {name} 函数")
+        return match[0]
     network = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
-    wait_loop = network.split('REPORT_READY=false\n', 1)[1].split('\nif ! $REPORT_READY', 1)[0]
+    wait_loop = shell_function('copy_smoke_report', network) + '\n' + network.split('REPORT_READY=false\n', 1)[1].split('\nif ! $REPORT_READY', 1)[0]
     for marker in ('NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=fixture', 'NETWORK_SMOKE_REQUEST_FAIL'):
         stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
         stub += 'rg() { [[ "$2" == "' + marker + '" ]]; }\nkill() { return 0; }\nxcrun() { return 9; }\nsleep() { return 9; }\n'
@@ -722,18 +727,13 @@ def smoke_script_boundary_findings() -> list[str]:
         assert failed.returncode == 1 and '失败' in failed.stderr, failed.stderr
     stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
     stub += 'phase=waiting\nrg() { [[ "$2" == "NETWORK_SMOKE_SUMMARY run_id=fixture " && "$phase" == ready ]]; }\n'
-    stub += 'DEVICETCL_DEVICE_ID=fixture\nAPP_GROUP_ID=fixture\nREMOTE_REPORT_PATH=fixture\nLOCAL_REPORT_PATH=/fixture\n'
+    stub += 'SIMULATOR_DEVICE=\nDEVICETCL_DEVICE_ID=fixture\nAPP_GROUP_ID=fixture\nREMOTE_REPORT_PATH=fixture\nLOCAL_REPORT_PATH=/fixture\n'
     stub += 'kill() { [[ "$phase" == waiting ]]; }\nxcrun() { [[ "$phase" == ready ]] || exit 8; exit 17; }\nsleep() { phase=ready; }\n'
     ready = subprocess.run(['zsh', '-c', stub + wait_loop], capture_output=True, text=True, timeout=5)
     assert ready.returncode == 17, ready
     stopped = subprocess.run(['zsh', '-c', stub.replace('phase=waiting', 'phase=stopped') + wait_loop],
         capture_output=True, text=True, timeout=5)
     assert stopped.returncode == 1 and '控制台进程已结束' in stopped.stderr, stopped
-    def shell_function(name: str, script_source: str = source) -> str:
-        match = re.search(rf"(?ms)^([ \t]*){name}\(\) \{{\n.*?^\1\}}$", script_source)
-        if match is None:
-            raise RuntimeError(f"Smoke 自测需要 {name} 函数")
-        return match[0]
     phone_function = shell_function("run_phone_test", (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text())
     stub = r'''
 set -euo pipefail
@@ -825,12 +825,15 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
     cases = ((7, 7, "preflight", False, 0), (0, 0, "preflight", False, 0),
         (0, 0, "sms", False, 0), (7, 7, "sms", False, 0), (1, 1, "sms", True, 0),
         (130, 130, "sms", True, 0), (0, 1, "sms", True, 1))
-    for initial, expected, sms, ready, school_record_status in cases:
+    for initial, expected, sms, ready, school_record_status, simulator in (
+            (*case, device) for case in cases for device in ('', 'fixture')):
+        expected = initial if simulator else expected
         harness = f'''
 set -euo pipefail
 ROOT_DIR=/audit validation_group=network validation_scope=full
 community_started=false PREPARE_ONLY=false report_ready={str(ready).lower()}
 SMOKE_SCOPE=all SMS_MODE={sms} console_process=""
+SIMULATOR_DEVICE={simulator}
 BIT101_VALIDATION_INPUT_IDENTITY=network-inputs SCHOOL_SMS_STARTED_DIGEST=school-inputs
 python3() {{ print -r -- "$BIT101_VALIDATION_INPUT_IDENTITY $*"; if [[ "$*" == *'record school-sms'* ]]; then return {school_record_status}; fi; return 0; }}
 {finish_network}
@@ -841,7 +844,9 @@ fail_command
         result = subprocess.run(["zsh", "-c", harness], capture_output=True, text=True)
         if result.returncode != expected: findings.append(f"网络 Smoke 退出自测：状态 {initial}")
         school_status = 0 if ready and initial <= 2 else initial
-        if sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {initial} full" not in result.stdout
+        if simulator and 'record ' in result.stdout:
+            findings.append("开发设备采样沿独立诊断结果传播退出状态")
+        if not simulator and sms == "sms" and (f"network-inputs /audit/Scripts/validation_evidence.py record network {initial} full" not in result.stdout
                 or f"school-inputs /audit/Scripts/validation_evidence.py record school-sms {school_status} full" not in result.stdout):
             findings.append("全量短信验收退出自测：两个验证范围维持各自结果与开始摘要")
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
