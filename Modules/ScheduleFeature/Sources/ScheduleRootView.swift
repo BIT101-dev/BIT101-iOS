@@ -58,7 +58,18 @@ public struct ScheduleRootView: View {
     /// 日程主页主体。
     public var body: some View {
         TimelineView(.everyMinute) { context in
-            content.environment(\.scheduleCurrentDate, context.date)
+            Group {
+                if displayedSection == .classroom { content }
+                else {
+                    NavigationStack {
+                        content
+                            .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
+                            .navigationBarTitleDisplayMode(.inline)
+                            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+                    }
+                }
+            }
+            .environment(\.scheduleCurrentDate, context.date)
         }
         .padding(.top, layout.contentTopInset)
         .background(AppDesignSystem.Palette.Background.grouped)
@@ -88,6 +99,7 @@ public struct ScheduleRootView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("schedule.section-surface")
         }
+        .background(AppDesignSystem.Palette.Background.grouped)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation { sectionTabs }
         }
@@ -97,9 +109,6 @@ public struct ScheduleRootView: View {
                 .frame(height: displayedSection == .courses
                     ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
-        .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
-        .navigationBarTitleDisplayMode(.inline)
-        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {
             if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }

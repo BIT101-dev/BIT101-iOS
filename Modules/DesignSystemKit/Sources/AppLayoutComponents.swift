@@ -155,7 +155,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
                     .toolbar(layout.isLandscape ? .visible : .hidden, for: .navigationBar)
                     .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                     .navigationDestination(for: Selection.self) { selected in
-                        detailContent(selected).navigationBarBackButtonHidden(layout.isLandscape)
+                        detailContent(selected).appPaneBackButton(isPresented: layout.isLandscape) { selection = nil }
                     }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -278,6 +278,10 @@ private struct AppWindowSizeReader: UIViewRepresentable {
 }
 
 extension View {
+    public func appPaneBackButton(isPresented: Bool, onBack: @escaping () -> Void) -> some View {
+        modifier(AppPaneBackButtonModifier(isPresented: isPresented, onBack: onBack))
+    }
+
     public func appWindowLayout() -> some View { modifier(AppWindowLayoutModifier()) }
     public func appReadableContent(fillsAvailableWidth: Bool = false) -> some View {
         modifier(AppReadableContentModifier(fillsAvailableWidth: fillsAvailableWidth))
@@ -290,6 +294,31 @@ extension View {
                           for: .tabBar, .navigationBar)
             .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
             .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
+    }
+}
+
+private struct AppPaneBackButtonModifier: ViewModifier {
+    let isPresented: Bool
+    let onBack: () -> Void
+    func body(content: Content) -> some View {
+        content.navigationBarBackButtonHidden(isPresented)
+            .toolbar {
+                if isPresented {
+#if !targetEnvironment(macCatalyst)
+                    if #available(iOS 27.1, *) { backItem.axisBehavior(.horizontalOnly) }
+                    else { backItem }
+#else
+                    backItem
+#endif
+                }
+            }
+    }
+    private var backItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button("返回", systemImage: "chevron.backward", action: onBack)
+                .labelStyle(.titleAndIcon)
+                .accessibilityIdentifier("app.pane.back")
+        }
     }
 }
 
@@ -533,6 +562,7 @@ public struct AppFloatingActionButtonSurface<Content: View>: View {
 
 /// 右下角操作按钮组，统一按钮间距和安全区内边距。
 public struct AppFloatingActionStack<Content: View>: View {
+    @Environment(\.appWindowLayout) private var windowLayout
     private let axis: Axis
     private let content: Content
 
@@ -549,6 +579,8 @@ public struct AppFloatingActionStack<Content: View>: View {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
+        .padding(.bottom, windowLayout.isLandscapeWindow ? AppDesignSystem.Spacing.none
+            : AppDesignSystem.Size.Layout.floatingActionBottomInset)
     }
 }
 
@@ -607,7 +639,7 @@ private struct AppGroupedListStyleModifier: ViewModifier {
     @Environment(\.appWindowLayout) private var layout
     let insetViewport: Bool
     func body(content: Content) -> some View {
-        let inset = insetViewport || (!layout.isLandscapeWindow && layout.hasHorizontalSystemInsets)
+        let inset = insetViewport || layout.hasHorizontalSystemInsets
         content.listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)

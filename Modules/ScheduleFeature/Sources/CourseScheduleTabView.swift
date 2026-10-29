@@ -232,7 +232,8 @@ struct CourseScheduleTabView: View {
             let calendarHeight = max(
                 listHeight
                     - refreshStatusHeight
-                    - scheduleSectionGap,
+                    - scheduleSectionGap
+                    - (usesLandscapeCalendar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
                 1
             )
 
@@ -268,7 +269,6 @@ struct CourseScheduleTabView: View {
                     }
                     .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
                     .appGroupedListStyle()
-                    .contentMargins(.bottom, AppDesignSystem.Spacing.none, for: .scrollContent)
                     .scrollContentBackground(.hidden)
                     .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
                     .frame(height: listHeight, alignment: .top)

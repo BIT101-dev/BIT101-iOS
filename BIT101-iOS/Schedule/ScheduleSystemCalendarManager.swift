@@ -47,6 +47,14 @@ nonisolated struct ScheduleSystemCalendarEventDraft: Equatable, Sendable {
     let notes: String
     let startDate: Date
     let endDate: Date
+
+    var calendarLocation: EKStructuredLocation {
+        let value = EKStructuredLocation(title: location)
+        if let structuredLocation {
+            value.geoLocation = CLLocation(latitude: structuredLocation.latitude, longitude: structuredLocation.longitude)
+        }
+        return value
+    }
 }
 
 /// 将课表里的周次、星期和节次展开成独立日历事件。
@@ -405,15 +413,7 @@ actor ScheduleSystemCalendarManager {
                     let event = EKEvent(eventStore: eventStore)
                     event.calendar = calendar
                     event.title = draft.title
-                    event.location = draft.location
-                    if let draftLocation = draft.structuredLocation {
-                        let structuredLocation = EKStructuredLocation(title: draftLocation.title)
-                        structuredLocation.geoLocation = CLLocation(
-                            latitude: draftLocation.latitude,
-                            longitude: draftLocation.longitude
-                        )
-                        event.structuredLocation = structuredLocation
-                    }
+                    event.structuredLocation = draft.calendarLocation
                     event.notes = draft.notes
                     event.startDate = draft.startDate
                     event.endDate = draft.endDate

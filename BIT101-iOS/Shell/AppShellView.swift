@@ -307,7 +307,7 @@ struct AppShellView: View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
                 Group {
-                    if tab == .gallery || tab == .score || tab == .mine { tabContent(tab) }
+                    if tab == .schedule || tab == .gallery || tab == .score || tab == .mine { tabContent(tab) }
                     else { NavigationStack { tabContent(tab) } }
                 }
                 .environment(\.appPageIsVisible, tab == selectedTab)
@@ -344,7 +344,7 @@ struct AppShellView: View {
             destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
                 .appBrowserHeader(isPresented: !usesExpandedNavigation) { GallerySurfacePicker(selection: $gallerySurface) }
         case .schedule, .classroom:
-            NavigationStack { scheduleContent(showingClassrooms: destination == .classroom) }
+            scheduleContent(showingClassrooms: destination == .classroom)
         case .scores, .courses:
             ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse,
                 selection: $scoreSurface, showingCourses: destination == .courses)

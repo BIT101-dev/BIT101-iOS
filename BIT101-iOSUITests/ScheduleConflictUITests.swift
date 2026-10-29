@@ -121,6 +121,16 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @objc func testCompactWindowKeepsSystemBarsAndListsWithinBounds() {
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         checkCompactWindowBounds()
+        app.mainTab("日程").tapBriefly()
+        tapHeader(app.sectionTab("空教室"))
+        app.buttons["classroom.section-filter"].tapBriefly()
+        let navigation = app.navigationBars["节次筛选"]
+        assertUI(navigation.appears(timeout: 5), "竖屏节次筛选应沿整页导航打开。")
+        let section = app.buttons["ui.app-multi-selection-list.item.1"]
+        section.tapBriefly()
+        back()
+        assertUI(navigation.disappears(timeout: 5) && app.buttons["classroom.section-filter"].exists,
+            "竖屏筛选返回应恢复空教室查询页。")
     }
     @MainActor
     @objc func testWindowChangesKeepBrowsersWithinSystemInsets() throws {
@@ -178,9 +188,74 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(add.appears(timeout: 5), "紧凑窗口应展示课表操作。")
         print("Schedule geometry: button=\(add.frame), available=\(available)")
         let contentBottom = bar.width > bar.height && bar.minY > window.midY ? bar.minY : available.maxY
-        assertUI(abs(add.frame.maxY - contentBottom) <= 8,
-            "课表操作应沿底部安全区排列：\(add.frame)，可用区域 \(available)。")
+        let grid = app.descendants(matching: .any)["schedule.calendar"]
+        print("Portrait spacing: grid=\(grid.frame), contentBottom=\(contentBottom)")
+        assertUI(grid.frame.maxY <= contentBottom - 8 && add.frame.maxY <= grid.frame.maxY - 19,
+            "竖屏课表与悬浮操作应保留底部间距：课表 \(grid.frame)，按钮 \(add.frame)，正文底部 \(contentBottom)。")
         recordLayoutScreenshot("紧凑课表底部")
+    }
+
+    @MainActor
+    @objc func testLandscapeDetailBackAndClassroomFilterUseTheRightPane() {
+        let rotates = UIDevice.current.userInterfaceIdiom != .phone
+        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
+        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let window = self.app.windows.firstMatch.frame
+            return window.width > window.height
+        }, on: app, timeout: 10), "右侧导航验收使用横屏窗口。")
+        app.buttons["ui.score-list-page.排序"].tapBriefly()
+        let scoreNavigation = app.native.navigationBars["成绩排序"]
+        let backButton = app.buttons["app.pane.back"]
+        let scoreMaster = app.descendants(matching: .any)["browser.master"]
+        assertUI(scoreNavigation.waitForExistence(timeout: 5) && backButton.exists
+            && backButton.frame.minX >= scoreMaster.frame.maxX
+            && scoreNavigation.frame.contains(backButton.frame)
+            && backButton.frame.maxX <= scoreNavigation.frame.minX + 88,
+            "横屏详情返回键应位于右栏左上侧：\(backButton.frame)，左栏 \(scoreMaster.frame)。")
+        backButton.tapBriefly()
+        assertUI(scoreNavigation.disappears(timeout: 5) && textElement("选择一项成绩").exists,
+            "右栏返回应恢复详情占位并保留左侧列表。")
+        app.mainTab("空教室").tapBriefly()
+        let sidebar = app.descendants(matching: .any)["classroom.sidebar"]
+        let campus = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "校区")).firstMatch
+        let tabs = ["日程", "空教室", "地图", "话廊", "文章", "成绩", "课程", "我的"]
+            .map { app.mainTab($0).native.frame }.reduce(CGRect.null) { $0.union($1) }
+        if tabs.width > tabs.height {
+            let stamp = app.native.staticTexts["app.refresh-status.timestamp"]
+            assertUI(stamp.exists && stamp.frame.minY >= tabs.maxY,
+                "空教室刷新行应位于系统主导航下方：\(stamp.frame)，主导航 \(tabs)。")
+        }
+        app.buttons["classroom.section-filter"].tapBriefly()
+        let filterNavigation = app.native.navigationBars["节次筛选"]
+        let firstSection = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch
+        assertUI(filterNavigation.waitForExistence(timeout: 5) && firstSection.appears(timeout: 5)
+            && sidebar.exists && campus.exists && firstSection.frame.minX >= sidebar.frame.maxX,
+            "节次筛选应在右栏打开，并保留左侧查询条件。")
+        let window = app.windows.firstMatch.frame
+        let available = app.windows.firstMatch.scrollGestureFrame(in: window) ?? window
+        let row = app.native.cells.containing(.button, identifier: firstSection.identifier).firstMatch
+        assertUI(row.exists && abs(row.frame.maxX - (available.maxX - 8)) <= 1,
+            "右栏节次分组应完整位于系统侧栏左侧：\(row.frame)，正文 \(available)。")
+        if available.maxX < window.maxX {
+            let sidebarBackground = backgroundColor(at: CGPoint(x: sidebar.frame.minX + 2, y: available.maxY - 2))
+            let railBackground = backgroundColor(at: CGPoint(x: window.maxX - 2, y: available.midY))
+            assertUI(zip(sidebarBackground, railBackground).allSatisfy { abs($0 - $1) <= 2 },
+                "右栏导航周围应沿页面分组底色呈现：\(railBackground)，页面 \(sidebarBackground)。")
+        }
+        assertUI(backButton.frame.minX >= sidebar.frame.maxX && filterNavigation.frame.contains(backButton.frame)
+            && backButton.frame.maxX <= filterNavigation.frame.minX + 88,
+            "节次筛选返回键应位于右栏左上侧：\(backButton.frame)。")
+        let previous = firstSection.value as? String
+        firstSection.tapBriefly()
+        assertUI(waitUntil(NSPredicate { _, _ in firstSection.value as? String != previous }, on: firstSection),
+            "右栏节次选择应更新筛选状态。")
+        recordLayoutScreenshot("右栏节次筛选")
+        backButton.tapBriefly()
+        assertUI(filterNavigation.disappears(timeout: 5)
+            && app.descendants(matching: .any)["interaction.FreeClassroomTabView.list"].exists,
+            "返回后应展示同一查询的空教室结果。")
     }
     @MainActor
     @objc func testLandscapeEdgesAndColumnBoundaries() {
@@ -199,11 +274,11 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             let window = app.windows.firstMatch
             guard let safeArea = window.scrollGestureFrame(in: window.frame) else { return }
             let expectedDivider = isPhone ? window.frame.midX : safeArea.minX + safeArea.height * 9 / 16
-            func assertDivider(_ identifier: String) {
+            func assertDivider(_ identifier: String, trailingInset: CGFloat = 0) {
                 let pane = self.app.descendants(matching: .any)[identifier]
                 assertUI(waitUntil(NSPredicate { _, _ in
-                    pane.exists && abs(pane.frame.maxX - expectedDivider) <= 1
-                }, on: app, timeout: 5), "分栏应沿当前设备的统一边界排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)。")
+                    pane.exists && abs(pane.frame.maxX + trailingInset - expectedDivider) <= 1
+                }, on: app, timeout: 5), "分栏应沿当前设备的统一边界排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)，内缩 \(trailingInset)。")
             }
             func assertBottom(_ button: UIElement) {
                 assertUI(waitUntil(NSPredicate { _, _ in
@@ -213,6 +288,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             app.mainTab("日程").tapBriefly()
             let grid = app.descendants(matching: .any)["schedule.calendar"]
             assertUI(grid.exists, "横屏应展示学校课表网格。")
+            print("Landscape geometry: traits=\(windowTraits()), window=\(window.frame), safe=\(safeArea), grid=\(grid.frame), button=\(app.buttons["schedule.add-content"].frame)")
             let refresh = app.native.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
             let fill = backgroundColor(at: CGPoint(x: refresh.frame.minX + 4, y: refresh.frame.midY))
             let calendarWidth = isPhone ? window.frame.width / 2 : safeArea.width / 2
@@ -220,8 +296,13 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
                 y: safeArea.maxY - 2))
             assertUI(zip(fill, edge).allSatisfy { abs($0 - $1) <= 2 },
                 "课表网格应铺满模块底部安全区：底边 \(edge)，网格底色 \(fill)，安全区 \(safeArea)。")
+            let courseBackground = backgroundColor(at: CGPoint(x: safeArea.minX + 2, y: safeArea.maxY - 2))
+            let ddlBackground = backgroundColor(at: CGPoint(x: safeArea.maxX - 2, y: safeArea.maxY - 2))
+            assertUI(zip(courseBackground, ddlBackground).allSatisfy { abs($0 - $1) <= 2 },
+                "课表与 DDL 模块周围应沿同一页面底色呈现：\(courseBackground)，\(ddlBackground)。")
+            recordLayoutScreenshot("课表与DDL")
             if isPhone {
-                assertDivider("interaction.CourseScheduleTabView.refresh")
+                assertDivider("interaction.CourseScheduleTabView.refresh", trailingInset: 4)
                 let refreshList = app.descendants(matching: .any)["interaction.CourseScheduleTabView.refresh"]
                 assertUI(refreshList.frame.minY >= safeArea.minY + 16 - 0.5,
                     "Duo 课表顶部应保留标准安全间距：\(refreshList.frame)，安全区 \(safeArea)。")
@@ -238,7 +319,6 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             }
             assertBottom(app.buttons["schedule.add-content"])
             assertBottom(app.buttons["添加待办"])
-            recordLayoutScreenshot("课表与DDL")
             for (tab, identifier) in [("空教室", "classroom.sidebar"), ("话廊", "browser.master"),
                 ("文章", "browser.master"), ("成绩", "browser.master"), ("课程", "browser.master"), ("我的", "browser.master")] {
                 app.mainTab(tab).tapBriefly()

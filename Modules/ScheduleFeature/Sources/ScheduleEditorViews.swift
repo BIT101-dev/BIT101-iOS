@@ -307,6 +307,7 @@ struct ScheduleWeekdaySelectionSheet: View {
 }
 
 struct ScheduleSectionSelectionPage: View {
+    @Environment(\.appWindowLayout) private var layout
     let timeTable: [TimeSlot]
     let title: String
     let selectAllTitle: String?
@@ -334,7 +335,7 @@ struct ScheduleSectionSelectionPage: View {
             showsCompletionButton: showsCompletionButton,
             selectedItems: $selectedSections
         )
-        .appReadableContent()
+        .appReadableContent(fillsAvailableWidth: layout.isLandscape)
     }
 }
 

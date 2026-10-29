@@ -5,6 +5,7 @@ import SchedulePorts
 @testable import ScheduleDomain
 import ScheduleContracts
 import Foundation
+import EventKit
 import Testing
 @testable import BIT101_iOS
 
@@ -90,6 +91,11 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(drafts[1].structuredLocation?.title == "北京理工大学 · 良乡校区 · 综教A")
         #expect(drafts[1].structuredLocation?.latitude == 39.733193)
         #expect(drafts[1].structuredLocation?.longitude == 116.170654)
+        let event = EKEvent(eventStore: EKEventStore())
+        event.structuredLocation = drafts[1].calendarLocation
+        #expect(event.location == "良乡校区 · 综教A101")
+        #expect(event.structuredLocation?.geoLocation?.coordinate.latitude == 39.733193)
+        #expect(event.structuredLocation?.geoLocation?.coordinate.longitude == 116.170654)
         #expect(drafts[1].notes.contains("教师：测试教师"))
     }
 
@@ -125,6 +131,20 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(draft?.structuredLocation?.title == "北京理工大学 · 中关村校区 · 主楼")
         #expect(draft?.structuredLocation?.latitude == 39.9597)
         #expect(draft?.structuredLocation?.longitude == 116.321642)
+        let event = EKEvent(eventStore: EKEventStore())
+        event.structuredLocation = draft?.calendarLocation
+        #expect(event.location == "中关村校区主楼133")
+        #expect(event.structuredLocation?.geoLocation?.coordinate.latitude == 39.9597)
+        #expect(event.structuredLocation?.geoLocation?.coordinate.longitude == 116.321642)
+    }
+
+    @Test func calendarLocationKeepsUnmappedTextWithoutAssigningCoordinates() {
+        let draft = ScheduleSystemCalendarEventDraft(markerID: "custom", title: "组会", location: "体育馆",
+            structuredLocation: nil, notes: "", startDate: Date(), endDate: Date().addingTimeInterval(3_600))
+        let event = EKEvent(eventStore: EKEventStore())
+        event.structuredLocation = draft.calendarLocation
+        #expect(event.location == "体育馆")
+        #expect(event.structuredLocation?.geoLocation == nil)
     }
 
     @Test("Exam and custom schedule records share calendar event drafts")
