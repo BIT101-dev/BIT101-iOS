@@ -257,7 +257,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor
     func fillVerificationCode(_ text: String, in field: UIElement) {
         assertUI(field.appears(timeout: 5), "验证码输入应等待字段出现。")
-        field.press(forDuration: 0.01)
         assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5)
             && UITestControlClient.request(["command": "keyboard-state"]) == "active", "验证码输入应取得键盘焦点。")
         enterText(text, in: field)

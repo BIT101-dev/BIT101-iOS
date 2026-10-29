@@ -8,14 +8,24 @@ public struct AppWindowLayout: Equatable {
     public var usesAccessibilityText = false
     public var availableWidth: CGFloat?
     public var availableHeight: CGFloat?
+    public var interfaceIdiom: UIUserInterfaceIdiom
     public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
-                availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil) {
+                availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
+                interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) {
         self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
         self.availableWidth = availableWidth
         self.availableHeight = availableHeight
+        self.interfaceIdiom = interfaceIdiom
     }
-    public var sidebarWidth: CGFloat { (availableHeight ?? size.height) * AppDesignSystem.Size.Layout.sidebarAspectRatio }
+    public var sidebarWidth: CGFloat {
+        usesEqualLandscapeColumns ? size.width / 2
+            : (availableHeight ?? size.height) * AppDesignSystem.Size.Layout.sidebarAspectRatio
+    }
     public var isLandscapeWindow: Bool { size.width > size.height }
+    public var usesEqualLandscapeColumns: Bool { interfaceIdiom == .phone && isLandscapeWindow }
+    public var landscapeContentTopInset: CGFloat {
+        usesEqualLandscapeColumns ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none
+    }
     public var isLandscape: Bool {
         isRegularWidth && isLandscapeWindow && !usesAccessibilityText
             && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
@@ -30,7 +40,7 @@ public struct AppWindowLayout: Equatable {
         if #available(iOS 18.0, *) { isRegularWidth && usesOpaqueNavigation } else { false }
     }
     public var usesOpaqueNavigation: Bool {
-        switch UIDevice.current.userInterfaceIdiom {
+        switch interfaceIdiom {
         case .phone: false
         default: true
         }
@@ -72,10 +82,14 @@ public struct AppPairedPages<First: View, Second: View>: View {
         let firstVisible = isPaired || showsFirst
         let secondVisible = isPaired || !showsFirst
         HStack(spacing: AppDesignSystem.Spacing.none) {
-            if hasShownFirst || firstVisible { pane(first, visible: firstVisible) }
+            if hasShownFirst || firstVisible {
+                pane(first, visible: firstVisible)
+                    .frame(width: isPaired && layout.usesEqualLandscapeColumns ? layout.sidebarWidth : nil)
+            }
             if isPaired { Divider() }
             if hasShownSecond || secondVisible { pane(second, visible: secondVisible) }
         }
+        .padding(.top, layout.landscapeContentTopInset)
         .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
         .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
     }
@@ -145,6 +159,8 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
             .accessibilityHidden(!showsDetail)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
         }
+        .padding(.top, layout.landscapeContentTopInset)
+        .ignoresSafeArea(.keyboard, edges: layout.isLandscapeWindow ? .bottom : [])
         .background(AppDesignSystem.Palette.Background.grouped)
         .onChange(of: layout.isLandscapeWindow, initial: true) { _, isLandscape in
             if wasLandscapeWindow && !isLandscape {
@@ -292,6 +308,7 @@ public struct AppSidebarLayout<Sidebar: View, Content: View>: View {
                 content(usesSidebar).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .padding(.top, layout.landscapeContentTopInset)
         .accessibilityElement(children: .contain)
     }
 }
@@ -506,6 +523,7 @@ public struct AppFloatingActionButtonSurface<Content: View>: View {
 
 /// 右下角操作按钮组，统一按钮间距和安全区内边距。
 public struct AppFloatingActionStack<Content: View>: View {
+    @Environment(\.appWindowLayout) private var windowLayout
     private let axis: Axis
     private let content: Content
 
@@ -522,7 +540,8 @@ public struct AppFloatingActionStack<Content: View>: View {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
-        .padding(.bottom, AppDesignSystem.Size.Layout.floatingActionBottomInset)
+        .padding(.bottom, windowLayout.isLandscapeWindow ? AppDesignSystem.Spacing.none
+            : AppDesignSystem.Size.Layout.floatingActionBottomInset)
     }
 }
 
@@ -572,11 +591,13 @@ extension View {
         else { row.listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped) }
     }
 
-    public func appGroupedListStyle() -> some View {
+    public func appGroupedListStyle(insetViewport: Bool = false) -> some View {
         listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
-            .contentMargins(.horizontal, AppDesignSystem.Spacing.regular, for: .scrollContent)
+            .contentMargins(.horizontal, insetViewport ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,
+                            for: .scrollContent)
+            .padding(.horizontal, insetViewport ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.none)
     }
 
     public func appGroupedSectionStyle() -> some View {

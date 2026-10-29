@@ -17,6 +17,7 @@ import UIKit
 ///
 /// 待办沿分组列表呈现，横屏与课表并排。
 struct DDLScheduleTabView: View {
+    @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScheduleDDLViewModel
@@ -104,7 +105,7 @@ struct DDLScheduleTabView: View {
             }
         }
         .accessibilityIdentifier("interaction.DDLScheduleTabView.list")
-        .appGroupedListStyle()
+        .appGroupedListStyle(insetViewport: layout.isLandscapeWindow)
         .scrollContentBackground(.hidden)
     }
 

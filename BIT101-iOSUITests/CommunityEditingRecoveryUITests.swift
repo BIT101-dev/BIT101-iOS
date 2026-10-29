@@ -278,7 +278,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     private func openDetail(_ kind: String, mediaLinks: Bool = false) {
         app = configureApp(resetStorage: true, content: true, animations: true, media: mediaLinks,
             commentMediaLinks: mediaLinks, initialTab: kind == "course" ? "home" : "gallery")
-        if kind == "course" { tapHeader(app.segmentedControls.buttons["课程"]) }
+        if kind == "course" { tapHeader(app.sectionTab("课程")) }
         if kind == "paper" { tapHeader(app.sectionTab("文章")) }
         tap(kind == "poster" ? "自动化测试话题" : kind == "course" ? "自动化测试课程" : "自动化测试文章")
     }

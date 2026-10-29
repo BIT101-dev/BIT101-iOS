@@ -225,6 +225,7 @@ struct CourseScheduleTabView: View {
                 1
             )
             let scheduleSectionGap = AppDesignSystem.Spacing.content
+            let usesLandscapeCalendar = layout.isLandscapeWindow && !layout.usesAccessibilityText
             let refreshStatusHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
                 contentHeight: refreshStatusContentHeight
             )
@@ -232,12 +233,12 @@ struct CourseScheduleTabView: View {
                 listHeight
                     - refreshStatusHeight
                     - scheduleSectionGap
-                    - scheduleSectionGap,
+                    - (usesLandscapeCalendar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
                 1
             )
 
             ZStack(alignment: .bottomTrailing) {
-                if layout.isLandscapeWindow && !layout.usesAccessibilityText {
+                if usesLandscapeCalendar {
                     VStack(spacing: AppDesignSystem.Spacing.content) {
                         List { refreshStatusSection }
                             .accessibilityIdentifier("interaction.CourseScheduleTabView.refresh")
@@ -249,7 +250,6 @@ struct CourseScheduleTabView: View {
                             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
                             .padding(.horizontal, AppDesignSystem.Spacing.section)
                     }
-                    .padding(.bottom, AppDesignSystem.Spacing.content)
                     .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
                         guard height > 0 else { return }
                         refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)

@@ -40,7 +40,7 @@ struct FeatureCompositionTests {
             }
             #expect(AppInterfaceOrientationPolicy.supportedOrientations(for: traits) == mask)
         }
-        let wide = AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true)
+        let wide = AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true, interfaceIdiom: .pad)
         #expect(wide.isLandscape && wide.gridColumns.count == 2)
         #expect(!AppWindowLayout(size: CGSize(width: 834, height: 1_194), isRegularWidth: true).isLandscape)
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: false).isLandscape)
@@ -48,10 +48,15 @@ struct FeatureCompositionTests {
         #expect(!AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 540).isLandscape)
         #expect(AppWindowLayout(size: wide.size, isRegularWidth: true, availableWidth: 760).gridColumns.count == 2)
         for height: CGFloat in [640, 744, 960] {
-            let layout = AppWindowLayout(size: wide.size, isRegularWidth: true, availableHeight: height)
+            let layout = AppWindowLayout(size: wide.size, isRegularWidth: true, availableHeight: height, interfaceIdiom: .pad)
             #expect(layout.sidebarWidth == height * 9 / 16)
             #expect(layout.singleColumn.sidebarWidth == layout.sidebarWidth)
         }
+        let duo = AppWindowLayout(size: CGSize(width: 1_046, height: 744), isRegularWidth: true,
+            availableWidth: 962, availableHeight: 724, interfaceIdiom: .phone)
+        #expect(duo.isLandscape && duo.usesEqualLandscapeColumns)
+        #expect(duo.sidebarWidth == 523 && duo.singleColumn.sidebarWidth == 523)
+        #expect(!AppWindowLayout(size: CGSize(width: 420, height: 900), interfaceIdiom: .phone).usesEqualLandscapeColumns)
     }
 
     @Test func compactScheduleCardsKeepTheTitleAndReadableText() throws {

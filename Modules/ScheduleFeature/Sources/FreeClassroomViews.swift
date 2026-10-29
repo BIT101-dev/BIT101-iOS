@@ -69,7 +69,7 @@ struct FreeClassroomTabView: View {
                 }
             }
             .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
-            .appGroupedListStyle()
+            .appGroupedListStyle(insetViewport: usesSidebar)
             .scrollContentBackground(.hidden)
             .background(AppDesignSystem.Palette.Background.grouped)
         }
