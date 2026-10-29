@@ -60,6 +60,8 @@ public struct ScheduleRootView: View {
         TimelineView(.everyMinute) { context in
             content.environment(\.scheduleCurrentDate, context.date)
         }
+        .padding(.top, layout.contentTopInset)
+        .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
@@ -86,7 +88,6 @@ public struct ScheduleRootView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("schedule.section-surface")
         }
-        .background(AppDesignSystem.Palette.Background.grouped)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation { sectionTabs }
         }

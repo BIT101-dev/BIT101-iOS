@@ -9,22 +9,28 @@ public struct AppWindowLayout: Equatable {
     public var availableWidth: CGFloat?
     public var availableHeight: CGFloat?
     public var interfaceIdiom: UIUserInterfaceIdiom
+    public var safeAreaInsets: UIEdgeInsets
+    public var divisionX: CGFloat?
     public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
                 availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
-                interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) {
+                interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
+                safeAreaInsets: UIEdgeInsets = .zero, divisionX: CGFloat? = nil) {
         self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
         self.availableWidth = availableWidth
         self.availableHeight = availableHeight
         self.interfaceIdiom = interfaceIdiom
+        self.safeAreaInsets = safeAreaInsets
+        self.divisionX = divisionX
     }
     public var sidebarWidth: CGFloat {
-        usesEqualLandscapeColumns ? size.width / 2
+        hasLandscapeDivision ? max((divisionX ?? 0) - safeAreaInsets.left, 0)
             : (availableHeight ?? size.height) * AppDesignSystem.Size.Layout.sidebarAspectRatio
     }
     public var isLandscapeWindow: Bool { size.width > size.height }
-    public var usesEqualLandscapeColumns: Bool { interfaceIdiom == .phone && isLandscapeWindow }
-    public var landscapeContentTopInset: CGFloat {
-        usesEqualLandscapeColumns ? AppDesignSystem.Spacing.regular : AppDesignSystem.Spacing.none
+    public var hasLandscapeDivision: Bool { divisionX != nil && isLandscapeWindow }
+    public var hasHorizontalSystemInsets: Bool { safeAreaInsets.left > 0 || safeAreaInsets.right > 0 }
+    public var contentTopInset: CGFloat {
+        hasHorizontalSystemInsets && safeAreaInsets.top == 0 ? AppDesignSystem.Spacing.section : AppDesignSystem.Spacing.none
     }
     public var isLandscape: Bool {
         isRegularWidth && isLandscapeWindow && !usesAccessibilityText
@@ -84,12 +90,11 @@ public struct AppPairedPages<First: View, Second: View>: View {
         HStack(spacing: AppDesignSystem.Spacing.none) {
             if hasShownFirst || firstVisible {
                 pane(first, visible: firstVisible)
-                    .frame(width: isPaired && layout.usesEqualLandscapeColumns ? layout.sidebarWidth : nil)
+                    .frame(width: isPaired && layout.hasLandscapeDivision ? layout.sidebarWidth : nil)
             }
             if isPaired { Divider() }
             if hasShownSecond || secondVisible { pane(second, visible: secondVisible) }
         }
-        .padding(.top, layout.landscapeContentTopInset)
         .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
         .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
     }
@@ -159,7 +164,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View>:
             .accessibilityHidden(!showsDetail)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
         }
-        .padding(.top, layout.landscapeContentTopInset)
+        .padding(.top, layout.contentTopInset)
         .ignoresSafeArea(.keyboard, edges: layout.isLandscapeWindow ? .bottom : [])
         .background(AppDesignSystem.Palette.Background.grouped)
         .onChange(of: layout.isLandscapeWindow, initial: true) { _, isLandscape in
@@ -223,28 +228,25 @@ public struct AppBrowserListRow<Content: View>: View {
 private struct AppWindowLayoutModifier: ViewModifier {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var size = CGSize.zero
-    @State private var availableWidth: CGFloat = 0
-    @State private var availableHeight: CGFloat = 0
+    @State private var measurement = AppWindowLayout()
     func body(content: Content) -> some View {
-        content
-            .background(AppWindowSizeReader(onChange: { size = $0; availableWidth = $1; availableHeight = $2 }))
-            .environment(\.appWindowLayout, AppWindowLayout(size: size,
-                isRegularWidth: horizontalSizeClass == .regular, usesAccessibilityText: dynamicTypeSize.isAccessibilitySize,
-                availableWidth: availableWidth, availableHeight: availableHeight))
+        var layout = measurement
+        layout.isRegularWidth = horizontalSizeClass == .regular
+        layout.usesAccessibilityText = dynamicTypeSize.isAccessibilitySize
+        return content
+            .background(AppWindowSizeReader(onChange: { measurement = $0 }))
+            .environment(\.appWindowLayout, layout)
     }
 }
 
 private struct AppWindowSizeReader: UIViewRepresentable {
-    let onChange: (CGSize, CGFloat, CGFloat) -> Void
+    let onChange: (AppWindowLayout) -> Void
     func makeUIView(context: Context) -> ProbeView { ProbeView(onChange: onChange) }
     func updateUIView(_ view: ProbeView, context: Context) { view.onChange = onChange; view.measure() }
     final class ProbeView: UIView {
-        var onChange: (CGSize, CGFloat, CGFloat) -> Void
-        private var lastSize = CGSize.zero
-        private var lastWidth: CGFloat = 0
-        private var lastHeight: CGFloat = 0
-        init(onChange: @escaping (CGSize, CGFloat, CGFloat) -> Void) {
+        var onChange: (AppWindowLayout) -> Void
+        private var lastMeasurement: AppWindowLayout?
+        init(onChange: @escaping (AppWindowLayout) -> Void) {
             self.onChange = onChange
             super.init(frame: .zero)
             isUserInteractionEnabled = false
@@ -252,15 +254,24 @@ private struct AppWindowSizeReader: UIViewRepresentable {
         required init?(coder: NSCoder) { return nil }
         override func didMoveToWindow() { super.didMoveToWindow(); measure() }
         override func layoutSubviews() { super.layoutSubviews(); measure() }
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); measure() }
         func measure() {
-            guard let size = window?.bounds.size, bounds.width > 0 else { return }
-            let width = bounds.width
-            let height = window?.safeAreaLayoutGuide.layoutFrame.height ?? size.height
-            guard size != lastSize || width != lastWidth || height != lastHeight else { return }
-            lastSize = size; lastWidth = width; lastHeight = height
+            guard let window, bounds.width > 0 else { return }
+            var divisionX: CGFloat?
+#if !targetEnvironment(macCatalyst)
+            if #available(iOS 27.1, *) {
+                divisionX = window.reservedRegions(kind: .division, options: .includeInactive)
+                    .first { $0.frame.height > $0.frame.width && $0.frame.midX > 0 && $0.frame.midX < window.bounds.width }?.frame.midX
+            }
+#endif
+            let value = AppWindowLayout(size: window.bounds.size, availableWidth: bounds.width,
+                availableHeight: window.safeAreaLayoutGuide.layoutFrame.height,
+                interfaceIdiom: window.traitCollection.userInterfaceIdiom, safeAreaInsets: window.safeAreaInsets, divisionX: divisionX)
+            guard value != lastMeasurement else { return }
+            lastMeasurement = value
             Task { @MainActor [weak self] in
-                guard let self, lastSize == size, lastWidth == width, lastHeight == height else { return }
-                onChange(size, width, height)
+                guard let self, lastMeasurement == value else { return }
+                onChange(value)
             }
         }
     }
@@ -308,7 +319,6 @@ public struct AppSidebarLayout<Sidebar: View, Content: View>: View {
                 content(usesSidebar).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(.top, layout.landscapeContentTopInset)
         .accessibilityElement(children: .contain)
     }
 }
@@ -523,7 +533,6 @@ public struct AppFloatingActionButtonSurface<Content: View>: View {
 
 /// 右下角操作按钮组，统一按钮间距和安全区内边距。
 public struct AppFloatingActionStack<Content: View>: View {
-    @Environment(\.appWindowLayout) private var windowLayout
     private let axis: Axis
     private let content: Content
 
@@ -540,8 +549,6 @@ public struct AppFloatingActionStack<Content: View>: View {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
-        .padding(.bottom, windowLayout.isLandscapeWindow ? AppDesignSystem.Spacing.none
-            : AppDesignSystem.Size.Layout.floatingActionBottomInset)
     }
 }
 
@@ -592,13 +599,25 @@ extension View {
     }
 
     public func appGroupedListStyle(insetViewport: Bool = false) -> some View {
-        listStyle(.insetGrouped)
+        modifier(AppGroupedListStyleModifier(insetViewport: insetViewport))
+    }
+}
+
+private struct AppGroupedListStyleModifier: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    let insetViewport: Bool
+    func body(content: Content) -> some View {
+        let inset = insetViewport || (!layout.isLandscapeWindow && layout.hasHorizontalSystemInsets)
+        content.listStyle(.insetGrouped)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
-            .contentMargins(.horizontal, insetViewport ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,
+            .contentMargins(.horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,
                             for: .scrollContent)
-            .padding(.horizontal, insetViewport ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.none)
+            .padding(.horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.none)
     }
+}
+
+extension View {
 
     public func appGroupedSectionStyle() -> some View {
         listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)

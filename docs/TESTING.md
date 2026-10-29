@@ -125,6 +125,8 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 `LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收空教室和个人页分栏、话题与文章及成绩和课程的列表与详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；同时比较各页侧栏宽度、主导航周围及刷新/统计/搜索行的实际背景像素，并核对选中行背景、悬浮按钮竖向排列与列表边界、详情分组单元格的分栏边界。旋转流程验证详情回到竖屏列表、重新进入全宽详情，以及分区栏和主导航的边界。Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
 
+`testCompactWindowKeepsSystemBarsAndListsWithinBounds` 核对紧凑窗口内的系统主导航、分组行水平边界、顶部标准间距与课表操作底部安全边界，并保存列表及课表截图。`testWindowChangesKeepBrowsersWithinSystemInsets` 在系统提供分隔区域的窗口执行连续展开、折叠和重新展开；Device Hub 按逐行写入的 `Layout phase: close` / `Layout phase: open` 日志切换姿态，分别验收紧凑列表和恢复后的系统分隔位置。几何记录包含当前窗口、场景、安全区和分隔区域，底部边界采用当前系统安全区。
+
 `simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
 ## 静态审计

@@ -140,7 +140,7 @@ def run_command(arguments: list[str]) -> int:
     cache_warning_count = 0
     dependency_example = ""
     temporary_results = set()
-    with report_path.open("w", encoding="utf-8") as report:
+    with report_path.open("w", encoding="utf-8", buffering=1) as report:
         for line in process.stdout:
             report.write(line)
             if arguments[2] == "xcodebuild":

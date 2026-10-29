@@ -232,8 +232,7 @@ struct CourseScheduleTabView: View {
             let calendarHeight = max(
                 listHeight
                     - refreshStatusHeight
-                    - scheduleSectionGap
-                    - (usesLandscapeCalendar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
+                    - scheduleSectionGap,
                 1
             )
 
@@ -269,6 +268,7 @@ struct CourseScheduleTabView: View {
                     }
                     .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
                     .appGroupedListStyle()
+                    .contentMargins(.bottom, AppDesignSystem.Spacing.none, for: .scrollContent)
                     .scrollContentBackground(.hidden)
                     .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
                     .frame(height: listHeight, alignment: .top)
@@ -557,13 +557,16 @@ private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
             measure()
         }
 
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); measure() }
+
         func measure() {
             guard let window else { return }
             let overlap = bottomOverlap(with: window)
             guard lastOverlap.map({ abs($0 - overlap) < 0.5 }) != true else { return }
             lastOverlap = overlap
             Task { @MainActor [weak self] in
-                self?.onChange(overlap)
+                guard let self, lastOverlap == overlap else { return }
+                onChange(overlap)
             }
         }
 

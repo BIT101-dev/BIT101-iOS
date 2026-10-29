@@ -274,10 +274,24 @@ enum UITestAccessibilityActions {
     private static var windowTraitValues: [[String: Any]] {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return windows.filter { !$0.isHidden && $0.windowLevel == .normal }.map { window in
-            ["idiom": window.traitCollection.userInterfaceIdiom.rawValue,
+            let sceneSize: CGSize
+            if #available(iOS 26.0, *) { sceneSize = window.windowScene?.effectiveGeometry.coordinateSpace.bounds.size ?? .zero }
+            else { sceneSize = window.bounds.size }
+            let divisionX: CGFloat
+            if #available(iOS 27.1, *) {
+                divisionX = window.reservedRegions(kind: .division, options: .includeInactive)
+                    .first { $0.frame.height > $0.frame.width }?.frame.midX ?? -1
+            } else { divisionX = -1 }
+            return ["idiom": window.traitCollection.userInterfaceIdiom.rawValue,
                 "horizontal": window.traitCollection.horizontalSizeClass.rawValue,
                 "vertical": window.traitCollection.verticalSizeClass.rawValue,
                 "width": window.bounds.width, "height": window.bounds.height,
+                "sceneWidth": sceneSize.width, "sceneHeight": sceneSize.height,
+                "sceneHorizontal": window.windowScene?.traitCollection.horizontalSizeClass.rawValue ?? 0,
+                "sceneVertical": window.windowScene?.traitCollection.verticalSizeClass.rawValue ?? 0,
+                "safeTop": window.safeAreaInsets.top, "safeBottom": window.safeAreaInsets.bottom,
+                "safeLeading": window.safeAreaInsets.left, "safeTrailing": window.safeAreaInsets.right,
+                "divisionX": divisionX,
                 "orientation": window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0]
         }
     }

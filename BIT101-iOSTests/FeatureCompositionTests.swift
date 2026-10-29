@@ -53,10 +53,16 @@ struct FeatureCompositionTests {
             #expect(layout.singleColumn.sidebarWidth == layout.sidebarWidth)
         }
         let duo = AppWindowLayout(size: CGSize(width: 1_046, height: 744), isRegularWidth: true,
-            availableWidth: 962, availableHeight: 724, interfaceIdiom: .phone)
-        #expect(duo.isLandscape && duo.usesEqualLandscapeColumns)
+            availableWidth: 962, availableHeight: 724, interfaceIdiom: .phone,
+            safeAreaInsets: UIEdgeInsets(top: 0, left: 0, bottom: 20, right: 84), divisionX: 523)
+        #expect(duo.isLandscape && duo.hasLandscapeDivision && duo.contentTopInset == 16)
         #expect(duo.sidebarWidth == 523 && duo.singleColumn.sidebarWidth == 523)
-        #expect(!AppWindowLayout(size: CGSize(width: 420, height: 900), interfaceIdiom: .phone).usesEqualLandscapeColumns)
+        let closed = AppWindowLayout(size: CGSize(width: 466, height: 678),
+            safeAreaInsets: UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 84))
+        #expect(!closed.hasLandscapeDivision && closed.contentTopInset == 16)
+        #expect(AppWindowLayout(size: duo.size, isRegularWidth: true,
+            safeAreaInsets: UIEdgeInsets(top: 0, left: 84, bottom: 20, right: 0), divisionX: 523).sidebarWidth == 439)
+        #expect(AppWindowLayout(size: wide.size, safeAreaInsets: UIEdgeInsets(top: 32, left: 0, bottom: 20, right: 0)).contentTopInset == 0)
     }
 
     @Test func compactScheduleCardsKeepTheTitleAndReadableText() throws {

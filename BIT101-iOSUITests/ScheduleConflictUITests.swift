@@ -118,6 +118,71 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var sidebarWidth: CGFloat?
     private var navigationBackground: [Int]?
     @MainActor
+    @objc func testCompactWindowKeepsSystemBarsAndListsWithinBounds() {
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        checkCompactWindowBounds()
+    }
+    @MainActor
+    @objc func testWindowChangesKeepBrowsersWithinSystemInsets() throws {
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        try XCTSkipIf((windowTraits()["divisionX"] ?? -1) < 0, "连续切换验收使用系统提供分隔区域的窗口。")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return frame.width > frame.height
+        }, on: app, timeout: 10), "连续切换验收从宽幅窗口开始。")
+        print("Layout phase: close")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return frame.height > frame.width
+        }, on: app, timeout: 60), "连续切换验收应进入紧凑窗口。")
+        checkCompactWindowBounds()
+        app.mainTab("成绩").tapBriefly()
+        print("Layout phase: open")
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let frame = self.app.windows.firstMatch.frame
+            return frame.width > frame.height
+        }, on: app, timeout: 60), "连续切换验收应恢复宽幅窗口。")
+        let master = app.descendants(matching: .any)["browser.master"]
+        assertUI(waitUntil(NSPredicate { _, _ in
+            let divider = self.windowTraits()["divisionX"] ?? -1
+            return divider > 0 && master.exists && abs(master.frame.maxX - CGFloat(divider)) <= 1
+        }, on: app, timeout: 5), "恢复宽幅窗口后，浏览列表应沿系统分隔区域排列：\(master.frame)。")
+        recordLayoutScreenshot("展开恢复")
+    }
+    @MainActor private func checkCompactWindowBounds() {
+        let traits = windowTraits(), window = app.windows.firstMatch.frame
+        let available = app.windows.firstMatch.scrollGestureFrame(in: window) ?? window
+        let master = app.native.descendants(matching: .any)["browser.master"]
+        print("Window geometry: \(traits), available=\(available), master=\(master.frame)")
+        recordLayoutScreenshot("紧凑窗口边界")
+        guard traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue,
+              min(window.width, window.height) < 640 else { return }
+        assertUI(traits["orientation"] == UIInterfaceOrientation.portrait.rawValue,
+            "紧凑手机窗口应采用竖屏方向：\(traits)。")
+        let tabs = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+        let bar = tabs.reduce(CGRect.null) { $0.union($1) }
+        assertUI(window.contains(bar), "系统主导航应位于当前窗口内：\(bar)，窗口 \(window)。")
+        if available.maxX < window.maxX {
+            assertUI(bar.minX >= available.maxX, "系统侧栏应位于正文可用区域之外：\(bar)，正文 \(available)。")
+        }
+        for row in master.cells.allElementsBoundByIndex where available.intersects(row.frame) {
+            assertUI(row.frame.minX >= available.minX && row.frame.maxX <= available.maxX,
+                "紧凑窗口的分组行应完整位于可用区域：\(row.frame)，可用区域 \(available)。")
+        }
+        if traits["safeTop"] == 0 && available.width < window.width {
+            let header = app.native.segmentedControls.firstMatch
+            assertUI(header.exists && header.frame.minY >= 16, "顶部自定义分区栏应保留标准间距：\(header.frame)。")
+        }
+        app.mainTab("日程").tapBriefly()
+        let add = app.buttons["schedule.add-content"]
+        assertUI(add.appears(timeout: 5), "紧凑窗口应展示课表操作。")
+        print("Schedule geometry: button=\(add.frame), available=\(available)")
+        let contentBottom = bar.width > bar.height && bar.minY > window.midY ? bar.minY : available.maxY
+        assertUI(abs(add.frame.maxY - contentBottom) <= 8,
+            "课表操作应沿底部安全区排列：\(add.frame)，可用区域 \(available)。")
+        recordLayoutScreenshot("紧凑课表底部")
+    }
+    @MainActor
     @objc func testLandscapeEdgesAndColumnBoundaries() {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
         if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
@@ -158,7 +223,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             if isPhone {
                 assertDivider("interaction.CourseScheduleTabView.refresh")
                 let refreshList = app.descendants(matching: .any)["interaction.CourseScheduleTabView.refresh"]
-                assertUI(refreshList.frame.minY >= safeArea.minY + 8 - 0.5,
+                assertUI(refreshList.frame.minY >= safeArea.minY + 16 - 0.5,
                     "Duo 课表顶部应保留标准安全间距：\(refreshList.frame)，安全区 \(safeArea)。")
                 let ddl = app.native.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
                 let row = ddl.cells.firstMatch
@@ -191,7 +256,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
                     assertBottom(app.buttons[tab == "话廊" ? "搜索话廊" : "搜索文章"])
                     if isPhone {
                         let header = app.native.segmentedControls.firstMatch
-                        assertUI(header.exists && header.frame.minY >= safeArea.minY + 8 - 0.5,
+                        assertUI(header.exists && header.frame.minY >= safeArea.minY + 16 - 0.5,
                             "Duo 顶部控件应保留标准安全间距：\(header.frame)，安全区 \(safeArea)。")
                     }
                     recordLayoutScreenshot(tab == "话廊" ? "话题列表" : "文章列表")
