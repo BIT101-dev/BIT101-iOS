@@ -1,7 +1,6 @@
 """Record simulator producers and validate complete CI inventories independently of device evidence."""
 import json
 import os
-import plistlib
 import shutil
 import subprocess
 from pathlib import Path

@@ -1,7 +1,6 @@
 """Capture structured observations and local evidence for physical-device acceptance."""
 import base64
 import json
-import math
 import re
 import uuid
 from validation_provenance import sampling_evidence_current, utc_now, LIVE_EVIDENCE_LIFETIME

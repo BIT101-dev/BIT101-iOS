@@ -5,11 +5,8 @@ from pathlib import Path
 from functools import cache
 from validation_inputs import native_project_targets, repository_script_paths
 import ast
-import json
 import re
-import shlex
 import stat
-import subprocess
 import sys
 from swift_source_index import declaration_conformances, expected_argument_types, scope_contains_type, swift_syntax_index, swift_code
 from contextlib import contextmanager

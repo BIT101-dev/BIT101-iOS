@@ -5,7 +5,6 @@ from pathlib import Path
 from collections import Counter
 import json
 import re
-import subprocess
 import sys
 from network_capability_rules import branch_value, execution_index
 

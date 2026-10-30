@@ -4,7 +4,6 @@ import json
 import plistlib
 import uuid
 from validation_environment import input_identity_complete
-import re
 import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
