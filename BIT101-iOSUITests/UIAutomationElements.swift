@@ -462,7 +462,7 @@ final class UIElement: NSObject {
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
         let query = native.buttons.matching(NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
-        let map = native.buttons["地图"].frame, mine = native.buttons["我的"].frame
+        let map = native.buttons["地图"].firstMatch.frame, mine = native.buttons["我的"].firstMatch.frame
         let horizontal = abs(map.midY - mine.midY) <= 1
         for button in query.allElementsBoundByIndex {
             let frame = button.frame
