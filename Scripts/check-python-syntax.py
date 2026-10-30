@@ -30,12 +30,14 @@ if args.staged:
             and (path.suffix in {'.py', '.sh'} or path.parts[0] == '.githooks' and not path.suffix)
     if args.changed:
         changed = set(filter(None, subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z',
-            '--diff-filter=ACMR'], cwd=root).decode().split('\0')))
-        if not changed.intersection({'Scripts/check-python-syntax.py', 'Scripts/check-file-lengths.py',
+            '--diff-filter=ACMRD'], cwd=root).decode().split('\0')))
+        deleted = set(filter(None, subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z',
+            '--diff-filter=D'], cwd=root).decode().split('\0')))
+        if not any(name.endswith('.py') for name in deleted) and not changed.intersection({'Scripts/check-python-syntax.py', 'Scripts/check-file-lengths.py',
                 'Scripts/validation_inputs.py', '.githooks/pre-commit'}):
             syntax_targets = {name for name in changed if included_script(name)}
             if not syntax_targets and not args.self_test: raise SystemExit(0)
-    needs_import_graph = syntax_targets is None or any(name.endswith('.py') for name in syntax_targets)
+    needs_import_graph = syntax_targets is None or bool(syntax_targets)
     def included_source(name):
         return included_script(name) and (syntax_targets is None or name in syntax_targets
             or needs_import_graph and name.startswith('Scripts/') and name.endswith('.py'))
@@ -53,8 +55,11 @@ def run_ruff(arguments, source=None):
     return subprocess.run([*RUFF_ARGUMENTS, *arguments], input=source, capture_output=True, text=True)
 
 
-def checked_python(source, path, *, lint=True):
+def checked_python(source, path, *, lint=True, imports=None):
     compile(source, str(path), 'exec')
+    if imports is not None:
+        if missing := missing_imports({**imports, '__embedded__': source}, only='__embedded__'):
+            raise SyntaxError(f'{path}:\n' + '\n'.join(missing))
     if Path(path).name == 'validation_provenance.py' and any(
             isinstance(node, ast.Import) and any(alias.name in {'hashlib', 'hmac'} for alias in node.names)
             or isinstance(node, ast.ImportFrom) and node.module in {'hashlib', 'hmac'}
@@ -185,7 +190,7 @@ def command_argument(source, position):
     return bytes(body), position, literal
 
 
-def compile_embedded_python(source, path):
+def compile_embedded_python(source, path, *, imports=None):
     headers = re.compile(r"(?<!<)(?:(?<![^\s;|&()])(?P<descriptor>\d+))?<<(?!<)(?P<tabs>-)?[ \t]*")
     redirects = re.compile(r'(?:\d+)?(?:&>>?|[<>]&|<>|>>?|<)(?!<)[ \t]*')
     visible = [" "] * len(source)
@@ -203,7 +208,7 @@ def compile_embedded_python(source, path):
                 and inline_python_command(''.join(visible[max(line_start, context_start):position])):
             argument_start = position
             body, position, literal = command_argument(source, position)
-            if literal: checked_python(body.decode('utf-8'), path)
+            if literal: checked_python(body.decode('utf-8'), path, imports=imports)
             visible[argument_start] = '#'
             line_start = source.rfind('\n', 0, position) + 1
             continue
@@ -253,7 +258,7 @@ def compile_embedded_python(source, path):
                     if line.rstrip('\r\n') == header['label']: break
                     body.append(line)
                 else: raise SyntaxError(f'{path}: heredoc 结束标记缺失')
-                if is_python: checked_python(''.join(body), path)
+                if is_python: checked_python(''.join(body), path, imports=imports)
             pending.clear()
             line_start = position
             continue
@@ -390,13 +395,41 @@ if args.self_test:
             if 'undefined_detector_name' in source: assert 'F405' in str(error)
         else: raise AssertionError('Python 名称审计需要显式导入及确定的名称来源')
 
+def missing_imports(sources, *, only=None):
+    external = sys.stdlib_module_names | {'openpyxl'}
+    errors = []
+    for name, source in sources.items():
+        if only is not None and name != only: continue
+        directory = name.rpartition('.')[0]
+        resolved = python_execution_modules(sources, directory)
+        namespaces = {'.'.join(module.split('.')[:length]) for module in resolved
+            for length in range(1, len(module.split('.')) + 1)}
+        package = name if any(other.startswith(name + '.') for other in sources) else directory
+        for node in ast.walk(ast.parse(source)):
+            modules = []
+            if isinstance(node, ast.Import): modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = '.'.join(package.split('.')[:len(package.split('.')) - node.level + 1]) if node.level else ''
+                module = '.'.join(filter(None, (base, node.module)))
+                if module: modules = [module]
+            for module in modules:
+                if module.split('.')[0] not in external and module not in namespaces:
+                    errors.append(f'{name}:{node.lineno}: Python 模块需要存在于脚本库存或声明的依赖中：{module}')
+    return errors
+
+
+sources = {'.'.join(path.with_suffix('').parts[:-1] if path.stem == '__init__'
+                   else path.with_suffix('').parts): source
+           for name, source in script_sources.items() if name.startswith('Scripts/') and name.endswith('.py')
+           for path in [PurePosixPath(name).relative_to('Scripts')]}
+
 python_paths = []
 for name, source in script_sources.items():
     if syntax_targets is not None and name not in syntax_targets: continue
     if name.endswith('.py'):
         checked_python(source, root / name, lint=args.staged)
         if not args.staged: python_paths.append(str(root / name))
-    else: compile_embedded_python(source, root / name)
+    else: compile_embedded_python(source, root / name, imports=sources)
 if python_paths:
     result = run_ruff(['--', *python_paths])
     if result.returncode: raise SyntaxError(result.stdout or result.stderr)
@@ -423,7 +456,13 @@ def import_cycles(sources, directory=''):
     return sorted(cycles)
 
 
+
+
 if args.self_test:
+    assert missing_imports({'entry': 'from missing_helper import value'})
+    assert missing_imports({'pkg.entry': 'import pkg.missing', 'pkg.other': 'pass'})
+    assert not missing_imports({'entry': 'import json; from openpyxl import load_workbook; from helper import value', 'helper': 'value = 1'})
+    assert not missing_imports({'pkg.entry': 'from .helper import value; import helper', 'pkg.helper': 'value = 1'})
     assert import_cycles({'a': 'from b import value', 'b': 'import c', 'c': 'from a import value'}) == [('a', 'b', 'c')]
     assert import_cycles({'a': 'def deferred():\n    import b', 'b': 'from a import value'}) == [('a', 'b')]
     assert import_cycles({'a': 'from b import value', 'b': 'import json'}) == []
@@ -439,10 +478,8 @@ if args.self_test:
     assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
     assert import_cycles({'helper': 'pass', 'pkg.entry': 'import helper', 'pkg.helper': 'import entry'}, 'pkg') == [('pkg.entry', 'pkg.helper')]
     assert import_cycles({'pkg.entry': 'import helper', 'pkg.helper': 'import json'}, 'pkg') == []
-sources = {'.'.join(path.with_suffix('').parts[:-1] if path.stem == '__init__'
-                   else path.with_suffix('').parts): source
-           for name, source in script_sources.items() if name.startswith('Scripts/') and name.endswith('.py')
-           for path in [PurePosixPath(name).relative_to('Scripts')]}
+
+if missing := missing_imports(sources): raise ValueError('\n'.join(missing))
 cycles = sorted({cycle for directory in {'', *(name.rpartition('.')[0] for name in sources)}
                  for cycle in import_cycles(sources, directory)})
 if cycles:

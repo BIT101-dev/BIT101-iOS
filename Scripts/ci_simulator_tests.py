@@ -180,9 +180,10 @@ def runtime_maintenance_self_test() -> None:
     old_ios, ios, old_watch, watch = (runtime(family, version, kind) for family, version, kind in (
         ('iOS', '27.0', 'phone'), ('iOS', '27.1', 'phone'), ('watchOS', '27.0', 'watch'), ('watchOS', '27.1', 'watch')))
     phone = dict(udid='phone', name='phone', state='Shutdown', deviceTypeIdentifier='phone')
+    other = dict(udid='other-project', name='other', state='Shutdown', deviceTypeIdentifier='phone')
     wearable = dict(udid='watch', name='watch', state='Booted', deviceTypeIdentifier='watch')
     inventory = dict(runtimes=[old_ios, ios, old_watch], devices={
-        old_ios['identifier']: [phone], ios['identifier']: [], old_watch['identifier']: [wearable]})
+        old_ios['identifier']: [phone, other], ios['identifier']: [], old_watch['identifier']: [wearable]})
     commands = []
     def output(command, **kwargs):
         if command == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(inventory)
@@ -206,23 +207,37 @@ def runtime_maintenance_self_test() -> None:
         except ValueError: pass
         else: raise AssertionError('运行时回收需要先迁移所属设备。')
         assert not commands
-        manage_runtimes('upgrade', '27.1')
+        for identifiers in (None, ['missing'], ['watch']):
+            try: manage_runtimes('upgrade', '27.1', identifiers=identifiers)
+            except ValueError: pass
+            else: raise AssertionError('升级需要明确选择目标平台设备。')
+        assert not commands
+        manage_runtimes('upgrade', '27.1', identifiers=['phone'])
         assert inventory['devices'][ios['identifier']] == [phone]
+        assert inventory['devices'][old_ios['identifier']] == [other]
         assert inventory['devices'][old_watch['identifier']] == [wearable]
-        assert commands == [['xcrun', 'simctl', 'upgrade', 'phone', ios['identifier']],
+        assert commands == [['xcrun', 'simctl', 'upgrade', 'phone', ios['identifier']]]
+        commands.clear()
+        manage_runtimes('upgrade', '27.1', identifiers=['other-project'])
+        assert commands == [['xcrun', 'simctl', 'upgrade', 'other-project', ios['identifier']],
             ['xcrun', 'simctl', 'runtime', 'delete', old_ios['identifier']]]
         commands.clear()
         inventory['runtimes'].append(watch)
-        manage_runtimes('upgrade', '27.1', 'watchOS')
+        manage_runtimes('upgrade', '27.1', 'watchOS', ['watch'])
         assert inventory['devices'][watch['identifier']] == [wearable]
-        assert inventory['devices'][ios['identifier']] == [phone]
+        assert inventory['devices'][ios['identifier']] == [phone, other]
         assert commands == [['xcrun', 'simctl', 'shutdown', 'watch'],
             ['xcrun', 'simctl', 'upgrade', 'watch', watch['identifier']],
             ['xcrun', 'simctl', 'runtime', 'delete', old_watch['identifier']]]
 
 
 def maintenance_self_test() -> None:
-    from validation_simulator import clean_device_caches, prune_devices
+    from validation_simulator import clean_device_caches, remove_devices
+    environment = dict(os.environ)
+    environment.pop('BIT101_SIMULATOR_AUTHORIZED', None)
+    help_result = subprocess.run(['zsh', str(Path(__file__).with_name('simulator-tests.sh')), '--help'],
+        env=environment, capture_output=True, text=True)
+    assert help_result.returncode == 0 and 'devices remove' in help_result.stdout
     root = Path('/fixture/Library/Developer/CoreSimulator/Devices')
     inventory = dict(runtimes=[dict(identifier='ios'), dict(identifier='watch')], devices={
         'ios': [dict(udid='keep', state='Booted'), dict(udid='unused', state='Shutdown'),
@@ -255,15 +270,19 @@ def maintenance_self_test() -> None:
             patch.object(subprocess, 'check_output', output), \
             patch.object(subprocess, 'run', lambda command, **kwargs: commands.append(command)), \
             redirect_stdout(StringIO()):
-        prune_devices(['keep'])
-        assert commands == [['xcrun', 'simctl', 'delete', 'unused'], ['xcrun', 'simctl', 'runtime', 'delete', 'watch']]
+        remove_devices(['unused'])
+        assert commands == [['xcrun', 'simctl', 'delete', 'unused']]
         commands.clear()
-        for action in (clean_device_caches, prune_devices):
+        for action in (clean_device_caches, remove_devices):
             for identifiers in ([], ['missing']):
                 try: action(identifiers)
                 except ValueError: pass
                 else: raise AssertionError('设备维护需要有效的显式清单。')
         assert commands == [] and removed == []
+        try: remove_devices(['keep'])
+        except ValueError: pass
+        else: raise AssertionError('移除前需要关闭目标设备。')
+        assert commands == []
         clean_device_caches(['keep'])
         assert commands == [['xcrun', 'simctl', 'shutdown', 'keep']]
         assert set(removed) == {folder / name for folder in folders for name in ('entry', 'images')}

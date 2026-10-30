@@ -16,10 +16,10 @@ NETWORK_FOUNDATION_API = {
     'TransportCore.URLSessionTransport': {'deinit()', 'static make(configuration:URLSessionConfiguration,followsRedirects:Bool)'},
     'CommunityTransport.CommunitySession': {'client(errorDomain:String)'},
     'CommunityTransport.CommunityAPIClient': {
-        'request(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,validate:(@Sendable(Response)throws->Void)?)',
-        'response(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,validate:(@Sendable(Response)throws->Void)?)',
+        'request(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,mutation:CommunityMutationKind?,validate:(@Sendable(Response)throws->Void)?)',
+        'response(path:String,pathComponent:String?,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,mutation:CommunityMutationKind?,validate:(@Sendable(Response)throws->Void)?)',
         'requestData(path:String,queryItems:[URLQueryItem],method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy)',
-        'requestVoid(path:String,method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy)'},
+        'requestVoid(path:String,method:String,body:Data?,contentType:String?,authentication:CommunityAuthentication,retryPolicy:CommunityRetryPolicy,mutation:CommunityMutationKind?)'},
     'MediaKit.MediaEnvironment': {'retryFailedImages()', 'static normalizedCacheLimitMB(:Int)', 'endPreview(owner:UUID)',
         'remotePreviewFile(for:URL,owner:UUID)', 'cachedRemotePreviewFile(for:URL,owner:UUID)',
         'usedBytes()', 'enforceCurrentLimit()', 'clearCaches()'},

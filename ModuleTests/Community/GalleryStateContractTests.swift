@@ -41,6 +41,17 @@ struct GalleryStateContractTests {
         #expect(updates.pendingResourceCount == 0)
     }
 
+    @Test func batchedMetricsPreserveIndependentFieldsAndTheLatestConfirmedValue() {
+        var items = CommunityPagedItems<CommunityPoster>()
+        items.replace(with: [listPoster(1), listPoster(2)])
+        let changed = items.apply([.init(objectID: "poster1", likeNum: 9),
+            .init(objectID: "poster1", commentNum: 3), .init(objectID: "poster1", likeNum: 10)])
+        #expect(changed)
+        #expect(items.items.map(\.likeNum) == [10, 0] && items.items.map(\.commentNum) == [3, 0])
+        let unchanged = items.apply([.init(objectID: "poster1"), .init(objectID: "other", likeNum: 8)])
+        #expect(!unchanged)
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancelledSearchRecoveryReleasesAnEarlierPaginationSnapshot() async {
         let service = Feed()
         let model = GalleryViewModel(service: service)

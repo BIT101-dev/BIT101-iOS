@@ -197,7 +197,10 @@ extension CommunityPagedItems where Item: CommunityResourceItem {
     }
 
     @discardableResult public mutating func apply(_ metrics: [CommunityResourceMetrics]) -> Bool {
-        let values = Dictionary(metrics.map { ($0.objectID, $0) }, uniquingKeysWith: { _, last in last })
+        let values = Dictionary(metrics.map { ($0.objectID, $0) }, uniquingKeysWith: { first, last in
+            .init(objectID: last.objectID, likeNum: last.likeNum ?? first.likeNum,
+                commentNum: last.commentNum ?? first.commentNum, rate: last.rate ?? first.rate)
+        })
         var changed = false
         for index in items.indices {
             guard let metrics = values[items[index].communityObjectID] else { continue }

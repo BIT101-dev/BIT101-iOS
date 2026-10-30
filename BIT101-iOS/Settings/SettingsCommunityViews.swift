@@ -118,10 +118,11 @@ struct GallerySettingsPage: View {
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         .fixedSize()
                 }
+                Text("0 MB 保留已缓存图片，由系统在空间紧张时回收；正数表示 App 主动维护的容量上限。")
+                    .font(AppDesignSystem.Typography.subheadline)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
             } header: {
                 AppListSectionHeader("本地图片缓存上限（MB）")
-            } footer: {
-                Text("0 MB 保留已缓存图片，由系统在空间紧张时回收；正数表示 App 主动维护的容量上限。")
             }
 
         }

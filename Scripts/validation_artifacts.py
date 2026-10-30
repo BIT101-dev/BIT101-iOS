@@ -143,7 +143,7 @@ def recover_self_test_artifacts(root: Path) -> None:
         elif path.is_dir(): shutil.rmtree(path)
 
 
-CAS_GENERATION_LIMIT = 2 * 1024 ** 3
+CAS_STORE_LIMIT = 2 * 1024 ** 3
 CACHE_GROWTH_INTERVAL = 64 * 1024 ** 2
 
 
@@ -200,7 +200,7 @@ def prune_cas_storage(shared: Path, compiler: Path | None = None) -> tuple[int, 
             size = library.swiftscan_cas_get_ondisk_size(cas, ctypes.byref(error))
             if size < 0: failure(error)
             before += size
-            if library.swiftscan_cas_set_ondisk_size_limit(cas, CAS_GENERATION_LIMIT, ctypes.byref(error)): failure(error)
+            if library.swiftscan_cas_set_ondisk_size_limit(cas, CAS_STORE_LIMIT, ctypes.byref(error)): failure(error)
         finally:
             library.swiftscan_cas_dispose(cas)
             if created_generic and generic.exists(): shutil.rmtree(generic)
@@ -226,7 +226,7 @@ def cache_space_report(root: Path) -> dict:
         'auditBytes': size('.build/static-audit'),
         'diagnosticBytes': sum(size(name) for name in ('.build/extended-automation/diagnostics',
             '.build/extended-automation/test-results.xcresult', '.build/icloud-cross-device-smoke/test-results.xcresult')),
-        'casGenerationLimitBytes': CAS_GENERATION_LIMIT}
+        'casStoreLimitBytes': CAS_STORE_LIMIT}
 
 
 def update_cache_metadata(output: Path, fields: dict) -> dict:
@@ -305,9 +305,11 @@ def maintain_native_storage(shared: Path) -> None:
     with (shared / 'cache.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            prune_native_storage(shared)
-            record_cache_space(shared.parent.parent)
-        except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
+            root = shared.parent.parent
+            if cache_maintenance_needed(root):
+                prune_native_storage(shared)
+                record_cache_space(root)
+        except (OSError, ValueError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
             print(f'缓存回收待重试：{error}', file=sys.stderr)
 
 

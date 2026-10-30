@@ -184,9 +184,8 @@ def run_cache(arguments: list[str]) -> None:
                             if path.is_relative_to(shared):
                                 referenced.add(path)
             if maps_complete and referenced:
-                for cache_name in ('SDKExplicitPrecompiledModules', 'ModuleCache.noindex'):
-                    cache = shared / cache_name
-                    if not any(path.is_relative_to(cache) for path in referenced): continue
+                cache = shared / 'SDKExplicitPrecompiledModules'
+                if any(path.is_relative_to(cache) for path in referenced):
                     for module in cache.rglob('*.pcm'):
                         if module not in referenced: module.unlink()
             prune_native_storage(shared)

@@ -343,7 +343,10 @@ def script_command_boundary_findings() -> list[str]:
     from ci_wiring_rules import hook_documents_checked, active_script_markers
     from module_boundary_tests import build_cache_exit_self_test
     assert hook_documents_checked('exec python3 Scripts/check-docs.py --staged')
-    for source in ('# exec python3 Scripts/check-docs.py --staged', 'echo "python3 Scripts/check-docs.py --staged"'):
+    for source in ('# exec python3 Scripts/check-docs.py --staged', 'echo "python3 Scripts/check-docs.py --staged"',
+            'exit 0\nexec python3 Scripts/check-docs.py --staged',
+            'if false; then\nexec python3 Scripts/check-docs.py --staged\nfi',
+            'exec python3 Scripts/check-docs.py --staged || true'):
         assert not hook_documents_checked(source)
     assert 'xccov' not in active_script_markers('# xccov\necho ready # xccov')
     "通过内存替身验证自动选机、操作分派、筛选合并及参数拒绝。"

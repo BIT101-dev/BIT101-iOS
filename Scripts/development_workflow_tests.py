@@ -340,8 +340,8 @@ def cache_and_ui_products(fixture: Path) -> None:
     prune.assert_called_once_with(['xcrun', 'llvm-cas', '--cas=' + str(native / 'generic'), '--prune'], check=True, stdout=subprocess.DEVNULL)
     assert [entry.args[0] for entry in load.call_args_list] == [
         '/active/usr/lib/swift/host/compiler/lib_InternalSwiftScan.dylib', '/active/usr/lib/libIndexStore.dylib']
-    from validation_artifacts import CAS_GENERATION_LIMIT
-    assert library.swiftscan_cas_set_ondisk_size_limit.call_args.args[1] == CAS_GENERATION_LIMIT
+    from validation_artifacts import CAS_STORE_LIMIT
+    assert library.swiftscan_cas_set_ondisk_size_limit.call_args.args[1] == CAS_STORE_LIMIT
     library.swiftscan_cas_dispose.assert_called_once_with(2)
     library.indexstore_store_purge_stale_data.assert_called_once_with(1)
     library.indexstore_store_dispose.assert_called_once_with(1)
@@ -370,7 +370,7 @@ def cache_and_ui_products(fixture: Path) -> None:
     assert saved['sampleFreeBytes'] > 0
     from validation_artifacts import cache_space_report
     measured = cache_space_report(fixture)
-    assert measured['projectBytes'] > 0 and measured['casGenerationLimitBytes'] == CAS_GENERATION_LIMIT
+    assert measured['projectBytes'] > 0 and measured['casStoreLimitBytes'] == CAS_STORE_LIMIT
     original_run = subprocess.run
     def sample_after_build():
         def execute(command, **kwargs):
@@ -411,7 +411,13 @@ def cache_and_ui_products(fixture: Path) -> None:
             except BlockingIOError: pass
             else: raise AssertionError('原生回收持有缓存写锁。')
         raise OSError('cache busy')
-    with patch('validation_artifacts.prune_native_storage', side_effect=locked_prune) as automatic, redirect_stderr(output := StringIO()):
+    with patch('validation_artifacts.cache_maintenance_needed', return_value=False), \
+            patch('validation_artifacts.prune_native_storage') as automatic, \
+            patch('validation_artifacts.record_cache_space') as sample:
+        audit_artifacts(fixture)
+    automatic.assert_not_called(); sample.assert_not_called()
+    with patch('validation_artifacts.cache_maintenance_needed', return_value=True), \
+            patch('validation_artifacts.prune_native_storage', side_effect=locked_prune) as automatic, redirect_stderr(output := StringIO()):
         audit_artifacts(fixture)
     automatic.assert_called_once_with(fixture / '.build/compiler-cache')
     assert '缓存回收待重试' in output.getvalue()
@@ -736,6 +742,20 @@ def changed_staged_scripts(fixture: Path) -> None:
     assert result.returncode and 'staged_undefined_name' in result.stderr
     result = subprocess.run(command, capture_output=True, text=True)
     assert result.returncode and 'undefined_name' in result.stderr
+    (repo / 'Scripts/existing.py').write_text('from helper import value\nprint(value)\n')
+    target.write_text('print("valid")\n')
+    helper = repo / 'Scripts/helper.py'; helper.write_text('value = 1\n')
+    git('add', '.')
+    git('-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Helper')
+    helper.unlink(); git('add', '-u')
+    result = subprocess.run([*command, '--changed'], capture_output=True, text=True)
+    assert result.returncode and 'helper' in result.stderr, result.stderr
+    (repo / 'Scripts/existing.py').write_text('print("valid")\n')
+    (repo / 'Scripts/delegate.sh').write_text("python3 - <<'PYDELEGATE'\nfrom helper import value\nprint(value)\nPYDELEGATE\n")
+    git('add', 'Scripts/existing.py', 'Scripts/delegate.sh')
+    result = subprocess.run([*command, '--changed'], capture_output=True, text=True)
+    assert result.returncode and 'delegate.sh' in result.stderr and 'helper' in result.stderr, result.stderr
 
 
 def immediate_audit_output(fixture: Path) -> None:

@@ -556,6 +556,8 @@ def build_cache_boundary_findings() -> list[str]:
         (old / "warm").write_text("old module")
         os.utime(old / "warm", ns=(1, 1))
         (old / "unique").write_text("preserve unique module")
+        direct_module = shared / 'swift-syntax.pcm'
+        direct_module.write_text('direct compiler consumer')
         module = old / "module.pcm"
         content = b"compiled module fixture\n" * 4096
         module.write_bytes(content)
@@ -632,7 +634,8 @@ def build_cache_boundary_findings() -> list[str]:
         dependencies.parent.mkdir()
         debug_object = dependencies.parent / "debug.o"
         debug_object.write_bytes(content)
-        dependencies.write_text(json.dumps([{"clangModulePath": str(sdk / "referenced.pcm")}]))
+        dependencies.write_text(json.dumps([{"clangModulePath": str(sdk / "referenced.pcm")},
+            {"clangModulePath": str(module)}]))
         for _ in range(2):
             with patch.object(sys, "argv", ["cache", str(fixture), "--maintenance"]), \
                     patch.object(subprocess, "run", inspect_module), redirect_stdout(StringIO()):
@@ -647,6 +650,7 @@ def build_cache_boundary_findings() -> list[str]:
             findings.append("缓存自测：保留热模块及唯一模块")
         if module.read_bytes() != content or module.stat().st_mtime_ns != modified:
             findings.append("缓存自测：合并保留内容和修改时间")
+        assert direct_module.read_text() == 'direct compiler consumer'
         if not all((shared / name).exists() for name in ("simulator", "watch-simulator")):
             findings.append("缓存自测：保留模拟器平台的隐式模块")
         if any((shared / name / f"{name}.pcm").read_bytes() != content for name in ("phone", "mac", "unreadable")):

@@ -32,25 +32,17 @@ def clean_device_caches(identifiers: list[str]) -> None:
     print(f'模拟器缓存与临时文件已回收：{removed / 1024 ** 3:.2f} GiB；App、登录与设置数据保留。')
 
 
-def prune_devices(keep: list[str]) -> None:
+def remove_devices(identifiers: list[str]) -> None:
     inventory = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
-    devices = [device for rows in inventory['devices'].values() for device in rows]
-    identifiers = {device['udid'] for device in devices}
-    if not keep or set(keep) - identifiers:
-        raise ValueError('设备清理需要指定实际存在的保留设备。')
-    root = Path.home() / 'Library/Developer/CoreSimulator/Devices'
-    removed = set()
-    for device in devices:
-        if device['udid'] in keep or device['state'] != 'Shutdown': continue
-        apps = root / device['udid'] / 'data/Containers/Bundle/Application'
-        bundles = [plistlib.loads(path.read_bytes()).get('CFBundleIdentifier', '') for path in apps.glob('*/*.app/Info.plist')]
-        if any(not bundle.startswith(('com.apple.', 'BIT101-dev.')) for bundle in bundles): continue
-        subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, capture_output=True)
-        removed.add(device['udid'])
-    print(f'闲置模拟器设备已回收：{len(removed)} 台；保留指定设备与其他 App 所属设备。')
-    unused = {row['identifier'] for row in inventory['runtimes']
-        if not any(device['udid'] not in removed for device in inventory['devices'].get(row['identifier'], []))}
-    remove_runtime_images(unused)
+    devices = {device['udid']: device for rows in inventory['devices'].values() for device in rows}
+    selected = list(dict.fromkeys(identifiers))
+    if not selected or set(selected) - devices.keys():
+        raise ValueError('设备移除需要列出实际存在的目标设备。')
+    if any(devices[identifier]['state'] != 'Shutdown' for identifier in selected):
+        raise ValueError('请先关闭所选设备，再执行移除。')
+    for identifier in selected:
+        subprocess.run(['xcrun', 'simctl', 'delete', identifier], check=True, capture_output=True)
+    print(f'已移除指定模拟器：{len(selected)} 台。')
 
 
 def remove_runtime_images(identifiers: set[str]) -> None:
@@ -63,7 +55,7 @@ def remove_runtime_images(identifiers: set[str]) -> None:
     print(f'运行时已回收，系统登记大小 {removed / 1024 ** 3:.2f} GiB。')
 
 
-def manage_runtimes(action: str, version: str, platform_name: str = 'iOS') -> None:
+def manage_runtimes(action: str, version: str, platform_name: str = 'iOS', identifiers: list[str] | None = None) -> None:
     if platform_name not in {'iOS', 'watchOS', 'tvOS', 'visionOS'}:
         raise ValueError('运行时维护需要指定 iOS、watchOS、tvOS 或 visionOS。')
     def inventory():
@@ -83,9 +75,14 @@ def manage_runtimes(action: str, version: str, platform_name: str = 'iOS') -> No
         raise ValueError(f'{platform_name} {version} 运行时需要先安装并可用。')
     older = [row for row in selected if version_tuple(row['version']) < target_version]
     if action == 'upgrade':
+        devices = {device['udid']: runtime for runtime, rows in data['devices'].items() for device in rows}
+        allowed = {row['identifier'] for row in [*older, *targets]}
+        if not identifiers or any(devices.get(identifier) not in allowed for identifier in identifiers):
+            raise ValueError('运行时升级需要列出所选平台的目标设备。')
         plan = []
         for runtime in older:
             for device in data['devices'].get(runtime['identifier'], []):
+                if device['udid'] not in identifiers: continue
                 matches = [row for row in targets if platform(row) == platform(runtime)
                     and any(kind['identifier'] == device['deviceTypeIdentifier'] for kind in row['supportedDeviceTypes'])]
                 if not matches:
@@ -107,7 +104,8 @@ def manage_runtimes(action: str, version: str, platform_name: str = 'iOS') -> No
                 owned['runtime'] = runtime
                 record.write_text(json.dumps(owned) + '\n')
         print(f'运行时迁移完成：{len(plan)} 台设备。')
-        manage_runtimes('prune', version, platform_name)
+        if all(not refreshed['devices'].get(row['identifier']) for row in older):
+            manage_runtimes('prune', version, platform_name)
     elif action == 'prune':
         if any(data['devices'].get(row['identifier']) for row in older):
             raise ValueError('旧运行时的全部设备需要先完成迁移。')

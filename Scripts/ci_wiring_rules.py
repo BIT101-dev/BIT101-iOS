@@ -46,10 +46,15 @@ for job, paths in DIAGNOSTIC_PATHS.items():
 
 
 def hook_documents_checked(source: str) -> bool:
-    for line in source.splitlines():
-        words = shlex.split(line, comments=True)
-        if words[:1] == ['exec']: words = words[1:]
-        if words[:2] == ['python3', 'Scripts/check-docs.py'] and '--staged' in words[2:]: return True
+    controls = {'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'case', 'esac', 'function', '{', '}'}
+    for line in source.replace('\\\n', ' ').splitlines():
+        try: words = shlex.split(line, comments=True)
+        except ValueError: return False
+        if not words: continue
+        if words[-3:] == ['||', 'exit', '$?']: words = words[:-3]
+        if any(word in controls for word in words): return False
+        if words == ['exec', 'python3', 'Scripts/check-docs.py', '--staged']: return True
+        if words[:1] in (['exit'], ['return']) or line.lstrip().startswith('exec '): return False
     return False
 
 

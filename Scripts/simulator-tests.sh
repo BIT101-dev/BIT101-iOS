@@ -3,6 +3,16 @@ if [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
   exec zsh -c "$(<"$0")" "$0" "$@"
 fi
 set -euo pipefail
+if [[ "${1:-}" == (--help|-h) ]]; then
+  print -r -- '用法：Scripts/run-extended-tests.sh simulator 操作 [参数...]'
+  print -r -- '设备：info、prepare、inspect、restore、preview；沿已有设备选择复用。'
+  print -r -- '测试：build-ui；app|release-runtime|ui [用例...]；verify；merge。'
+  print -r -- '运行时：runtime info；runtime 平台 版本或构建号；runtime prune [平台] 版本。'
+  print -r -- '升级：runtime upgrade [平台] 版本 设备UDID...；省略平台采用 iOS。'
+  print -r -- '清理：devices clean 设备UDID...；移除：devices remove 目标设备UDID...。'
+  print -r -- '运行设备操作需要用户授权及 BIT101_SIMULATOR_AUTHORIZED=1。'
+  exit 0
+fi
 SIMULATOR_STARTED_SECONDS=$SECONDS
 [[ "${BIT101_SIMULATOR_AUTHORIZED:-0}" == 1 ]] || { echo "模拟器流程需要用户显式授权及 BIT101_SIMULATOR_AUTHORIZED=1。" >&2; exit 64; }
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,10 +23,12 @@ case "$operation" in
   info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || exit 64;;
   runtime)
     [[ $# -eq 1 && "$1" == info ]] \
-      || [[ $# -eq 2 && "$1" == (upgrade|prune) && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
-      || [[ $# -eq 3 && "$1" == (upgrade|prune) && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -eq 2 && "$1" == prune && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -eq 3 && "$1" == prune && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -ge 3 && "$1" == upgrade && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -ge 4 && "$1" == upgrade && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
       || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ '^([0-9]+(\.[0-9]+){1,2}|[0-9]+[A-Z][0-9]+[a-z]?)$' ]] || exit 64;;
-  devices) [[ $# -ge 2 && "$1" == (prune|clean) ]] || exit 64;;
+  devices) [[ $# -ge 2 && "$1" == (remove|clean) ]] || exit 64;;
   app|release-runtime|ui) ;;
   *) exit 64;;
 esac
@@ -36,22 +48,25 @@ if [[ "$operation" == devices ]]; then
   python3 - "$ROOT_DIR/Scripts" "$@" <<'PYDEVICEPRUNE'
 import sys
 sys.path.insert(0, sys.argv[1])
-from validation_simulator import clean_device_caches, prune_devices
+from validation_simulator import clean_device_caches, remove_devices
 if sys.argv[2] == 'clean': clean_device_caches(sys.argv[3:])
-else: prune_devices(sys.argv[3:])
+else: remove_devices(sys.argv[3:])
 PYDEVICEPRUNE
   exit 0
 fi
 if [[ "$operation" == runtime ]]; then
   if [[ "$1" == (upgrade|prune) ]]; then
+    runtime_action="$1"
+    shift
     runtime_platform=iOS
-    runtime_version="$2"
-    if (( $# == 3 )); then runtime_platform="$2"; runtime_version="$3"; fi
-    python3 - "$ROOT_DIR/Scripts" "$1" "$runtime_version" "$runtime_platform" <<'PYRUNTIMEMANAGE'
+    if [[ "$1" == (iOS|watchOS|tvOS|visionOS) ]]; then runtime_platform="$1"; shift; fi
+    runtime_version="$1"
+    shift
+    python3 - "$ROOT_DIR/Scripts" "$runtime_action" "$runtime_version" "$runtime_platform" "$@" <<'PYRUNTIMEMANAGE'
 import sys
 sys.path.insert(0, sys.argv[1])
 from validation_simulator import manage_runtimes
-manage_runtimes(sys.argv[2], sys.argv[3], sys.argv[4])
+manage_runtimes(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:])
 PYRUNTIMEMANAGE
     exit 0
   fi
