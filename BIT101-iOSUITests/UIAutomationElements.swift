@@ -461,28 +461,17 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        let labels = UITestMainNavigation.labels(title)
-        let query = native.buttons.matching(NSPredicate(format: "label IN %@", labels))
-        guard let application = UITestSnapshotReader.application,
-              let snapshot = try? application.snapshot() else {
-            XCTFail("主导航查询需要当前应用的界面快照。")
-            return UIElement(query.firstMatch)
+        let query = native.buttons.matching(NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
+        let map = native.buttons["地图"].frame, mine = native.buttons["我的"].frame
+        let horizontal = abs(map.midY - mine.midY) <= 1
+        for button in query.allElementsBoundByIndex {
+            let frame = button.frame
+            if horizontal ? abs(frame.midY - map.midY) <= 1 : abs(frame.midX - map.midX) <= 1 {
+                return UIElement(button)
+            }
         }
-        let buttons = snapshot.snapshots(matching: .button)
-        guard let map = buttons.first(where: { $0.identifier == "app.tab.map" }),
-              let mine = buttons.first(where: { $0.identifier == "app.tab.mine" }) else {
-            XCTFail("系统主导航应提供地图与个人页入口。")
-            return UIElement(query.firstMatch)
-        }
-        let horizontal = abs(map.frame.midY - mine.frame.midY) <= 1
-        let candidates = buttons.filter { labels.contains($0.label) }
-        guard let index = candidates.firstIndex(where: {
-            horizontal ? abs($0.frame.midY - map.frame.midY) <= 1 : abs($0.frame.midX - map.frame.midX) <= 1
-        }) else { XCTFail("主导航应沿同一行或列呈现：\(title)。"); return UIElement(query.firstMatch) }
-        let element = UIElement(query.element(boundBy: index))
-        element.capturedSnapshot = candidates[index]
-        element.capturedGeneration = UITestSnapshotReader.generation
-        return element
+        XCTFail("主导航应沿同一行或列呈现：\(title)。")
+        return UIElement(query.firstMatch)
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
