@@ -114,6 +114,7 @@ class PaperCollectionViewModel: ObservableObject {
         let previousState = state
         let previousMetadata = previewMetadataByPaperID
         let previousFailures = previewFailedIDs
+        state.failureCause = nil
         refreshPreviousState = (previousState, previousMetadata, previousFailures)
         previewLoadingIDs = []
         defer {
@@ -172,6 +173,7 @@ class PaperCollectionViewModel: ObservableObject {
             previewMetadataByPaperID = previousMetadata
             previewFailedIDs = previousFailures
             state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
+            state.failureCause = previousState.items.isEmpty ? error : nil
             state.isLoadingMore = false
             if previousState.items.isEmpty && !requiresSearchText { state.canLoadMore = false }
             let title = requiresSearchText ? "搜索文章失败" : previousState.items.isEmpty ? "加载文章失败" : "刷新文章失败"

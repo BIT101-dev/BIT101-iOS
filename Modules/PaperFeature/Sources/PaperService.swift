@@ -107,7 +107,7 @@ public struct PaperService {
         }
         let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional,
             validate: { papers in
-                guard papers.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 }) else {
+                guard papers.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else {
                     throw PaperServiceError.invalidResponse
                 }
             })
@@ -141,7 +141,7 @@ public struct PaperService {
         defer { resourceUpdates.finishRead(revision) }
         guard session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
         let response: CommunityAPIResponse<PaperDetail> = try await api.response(path: "papers/\(id)", authentication: .optional,
-            validate: { detail in guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse } })
+            validate: { detail in guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else { throw PaperServiceError.invalidResponse } })
         var detail = response.value
         detail.isViewerAuthenticated = response.isAuthenticated
         return resourceUpdates.resolve(detail, since: revision)

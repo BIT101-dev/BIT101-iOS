@@ -50,6 +50,11 @@ struct GalleryStateContractTests {
         #expect(items.items.map(\.likeNum) == [10, 0] && items.items.map(\.commentNum) == [3, 0])
         let unchanged = items.apply([.init(objectID: "poster1"), .init(objectID: "other", likeNum: 8)])
         #expect(!unchanged)
+        items.replace(with: [listPoster(2), listPoster(3)])
+        items.append([listPoster(1), listPoster(1)])
+        let indexed = items.apply([.init(objectID: "poster2", likeNum: 4), .init(objectID: "poster1", likeNum: 6)])
+        #expect(indexed)
+        #expect(items.items.map(\.id) == [2, 3, 1] && items.items.map(\.likeNum) == [4, 0, 6])
     }
 
     @Test(.timeLimit(.minutes(1))) func cancelledSearchRecoveryReleasesAnEarlierPaginationSnapshot() async {

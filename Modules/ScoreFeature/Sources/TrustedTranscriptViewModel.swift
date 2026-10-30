@@ -163,7 +163,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             if TaskCancellation.matches(error) || Task.isCancelled { finishCancellation() }
             else if verificationChallenge != nil, SchoolServiceFailure.from(error) == nil { verificationError = error.localizedDescription }
             else {
-                verificationChallenge = nil; authenticatedChallenge = nil
+                verificationChallenge = nil
                 presentDeliveryFailure(error)
             }
         }
@@ -212,21 +212,10 @@ final class TrustedTranscriptViewModel: ObservableObject {
             guard page.data.count <= remainingEncoded else { throw HTTPClientError.responseTooLarge }
             remainingEncoded -= page.data.count
         }
-        let perPageBudget = limits.maximumDecodedBytes / result.expectedPageCount
         for page in pending {
             do {
                 try Task.checkCancellation()
                 guard BoundedStillImageDecoder.hasCompleteImage(in: page.data) else { throw ScoreServiceError.invalidResponse }
-                let liveBytes = BoundedStillImageDecoder.decodedBytes(in: images + Array(retained.values))
-                if liveBytes > limits.maximumDecodedBytes - perPageBudget {
-                    if retained.isEmpty {
-                        images = []; pageNumbers = []; encodedBytesByPage = [:]
-                        expectedPageCount = result.expectedPageCount
-                        state = .loading
-                    } else {
-                        publishImages(retained, sizes: sizes, result: result, isPartial: true)
-                    }
-                }
                 let remaining = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
                 let prepared = try await Self.prepareImages(.init(pages: [page], expectedPageCount: result.expectedPageCount),
                     limits: .init(maximumPageCount: limits.maximumPageCount, maximumEncodedBytes: remaining,
@@ -277,7 +266,7 @@ final class TrustedTranscriptViewModel: ObservableObject {
             guard page.data.count <= remainingBytes else { throw HTTPClientError.responseTooLarge }
             remainingBytes -= page.data.count
         }
-        let perPageBudget = limits.maximumDecodedBytes / result.expectedPageCount
+        let perPageBudget = limits.maximumDecodedBytes / 2 / result.expectedPageCount
         var images: [UIImage] = [], numbers: [Int] = [], sizes: [Int: Int] = [:]
         var failure = result.failure
         for page in result.pages {

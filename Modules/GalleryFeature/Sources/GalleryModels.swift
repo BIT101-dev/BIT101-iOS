@@ -170,6 +170,10 @@ public nonisolated struct GalleryPosterDetail: CommunityResourceItem, Decodable,
     public let editTime: String
     public let id: Int
     public let images: [CommunityImage]
+    public private(set) var discardedImageCount = 0
+    public var imageRecoveryIssue: DecodingError? {
+        CommunityPoster.imageRecoveryIssue(id: id, discardedImageCount: discardedImageCount)
+    }
     public let like: Bool
     public private(set) var likeNum: Int
     public let own: Bool
@@ -234,6 +238,22 @@ public nonisolated struct GalleryPosterDetail: CommunityResourceItem, Decodable,
 }
 
 extension GalleryPosterDetail {
+    private nonisolated enum CodingKeys: String, CodingKey { case like, own, plugins, subscription }
+
+    public nonisolated init(from decoder: Decoder) throws {
+        let poster = try CommunityPoster(from: decoder, preview: false)
+        anonymous = poster.anonymous; claim = poster.claim; commentNum = poster.commentNum
+        createTime = poster.createTime; editTime = poster.editTime; id = poster.id
+        images = poster.images; discardedImageCount = poster.discardedImageCount; likeNum = poster.likeNum
+        self.public = poster.public; tags = poster.tags; text = poster.text; title = poster.title
+        updateTime = poster.updateTime; user = poster.user
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        like = try fields.decode(Bool.self, forKey: .like)
+        own = try fields.decode(Bool.self, forKey: .own)
+        plugins = (try? fields.decode(String.self, forKey: .plugins)) ?? ""
+        subscription = try fields.decodeIfPresent(GallerySubscriptionLevel.self, forKey: .subscription)
+    }
+
     /// 根据列表卡片构造占位详情。
     ///
     /// 消息页可以先展示卡片数据，详情请求完成后替换对象。

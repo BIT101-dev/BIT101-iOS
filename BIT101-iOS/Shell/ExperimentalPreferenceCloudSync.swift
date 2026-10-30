@@ -39,8 +39,6 @@ nonisolated enum ExperimentalPreferenceSyncPolicy {
     }
 }
 
-/// Compresses the comparatively large score snapshot before placing it in iCloud KVS.
-
 nonisolated enum ExperimentalPreferenceCloudQuotaPolicy {
     static let maximumValueSize = 1_048_576
     static let maximumValueCount = 1_024

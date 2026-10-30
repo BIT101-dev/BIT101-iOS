@@ -112,7 +112,7 @@ struct TrustedTranscriptRecoveryTests {
                 if number == holdPage, hold { hold = false; await withCheckedContinuation { pending = $0 } }
                 if number == 2 {
                     try Task.checkCancellation()
-                    if application == 1 {
+                    if application == 1, damage != "none" {
                         if damage == "source" { throw TrustedTranscriptReport.Failure.invalidSource(URLError(.badServerResponse)) }
                         return Data("damaged".utf8)
                     }
@@ -137,17 +137,40 @@ struct TrustedTranscriptRecoveryTests {
         let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumDecodedBytes: budget))
         await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 3])
+        let displayed = model.images
         service.hold = true; service.holdPage = 3
         model.prepareReapplication()
         let loading = Task { await model.applyIfNeeded() }
         defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
         try await waitForTestEvent { service.pending != nil }
         #expect(model.decodedImageBytes <= budget)
-        #expect(model.pageNumbers == [1, 2])
+        #expect(model.pageNumbers == [1, 3] && model.images.elementsEqual(displayed, by: { $0 === $1 }))
         #expect(model.state == .loaded)
         service.pending?.resume(); service.pending = nil
         await loading.value
         #expect(model.decodedImageBytes <= budget && model.pageNumbers == [1, 2, 3])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingReplacementKeepsTheCompleteDisplayedReportWithinBudget() async throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let data = UIGraphicsImageRenderer(size: CGSize(width: 1_024, height: 1_024), format: format).pngData { _ in }
+        let service = StreamingService(data: data, damage: "none"); service.hold = false
+        let budget = 3 * 256 * 256 * 4
+        let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumDecodedBytes: budget))
+        await model.applyIfNeeded()
+        let displayed = model.images
+        #expect(model.pageNumbers == [1, 2, 3])
+        service.hold = true
+        model.prepareReapplication()
+        let loading = Task { await model.applyIfNeeded() }
+        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        try await waitForTestEvent { service.pending != nil }
+        #expect(model.images.elementsEqual(displayed, by: { $0 === $1 }) && model.decodedImageBytes <= budget)
+        loading.cancel(); service.pending?.resume(); service.pending = nil
+        await loading.value
+        #expect(model.state == .loaded && model.pageNumbers == [1, 2, 3])
+        #expect(model.images.elementsEqual(displayed, by: { $0 === $1 }) && model.decodedImageBytes <= budget)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["source", "decode"])

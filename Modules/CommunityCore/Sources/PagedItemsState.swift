@@ -21,6 +21,9 @@ public nonisolated protocol CommunityResourceItem: Identifiable, Equatable {
 }
 
 extension CommunityResourceItem {
+    public nonisolated var hasValidCommunityMetrics: Bool {
+        likeNum >= 0 && commentNum >= 0 && (communityRate.map { $0.isFinite && (0...10).contains($0) } ?? true)
+    }
     public nonisolated var communityRate: Double? { nil }
     public nonisolated var communityMetrics: CommunityResourceMetrics {
         .init(objectID: communityObjectID, likeNum: likeNum, commentNum: commentNum, rate: communityRate)
@@ -184,10 +187,14 @@ public struct CommunityPageRequest<ID: Hashable> {
 public nonisolated struct CommunityPagedItems<Item: Identifiable> {
     public private(set) var items: [Item] = []
     public private(set) var ids: Set<Item.ID> = []
+    private var resourcePositions: [String: Int] = [:]
     public init() {}
-    public mutating func replace(with values: [Item]) { items = []; ids = []; append(values) }
+    public mutating func replace(with values: [Item]) { items = []; ids = []; resourcePositions = [:]; append(values) }
     public mutating func append(_ values: [Item]) {
-        items.append(contentsOf: values.filter { ids.insert($0.id).inserted })
+        for item in values where ids.insert(item.id).inserted {
+            if let resource = item as? any CommunityResourceItem { resourcePositions[resource.communityObjectID] = items.count }
+            items.append(item)
+        }
     }
 }
 
@@ -202,8 +209,8 @@ extension CommunityPagedItems where Item: CommunityResourceItem {
                 commentNum: last.commentNum ?? first.commentNum, rate: last.rate ?? first.rate)
         })
         var changed = false
-        for index in items.indices {
-            guard let metrics = values[items[index].communityObjectID] else { continue }
+        for metrics in values.values {
+            guard let index = resourcePositions[metrics.objectID] else { continue }
             let updated = items[index].updatingCommunityMetrics(metrics)
             if items[index] != updated { items[index] = updated; changed = true }
         }

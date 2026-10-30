@@ -92,6 +92,7 @@ public struct CoursePageContent: View {
         case let .failed(message) where viewModel.state.items.isEmpty:
             AppFailureState(title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
                 systemImage: "books.vertical.circle", message: message, retryTitle: "重新加载",
+                underlyingError: viewModel.state.failureCause,
                 onRetry: { Task { await viewModel.refresh() } })
         default:
             courseResults

@@ -59,10 +59,7 @@ struct NetworkBusinessDiagnosticsTests {
             let inline = DiagnosticRecoveryActions(title: title, message: "页面错误提示", allowsDiagnostics: false, underlyingError: failure).presentation
             #expect(inline.title == expectedTitle && inline.allowsSchoolServiceLink && !inline.allowsDiagnostics)
             #expect(!presentation.message.contains("risk="))
-            let page = try #require(URL(string: "https://jxzxehall.bit.edu.cn/fault"))
-            let destination = [.authenticationRestricted, .accountLocked].contains(failure)
-                ? AppURL.required("https://sso.bit.edu.cn/cas/login") : page
-            #expect(AppErrorPresentation(alert: alert, schoolServiceURL: page).schoolServiceURL == destination)
+            #expect(presentation.schoolServiceURL == AppURL.required("https://sso.bit.edu.cn/cas/login"))
             var submitted = false
             let model = ErrorReportViewModel(alert: alert, submitReport: { _ in submitted = true })
             #expect(!model.allowsSubmission)
@@ -88,8 +85,7 @@ struct NetworkBusinessDiagnosticsTests {
             ("空教室同步失败", "查询教室失败")
         ] {
             let alert = AppAlert(title: title, message: message)
-            let recentSchoolPage = AppURL.required("https://jxzxehall.bit.edu.cn/fault")
-            let presentation = AppErrorPresentation(alert: alert, schoolServiceURL: recentSchoolPage)
+            let presentation = AppErrorPresentation(alert: alert)
             #expect(presentation.title == title && presentation.message == message && presentation.allowsDiagnostics)
             #expect(!presentation.allowsSchoolServiceLink && presentation.schoolServiceURL == nil)
             #expect(ErrorReportViewModel(alert: alert).allowsSubmission)
@@ -208,11 +204,10 @@ struct NetworkBusinessDiagnosticsTests {
         let facts = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
         #expect(facts["finalMethod"] as? String == (capturesFinalRequest ? "GET" : nil))
         #expect(facts["finalURL"] as? String == destination.absoluteString)
-        #expect(await diagnostics.latestSchoolServicePageURL()?.absoluteString == "https://jxzxehall.bit.edu.cn/fault")
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [SchoolServiceTarget.teachingCenter, .grades, .transcript, .webVPN], [false, true])
-    func schoolRecoveryLinksUseConfirmedFailuresAndCurrentBusinessHosts(target: SchoolServiceTarget, businessFailure: Bool) async throws {
+    func schoolRecoveryLinksUseTheRegisteredEntryAcrossBusinessAPIFailures(target: SchoolServiceTarget, businessFailure: Bool) async throws {
         let owner = SchoolSessionIdentity(accountIdentifier: "school-recovery", generation: 0)
         let diagnostics = NetworkDiagnosticStore(currentIdentity: { owner })
         let failed = target.baseURL.appending(path: "failed").appending(queryItems: [URLQueryItem(name: "ticket", value: "fixture")])
@@ -226,7 +221,10 @@ struct NetworkBusinessDiagnosticsTests {
                 data: Data("<script>window.onerror = () => {}; const certificate = 'valid';</script>".utf8),
                 response: success, error: error, elapsed: 0)
         }
-        #expect(await diagnostics.latestSchoolServicePageURL() == target.baseURL.appending(path: "failed"))
+        let failure: SchoolServiceFailure = businessFailure ? .accessDenied : .unavailable
+        let presentation = AppErrorPresentation(alert: AppAlert(title: "学校请求失败", error: failure))
+        #expect(presentation.schoolServiceURL == AppURL.required("https://sso.bit.edu.cn/cas/login"))
+        #expect(presentation.allowsSchoolServiceLink && !presentation.allowsDiagnostics)
     }
 
     @Test(.timeLimit(.minutes(1)))

@@ -45,7 +45,7 @@ struct CloudPromptTests {
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts,
             currentIdentity: { identity }, currentCloudGeneration: { generation.value })
         let decisions = Decisions()
-        present(account, "cloud-owner") { await decisions.record($0) }
+        present(account, .init(signature: "cloud-owner", hasCommonBaseline: false)) { await decisions.record($0) }
         let prompt = try #require(prompts.activePrompt)
         await Task.detached { center.post(name: .CKAccountChanged, object: nil) }.value
         #expect(generation.value == 1)
@@ -67,26 +67,27 @@ struct CloudPromptTests {
         let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier, generation: account.generation)
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts, currentIdentity: { identity })
         let decisions = Decisions()
-        present(account, "same-conflict") { await decisions.record($0) }
+        present(account, .init(signature: "same-conflict", hasCommonBaseline: false)) { await decisions.record($0) }
         let first = try #require(prompts.activePrompt)
         #expect(first.account == identity)
         prompts.alertPresentationChanged(isPresented: false, promptID: prompts.activePrompt?.id)
         try await waitForTestEvent { decisions.values.count == 1 }
         #expect(decisions.values == [nil])
-        present(account, "same-conflict") { _ in }
+        present(account, .init(signature: "same-conflict", hasCommonBaseline: false)) { _ in }
         let second = try #require(prompts.activePrompt)
         #expect(first.id != second.id)
         #expect(second.title == first.title)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["keep-local", "use-cloud", "later", "account-change"])
-    func conflictActionsAndAccountCancellationResolveExactlyOnce(action: String) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: ["keep-local", "use-cloud", "later", "account-change"], [false, true])
+    func conflictActionsAndAccountCancellationResolveExactlyOnce(action: String, hasCommonBaseline: Bool) async throws {
         let prompts = AppPromptCoordinator(advanceDelay: .zero)
         let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier, generation: account.generation)
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts, currentIdentity: { identity })
         let decisions = Decisions()
-        present(account, "conflict") { await decisions.record($0) }
+        present(account, .init(signature: "conflict", hasCommonBaseline: hasCommonBaseline)) { await decisions.record($0) }
         let prompt = try #require(prompts.activePrompt)
+        #expect(prompt.message.contains(hasCommonBaseline ? "独立修改" : "首次关联"))
         if action == "account-change" {
             prompts.accountDidChange(to: CommunitySessionIdentity(accountIdentifier: "B", generation: 2))
         } else {
@@ -107,7 +108,7 @@ struct CloudPromptTests {
         let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier, generation: account.generation)
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts, currentIdentity: { identity })
         let decisions = Decisions()
-        for signature in ["first", "second"] { present(account, signature) { await decisions.record($0) } }
+        for signature in ["first", "second"] { present(account, .init(signature: signature, hasCommonBaseline: false)) { await decisions.record($0) } }
         prompts.accountDidChange(to: CommunitySessionIdentity(accountIdentifier: "B", generation: 2))
         try await waitForTestEvent { decisions.values.count == 2 }
         #expect(decisions.values == [nil, nil])
@@ -122,7 +123,7 @@ struct CloudPromptTests {
         let current = CommunitySessionIdentity(accountIdentifier: currentAccount, generation: 2)
         let present = ScheduleCloudSyncManager.appConflictPresenter(prompts: prompts, currentIdentity: { current })
         let decisions = Decisions()
-        present(account, "delayed") { await decisions.record($0) }
+        present(account, .init(signature: "delayed", hasCommonBaseline: false)) { await decisions.record($0) }
         try await waitForTestEvent { decisions.values.count == 1 }
         #expect(decisions.values == [nil])
         #expect(prompts.activePrompt == nil)

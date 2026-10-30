@@ -196,7 +196,6 @@ nonisolated struct SchoolServiceIssue: Sendable {
     let message: String
     let serviceURL = AppURL.required("https://sso.bit.edu.cn/cas/login")
     let actionTitle: String
-    let usesAuthenticationEntry: Bool
 
     init?(error: (any Error)?) {
         guard let failure = SchoolServiceFailure.from(error) else { return nil }
@@ -206,7 +205,7 @@ nonisolated struct SchoolServiceIssue: Sendable {
         case .accountLocked: title = "学校账号已锁定"
         default: title = "学校服务异常"
         }
-        usesAuthenticationEntry = [.authenticationRestricted, .accountLocked].contains(failure)
+        let usesAuthenticationEntry = [.authenticationRestricted, .accountLocked].contains(failure)
         actionTitle = usesAuthenticationEntry
             ? "打开学校统一认证" : Self.serviceActionTitle
         message = failure.localizedDescription
@@ -304,29 +303,4 @@ actor NetworkDiagnosticStore {
         return payload.error?.isEmpty == false ? payload.error : "学校统一认证失败。"
     }
 
-    /// 返回最近一次学校网页请求的安全外链；URL 移除用户信息、query 和 fragment，
-    /// ticket、token 等一次性认证参数留在诊断记录中。网页入口限定为学校网页请求。
-    func latestSchoolServicePageURL() async -> URL? {
-        let schoolHosts = Set(SchoolServiceTarget.allCases.compactMap { $0.baseURL.host })
-            .union(["sso.bit.edu.cn", "jxzxehall.bit.edu.cn"])
-
-        for entry in await currentEntries(limit: 20).reversed() {
-            let record = entry.record
-            guard entry.failed || record.responseBody.flatMap(SchoolServiceFailure.schoolResponse) != nil else { continue }
-            guard let url = URL(string: record.finalURL ?? record.url),
-                  let host = url.host?.lowercased(),
-                  schoolHosts.contains(host)
-            else { continue }
-
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.user = nil
-            components?.password = nil
-            components?.query = nil
-            components?.fragment = nil
-            if let pageURL = components?.url {
-                return HTTPSURLUpgrade.upgradedURL(from: pageURL)
-            }
-        }
-        return nil
-    }
 }

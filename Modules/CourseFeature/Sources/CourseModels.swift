@@ -494,6 +494,7 @@ typealias CourseLoadStatus = CommunityLoadStatus
 ///
 /// 这里把首屏状态和分页游标放在一起，避免视图层分别维护多组彼此耦合的布尔值。
 struct CoursePagedState {
+    var failureCause: (any Error)?
     var paginationError: String?
     var pagedItems = CommunityPagedItems<CourseSummary>()
     var items: [CourseSummary] {

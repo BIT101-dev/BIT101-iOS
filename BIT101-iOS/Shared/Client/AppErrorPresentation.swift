@@ -40,10 +40,10 @@ nonisolated struct AppErrorPresentation: Identifiable {
 extension AppErrorPresentation: DiagnosticAlertPresentable {}
 
 extension AppErrorPresentation {
-    init(alert: any DiagnosticAlertPresentable, schoolServiceURL: URL? = nil) {
+    init(alert: any DiagnosticAlertPresentable) {
         if let issue = SchoolServiceIssue(error: alert.underlyingError) {
             self.init(title: issue.title, message: issue.message, allowsDiagnostics: false,
-                showsRecoveryLinks: true, schoolServiceURL: issue.usesAuthenticationEntry ? issue.serviceURL : schoolServiceURL ?? issue.serviceURL,
+                showsRecoveryLinks: true, schoolServiceURL: issue.serviceURL,
                 recoveryAction: nil, underlyingError: alert.underlyingError)
         } else {
             self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
@@ -107,17 +107,7 @@ final class AppErrorPresenter {
     }
 
     func present(_ alert: any DiagnosticAlertPresentable) {
-        let generation = presentationGeneration
-        let presentation = AppErrorPresentation(alert: alert)
-        if !presentation.allowsSchoolServiceLink {
-            enqueue(presentation)
-            return
-        }
-        Task { @MainActor [weak self] in
-            let schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
-            guard let self, self.presentationGeneration == generation else { return }
-            enqueue(AppErrorPresentation(alert: alert, schoolServiceURL: schoolServiceURL))
-        }
+        enqueue(AppErrorPresentation(alert: alert))
     }
 
     func setModalPresented(_ isPresented: Bool, id: UUID) {
@@ -393,11 +383,9 @@ struct DiagnosticRecoveryActions: View {
     let allowsDiagnostics: Bool
     var underlyingError: (any Error)? = nil
     @State private var reportAlert: AppAlert?
-    @State private var schoolServiceURL: URL?
 
     var presentation: AppErrorPresentation {
-        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: underlyingError),
-            schoolServiceURL: schoolServiceURL)
+        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: underlyingError))
     }
 
     var body: some View {
@@ -419,10 +407,6 @@ struct DiagnosticRecoveryActions: View {
                     reportAlert = AppAlert(title: title, message: message, underlyingError: underlyingError)
                 }
             }
-        }
-        .task {
-            guard presentation.allowsDiagnostics || presentation.allowsSchoolServiceLink else { return }
-            schoolServiceURL = await NetworkDiagnosticStore.shared.latestSchoolServicePageURL()
         }
         .sheet(item: $reportAlert) { AppErrorReportSheet(alert: $0) }
     }

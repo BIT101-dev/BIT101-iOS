@@ -117,6 +117,7 @@ private struct PaperRootViewScene: View {
                                 title: "加载文章失败",
                                 systemImage: "doc.text.magnifyingglass",
                                 message: message,
+                                underlyingError: viewModel.state.failureCause,
                                 onRetry: {
                                     viewModel.enqueueRefresh()
                                 }

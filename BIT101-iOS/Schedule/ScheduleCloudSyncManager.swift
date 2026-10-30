@@ -161,7 +161,7 @@ extension ScheduleCloudSyncManager {
         },
         currentCloudGeneration: @escaping @MainActor @Sendable () -> Int = { AppCloudAccountGeneration.shared.value }
     ) -> ScheduleCloudConflictPresenter {
-        { account, signature, resolve in
+        { account, context, resolve in
             let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier,
                 generation: account.generation)
             guard identity == currentIdentity(), account.cloudGeneration == currentCloudGeneration() else {
@@ -176,14 +176,16 @@ extension ScheduleCloudSyncManager {
                 Task { await resolve(choice) }
             }
             prompts.enqueue(AppPrompt(
-                id: "schedule-cache-conflict-\(signature)-\(UUID().uuidString)",
+                id: "schedule-cache-conflict-\(context.signature)-\(UUID().uuidString)",
                 title: "本机和 iCloud 课表存在版本差异",
-                message: "本机与 iCloud 中的手动调整、个人日程、DDL 或设置存在版本差异。请选择保留本机版本或使用 iCloud 版本；选择会替换另一侧这部分用户数据，学校抓取数据保留本机版本。",
+                message: context.hasCommonBaseline
+                    ? "双方独立修改的内容会合并。同一项手动调整、个人日程、DDL 或设置发生冲突时，采用你选择的一侧。学校抓取数据沿用本机版本。"
+                    : "本次首次关联本机与 iCloud 的用户数据。请选择采用哪一侧的手动调整、个人日程、DDL 和设置，所选内容会同步到另一侧。学校抓取数据沿用本机版本。",
                 actions: [
-                    AppPromptAction(id: "keep-local", title: "保留本机", isDefault: true) {
+                    AppPromptAction(id: "keep-local", title: "采用本机", isDefault: true) {
                         complete(.keepLocal)
                     },
-                    AppPromptAction(id: "use-cloud", title: "使用 iCloud") {
+                    AppPromptAction(id: "use-cloud", title: "采用 iCloud") {
                         complete(.useCloud)
                     },
                     AppPromptAction(id: "later", title: "稍后处理") {

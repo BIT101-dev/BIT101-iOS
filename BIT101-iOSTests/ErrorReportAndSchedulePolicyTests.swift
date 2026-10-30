@@ -144,8 +144,6 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(recent.contains { $0.url.hasSuffix("/cas/login") })
         XCTAssertTrue(recent.contains { $0.url.hasSuffix("/courses") && $0.statusCode == 503 })
         XCTAssertTrue(recent.contains { $0.url.hasSuffix("/images/59") })
-        let recoveryURL = await store.latestSchoolServicePageURL()
-        XCTAssertEqual(recoveryURL?.path, "/courses")
         for index in 0..<20 { try await capture("failed/\(index)", status: 503) }
         try await capture("current-request", status: 200)
         let updated = await store.recent()
@@ -167,8 +165,6 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         await store.record(owner: owner, request: request, data: Data("late-account-a".utf8), response: response, error: nil, elapsed: 0)
         let empty1 = await store.recent().isEmpty
         XCTAssertTrue(empty1)
-        let page1 = await store.latestSchoolServicePageURL()
-        XCTAssertNil(page1)
         await store.record(owner: account.identity, request: request, data: Data("account-b".utf8), response: response, error: nil, elapsed: 0)
         let body1 = await store.recent().last?.responseBody
         XCTAssertEqual(body1, "account-b")

@@ -160,7 +160,7 @@ final class AccountSettingsModel: ObservableObject {
             }
         } catch {
             guard presents(error, for: owner) else { return }
-            alert = AppAlert(title: "头像更新失败", error: error)
+            alert = AppAlert(title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "头像更新失败", error: error)
         }
     }
 
@@ -173,7 +173,7 @@ final class AccountSettingsModel: ObservableObject {
             }
         } catch {
             guard presents(error, for: owner) else { return false }
-            alert = AppAlert(title: "更新失败", error: error)
+            alert = AppAlert(title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "更新失败", error: error)
         }
         return saved
     }
@@ -205,12 +205,14 @@ final class AccountSettingsModel: ObservableObject {
 /// 此服务处理账号资料、头像上传和登录状态检查，设置页面通过此服务发起请求。
 struct SettingsNetworkService: AccountSettingsServicing {
     private let api: CommunityAPIClient<SettingsServiceError>
+    private let session: CommunitySession
     private let validateLogin: () async throws -> Bool
 
     /// 初始化设置中心网络层。
     ///
     /// 头像上传、资料修改和登录检查消费构造时选择的社区会话与验证能力。
     init(session: CommunitySession, checkLogin: @escaping () async throws -> Bool) {
+        self.session = session
         api = session.client(errorDomain: "BIT101.Settings")
         validateLogin = checkLogin
     }
@@ -231,7 +233,22 @@ struct SettingsNetworkService: AccountSettingsServicing {
             "motto": motto,
             "avatar_mid": avatarMid,
         ])
-        try await api.requestVoid(path: "user/info", method: "PUT", body: body)
+        let identity = session.currentCredentials.identity
+        do { try await api.requestVoid(path: "user/info", method: "PUT", body: body, mutation: .update) }
+        catch let failure as CommunityUpdateOutcomeUnknown {
+            guard session.currentCredentials.identity == identity else { throw CancellationError() }
+            let latest: MineUserInfo
+            do { latest = try await fetchMyInfo() }
+            catch {
+                if TaskCancellation.matches(error) { throw error }
+                throw failure
+            }
+            try Task.checkCancellation()
+            guard session.currentCredentials.identity == identity else { throw CancellationError() }
+            guard nickname.map({ $0 == latest.user.nickname }) ?? true,
+                  motto.map({ $0 == latest.user.motto }) ?? true,
+                  avatarMid.map({ $0 == latest.user.avatar.mid }) ?? true else { throw failure }
+        }
     }
 
     /// 上传头像并返回服务端生成的图片资源对象。

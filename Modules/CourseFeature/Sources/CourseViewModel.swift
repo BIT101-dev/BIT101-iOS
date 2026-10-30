@@ -99,6 +99,7 @@ public final class CourseListViewModel: ObservableObject {
         searchText = query
         pageSearch = normalizedSearchText
         state.applyFirstPage(items)
+        state.failureCause = nil
         needsRefresh = false
         state.status = .loaded
         alert = nil
@@ -136,6 +137,7 @@ public final class CourseListViewModel: ObservableObject {
         refreshPreviousState = previousState
         defer { if refreshGeneration == generation { refreshPreviousState = nil } }
         let hadCourses = !state.items.isEmpty || state.status == .loaded
+        state.failureCause = nil
         if !hadCourses {
             state.prepareForRefresh()
         } else {
@@ -179,6 +181,7 @@ public final class CourseListViewModel: ObservableObject {
             }
 
             state.status = .failed(error.localizedDescription)
+            state.failureCause = error
             state.canLoadMore = false
             alert = AppAlert(title: "加载课程失败", error: error)
         }

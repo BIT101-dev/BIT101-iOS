@@ -10,6 +10,18 @@ import Testing
 
 @Suite("Paper search state machine")
 struct PaperSearchViewModelTests {
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func failedListKeepsItsCauseAfterTheTransientAlertIsDismissed() async {
+        let service = ServiceStub(result: .failure(URLError(.notConnectedToInternet)))
+        let model = PaperListViewModel(service: service)
+        await model.refresh()
+        model.alert = nil
+        #expect((model.state.failureCause as? URLError)?.code == .notConnectedToInternet)
+        service.result = .success([])
+        await model.refresh()
+        #expect(model.state.failureCause == nil && model.state.status == .loaded)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func refreshRevalidatesAuthorsWhileKeepingTheDisplayedMetadata(search: Bool) async throws {
         let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-a")

@@ -112,7 +112,7 @@ public struct MineService {
             URLQueryItem(name: "uid", value: String(userID)),
             URLQueryItem(name: "page", value: String(page)),
         ]
-        if await shouldHideBotPosters() {
+        if preferences().galleryHideBotPosterInSearch {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
         let response: CommunityAPIResponse<[CommunityPoster]> = try await api.response(
@@ -128,10 +128,5 @@ public struct MineService {
         return resourceUpdates.resolve(response.value, since: revision)
     }
 
-    private func shouldHideBotPosters() async -> Bool {
-        await MainActor.run {
-            preferences().galleryHideBotPosterInSearch
-        }
-    }
 }
 

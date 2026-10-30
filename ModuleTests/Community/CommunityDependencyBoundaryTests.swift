@@ -277,6 +277,7 @@ struct CommunityDependencyBoundaryTests {
         await pending.value
         let state = searching ? search.state : list.state
         #expect(state.status == .loaded && state.nextPage == 1 && state.items.map(\.id) == [1, 2])
+        #expect(state.failureCause == nil)
         #expect((searching ? search.previewMetadata(for: 1) : list.previewMetadata(for: 1))?.authorName == "作者")
         service.suspendedOrder = nil
         if searching { await search.loadMoreIfNeeded(currentPaper: state.items.last) }

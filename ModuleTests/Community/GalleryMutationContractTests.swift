@@ -1,9 +1,11 @@
 import CommunityCore
 import CommunityTransport
+import Combine
 import Foundation
 import Testing
 import TransportCore
 @testable import GalleryFeature
+@testable import PaperFeature
 
 extension ServiceContractTests {
     private final class ImageRecoveryObserver: HTTPClientObserving {
@@ -14,10 +16,11 @@ extension ServiceContractTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func posterImagesKeepValidNeighborsAndReportTheirPartialResponse() async throws {
-        let body = #"[{"id":42,"anonymous":false,"user":{"id":1},"title":"图片","text":"正文","images":[{"mid":"first","url":"https://example.invalid/first"},{"url":"https://example.invalid/missing"},null,{"mid":"last","url":"https://example.invalid/last"}]}]"#
-        let transport = Transport([(200, body)])
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func posterImagesKeepValidNeighborsAndReportTheirPartialResponse(detail: Bool) async throws {
+        let text = String(repeating: "完整正文", count: 2_000)
+        let body = #"{"id":42,"anonymous":false,"user":{"id":1},"like":false,"own":true,"title":"图片","text":"\#(text)","images":[{"mid":"first","url":"https://example.invalid/first"},{"url":"https://example.invalid/missing"},null,{"mid":"last","url":"https://example.invalid/last"}]}"#
+        let transport = Transport([(200, detail ? body : "[\(body)]")])
         let observer = ImageRecoveryObserver()
         let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: observer),
             baseURL: AppURL.required("https://example.invalid"), credentials: {
@@ -26,10 +29,46 @@ extension ServiceContractTests {
         let service = GalleryService(session: session, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        let page = try await service.fetchFeed(kind: .newest, page: 0)
-        #expect(page.items.first?.images.map(\.mid) == ["first", "last"])
-        #expect(page.items.first?.discardedImageCount == 2 && observer.failures == 1)
+        if detail {
+            let poster = try await service.fetchPoster(id: 42)
+            #expect(poster.images.map(\.mid) == ["first", "last"] && poster.discardedImageCount == 2)
+            #expect(poster.text == text)
+        } else {
+            let page = try await service.fetchFeed(kind: .newest, page: 0)
+            #expect(page.items.first?.images.map(\.mid) == ["first", "last"] && page.items.first?.discardedImageCount == 2)
+        }
+        #expect(observer.failures == 1)
         #expect(transport.requests.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["poster", "paper"], ["like_num", "comment_num"])
+    func invalidDetailCountsKeepTheirFailureOutOfSharedLists(kind: String, field: String) async throws {
+        let body: [String: Any] = ["id": 42, "title": "内容", "intro": "", "content": "", "text": "正文", "anonymous": false,
+            "user": ["id": 1], "update_user": ["id": 1], "like": false, "own": true, "public_edit": false,
+            "create_time": "", "update_time": "", "like_num": field == "like_num" ? -1 : 0,
+            "comment_num": field == "comment_num" ? -1 : 0]
+        let transport = Transport([(200, String(decoding: try JSONSerialization.data(withJSONObject: body), as: UTF8.self))])
+        let session = session(transport)
+        let gallery = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let paper = PaperService(session: session)
+        var updates: [CommunityResourceMetrics] = []
+        let subscription = (kind == "poster" ? gallery.resourceChanges : paper.resourceChanges).sink { updates += $0 }
+        defer { subscription.cancel() }
+        do {
+            if kind == "poster" { _ = try await gallery.fetchPoster(id: 42) }
+            else { _ = try await paper.fetchPaper(id: 42) }
+            Issue.record("异常计数需要保留协议错误。")
+        } catch {
+            #expect(kind == "poster" ? error is GalleryServiceError : error is PaperServiceError)
+        }
+        #expect(updates.isEmpty)
+    }
+
+    @Test func negativeLikeResponsesRemainProtocolFailures() {
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
+        #expect(throws: DecodingError.self) { try decoder.decode(CommunityLikeResult.self, from: Data(#"{"like":true,"like_num":-1}"#.utf8)) }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "different", "readFailed", "rejected"])

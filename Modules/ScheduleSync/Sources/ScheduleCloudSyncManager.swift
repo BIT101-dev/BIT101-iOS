@@ -326,7 +326,8 @@ public actor ScheduleCloudSyncManager {
         }
         guard promptedConflictSignatures.insert(signature).inserted else { return }
 
-        await presentConflict(account, signature) { resolution in
+        await presentConflict(account, .init(signature: signature,
+            hasCommonBaseline: localCache.syncData.cloudSyncBaselineUserState != nil)) { resolution in
             if let resolution {
                 await self.resolvePendingCloudConflict(
                     accountIdentifier: account.accountIdentifier,

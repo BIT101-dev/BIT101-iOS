@@ -68,7 +68,7 @@ ROOT_DIR=/audit
 SWIFT_FRONTEND=frontend
 BIT101_VERSION_BASE_REF=base
 BIT101_RELEASE_CHECK=true
-emit() { local call="${(j:|:)@}"; print -r -- "$call" >&2; [[ "$call" != "$FAIL_CALL" ]]; }
+emit() { local call="${(j:|:)@}"; print -r -- "CALL $call" >&2; [[ "$call" != "$FAIL_CALL" ]]; }
 python3() { emit python3 "$@"; }
 git() { emit git "$@"; }
 npm() { emit npm "$@"; }
@@ -110,7 +110,7 @@ def valid_callback(definition: str, callback: str, expected: tuple, harness: str
     for failure in failures:
         script = harness + "\nBIT101_AUDIT_SELF_TESTS=" + enabled + "\nFAIL_CALL=" + shlex.quote(failure) + "\n" + definition
         result = subprocess.run(["zsh", "-c", script + f"\n{callback}\n"], capture_output=True, text=True)
-        calls = result.stderr.splitlines()
+        calls = [line.removeprefix('CALL ') for line in result.stderr.splitlines() if line.startswith('CALL ')]
         identities = [audit_call_identity(call) for call in calls]
         valid = tuple(sorted(identities)) == expected if not failure else failure in calls and all(call in expected for call in identities)
         if callback == 'bit101_checker_audit': valid = valid and tuple(sorted(identities)) == expected
@@ -137,6 +137,7 @@ def self_test() -> None:
     assert audit_callback_findings(source.replace('Scripts/check-docs.py "${docs_args[@]}"',
         'Scripts/check-docs.py --staged "${docs_args[@]}"'))
     support = Path(__file__).with_name("script-support.sh").read_text()
+    assert not audit_callback_findings(source, support_source=support.replace('[失败]', '[诊断]'))
     assert audit_callback_findings(source, support_source=support.replace("|| checker_status=1", "|| return 1"))
     reordered = source.replace('-frontend -parse -D DEBUG -D EXTENDED_AUTOMATION',
         '-D EXTENDED_AUTOMATION -parse -D DEBUG -frontend').replace('diff --cached --check', 'diff --check --cached')

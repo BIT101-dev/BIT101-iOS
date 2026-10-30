@@ -58,6 +58,7 @@ private struct PaperSearchScene: View {
                                 title: "搜索失败",
                                 systemImage: "doc.text.magnifyingglass",
                                 message: message,
+                                underlyingError: viewModel.state.failureCause,
                                 onRetry: {
                                     Task {
                                         await viewModel.performSearch()

@@ -177,6 +177,9 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
     public let images: [CommunityImage]
     public private(set) var discardedImageCount = 0
     public var imageRecoveryIssue: DecodingError? {
+        Self.imageRecoveryIssue(id: id, discardedImageCount: discardedImageCount)
+    }
+    public static func imageRecoveryIssue(id: Int, discardedImageCount: Int) -> DecodingError? {
         guard discardedImageCount > 0 else { return nil }
         return .dataCorrupted(.init(codingPath: [CodingKeys.images],
             debugDescription: "帖子 \(id) 的 \(discardedImageCount) 项图片资料异常，有效图片已保留。"))
@@ -193,6 +196,9 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         case anonymous, claim, commentNum, createTime, editTime, id, images, likeNum, `public`, tags, text, title, updateTime, user
     }
     public init(from decoder: Decoder) throws {
+        try self.init(from: decoder, preview: true)
+    }
+    public init(from decoder: Decoder, preview: Bool) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(Int.self, forKey: .id)
         guard id > 0 else {
@@ -211,7 +217,7 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         likeNum = (try? fields.decode(Int.self, forKey: .likeNum)) ?? 0
         self.public = (try? fields.decode(Bool.self, forKey: .public)) ?? false
         tags = (try? fields.decode([String].self, forKey: .tags)) ?? []
-        text = CommunityTextLimits.displayText((try? fields.decode(String.self, forKey: .text)) ?? "", preview: true)
+        text = CommunityTextLimits.displayText((try? fields.decode(String.self, forKey: .text)) ?? "", preview: preview)
         title = (try? fields.decode(String.self, forKey: .title)) ?? ""
         updateTime = (try? fields.decode(String.self, forKey: .updateTime)) ?? ""
         if anonymous {
@@ -380,6 +386,16 @@ public nonisolated struct CommunityLikeResult: Decodable, Sendable {
 
     public let like: Bool
     public let likeNum: Int
+
+    private enum CodingKeys: String, CodingKey { case like, likeNum }
+    public init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        like = try fields.decode(Bool.self, forKey: .like)
+        likeNum = try fields.decode(Int.self, forKey: .likeNum)
+        guard likeNum >= 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .likeNum, in: fields, debugDescription: "点赞数量需要为非负整数。")
+        }
+    }
 }
 
 

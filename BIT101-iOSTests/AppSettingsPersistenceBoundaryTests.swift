@@ -155,6 +155,50 @@ struct AppSettingsPersistenceBoundaryTests {
 
 @MainActor
 struct AccountSettingsTests {
+    private final class ProfileUpdateTransport: HTTPTransport {
+        let scenario: String
+        var methods: [String] = []
+        var beforeWrite: () -> Void = {}
+        init(_ scenario: String) { self.scenario = scenario }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let method = request.httpMethod ?? "GET"; methods.append(method)
+            var status = 200
+            let body: Data
+            if method == "PUT" {
+                beforeWrite()
+                if scenario != "rejected" { throw URLError(.networkConnectionLost) }
+                status = 400; body = Data(#"{"msg":"fixture rejection"}"#.utf8)
+            } else {
+                if scenario == "readFailed" { throw URLError(.notConnectedToInternet) }
+                let profile: [String: Any] = ["user": ["id": 1,
+                    "nickname": scenario == "different" ? "其他资料" : "新昵称", "motto": "签名", "avatar": ["mid": "image"]] as [String: Any],
+                    "following_num": 0, "follower_num": 0, "following": false, "follower": false, "own": true]
+                body = try JSONSerialization.data(withJSONObject: profile)
+            }
+            let url = try #require(request.url)
+            return (body, try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["saved", "different", "readFailed", "rejected", "account-change"])
+    func profileUpdatesReadBackAmbiguousWritesAndKeepTheirCapturedAccount(scenario: String) async {
+        let transport = ProfileUpdateTransport(scenario)
+        var owner = credentials()
+        if scenario == "account-change" { transport.beforeWrite = { owner = credentials("other") } }
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: { owner }, refresh: { _ in })
+        let service = SettingsNetworkService(session: session, checkLogin: { true })
+        do {
+            try await service.updateUser(nickname: "新昵称", motto: "签名", avatarMid: "image")
+            #expect(scenario == "saved")
+        } catch {
+            #expect(scenario != "saved")
+            if scenario == "account-change" { #expect(TaskCancellation.matches(error)) }
+            else { #expect((error is CommunityUpdateOutcomeUnknown) == (scenario != "rejected")) }
+        }
+        #expect(transport.methods == (["rejected", "account-change"].contains(scenario) ? ["PUT"] : ["PUT", "GET"]))
+    }
+
     private struct UploadTransport: HTTPTransport {
         let mid: String
         let fails: Bool

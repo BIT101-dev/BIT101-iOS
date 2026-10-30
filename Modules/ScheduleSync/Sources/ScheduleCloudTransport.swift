@@ -159,8 +159,18 @@ public nonisolated struct ScheduleCloudLocalStore: Sendable {
     }
 }
 
+public nonisolated struct ScheduleCloudConflictContext: Sendable {
+    public let signature: String
+    public let hasCommonBaseline: Bool
+
+    public init(signature: String, hasCommonBaseline: Bool) {
+        self.signature = signature
+        self.hasCommonBaseline = hasCommonBaseline
+    }
+}
+
 public typealias ScheduleCloudConflictPresenter = @MainActor @Sendable (
     _ account: ScheduleCloudAccount,
-    _ signature: String,
+    _ context: ScheduleCloudConflictContext,
     _ resolve: @escaping @Sendable (ScheduleCacheConflictResolution?) async -> Void
 ) -> Void

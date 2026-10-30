@@ -64,9 +64,7 @@ public struct CourseService {
         }
 
         let result: [CourseSummary] = try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
-            for course in courses {
-                try Self.validateCourseFields(id: course.id, likeNum: course.likeNum, commentNum: course.commentNum, rate: course.rate)
-            }
+            guard courses.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else { throw CourseServiceError.invalidResponse }
         })
         return resourceUpdates.resolve(result, since: revision)
     }
@@ -76,16 +74,9 @@ public struct CourseService {
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
         let result: CourseDetail = try await api.request(path: "courses/\(id)", validate: { detail in
-            guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
-            try Self.validateCourseFields(id: detail.id, likeNum: detail.likeNum, commentNum: detail.commentNum, rate: detail.rate)
+            guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else { throw CourseServiceError.invalidResponse }
         })
         return resourceUpdates.resolve(result, since: revision)
-    }
-
-    private nonisolated static func validateCourseFields(id: Int, likeNum: Int, commentNum: Int, rate: Double) throws {
-        guard id > 0, likeNum >= 0, commentNum >= 0, (0...10).contains(rate) else {
-            throw CourseServiceError.invalidResponse
-        }
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。

@@ -838,7 +838,9 @@ struct ServiceContractTests {
         let gallery = GalleryService(session: shared, preferences: {
             .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
         })
-        await #expect(throws: GalleryServiceError.self) { try await gallery.fetchPoster(id: 17) }
+        let invalid = GalleryServiceError.invalidResponse as NSError
+        do { _ = try await gallery.fetchPoster(id: 17); Issue.record("详情需要拒绝其他资源编号。") }
+        catch { let observed = error as NSError; #expect(observed.domain == invalid.domain && observed.code == invalid.code) }
         let service = PaperService(session: shared)
         await #expect(throws: PaperServiceError.self) { try await service.fetchPaper(id: 17) }
         await #expect(throws: PaperServiceError.self) { try await service.fetchPreviewMetadata(id: 17) }

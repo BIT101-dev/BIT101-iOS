@@ -96,6 +96,7 @@ struct CourseListViewModelTests {
         }
         #expect(!viewModel.state.canLoadMore)
         #expect(viewModel.alert?.title == "加载课程失败")
+        #expect((viewModel.state.failureCause as? URLError)?.code == .notConnectedToInternet)
 
         service.pages[0] = .success([first])
         await viewModel.refresh()
