@@ -52,13 +52,12 @@ class PaperCollectionViewModel: ObservableObject {
         self.requiresSearchText = requiresSearchText
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self else { return }
-            let contains = self.state.items.contains { $0.communityObjectID == metrics.objectID }
-                || self.refreshPreviousState?.state.items.contains { $0.communityObjectID == metrics.objectID } == true
-            guard contains else { return }
-            if metrics.needsRefresh { self.cancelRefreshOperations() }
+            let needsRefresh = self.state.items.needsCommunityRefresh(for: metrics)
+                || self.refreshPreviousState?.state.items.needsCommunityRefresh(for: metrics) == true
+            if needsRefresh { self.cancelRefreshOperations() }
             var updated = self.state
             if updated.pagedItems.apply(metrics) { self.state = updated }
-            if metrics.needsRefresh { self.needsRefresh = true }
+            if needsRefresh { self.needsRefresh = true }
         }
     }
 

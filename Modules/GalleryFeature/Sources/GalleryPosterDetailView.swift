@@ -237,7 +237,7 @@ private struct GalleryPosterDetailViewScene: View {
                         }
                     },
                     onReply: { target in
-                        composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
+                        composerTarget = target
                     },
                     onLikeComment: { comment in
                         viewModel.pendingOperations.enqueue {

@@ -40,7 +40,7 @@ public struct MineService {
     /// “我的”页请求使用的社区 API 客户端。
     private let api: CommunityAPIClient<MineServiceError>
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
 
     private let preferences: () -> CommunityPreferenceSnapshot
 
@@ -72,7 +72,7 @@ public struct MineService {
     }
 
     public func followUser(id: Int) async throws -> MineFollowResult {
-        try await api.request(path: "user/follow/\(id)", method: "POST")
+        try await api.request(path: "user/follow/\(id)", method: "POST", mutation: .toggle)
     }
 
     /// 获取我关注的用户列表。
@@ -103,6 +103,7 @@ public struct MineService {
 
     private func fetchPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
         let revision = resourceUpdates.beginRead()
+        defer { resourceUpdates.finishRead(revision) }
         var queryItems = [
             URLQueryItem(name: "mode", value: "search"),
             URLQueryItem(name: "uid", value: String(userID)),
@@ -118,7 +119,7 @@ public struct MineService {
                 guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else { throw MineServiceError.invalidResponse }
             }
         )
-        return result.map { resourceUpdates.resolve($0, since: revision) }
+        return resourceUpdates.resolve(result, since: revision)
     }
 
     private func shouldHideBotPosters() async -> Bool {

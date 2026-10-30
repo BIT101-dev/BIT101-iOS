@@ -29,6 +29,15 @@ public final class ScheduleRepository: ObservableObject {
     var accountSession: AppStorageSession { ownerSession }
     private var observer: AnyCancellable?
     private var persistenceTask: Task<Bool, Never>?
+    private final class PendingPersistence {
+        var snapshot: ScheduleCache
+        var revision: Int
+        let source: ScheduleCacheSaveSource
+        init(snapshot: ScheduleCache, revision: Int, source: ScheduleCacheSaveSource) {
+            self.snapshot = snapshot; self.revision = revision; self.source = source
+        }
+    }
+    private var pendingPersistence: PendingPersistence?
     private var persistenceGeneration = 0
     private var reloadAfterPersistence = false
     private let session: () -> AppStorageSession
@@ -58,6 +67,7 @@ public final class ScheduleRepository: ObservableObject {
     func resetForCurrentAccount() {
         persistenceTask?.cancel()
         persistenceTask = nil
+        pendingPersistence = nil
         persistenceGeneration &+= 1
         reloadAfterPersistence = false
         hasPersistenceConflict = false
@@ -178,10 +188,16 @@ public final class ScheduleRepository: ObservableObject {
             || (source == .rebuild && canRebuildCache && hasReadFailure))
             && !hasPersistenceConflict && ownerSession == session()
         guard acceptsEdits || confirmsRecovery else { return nil }
+        if let pendingPersistence, pendingPersistence.source == source,
+           source == .local || source == .localWithoutCloudPush {
+            pendingPersistence.snapshot = cache
+            pendingPersistence.revision = revision
+            return persistenceTask
+        }
         let account = ownerSession
         let generation = accountGeneration
-        let snapshot = cache
-        let localRevision = revision
+        let pending = PendingPersistence(snapshot: cache, revision: revision, source: source)
+        pendingPersistence = pending
         let previous = persistenceTask
         persistenceGeneration &+= 1
         let operation = persistenceGeneration
@@ -189,6 +205,9 @@ public final class ScheduleRepository: ObservableObject {
             _ = await previous?.value
             guard let self, !Task.isCancelled,
                   self.accountGeneration == generation, account == self.session() else { return false }
+            if self.pendingPersistence === pending { self.pendingPersistence = nil }
+            let snapshot = pending.snapshot
+            let localRevision = pending.revision
             defer {
                 if self.persistenceGeneration == operation { self.persistenceTask = nil }
             }

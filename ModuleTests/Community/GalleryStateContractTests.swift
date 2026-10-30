@@ -1,5 +1,5 @@
 import BIT101TestSupport
-import CommunityCore
+@testable import CommunityCore
 import CommunityTransport
 import CommunityUI
 import Foundation
@@ -14,6 +14,33 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test func resourceReadsPublishOneBatchAndReleaseCompletedConfirmationHistory() {
+        var owner = 1
+        let updates = CommunityResourceUpdates(currentOwner: { owner })
+        var batches: [[CommunityResourceMetrics]] = []
+        let observer = updates.changes.sink { batches.append($0) }
+        defer { observer.cancel() }
+        let earlier = updates.beginRead()
+        updates.confirmLike(objectID: "poster1", count: 9)
+        let freshRead = updates.beginRead()
+        let values = (1...200).map { listPoster($0) }
+        let fresh = updates.resolve(values, since: freshRead)
+        #expect(batches.count == 2 && batches.last?.count == 200 && fresh.count == 200)
+        updates.finishRead(freshRead)
+        #expect(updates.pendingResourceCount == 1)
+        #expect(updates.resolve(listPoster(1), since: earlier).likeNum == 0)
+        updates.finishRead(earlier)
+        #expect(updates.pendingResourceCount == 0)
+        let abandoned = updates.beginRead()
+        owner = 2
+        let active = updates.beginRead()
+        updates.finishRead(abandoned)
+        updates.confirmLike(objectID: "poster2", count: 7)
+        #expect(updates.resolve(listPoster(2), since: active).likeNum == 7)
+        updates.finishRead(active)
+        #expect(updates.pendingResourceCount == 0)
+    }
+
     @Test(.timeLimit(.minutes(1))) func cancelledSearchRecoveryReleasesAnEarlierPaginationSnapshot() async {
         let service = Feed()
         let model = GalleryViewModel(service: service)

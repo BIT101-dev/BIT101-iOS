@@ -283,6 +283,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             displaySettingsSection
                 .disabled(!viewModel.isCacheWritable)
             iCloudSyncSection
+                .disabled(!viewModel.isCacheWritable)
         }
         .accessibilityIdentifier("interaction.CalendarSettingsPage.list")
         .appGroupedListStyle()

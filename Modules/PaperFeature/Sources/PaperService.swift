@@ -46,7 +46,7 @@ public nonisolated struct PaperEditConflict: LocalizedError {
 public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
 
     private let session: CommunitySession
     private let details = PaperDetailRequestStore()
@@ -97,6 +97,7 @@ public struct PaperService {
     /// 拉取文章列表。
     public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
         let revision = resourceUpdates.beginRead()
+        defer { resourceUpdates.finishRead(revision) }
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
         if let search, !search.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: search))
@@ -111,7 +112,7 @@ public struct PaperService {
                 }
             })
         if page == 0 { details.invalidate(ids: Set(papers.map(\.id))) }
-        return papers.map { resourceUpdates.resolve($0, since: revision) }
+        return resourceUpdates.resolve(papers, since: revision)
     }
 
     /// 读取作者预览交接的文章内容。
@@ -137,6 +138,7 @@ public struct PaperService {
 
     private func loadPaper(id: Int, credentials: CommunityCredentials) async throws -> PaperDetail {
         let revision = resourceUpdates.beginRead()
+        defer { resourceUpdates.finishRead(revision) }
         guard session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
         let response: CommunityAPIResponse<PaperDetail> = try await api.response(path: "papers/\(id)", authentication: .optional,
             validate: { detail in guard id > 0, detail.id == id else { throw PaperServiceError.invalidResponse } })
@@ -174,7 +176,7 @@ public struct PaperService {
         let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try api.encode(CommunityLikeRequest(obj: objectID))
+            body: try api.encode(CommunityLikeRequest(obj: objectID)), mutation: .toggle
         )
         resourceUpdates.confirmLike(objectID: objectID, count: result.likeNum)
         return result
@@ -202,6 +204,7 @@ public struct PaperService {
                     imageMids: []
                 )
             ),
+            mutation: .creation,
             validate: { guard $0.id > 0 else { throw PaperServiceError.invalidResponse } }
         )
         resourceUpdates.invalidateComments(objectID: objectID)
@@ -229,6 +232,7 @@ public struct PaperService {
                     publicEdit: publicEdit
                 )
             ),
+            mutation: .creation,
             validate: { guard $0.id > 0 else { throw PaperServiceError.invalidResponse } }
         )
         return response.id

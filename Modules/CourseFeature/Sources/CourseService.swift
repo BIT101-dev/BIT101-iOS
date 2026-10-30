@@ -41,7 +41,7 @@ public struct CourseService {
 
     private let api: CommunityAPIClient<CourseServiceError>
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<CommunityResourceMetrics, Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
 
 
     public init(session: CommunitySession, resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
@@ -52,6 +52,7 @@ public struct CourseService {
     /// 拉取课程列表。
     public func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
         let revision = resourceUpdates.beginRead()
+        defer { resourceUpdates.finishRead(revision) }
         var queryItems = [
             URLQueryItem(name: "order", value: Self.defaultCourseOrder),
             URLQueryItem(name: "page", value: String(page)),
@@ -67,12 +68,13 @@ public struct CourseService {
                 try Self.validateCourseFields(id: course.id, likeNum: course.likeNum, commentNum: course.commentNum, rate: course.rate)
             }
         })
-        return result.map { resourceUpdates.resolve($0, since: revision) }
+        return resourceUpdates.resolve(result, since: revision)
     }
 
     /// 拉取单门课程详情。
     public func fetchCourse(id: Int) async throws -> CourseDetail {
         let revision = resourceUpdates.beginRead()
+        defer { resourceUpdates.finishRead(revision) }
         let result: CourseDetail = try await api.request(path: "courses/\(id)", validate: { detail in
             guard id > 0, detail.id == id else { throw CourseServiceError.invalidResponse }
             try Self.validateCourseFields(id: detail.id, likeNum: detail.likeNum, commentNum: detail.commentNum, rate: detail.rate)
@@ -116,7 +118,7 @@ public struct CourseService {
         let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
             method: "POST",
-            body: try api.encode(CommunityLikeRequest(obj: objectID))
+            body: try api.encode(CommunityLikeRequest(obj: objectID)), mutation: .toggle
         )
         resourceUpdates.confirmLike(objectID: objectID, count: result.likeNum)
         return result
@@ -145,6 +147,7 @@ public struct CourseService {
                     imageMids: []
                 )
             ),
+            mutation: .creation,
             validate: { guard $0.id > 0 else { throw CourseServiceError.invalidResponse } }
         )
         resourceUpdates.invalidateComments(objectID: objectID)

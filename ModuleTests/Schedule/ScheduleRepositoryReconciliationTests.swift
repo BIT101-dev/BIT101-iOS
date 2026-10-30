@@ -10,6 +10,37 @@ import Testing
 @MainActor
 struct ScheduleRepositoryReconciliationTests {
     @Test(.timeLimit(.minutes(1)))
+    func rapidEditsShareThePendingSnapshotAndAwaitTheFinalSave() async throws {
+        let account = AppStorageSession(accountIdentifier: "coalesced-edits")
+        var disk = ScheduleCache()
+        var writes = 0
+        var pending: CheckedContinuation<Void, Never>?
+        let repository = ScheduleRepository(session: { account }, load: { _ in .loaded(disk) }, save: { cache, _, _ in
+            writes += 1
+            if writes == 1 { await withCheckedContinuation { pending = $0 } }
+            disk = cache
+        })
+        await repository.loadIfNeeded()
+        repository.courseState.primaryScheduleTitle = "开始"
+        repository.persist()
+        defer { pending?.resume(); pending = nil }
+        try await waitForTestEvent { pending != nil }
+        for index in 0..<100 {
+            repository.courseState.primaryScheduleTitle = "修改\(index)"
+            repository.persist()
+        }
+        let completion = Task { await repository.persistAndWait() }
+        await Task.yield()
+        #expect(writes == 1)
+        pending?.resume(); pending = nil
+        #expect(await completion.value)
+        #expect(writes == 2 && disk.primaryScheduleTitle == "修改99")
+        repository.courseState.primaryScheduleTitle = "后续修改"
+        #expect(await repository.persistAndWait())
+        #expect(writes == 3 && disk.primaryScheduleTitle == "后续修改")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func eventWaitFinishesOnTimeoutCancellationAndReadiness() async throws {
         await #expect(throws: URLError.self) {
             try await waitForTestEvent(timeout: .milliseconds(1)) { false }

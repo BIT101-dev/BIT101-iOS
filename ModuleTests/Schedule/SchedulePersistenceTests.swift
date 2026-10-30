@@ -484,9 +484,9 @@ struct SchedulePersistenceTests {
         repository.persist()
         writer.finishFirstWrite()
         #expect(await repository.persistAndWait())
-        #expect(writer.writes.map(\.0) == ["first", "second", "second"])
+        #expect(writer.writes.map(\.0) == ["first", "second"])
         #expect(repository.persistenceSnapshot.primaryScheduleTitle == "second")
-        #expect(repository.persistenceSnapshot.updatedAt == Date(timeIntervalSince1970: 3))
+        #expect(repository.persistenceSnapshot.updatedAt == Date(timeIntervalSince1970: 2))
     }
 
     @Test(.timeLimit(.minutes(1))) func editsMadeDuringSavingRemainInMemory() async throws {

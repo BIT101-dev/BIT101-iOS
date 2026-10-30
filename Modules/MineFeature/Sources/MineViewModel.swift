@@ -119,15 +119,16 @@ final class MineViewModel: ObservableObject {
     init(service: any MineOverviewServicing) {
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
-            guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
-            if metrics.needsRefresh {
+            guard let self else { return }
+            let needsRefresh = self.posterState.items.needsCommunityRefresh(for: metrics)
+            if needsRefresh {
                 self.posterGeneration &+= 1
                 self.posterState.isLoadingMore = false
                 if self.posterState.status == .loading { self.posterState.status = .loaded }
             }
             var updated = self.posterState
             if updated.pagedItems.apply(metrics) { self.posterState = updated }
-            if metrics.needsRefresh { self.posterState.needsRefresh = true }
+            if needsRefresh { self.posterState.needsRefresh = true }
         }
     }
 
@@ -284,15 +285,16 @@ final class UserProfileViewModel: ObservableObject {
         self.userID = userID
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
-            guard let self, self.posterState.items.contains(where: { $0.communityObjectID == metrics.objectID }) else { return }
-            if metrics.needsRefresh {
+            guard let self else { return }
+            let needsRefresh = self.posterState.items.needsCommunityRefresh(for: metrics)
+            if needsRefresh {
                 self.posterGeneration &+= 1
                 self.posterState.isLoadingMore = false
                 if self.posterState.status == .loading { self.posterState.status = .loaded }
             }
             var updated = self.posterState
             if updated.pagedItems.apply(metrics) { self.posterState = updated }
-            if metrics.needsRefresh { self.posterState.needsRefresh = true }
+            if needsRefresh { self.posterState.needsRefresh = true }
         }
     }
 

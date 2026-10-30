@@ -395,6 +395,10 @@ final class GalleryComposerViewModel: ObservableObject {
                 }
                 return isCurrent(operation)
             } catch {
+                if isCurrent(operation), error is CommunityUpdateOutcomeUnknown {
+                    alert = AppAlert(title: "保存结果待确认", error: error)
+                    return false
+                }
                 if isCurrent(operation), error is CommunityCreateOutcomeUnknown {
                     alert = AppAlert(title: "发布结果待确认", error: error)
                     return false

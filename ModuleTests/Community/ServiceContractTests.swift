@@ -74,7 +74,7 @@ struct ServiceContractTests {
             baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
             credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") })
         do {
-            let _: CommunityLikeResult = try await api.request(path: path, method: "POST")
+            let _: CommunityLikeResult = try await api.request(path: path, method: "POST", mutation: .toggle)
             Issue.record("Toggle failure fixture must propagate its outcome")
         } catch {
             #expect((error is CommunityToggleOutcomeUnknown) == (boundary == "sent"))

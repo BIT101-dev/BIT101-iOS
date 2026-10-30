@@ -17,7 +17,7 @@ struct PaperCommentsSection: View {
     let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
     let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
-    let onReply: (PaperCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onOpenImage: (Int, [CommunityImage]) -> Void
     let onLoadMore: (CommunityComment?) -> Void
@@ -78,15 +78,11 @@ struct PaperCommentsSection: View {
     }
 }
 
-struct PaperCommentReplyTarget {
-    let mainComment: CommunityComment
-    let targetComment: CommunityComment
-}
 
 private struct PaperCommentRow: View {
     let comment: CommunityComment
     let likingCommentIDs: Set<Int>
-    let onReply: (PaperCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onOpenImage: (Int, [CommunityImage]) -> Void
 
@@ -123,7 +119,7 @@ private struct PaperCommentRow: View {
                 isLiking: likingCommentIDs.contains(comment.id),
                 isLikeEnabled: comment.isViewerAuthenticated,
                 onReply: {
-                    onReply(.init(mainComment: self.comment, targetComment: comment))
+                    onReply(.comment(mainComment: self.comment, targetComment: comment))
                 },
                 onLike: {
                     onLikeComment(comment)

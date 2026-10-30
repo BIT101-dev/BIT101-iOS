@@ -45,6 +45,19 @@ public enum CommunityRetryPolicy {
     case afterCredentialRefresh
 }
 
+public nonisolated enum CommunityMutationKind: Sendable {
+    case creation
+    case toggle
+    case update
+}
+
+public struct CommunityUpdateOutcomeUnknown: LocalizedError, CustomNSError {
+    public let underlying: any Error
+    public init(underlying: any Error) { self.underlying = underlying }
+    public var errorDescription: String? { "更新请求已发出，保存结果待确认。请刷新内容核对结果后再操作。" }
+    public var errorUserInfo: [String: Any] { [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "保存结果待确认。"] }
+}
+
 public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
     public static let reviewMessage = "请求已发出，发布结果待确认。请关闭编辑页，刷新已发布内容并核对结果后再操作。"
     public static let commentReviewMessage = "这条评论的发送结果待确认。请先核对评论列表；当前可继续发送其他评论。"
@@ -123,11 +136,12 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         contentType: String? = nil,
         authentication: CommunityAuthentication = .required,
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
+        mutation: CommunityMutationKind? = nil,
         validate: (@Sendable (Response) throws -> Void)? = nil
     ) async throws -> Response {
         let result: CommunityAPIResponse<Response> = try await response(path: path, pathComponent: pathComponent,
             queryItems: queryItems, method: method, body: body, contentType: contentType,
-            authentication: authentication, retryPolicy: retryPolicy, validate: validate)
+            authentication: authentication, retryPolicy: retryPolicy, mutation: mutation, validate: validate)
         return result.value
     }
 
@@ -140,10 +154,11 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         contentType: String? = nil,
         authentication: CommunityAuthentication = .required,
         retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
+        mutation: CommunityMutationKind? = nil,
         validate: (@Sendable (Response) throws -> Void)? = nil
     ) async throws -> CommunityAPIResponse<Response> {
         let identity = authentication == .none ? nil : credentials().identity
-        return try await withMutationOutcome(path: path, method: method) {
+        return try await withMutationOutcome(mutation) {
             let wire = try await send(path: path, pathComponent: pathComponent,
                 queryItems: queryItems, method: method, body: body, contentType: contentType,
                 authentication: authentication, retryPolicy: retryPolicy)
@@ -166,17 +181,18 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
     }
 
-    private func withMutationOutcome<Value: Sendable>(path: String, method: String,
+    private func withMutationOutcome<Value: Sendable>(_ kind: CommunityMutationKind?,
         operation: () async throws -> Value) async throws -> Value {
-        let isCreation = method == "POST" && ["posters", "papers", "reaction/comments", "manage/reports"].contains(path)
-        let isToggle = method == "POST" && (path == "reaction/like" || path == "user/follow" || path.hasPrefix("user/follow/"))
-        guard isCreation || isToggle else { return try await operation() }
+        guard let kind else { return try await operation() }
         do {
             return try await HTTPRequestEvidenceContext.withMutationOutcome(
                 isTrackingRequest: { !CommunityCredentialRefreshContext.isRestoring }, operation: operation)
         } catch let error as HTTPMutationOutcomeUnknown {
-            if isToggle { throw CommunityToggleOutcomeUnknown(underlying: error.underlying) }
-            throw CommunityCreateOutcomeUnknown(underlying: error.underlying)
+            switch kind {
+            case .toggle: throw CommunityToggleOutcomeUnknown(underlying: error.underlying)
+            case .creation: throw CommunityCreateOutcomeUnknown(underlying: error.underlying)
+            case .update: throw CommunityUpdateOutcomeUnknown(underlying: error.underlying)
+            }
         }
     }
 
@@ -206,9 +222,10 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         body: Data? = nil,
         contentType: String? = nil,
         authentication: CommunityAuthentication = .required,
-        retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh
+        retryPolicy: CommunityRetryPolicy = .afterCredentialRefresh,
+        mutation: CommunityMutationKind? = nil
     ) async throws {
-        _ = try await withMutationOutcome(path: path, method: method) {
+        _ = try await withMutationOutcome(mutation) {
             try await send(
             path: path,
             method: method,

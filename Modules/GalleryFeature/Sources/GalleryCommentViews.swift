@@ -24,7 +24,7 @@ struct GalleryPosterCommentsSection: View {
     let selectedOrder: CommunityCommentOrder
     let likingCommentIDs: Set<Int>
     let onSelectOrder: @MainActor (CommunityCommentOrder) -> Void
-    let onReply: (GalleryCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onReportComment: (CommunityComment) -> Void
     let onDeleteComment: (CommunityComment) -> Void
@@ -91,14 +91,6 @@ struct GalleryPosterCommentsSection: View {
     }
 }
 
-/// 评论回复目标。
-///
-/// `mainComment` 表示发评论接口真正要挂靠的主评论，
-/// `targetComment` 表示当前 UI 上用户实际点中的那条评论。
-struct GalleryCommentReplyTarget {
-    let mainComment: CommunityComment
-    let targetComment: CommunityComment
-}
 
 /// 单条评论及其子评论预览。
 ///
@@ -106,7 +98,7 @@ struct GalleryCommentReplyTarget {
 private struct GalleryCommentRow: View {
     let comment: CommunityComment
     let likingCommentIDs: Set<Int>
-    let onReply: (GalleryCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onReportComment: (CommunityComment) -> Void
     let onDeleteComment: (CommunityComment) -> Void
@@ -164,7 +156,7 @@ private struct GalleryCommentRow: View {
                 isLiked: comment.like,
                 isLiking: likingCommentIDs.contains(comment.id),
                 onReply: {
-                    onReply(GalleryCommentReplyTarget(mainComment: self.comment, targetComment: comment))
+                    onReply(.comment(mainComment: self.comment, targetComment: comment))
                 },
                 onLike: {
                     onLikeComment(comment)

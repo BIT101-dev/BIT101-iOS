@@ -162,7 +162,7 @@ private struct PaperDetailViewScene: View {
                         viewModel.pendingOperations.enqueue { await viewModel.setCommentOrder(order) }
                     },
                     onReply: { target in
-                        composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
+                        composerTarget = target
                     },
                     onLikeComment: { comment in
                         viewModel.pendingOperations.enqueue { await viewModel.toggleCommentLike(comment) }

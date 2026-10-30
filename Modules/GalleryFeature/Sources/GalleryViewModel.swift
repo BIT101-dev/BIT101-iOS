@@ -137,18 +137,17 @@ final class GalleryViewModel: ObservableObject {
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in self?.applyResourceMetrics(metrics) }
     }
 
-    private func applyResourceMetrics(_ metrics: CommunityResourceMetrics) {
-        if metrics.needsRefresh,
-           feedStorage.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
-            || refreshPreviousStates.values.contains(where: { $0.posters.contains { $0.communityObjectID == metrics.objectID } })
-            || searchStorage.posters.contains(where: { $0.communityObjectID == metrics.objectID }) {
+    private func applyResourceMetrics(_ metrics: [CommunityResourceMetrics]) {
+        if feedStorage.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
+            || refreshPreviousStates.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
+            || searchStorage.posters.needsCommunityRefresh(for: metrics) {
             cancelPendingOperations()
         }
         func apply(to state: inout GalleryFeedState) -> Bool {
-            guard state.posters.contains(where: { $0.communityObjectID == metrics.objectID }) else { return false }
+            let needsRefresh = state.posters.needsCommunityRefresh(for: metrics)
             let changed = state.pagedItems.apply(metrics)
-            if metrics.needsRefresh { state.needsRefresh = true }
-            return changed || metrics.needsRefresh
+            if needsRefresh { state.needsRefresh = true }
+            return changed || needsRefresh
         }
         var feeds = feedStorage, search = searchStorage
         var changed = apply(to: &search)

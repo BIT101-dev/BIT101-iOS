@@ -17,7 +17,7 @@ struct CourseCommentsSection: View {
     let isLoadingMore: Bool
     let paginationError: String?
     let likingCommentIDs: Set<Int>
-    let onReply: (CourseCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onOpenImage: (Int, [CommunityImage]) -> Void
     let onOpenUser: (CommunityUser) -> Void
@@ -80,16 +80,11 @@ struct CourseCommentsSection: View {
     }
 }
 
-/// 保存回复所属的主评论和当前目标评论。
-struct CourseCommentReplyTarget {
-    let mainComment: CommunityComment
-    let targetComment: CommunityComment
-}
 
 private struct CourseCommentRow: View {
     let comment: CommunityComment
     let likingCommentIDs: Set<Int>
-    let onReply: (CourseCommentReplyTarget) -> Void
+    let onReply: (CommunityCommentComposerTarget) -> Void
     let onLikeComment: (CommunityComment) -> Void
     let onOpenImage: (Int, [CommunityImage]) -> Void
     let onOpenUser: (CommunityUser) -> Void
@@ -134,7 +129,7 @@ private struct CourseCommentRow: View {
                 isLiked: comment.like,
                 isLiking: likingCommentIDs.contains(comment.id),
                 onReply: {
-                    onReply(CourseCommentReplyTarget(mainComment: self.comment, targetComment: comment))
+                    onReply(.comment(mainComment: self.comment, targetComment: comment))
                 },
                 onLike: {
                     onLikeComment(comment)

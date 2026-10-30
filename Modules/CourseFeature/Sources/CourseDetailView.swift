@@ -73,7 +73,7 @@ private struct CourseDetailViewScene: View {
                     paginationError: viewModel.commentState.paginationError,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onReply: { target in
-                        composerTarget = .comment(mainComment: target.mainComment, targetComment: target.targetComment)
+                        composerTarget = target
                     },
                     onLikeComment: { comment in
                         viewModel.pendingOperations.enqueue {

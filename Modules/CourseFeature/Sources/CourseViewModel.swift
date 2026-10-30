@@ -35,13 +35,12 @@ public final class CourseListViewModel: ObservableObject {
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self else { return }
-            let contains = self.state.items.contains { $0.communityObjectID == metrics.objectID }
-                || self.refreshPreviousState?.items.contains { $0.communityObjectID == metrics.objectID } == true
-            guard contains else { return }
-            if metrics.needsRefresh { self.cancelRefreshOperations() }
+            let needsRefresh = self.state.items.needsCommunityRefresh(for: metrics)
+                || self.refreshPreviousState?.items.needsCommunityRefresh(for: metrics) == true
+            if needsRefresh { self.cancelRefreshOperations() }
             var updated = self.state
             if updated.pagedItems.apply(metrics) { self.state = updated }
-            if metrics.needsRefresh { self.needsRefresh = true }
+            if needsRefresh { self.needsRefresh = true }
         }
     }
 

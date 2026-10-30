@@ -7,12 +7,18 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
         let nameRow = app.buttons["schedule.settings.primary-name"]
         let rebuild = app.buttons["schedule.recovery.rebuild"]
         assertUI(rebuild.appears(timeout: 5) && !nameRow.isEnabled, "损坏的根文件应提供所属日程域的确认重建入口。")
+        let cloudSync = app.switches["iCloud 多端同步"]
+        reveal(cloudSync)
+        cloudSync.assertDisabled("日程恢复确认期间，同步开关应沿共享写入资格置灰。")
+        reveal(rebuild)
         rebuild.tapBriefly()
         tap("schedule.recovery.rebuild.cancel")
         assertUI(rebuild.exists && !nameRow.isEnabled, "取消确认后应保留原文件与读取状态。")
         rebuild.tapBriefly()
         tap("schedule.recovery.rebuild.confirm")
         assertUI(rebuild.disappears(timeout: 5) && nameRow.isEnabled, "确认重建后应恢复日程编辑。")
+        reveal(cloudSync)
+        assertUI(cloudSync.isEnabled, "重建完成后同步开关应恢复操作。")
         reveal(nameRow)
         nameRow.tapBriefly()
         replaceText("重建课表", in: app.textFields["schedule.rename.name"])
