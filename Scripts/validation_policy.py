@@ -210,6 +210,7 @@ CAPABILITY_CONTRACTS = {
                                             'fetchCampuses()': 'network',
                                             'fetchBuildings(campusCode:String?)': 'network',
                                             'fetchClassrooms(buildingID:String,term:String,date:Date)': 'network',
+                                            'prefetchClassrooms(buildingID:String,term:String,date:Date)': 'network',
                                             'syncDDLEvents(existingEvents:[DDLEventRecord],storedURL:String,schoolSMSCodeHandler:SchoolSMSCodeHandler?,onSource:DDLSyncSourceDelivery?)': ('web-interactions', 'school-calendar'),
                                             'syncDDLEventsForPreflight(existingEvents:[DDLEventRecord],storedURL:String)': 'network',
                                             'refreshLexueCalendarURL(schoolSMSCodeHandler:SchoolSMSCodeHandler?)': ('web-interactions', 'school-calendar'),

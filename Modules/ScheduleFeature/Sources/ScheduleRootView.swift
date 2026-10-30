@@ -86,7 +86,12 @@ public struct ScheduleRootView: View {
                 else {
                     AppPairedPages(showsFirst: displayedSection == .courses) {
                         CourseScheduleTabView(viewModel: viewModel, resetSignal: courseTabResetSignal, destinations: destinations)
-                    } second: { DDLScheduleTabView(viewModel: viewModel.ddl) }
+                    } second: {
+                        DDLScheduleTabView(viewModel: viewModel.ddl)
+                            .safeAreaPadding(.bottom, layout.usesBottomTabBar
+                                ? AppDesignSystem.Spacing.none : layout.safeAreaInsets.bottom)
+                    }
+                    .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

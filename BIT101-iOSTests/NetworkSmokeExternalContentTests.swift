@@ -18,7 +18,6 @@ import CommunityTransport
 @testable import MineFeature
 import CourseFeature
 @testable import BIT101_iOS
-
 @Suite("Network smoke external content")
 struct NetworkSmokeExternalContentTests {
     @Test(.timeLimit(.minutes(1)), arguments: ["complete", "fallback", "empty", "truncated", "wrong-start", "missing", "reversed", "duplicate", "drift", "wrong-response", "full-terminal"])
@@ -707,6 +706,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             if stage == "empty-classroom-gap" { return [] }
             return [ClassroomRecord(id: "room", name: "fixture", busyTimeCodes: stage == "invalid-classroom-failure" ? [0] : [])]
         }
+        func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? { try await fetchClassrooms(buildingID: buildingID, term: term, date: date) }
         func fetchEclassDDLEvents(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> EclassDDLResult {
             if stage.hasPrefix("all-sms-") && stage != "all-sms-not-required" && !ssoVerified {
                 let handler = try #require(schoolSMSCodeHandler)

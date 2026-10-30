@@ -292,7 +292,6 @@ struct CourseScheduleTabView: View {
             }
 #endif
         }
-        .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
         .simultaneousGesture(scheduleSwitchGesture)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")

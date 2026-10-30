@@ -514,7 +514,9 @@ final class ReleaseNetworkSmokeRunner {
                                      "XQDM": termParts.last.map(String.init) ?? "", "XNDM": termParts.dropLast().joined(separator: "-")]
                     let classrooms = await probe(.classroomOccupancy, area: .schedule, scope: scope, expectedParameters: selection) {
                         let classrooms = try await schedule.fetchClassrooms(buildingID: building.id, term: term, date: queryDate)
-                        guard classrooms.allSatisfy(\.hasValidOccupancy) else { throw URLError(.cannotParseResponse) }
+                        guard let prefetched = try await schedule.prefetchClassrooms(buildingID: building.id, term: term, date: queryDate),
+                              classrooms.allSatisfy(\.hasValidOccupancy), prefetched.allSatisfy(\.hasValidOccupancy)
+                        else { throw URLError(.cannotParseResponse) }
                         return classrooms
                     }
                     if classrooms?.isEmpty == true {

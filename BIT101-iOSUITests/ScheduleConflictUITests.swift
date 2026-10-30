@@ -326,7 +326,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             let fill = backgroundColor(at: CGPoint(x: refresh.frame.minX + 4, y: refresh.frame.midY))
             let calendarWidth = isPhone ? window.frame.width / 2 : safeArea.width / 2
             let edge = backgroundColor(at: CGPoint(x: safeArea.minX + calendarWidth * 0.75,
-                y: safeArea.maxY - 2))
+                y: window.frame.maxY - 2))
             assertUI(zip(fill, edge).allSatisfy { abs($0 - $1) <= 2 },
                 "课表网格应铺满模块底部安全区：底边 \(edge)，网格底色 \(fill)，安全区 \(safeArea)。")
             let courseBackground = backgroundColor(at: CGPoint(x: safeArea.minX + 2, y: safeArea.maxY - 2))
