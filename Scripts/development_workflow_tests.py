@@ -451,6 +451,8 @@ def cache_maintenance_self_test(fixture: Path) -> None:
     with patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free})()):
         assert not artifacts.cache_maintenance_needed(fixture)
     with patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free - artifacts.CACHE_GROWTH_INTERVAL})()):
+        assert not artifacts.cache_maintenance_needed(fixture)
+    with patch.object(artifacts, 'build_database_bytes', return_value=saved['space']['buildDatabaseBytes'] + artifacts.CACHE_GROWTH_INTERVAL):
         assert artifacts.cache_maintenance_needed(fixture)
     with patch.object(subprocess, 'check_output', return_value=str((saved['space']['casBytes'] + artifacts.CACHE_GROWTH_INTERVAL) // 1024)), \
             patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free})()):
@@ -699,13 +701,15 @@ def cache_cleanup_after_failure() -> None:
         return json.dumps(dict(id=identity, event='workflow_dispatch', head_branch='main',
             head_repository=dict(full_name='owner/repo'), path='.github/workflows/ci.yml',
             status='in_progress' if identity == 3 else 'completed'))
-    with patch.dict(os.environ, GITHUB_RUN_ID='2'), patch.object(subject, 'repository', return_value='owner/repo'), \
-            patch.object(subject, 'api_pages', return_value=[dict(artifacts=artifacts)]), \
-            patch.object(subject.subprocess, 'check_output', side_effect=run), \
-            patch.object(subject, 'cache_result_matches', side_effect=lambda repo, run, flavor: run['id'] == 1), \
-            patch.object(subject.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as deleted:
-        subject.prune_caches()
-    assert [call.args[0][-1] for call in deleted.call_args_list] == ['repos/owner/repo/actions/artifacts/2']
+    for current_result in (False, None):
+        with patch.dict(os.environ, GITHUB_RUN_ID='2'), patch.object(subject, 'repository', return_value='owner/repo'), \
+                patch.object(subject, 'api_pages', return_value=[dict(artifacts=artifacts)]), \
+                patch.object(subject.subprocess, 'check_output', side_effect=run), \
+                patch.object(subject, 'cache_result_matches', side_effect=lambda repo, run, flavor: True if run['id'] == 1 else current_result), \
+                patch.object(subject.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as deleted:
+            subject.prune_caches()
+        expected = ['repos/owner/repo/actions/artifacts/2'] if current_result is False else []
+        assert [call.args[0][-1] for call in deleted.call_args_list] == expected
 
 
 def audit_failure_summary(fixture: Path) -> None:

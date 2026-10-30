@@ -132,7 +132,7 @@ public nonisolated struct ScoreDetailSelection: Hashable, Sendable {
     public func row(in rows: [ScoreRow]) -> ScoreRow? {
         let matches = rows.filter { row in
             let rowTerm = Self.normalized(row.term), rowNumber = Self.normalized(row.courseNumber)
-            guard term.isEmpty || rowTerm.isEmpty || term == rowTerm else { return false }
+            guard term == rowTerm || (rowID != nil && (term.isEmpty || rowTerm.isEmpty)) else { return false }
             if !number.isEmpty, !rowNumber.isEmpty { return number == rowNumber }
             return !name.isEmpty && name == Self.normalized(row.courseName)
         }

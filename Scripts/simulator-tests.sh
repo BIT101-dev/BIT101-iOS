@@ -13,6 +13,10 @@ if [[ "${1:-}" == (--help|-h) ]]; then
   print -r -- '运行设备操作需要用户授权及 BIT101_SIMULATOR_AUTHORIZED=1。'
   exit 0
 fi
+simulator_usage_error() {
+  print -u2 -- "用法：Scripts/run-extended-tests.sh simulator --help"
+  exit 64
+}
 SIMULATOR_STARTED_SECONDS=$SECONDS
 [[ "${BIT101_SIMULATOR_AUTHORIZED:-0}" == 1 ]] || { echo "模拟器流程需要用户显式授权及 BIT101_SIMULATOR_AUTHORIZED=1。" >&2; exit 64; }
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,17 +24,17 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
 case "$operation" in
-  info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || exit 64;;
+  info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || simulator_usage_error;;
   runtime)
     [[ $# -eq 1 && "$1" == info ]] \
       || [[ $# -eq 2 && "$1" == prune && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
       || [[ $# -eq 3 && "$1" == prune && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
       || [[ $# -ge 3 && "$1" == upgrade && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
       || [[ $# -ge 4 && "$1" == upgrade && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
-      || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ '^([0-9]+(\.[0-9]+){1,2}|[0-9]+[A-Z][0-9]+[a-z]?)$' ]] || exit 64;;
-  devices) [[ $# -ge 2 && "$1" == (remove|clean) ]] || exit 64;;
+      || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ '^([0-9]+(\.[0-9]+){1,2}|[0-9]+[A-Z][0-9]+[a-z]?)$' ]] || simulator_usage_error;;
+  devices) [[ $# -ge 2 && "$1" == (remove|clean) ]] || simulator_usage_error;;
   app|release-runtime|ui) ;;
-  *) exit 64;;
+  *) simulator_usage_error;;
 esac
 if [[ "$operation" == preview && "${GITHUB_ACTIONS:-false}" == true ]]; then
   echo "界面预览使用本地授权设备。" >&2

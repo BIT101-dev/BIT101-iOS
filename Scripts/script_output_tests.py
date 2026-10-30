@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from contextlib import redirect_stdout
-from io import StringIO
+from io import StringIO, BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 from command_output import OUTPUT_LINE_LIMIT, run_command, show_log, show_report_lines
@@ -44,12 +44,25 @@ def log_output_boundary_findings() -> list[str]:
         'NETWORK_SMOKE_PASS name=school.session elapsed=1', 'NETWORK_SMOKE_FAIL [score] fixture',
         'NETWORK_SMOKE_AUTH_BLOCKED [score] fixture']
     fixture = 'system noise\n' + '\n'.join('timestamp ' + stage for stage in stages) + '\n'
-    command = 'set -euo pipefail\ntypeset -A shown_smoke_progress=()\nCONSOLE_LOG=/dev/stdin\n' \
-        + 'awk() { command awk "$@" <<< "$SMOKE_FIXTURE"; }\n' + function + '\nshow_smoke_progress\nshow_smoke_progress\n'
-    result = subprocess.run(['zsh', '-c', command], env=os.environ | {'SMOKE_FIXTURE': fixture, 'PATH': '/usr/bin:/bin'},
+    command = 'set -euo pipefail\ntypeset -A shown_smoke_progress=()\nROOT_DIR=/fixture\nRUN_ID=fixture\nCONSOLE_LOG=/dev/stdin\nsmoke_stream_offset=0\nsmoke_summary_seen=false\n' \
+        + 'python3() { print -r -- "$SMOKE_FIXTURE"; }\n' + function + '\nshow_smoke_progress\nshow_smoke_progress\nprint -r -- "STATE:$smoke_stream_offset:$smoke_summary_seen"\n'
+    result = subprocess.run(['zsh', '-c', command], env=os.environ | {'SMOKE_FIXTURE': '\n'.join([*stages,
+        'NETWORK_SMOKE_SUMMARY run_id=fixture passed=1', 'NETWORK_SMOKE_OFFSET 123']), 'PATH': '/usr/bin:/bin'},
         check=True, capture_output=True, text=True)
     output = result.stdout
-    assert output.splitlines() == stages, f'Smoke 进度需要匹配已到达阶段：{output!r} · {result.stderr!r}'
+    assert output.splitlines() == [stages[1], *stages[3:], 'STATE:123:true'], f'Smoke 进度需要保留认证、失败与完成状态：{output!r} · {result.stderr!r}'
+    from command_output import smoke_progress
+    from contextlib import nullcontext
+    stream = BytesIO(fixture.encode() + b'NETWORK_SMOKE_PASS name=delayed')
+    with patch.object(Path, 'open', return_value=nullcontext(stream)):
+        markers, offset = smoke_progress(Path('/console.log'), 0)
+        assert markers == stages and offset == len(fixture.encode())
+        stream.seek(0, 2); stream.write(b' elapsed=1\n')
+        markers, updated = smoke_progress(Path('/console.log'), offset)
+        assert markers == ['NETWORK_SMOKE_PASS name=delayed elapsed=1'] and updated == len(stream.getvalue())
+        stream.seek(0, 2); stream.write(b'NETWORK_SMOKE_SUMMARY run_id=fixture passed=2')
+        markers, final = smoke_progress(Path('/console.log'), updated, complete=True)
+        assert markers == ['NETWORK_SMOKE_SUMMARY run_id=fixture passed=2'] and final == len(stream.getvalue())
     def arriving_diagnostics():
         yield 'error: early compiler failure\n'
         assert 'error: early compiler failure' in sys.stdout.getvalue()

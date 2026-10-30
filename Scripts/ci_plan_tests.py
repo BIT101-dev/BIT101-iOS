@@ -31,6 +31,7 @@ def result_fixture(candidate):
 
 
 def self_test(subject) -> None:
+    workflow_pages_self_test(subject)
     def result(candidate, group):
         return candidate.get('_result', result_fixture(candidate))
     with patch.object(subject, 'ci_validation_environment', side_effect=environment_fixture), \
@@ -43,6 +44,17 @@ def self_test(subject) -> None:
     wiring_self_test(subject)
     from ci_simulator_tests import self_test as simulator_self_test
     simulator_self_test(subject, CONTEXT, PLATFORM, environment_fixture)
+
+def workflow_pages_self_test(subject) -> None:
+    pages = [{'workflow_runs': [{}] * 100}, {'workflow_runs': [{'id': 7}]}]
+    with patch.object(subprocess, 'check_output', side_effect=[json.dumps(page) for page in pages]) as requests:
+        iterator = subject.workflow_run_pages('owner/repo')
+        assert requests.call_count == 0
+        assert next(iterator) == pages[0] and requests.call_count == 1
+        assert next(iterator) == pages[1] and requests.call_count == 2
+        assert list(iterator) == [] and requests.call_count == 2
+        assert all('event=workflow_dispatch&per_page=100&page=' in call.args[0][-1] for call in requests.call_args_list)
+
 
 def plan_self_test(subject) -> None:
     from copy import deepcopy
@@ -107,7 +119,7 @@ def plan_self_test(subject) -> None:
             GITHUB_RUN_ID='8', GITHUB_OUTPUT='plan') | environment
         with patch.dict(os.environ, context), patch('validation_environment.ci_commit_findings', return_value=[]), \
                 patch.object(module, 'repository', return_value='owner/repo'), patch.object(Path, 'open') as output, \
-                patch.object(subprocess, 'check_output', side_effect=[commit, '[{"workflow_runs": []}]']) as requests, \
+                patch.object(subprocess, 'check_output', side_effect=[commit, '{"workflow_runs": []}']) as requests, \
                 redirect_stdout(StringIO()):
             validation_plan()
             written = json.loads(output.return_value.__enter__.return_value.write.call_args.args[0].removeprefix('plan='))
@@ -188,6 +200,7 @@ def result_self_test(subject) -> None:
         return [{'jobs': candidate['jobs']}] if endpoint.endswith('/jobs') else [{'artifacts': candidate['artifacts']}]
     with patch.dict(os.environ, GITHUB_RUN_ID='8', GITHUB_OUTPUT='plan', BIT101_FULL_CHECK='false'), \
             patch('validation_environment.ci_commit_findings', return_value=[]), patch.object(subject, 'api_pages', side_effect=api), \
+            patch.object(subject, 'workflow_run_pages', return_value=iter(pages)), \
             patch.object(subject, 'repository', return_value='owner/repo'), patch.object(Path, 'open') as output, \
             patch.object(subprocess, 'check_output', side_effect=lambda command, **_: 'a' * 40 if command[1] == 'rev-parse' else b''), \
             patch.object(subprocess, 'run', return_value=type('Result', (), {'returncode': 0})()), redirect_stdout(StringIO()):

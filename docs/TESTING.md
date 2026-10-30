@@ -125,13 +125,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 `simulator devices clean 设备UDID...` 关闭指定设备并清理系统与 App 的 `Caches`、临时目录内容，保留目录权限、App、钥匙串、设置和持久文件；再次启动时系统按需生成缓存。
 
-静态规则核对一级分组的公共背景样式及公共浏览行的选择归属。浏览导航回归覆盖冷启动后多轮切换成绩、话廊、日程入口，要求分区栏可点击并沿主导航下方的内容间距布局。`testScheduleChromeSurvivesRotationsWhileSelected` 从设置详情进入日程，保持日程选中并连续六次切换方向，逐次核对刷新行位于主导航下方、竖屏分区栏可操作及选中周次。`testMineSettingsFillTheAvailableDetailWidth` 逐一进入账号、日历、DDL、话廊和关于设置，确认实际选中目标后，要求右侧列表或滚动区域达到可用详情宽度的 95%。`testClassroomLoadingKeepsThePageBackground` 保持首次空教室查询进行中，比较左右区域的实际背景像素并采样截图。截图先从活跃屏幕选择含可见内容的图像，Duo 内外屏沿同一选择流程采样。空成绩行与刷新行比较实际背景像素，并核对分组行两端的背景；iPad 与 Mac 的详情滚动后继续核对原生标题栏的遮蔽底色，iPhone 与 Duo 沿系统导航行为验收，成绩与课程行共同验收整行点击和浅色选中背景。
-
-`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收空教室和个人页分栏、话题与文章及成绩和课程的列表与详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；同时比较各页侧栏宽度、主导航周围及刷新/统计/搜索行的实际背景像素，并核对选中行背景、悬浮按钮竖向排列与列表边界、详情分组单元格的分栏边界。旋转流程验证详情回到竖屏列表、重新进入全宽详情，以及分区栏和主导航的边界。Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
-
-`testCompactWindowKeepsSystemBarsAndListsWithinBounds` 核对紧凑窗口内的系统主导航、分组行水平边界、顶部标准间距与竖屏课表底部间距，并保存列表及课表截图，再核对节次筛选整页导航及返回。`testWindowChangesKeepBrowsersWithinSystemInsets` 在系统提供分隔区域的窗口执行连续展开、折叠和重新展开；Device Hub 按逐行写入的 `Layout phase: close` / `Layout phase: open` 日志切换姿态，分别验收紧凑列表和恢复后的系统分隔位置。几何记录包含当前窗口、场景、安全区和分隔区域。横屏按内容末端与系统安全区对照核验，竖屏按课表及悬浮操作的模块间距核验。`testLandscapeDetailBackAndClassroomFilterUseTheRightPane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边界，左栏及右栏详情共用该合同。
-
-`simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
+布局验收沿当前窗口和设备姿态运行，Duo 内屏验收前通过 Device Hub 设置实际姿态。几何、背景、旋转与输入的验收合同见[设备与窗口合同](UI_INTERACTION_COVERAGE.md#设备与窗口合同)。
 
 ## 静态审计
 
@@ -160,6 +154,7 @@ python3 Scripts/check-docs.py
 | 类别 | 固定路径 |
 | --- | --- |
 | 公共编译缓存 | `.build/compiler-cache/` |
+| 远端缓存恢复诊断 | `.build/compiler-cache/compilation-cache.log` |
 | 测试构建、日志与指标 | `.build/extended-automation/` |
 | 原始测试结果 | `.build/extended-automation/test-results.xcresult` |
 | 验证报告 | `.build/extended-automation/validation-evidence.json` |

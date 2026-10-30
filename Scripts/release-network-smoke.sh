@@ -271,26 +271,41 @@ echo "[探针] 执行 $SMOKE_SCOPE"
 DEADLINE=$(( SECONDS + 1800 ))
 REPORT_READY=false
 typeset -A shown_smoke_progress=()
+smoke_stream_offset=0
+smoke_summary_seen=false
+smoke_report_write_failed=false
+smoke_request_failed=false
 show_smoke_progress() {
-  local line
+  local line progress_lines
+  progress_lines="$(python3 "$ROOT_DIR/Scripts/command_output.py" smoke-progress "$CONSOLE_LOG" "$smoke_stream_offset" "${1:-false}")" || return $?
   while IFS= read -r line; do
+    case "$line" in
+      'NETWORK_SMOKE_OFFSET '*) smoke_stream_offset="${line##* }"; continue;;
+      "NETWORK_SMOKE_SUMMARY run_id=$RUN_ID "*) smoke_summary_seen=true; continue;;
+      "NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=$RUN_ID"*) smoke_report_write_failed=true; continue;;
+      NETWORK_SMOKE_REQUEST_FAIL*) smoke_request_failed=true; continue;;
+      NETWORK_SMOKE_SMS_REQUIRED*|NETWORK_SMOKE_FAIL*|NETWORK_SMOKE_AUTH_BLOCKED*) ;;
+      *) continue;;
+    esac
     [[ -n "${shown_smoke_progress[$line]-}" ]] && continue
     shown_smoke_progress[$line]=1
     print -r -- "$line"
-  done < <(awk 'match($0, /NETWORK_SMOKE_(START|SMS_REQUIRED|PASS|FAIL|AUTH_BLOCKED) .+/) { print substr($0, RSTART, RLENGTH) }' "$CONSOLE_LOG")
+  done <<< "$progress_lines"
 }
 while (( SECONDS < DEADLINE )); do
-  show_smoke_progress
-  if rg -q "NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=$RUN_ID" "$CONSOLE_LOG"; then
+  smoke_console_complete=false
+  if ! kill -0 "$console_process" 2>/dev/null; then smoke_console_complete=true; fi
+  show_smoke_progress "$smoke_console_complete"
+  if $smoke_report_write_failed; then
     echo "网络 Smoke 报告写入失败 · $CONSOLE_LOG" >&2
     exit 1
   fi
-  if rg -q 'NETWORK_SMOKE_REQUEST_FAIL' "$CONSOLE_LOG"; then
+  if $smoke_request_failed; then
     echo "网络 Smoke 启动请求消费失败 · $CONSOLE_LOG" >&2
     exit 1
   fi
-  if ! rg -q "NETWORK_SMOKE_SUMMARY run_id=$RUN_ID " "$CONSOLE_LOG"; then
-    if ! kill -0 "$console_process" 2>/dev/null; then
+  if ! $smoke_summary_seen; then
+    if $smoke_console_complete; then
       echo "网络 Smoke 控制台进程已结束 · $CONSOLE_LOG" >&2
       exit 1
     fi

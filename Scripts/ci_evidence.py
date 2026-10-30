@@ -200,7 +200,7 @@ def validation_plan() -> None:
     repo, run_id = repository(), os.environ['GITHUB_RUN_ID']
     full = os.getenv('BIT101_FULL_CHECK') == 'true'
     def candidates():
-        runs = (run for page in api_pages(f'repos/{repo}/actions/workflows/ci.yml/runs?branch=main')
+        runs = (run for page in workflow_run_pages(repo)
             for run in page['workflow_runs'])
         for run in runs:
             if run.get('event') != 'workflow_dispatch' or str(run['id']) == run_id \
@@ -257,9 +257,18 @@ def restore_cache(flavor: str) -> None:
             print('编译缓存：复用工作区原生产物。')
             return
         try:
+            (CACHE_ROOT / 'compilation-cache.log').write_text('')
             restore_remote_cache(flavor)
         except (subprocess.SubprocessError, OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
-            print(f'编译缓存：沿当前源码重新编译（{type(error).__name__}）。')
+            from command_output import bounded_text, character_limit
+            detail = getattr(error, 'stderr', None) or str(error)
+            if isinstance(detail, bytes): detail = detail.decode(errors='replace')
+            diagnostic = CACHE_ROOT / 'compilation-cache.log'
+            try:
+                with diagnostic.open('a') as log: log.write(detail + '\n')
+            except OSError as log_error: detail += f'；诊断保存受阻：{log_error}'
+            reason, _ = bounded_text(detail.strip().replace('\n', ' '), character_limit())
+            print(f'编译缓存：沿当前源码重新编译（{reason}）；诊断：{diagnostic}')
 
 
 def restore_remote_cache(flavor: str) -> None:
@@ -284,7 +293,7 @@ def restore_remote_cache(flavor: str) -> None:
     print('编译缓存：首次建立当前分组的原生数据。')
 
 
-def cache_result_matches(repo: str, run: dict, flavor: str) -> bool:
+def cache_result_matches(repo: str, run: dict, flavor: str) -> bool | None:
     from validation_inputs import CI_RESULT_ARTIFACTS
     group = {'release-build': 'release', 'catalyst-tests': 'catalyst', 'simulator-app': 'app'}[flavor]
     artifact_name = CI_RESULT_ARTIFACTS[group]
@@ -292,6 +301,7 @@ def cache_result_matches(repo: str, run: dict, flavor: str) -> bool:
         for row in page['artifacts'] if row['name'] == artifact_name and not row.get('expired')), None)
     if artifact is None: return False
     result = read_validation_result(repo, artifact['id'])
+    if result is None: return None
     if not isinstance(result, dict) or result.get('schemaVersion') != 1 \
             or result.get('commit') != run['head_sha'] or result.get('run') != str(run['id']): return False
     groups = result.get('groups')
@@ -318,8 +328,12 @@ def prune_caches() -> None:
         if not shared_host and str(run_id) != os.getenv('GITHUB_RUN_ID') and runs[run_id].get('status') in {
                 'queued', 'in_progress', 'waiting', 'requested', 'pending'}: continue
         flavor = row['name'].removeprefix('compilation-cache-')
-        if shared_host or flavor not in CACHE_FLAVORS or not trusted_cache_run(runs[run_id], repo) \
-                or row['name'] in retained or not cache_result_matches(repo, runs[run_id], flavor):
+        remove = shared_host or flavor not in CACHE_FLAVORS or not trusted_cache_run(runs[run_id], repo) or row['name'] in retained
+        if not remove:
+            matches = cache_result_matches(repo, runs[run_id], flavor)
+            if matches is None: continue
+            remove = not matches
+        if remove:
             deleted = subprocess.run(['gh', 'api', '-X', 'DELETE', f"repos/{repo}/actions/artifacts/{row['id']}"], capture_output=True, text=True)
             if deleted.returncode and '(HTTP 404)' not in deleted.stderr: deleted.check_returncode()
         else: retained.add(row['name'])
@@ -349,12 +363,16 @@ def stream_cache_range(endpoint: str, start: int, end: int, output, deadline: fl
     import time
     from threading import Timer
     command = ['gh', 'api', '--allow-escape-sequences', '--include', '-H', f'Range: bytes={start}-{end}', endpoint]
-    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    with (CACHE_ROOT / 'compilation-cache.log').open('ab') as diagnostic, \
+            subprocess.Popen(command, stdout=subprocess.PIPE, stderr=diagnostic) as process:
         timer = Timer(max(0, deadline - time.monotonic()), process.kill)
         timer.start()
         try:
             status = process.stdout.readline(http.client._MAXLINE + 1).split()
-            if len(status) < 2 or status[1] != b'206': raise ValueError('编译缓存响应需要 HTTP 206。')
+            if len(status) < 2 or status[1] != b'206':
+                observed = status[1].decode(errors='replace') if len(status) > 1 else '未收到状态'
+                raise ValueError(f'编译缓存响应需要 HTTP 206，实际为 {observed}。')
             headers = http.client.parse_headers(process.stdout)
             size = re.fullmatch(rf'bytes {start}-{end}/([1-9][0-9]*)', headers.get('Content-Range', ''))
             if size is None or int(size[1]) <= end or total is not None and int(size[1]) != total:
@@ -453,7 +471,7 @@ def cache_self_test() -> None:
     from unittest.mock import patch
     module = sys.modules[__name__]
     cache_download_self_test()
-    for failure in (subprocess.CalledProcessError(1, ['gh', 'api']), subprocess.TimeoutExpired(['gh', 'api'], 1), OSError('cache unavailable'),
+    for failure in (subprocess.CalledProcessError(1, ['gh', 'api'], stderr='Forbidden (HTTP 403)'), subprocess.TimeoutExpired(['gh', 'api'], 1), OSError('cache unavailable'),
             ValueError('invalid metadata'), KeyError('cache metadata'), zipfile.BadZipFile('truncated cache')):
         with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=False), \
                 patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=False), patch.object(module, 'restore_remote_cache', side_effect=failure) as restore, \
@@ -461,6 +479,8 @@ def cache_self_test() -> None:
             restore_cache('simulator-app')
             restore.assert_called_once_with('simulator-app')
             assert '沿当前源码重新编译' in output.getvalue()
+            if isinstance(failure, subprocess.CalledProcessError):
+                assert 'Forbidden (HTTP 403)' in output.getvalue() and 'compilation-cache.log' in output.getvalue()
     with patch.object(Path, 'mkdir'), patch.object(Path, 'open'), patch.object(Path, 'exists', return_value=True), \
             patch('fcntl.flock'), patch.object(module, 'native_cache_available', return_value=True), patch.object(module, 'restore_remote_cache') as restore, redirect_stdout(io.StringIO()):
         restore_cache('simulator-app')
@@ -548,7 +568,7 @@ def cache_self_test() -> None:
         with patch.object(module, 'api_pages', return_value=[{'artifacts': [{'id': 2, 'name': 'verified-result-ios', 'expired': False}]}]), \
                 patch.object(module, 'read_validation_result', return_value=None if fault == 'missing' else changed), \
                 patch.object(module, 'cache_identity', return_value=identity):
-            assert cache_result_matches('owner/repo', trusted, 'simulator-app') == (fault == 'none'), fault
+            assert cache_result_matches('owner/repo', trusted, 'simulator-app') == (None if fault == 'missing' else fault == 'none'), fault
     artifacts = [dict(id=index, name=name, expired=False, workflow_run={'id': 1}) for index, name in [
         (1, 'compilation-cache-simulator-app'), (2, 'validation-static-audit'), (3, 'compilation-cache-simulator-app'),
         (4, 'compilation-cache-catalyst-tests')]]
@@ -584,6 +604,16 @@ def repository() -> str:
 
 def api_pages(endpoint: str) -> list[dict]:
     return json.loads(subprocess.check_output(['gh', 'api', '--paginate', '--slurp', endpoint], cwd=ROOT, text=True))
+
+
+def workflow_run_pages(repo: str):
+    page = 1
+    while True:
+        endpoint = f'repos/{repo}/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=100&page={page}'
+        payload = json.loads(subprocess.check_output(['gh', 'api', endpoint], cwd=ROOT, text=True))
+        yield payload
+        if len(payload['workflow_runs']) < 100: return
+        page += 1
 
 
 def check_release() -> None:

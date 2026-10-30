@@ -6,6 +6,16 @@
 
 用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 、[社区发布流程](../BIT101-iOSUITests/CommunityPublishingUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共用 `UIAutomationTestCase`；[性能场景](../BIT101-iOSUITests/MaintenancePerformanceUITests.swift) 独立测量 App 启动与切周布局。完整批次顺序执行，常规场景复用 App 进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。业务交互采用原生触摸与滚动，字段沿实际输入控件更新，公共键盘合同采用系统键盘；公共查询合同显式验收快速查询及控件动作与原生状态的一致性。运行耗时与操作类型从真机运行的固定指标文件读取。
 
+## 设备与窗口合同
+
+静态规则核对一级分组的公共背景样式及公共浏览行的选择归属。浏览导航回归覆盖冷启动后多轮切换成绩、话廊、日程入口，要求分区栏可点击并沿主导航下方的内容间距布局。`testScheduleChromeSurvivesRotationsWhileSelected` 从设置详情进入日程，保持日程选中并连续六次切换方向，逐次核对刷新行位于主导航下方、竖屏分区栏可操作及选中周次。`testMineSettingsFillTheAvailableDetailWidth` 逐一进入账号、日历、DDL、话廊和关于设置，确认实际选中目标后，要求右侧列表或滚动区域达到可用详情宽度的 95%。`testClassroomLoadingKeepsThePageBackground` 保持首次空教室查询进行中，比较左右区域的实际背景像素并采样截图。截图先从活跃屏幕选择含可见内容的图像，Duo 内外屏沿同一选择流程采样。空成绩行与刷新行比较实际背景像素，并核对分组行两端的背景；iPad 与 Mac 的详情滚动后继续核对原生标题栏的遮蔽底色，iPhone 与 Duo 沿系统导航行为验收，成绩与课程行共同验收整行点击和浅色选中背景。
+
+`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收空教室和个人页分栏、话题与文章及成绩和课程的列表与详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；同时比较各页侧栏宽度、主导航周围及刷新/统计/搜索行的实际背景像素，并核对选中行背景、悬浮按钮竖向排列与列表边界、详情分组单元格的分栏边界。旋转流程验证详情回到竖屏列表、重新进入全宽详情，以及分区栏和主导航的边界。Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
+
+`testCompactWindowKeepsSystemBarsAndListsWithinBounds` 核对紧凑窗口内的系统主导航、分组行水平边界、顶部标准间距与竖屏课表底部间距，并保存列表及课表截图，再核对节次筛选整页导航及返回。`testWindowChangesKeepBrowsersWithinSystemInsets` 在系统提供分隔区域的窗口执行连续展开、折叠和重新展开；Device Hub 按逐行写入的 `Layout phase: close` / `Layout phase: open` 日志切换姿态，分别验收紧凑列表和恢复后的系统分隔位置。几何记录包含当前窗口、场景、安全区和分隔区域。横屏按内容末端与系统安全区对照核验，竖屏按课表及悬浮操作的模块间距核验。`testLandscapeDetailBackAndClassroomFilterUseTheRightPane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边界，左栏及右栏详情共用该合同。
+
+`simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
+
 ## 公共组件验收归属
 
 公共组件的每类交互合同明确验收流程，相同交互集中验证一次；每个使用页面验证入口、绑定参数和业务结果。同一控件的布局或事件实现独立时，各自保留完整验收。测试归属静态明确，关键词运行直接执行所选流程。
@@ -99,6 +109,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 
 | 用例 | 操作与结果 |
 | --- | --- |
+| `ScoreInteractionUITests/testSelectedScoreDetailFollowsTheDetailedRefresh` | 横屏双栏中打开简略成绩，详细字段到达后原位更新详情 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询、短信输入、验证继续、成绩展示 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 空 / 错误 / 正确验证码、公共筛选页全选和清空、学期 / 类型独立绑定、六种排序、方向、成绩详情 |
 | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` | 查询取消、逐项筛选、已有成绩刷新、未出分详情、成绩到课程评价路由 |
@@ -379,8 +390,8 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/ScoreFeature/Sources/ScoreFilterViews.swift:ScoreFilterPage` | `{"AppMultiSelectionList":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreFilterViews.swift:ScoreSortPage` | `{"Button":2,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:PendingScoreDetailView` | `{"ScrollView":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreDetailView` | `{"Button":1,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
-| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppBrowserListRow":6,"AppEmptyState":1,"AppFailureState":1,"AppVerificationSheet":1,"Button":3,"List":1,"simultaneousGesture":1}` | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry,ScheduleNavigationUITests/testCourseHistoryChartSelectionAndHomeSurfaceSwipes,ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence,ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreDetailView` | `{"Button":1,"List":1}` | `ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testSelectedScoreDetailFollowsTheDetailedRefresh` |
+| `Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage` | `{"AppBrowserListRow":6,"AppEmptyState":2,"AppFailureState":1,"AppVerificationSheet":1,"Button":3,"List":1,"simultaneousGesture":1}` | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry,ScheduleNavigationUITests/testCourseHistoryChartSelectionAndHomeSurfaceSwipes,ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail,ScoreInteractionUITests/testScoreStorageRecoveryConfirmationAndPersistence,ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation,ScoreInteractionUITests/testSelectedScoreDetailFollowsTheDetailedRefresh` |
 | `Modules/ScoreFeature/Sources/ScoreRootView.swift:TrustedTranscriptPage` | `{"AppEmptyState":1,"AppFailureState":2,"AppVerificationSheet":1,"Button":2,"ScrollView":1}` | `ScoreInteractionUITests/testTrustedTranscriptReapplicationKeepsAvailablePages,ScoreInteractionUITests/testTrustedTranscriptSMSRetryPreviewAndCancellation` |
 
 滚动容器使用稳定身份参与源码与运行证据核对。手势检查与位置恢复沿实际 UIKit 滚动对象定位，页面路径身份用于交互库存归属。UI 用例在操作前验收当前容器：可滚动内容通过原生滑动核对位置变化并恢复起始位置，完整显示的内容核对边界并记录 `scroll-fit`；容器动作与子控件动作分别核对。底栏选中项变化记录 `tab-switch`，用于 TabView 的独立切换证据。

@@ -14,10 +14,13 @@ if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
 
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex"}
+DERIVED_ROOT_NAMES = ('.build/extended-automation', 'build/DeviceInstall', '.build/release-network-smoke',
+    '.build/icloud-cross-device-smoke/Phone', '.build/icloud-cross-device-smoke/Mac', '.build/extended-automation/out')
+BUILD_DATABASE_RELATIVE = 'Build/Intermediates.noindex/XCBuildData/build.db'
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 fixed_children = {
     ".build/compiler-cache": cache_names | {"cache.lock", "compilation-cache.json",
-        "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"},
+        "compilation-cache.log", "swift-syntax-indexer", "swift-syntax-indexer-inputs.json", "swift-syntax-indexer.lock"},
     ".build/static-audit": {"artifact-hygiene.log", "audit.lock", "checkers.log", "dependency-audit.log", "docs.log",
         "git-diff.log", "module-boundary.log", "python-parse.log", "shell-parse.log", "swift-parse.log", "worker-parse.log",
         "compilation-conditions.json", "compilation-conditions.lock", "source-facts.sqlite", "source-facts.sqlite-journal", "source-facts.lock",
@@ -210,6 +213,11 @@ def prune_cas_storage(shared: Path, compiler: Path | None = None) -> tuple[int, 
     return before, after
 
 
+def build_database_bytes(root: Path) -> int:
+    return sum(path.stat().st_size for name in DERIVED_ROOT_NAMES
+        for path in [root / name / BUILD_DATABASE_RELATIVE] if path.is_file())
+
+
 def cache_space_report(root: Path) -> dict:
     values = {}
     for line in subprocess.check_output(['du', '-k', '-d', '4', str(root)], text=True).splitlines():
@@ -226,7 +234,7 @@ def cache_space_report(root: Path) -> dict:
         'auditBytes': size('.build/static-audit'),
         'diagnosticBytes': sum(size(name) for name in ('.build/extended-automation/diagnostics',
             '.build/extended-automation/test-results.xcresult', '.build/icloud-cross-device-smoke/test-results.xcresult')),
-        'casStoreLimitBytes': CAS_STORE_LIMIT}
+        'casStoreLimitBytes': CAS_STORE_LIMIT, 'buildDatabaseBytes': build_database_bytes(root)}
 
 
 def update_cache_metadata(output: Path, fields: dict) -> dict:
@@ -250,19 +258,19 @@ def cache_maintenance_needed(root: Path) -> bool:
     try:
         metadata = json.loads((shared / 'compilation-cache.json').read_text())
         sampled_cas = metadata['space']['casBytes']
-        sampled_free = metadata['sampleFreeBytes']
-        if not isinstance(sampled_cas, int) or not isinstance(sampled_free, int): return True
+        sampled_database = metadata['space']['buildDatabaseBytes']
+        if not isinstance(sampled_cas, int) or not isinstance(sampled_database, int): return True
     except (OSError, ValueError, TypeError, KeyError):
         return True
     cas = shared / 'CompilationCache.noindex'
     size = int(subprocess.check_output(['du', '-sk', str(cas)], text=True).split()[0]) * 1024 if cas.is_dir() else 0
-    return max(size - sampled_cas, sampled_free - shutil.disk_usage(root).free) >= CACHE_GROWTH_INTERVAL
+    return max(size - sampled_cas, build_database_bytes(root) - sampled_database) >= CACHE_GROWTH_INTERVAL
 
 
 def compact_build_databases(derived_roots: list[Path]) -> None:
     import sqlite3
     for derived in derived_roots:
-        database = derived / 'Build/Intermediates.noindex/XCBuildData/build.db'
+        database = derived / BUILD_DATABASE_RELATIVE
         if not database.is_file(): continue
         try:
             with closing(sqlite3.connect(database, timeout=0)) as connection:

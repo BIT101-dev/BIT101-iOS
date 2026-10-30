@@ -238,6 +238,10 @@ def maintenance_self_test() -> None:
     help_result = subprocess.run(['zsh', str(Path(__file__).with_name('simulator-tests.sh')), '--help'],
         env=environment, capture_output=True, text=True)
     assert help_result.returncode == 0 and 'devices remove' in help_result.stdout
+    environment['BIT101_SIMULATOR_AUTHORIZED'] = '1'
+    rejected = subprocess.run(['zsh', str(Path(__file__).with_name('simulator-tests.sh')), 'runtime', 'invalid'],
+        env=environment, capture_output=True, text=True)
+    assert rejected.returncode == 64 and '用法' in rejected.stderr
     root = Path('/fixture/Library/Developer/CoreSimulator/Devices')
     inventory = dict(runtimes=[dict(identifier='ios'), dict(identifier='watch')], devices={
         'ios': [dict(udid='keep', state='Booted'), dict(udid='unused', state='Shutdown'),

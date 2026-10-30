@@ -106,6 +106,19 @@ def show_report(path: Path, label: str) -> None:
         show_report_lines(report, path, label)
 
 
+def smoke_progress(path: Path, offset: int, *, complete: bool = False) -> tuple[list[str], int]:
+    markers = []
+    with path.open('rb') as log:
+        log.seek(offset)
+        while line := log.readline():
+            if not complete and not line.endswith(b'\n'): break
+            offset = log.tell()
+            match = re.search(r'NETWORK_SMOKE_(?:START|SMS_REQUIRED|PASS|FAIL|AUTH_BLOCKED|SUMMARY|REPORT_WRITE_FAIL|REQUEST_FAIL)\b.*',
+                line.decode('utf-8', errors='replace'))
+            if match: markers.append(match[0].rstrip('\r'))
+    return markers, offset
+
+
 def show_log(path: Path, failed: bool) -> None:
     summary = FailureSummary()
     ordinary, count = BoundedLines(OUTPUT_LINE_LIMIT), 0
@@ -214,5 +227,9 @@ if __name__ == '__main__':
         show_report(Path(sys.argv[2]), sys.argv[3])
     elif sys.argv[1:2] == ['show-log']:
         show_log(Path(sys.argv[2]), sys.argv[3] == 'true')
+    elif sys.argv[1:2] == ['smoke-progress']:
+        markers, offset = smoke_progress(Path(sys.argv[2]), int(sys.argv[3]), complete=sys.argv[4:5] == ['true'])
+        for marker in markers: print(marker)
+        print(f'NETWORK_SMOKE_OFFSET {offset}')
     else:
         raise SystemExit(run_command(sys.argv[1:]))

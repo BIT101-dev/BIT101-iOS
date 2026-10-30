@@ -40,7 +40,7 @@ def run_cache(arguments: list[str]) -> None:
     root = Path(arguments[0])
     sys.path.insert(0, str(root / "Scripts"))
     from validation_artifacts import (clear_diagnostic_exports, prune_native_storage, prune_compilation_cache,
-        cache_space_report, record_cache_space, cache_maintenance_needed, compact_build_databases)
+        cache_space_report, record_cache_space, cache_maintenance_needed, compact_build_databases, DERIVED_ROOT_NAMES)
     arguments = arguments[1:]
     maintenance = arguments == ["--maintenance"]
     shared = root / ".build/compiler-cache"
@@ -49,11 +49,7 @@ def run_cache(arguments: list[str]) -> None:
         report_cache_space(root, cache_space_report(root))
         return
     cache_names = ("SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex")
-    derived_roots = [root / name for name in (
-        ".build/extended-automation", "build/DeviceInstall", ".build/release-network-smoke",
-        ".build/icloud-cross-device-smoke/Phone", ".build/icloud-cross-device-smoke/Mac",
-        ".build/extended-automation/out",
-    )]
+    derived_roots = [root / name for name in DERIVED_ROOT_NAMES]
 
     def occupied_kib():
         paths = [str(root / name) for name in (".build", "build") if (root / name).exists()]

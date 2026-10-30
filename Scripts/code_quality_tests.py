@@ -725,12 +725,12 @@ def smoke_script_boundary_findings() -> list[str]:
     network = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
     wait_loop = shell_function('copy_smoke_report', network) + '\n' + network.split('REPORT_READY=false\n', 1)[1].split('\nif ! $REPORT_READY', 1)[0]
     for marker in ('NETWORK_SMOKE_REPORT_WRITE_FAIL run_id=fixture', 'NETWORK_SMOKE_REQUEST_FAIL'):
-        stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
-        stub += 'rg() { [[ "$2" == "' + marker + '" ]]; }\nkill() { return 0; }\nxcrun() { return 9; }\nsleep() { return 9; }\n'
+        stub = 'set -euo pipefail\nROOT_DIR=/fixture\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
+        stub += 'python3() { print -r -- "' + marker + '"; }\nkill() { return 0; }\nxcrun() { return 9; }\nsleep() { return 9; }\n'
         failed = subprocess.run(['zsh', '-c', stub + wait_loop], capture_output=True, text=True, timeout=5)
         assert failed.returncode == 1 and '失败' in failed.stderr, failed.stderr
-    stub = 'set -euo pipefail\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
-    stub += 'phase=waiting\nrg() { [[ "$2" == "NETWORK_SMOKE_SUMMARY run_id=fixture " && "$phase" == ready ]]; }\n'
+    stub = 'set -euo pipefail\nROOT_DIR=/fixture\nRUN_ID=fixture\nCONSOLE_LOG=/fixture-console\nconsole_process=1\nREPORT_READY=false\nDEADLINE=$(( SECONDS + 5 ))\n'
+    stub += 'phase=waiting\npython3() { if [[ "$phase" == ready ]]; then print -r -- "NETWORK_SMOKE_SUMMARY run_id=fixture passed=1"; fi; }\n'
     stub += 'SIMULATOR_DEVICE=\nDEVICETCL_DEVICE_ID=fixture\nAPP_GROUP_ID=fixture\nREMOTE_REPORT_PATH=fixture\nLOCAL_REPORT_PATH=/fixture\n'
     stub += 'kill() { [[ "$phase" == waiting ]]; }\nxcrun() { [[ "$phase" == ready ]] || exit 8; exit 17; }\nsleep() { phase=ready; }\n'
     ready = subprocess.run(['zsh', '-c', stub + wait_loop], capture_output=True, text=True, timeout=5)

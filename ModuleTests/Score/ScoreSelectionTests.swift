@@ -2,9 +2,9 @@ import ScoreDomain
 import Testing
 
 struct ScoreSelectionTests {
-    private func row(_ index: Int, number: String = "CS1", score: String = "95", rank: String = "1") -> ScoreRow {
+    private func row(_ index: Int, number: String = "CS1", score: String = "95", rank: String = "1", term: String = "term") -> ScoreRow {
         .init(index: index, headers: ["课程编号", "课程名称", "成绩", "学分", "开课学期", "排名"],
-            values: [number, "课程", score, "3", "term", rank])
+            values: [number, "课程", score, "3", term, rank])
     }
 
     @Test func selectedGradesFollowRefreshAndDetailedFields() {
@@ -23,5 +23,6 @@ struct ScoreSelectionTests {
         let selection = ScoreDetailSelection(course: course)
         #expect(selection.row(in: []) == nil && selection.pendingCourseID == course.id)
         #expect(selection.row(in: [row(0)])?.score == "95")
+        #expect(selection.row(in: [row(0, term: ""), row(1, term: "other-term")]) == nil)
     }
 }
