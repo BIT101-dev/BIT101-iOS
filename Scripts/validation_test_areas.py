@@ -120,7 +120,7 @@ TEST_AREA_SUITES = {
         "ScheduleCalendarTransactionTests", "ScheduleClassroomCoordinatorTests", "ScheduleCourseEditorTests",
         "ScheduleCourseSyncCoordinatorTests", "ScheduleDDLEditorTests", "ScheduleICSParserTests",
         "ScheduleModuleBoundaryTests", "ScheduleNotificationTimeZoneTests", "ScheduleShareCodeCodecTests",
-        "ScheduleSystemCalendarEventBuilderTests", "ScheduleTimelineViewportTests", "SmallTermWeekNormalizerTests",
+        "ScheduleSystemCalendarEventBuilderTests", "ScheduleTimelineViewportTests", "ScheduleCardTextLayoutTests", "SmallTermWeekNormalizerTests",
     },
     "infrastructure": {
         "AccountSettingsTests", "AccountProfileMutationTests", "AdaptivePageLifetimeTests",

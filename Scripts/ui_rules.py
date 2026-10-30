@@ -148,7 +148,10 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
 def haptic_entry_findings(sources: dict[Path, str], syntax: dict[str, dict]) -> tuple[list[str], set[Path]]:
     findings = []
     owners = set()
-    for name, feedback in (("appSelectionFeedback", "selection"), ("appImpactFeedback", "impact")):
+    for name, generator, action in (
+        ("appSelectionFeedback", "UISelectionFeedbackGenerator", "selectionChanged"),
+        ("appImpactFeedback", "UIImpactFeedbackGenerator", "impactOccurred"),
+    ):
         definitions = [(path, function) for path in sources
             for function in syntax[str(path)].get("functionRanges", []) if function["name"] == name]
         if len(definitions) != 1:
@@ -158,7 +161,8 @@ def haptic_entry_findings(sources: dict[Path, str], syntax: dict[str, dict]) -> 
         code = mask_literals_and_comments(sources[path].encode()[function["start"]:function["end"]].decode())
         if not path.is_relative_to(ROOT / "Modules/DesignSystemKit") or function["scope"] != ["View"]:
             findings.append(f"公共触感接口 {name} 归 DesignSystemKit 的 View 扩展维护")
-        if not re.search(rf"\bsensoryFeedback\s*\(\s*\.{feedback}\s*,\s*trigger\s*:", code):
+        if not (re.search(r"\bonChange\s*\(\s*of\s*:\s*trigger\s*\)", code)
+                and re.search(rf"\b{generator}\s*\(\s*\)\s*\.\s*{action}\s*\(", code)):
             findings.append(f"公共触感接口 {name} 需要调用对应系统触感")
         owners.add(path)
     return findings, owners

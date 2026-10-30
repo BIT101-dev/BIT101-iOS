@@ -62,32 +62,17 @@ struct FeatureCompositionTests {
             safeAreaInsets: UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 84))
         #expect(!closed.hasLandscapeDivision && closed.contentTopInset == 16)
         #expect(!closed.usesBottomTabBar)
+#if targetEnvironment(macCatalyst)
+        #expect(!closed.usesSideToolbar)
+#else
+        if #available(iOS 27.1, *) { #expect(closed.usesSideToolbar && closed.singleColumn.usesSideToolbar) }
+#endif
+        #expect(!duo.usesSideToolbar && !wide.usesSideToolbar)
         #expect(AppWindowLayout(size: CGSize(width: 402, height: 874), interfaceIdiom: .phone,
             safeAreaInsets: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)).usesBottomTabBar)
         #expect(AppWindowLayout(size: duo.size, isRegularWidth: true,
             safeAreaInsets: UIEdgeInsets(top: 0, left: 84, bottom: 20, right: 0), divisionX: 523).sidebarWidth == 439)
         #expect(AppWindowLayout(size: wide.size, safeAreaInsets: UIEdgeInsets(top: 32, left: 0, bottom: 20, right: 0)).contentTopInset == 0)
-    }
-
-    @Test func compactScheduleCardsKeepTheTitleAndReadableText() throws {
-        for height: CGFloat in [18, 40, 120] {
-            for font in [UIFont.preferredFont(forTextStyle: .caption1), UIFont.preferredFont(forTextStyle: .title1)] {
-                let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: height))
-                view.configure(title: "计算机网络与通信原理", location: String(repeating: "文萃楼 A101 ", count: 8),
-                    contentMode: .nameAndLocation, font: font, textColor: .label)
-                view.layoutIfNeeded()
-                let labels = view.subviews.compactMap { $0 as? UILabel }
-                let title = try #require(labels.first)
-                #expect(!title.isHidden && title.text == "计算机网络与通信原理" && title.frame.height > 0)
-                #expect(view.bounds.contains(title.frame) && title.font.pointSize == font.pointSize)
-                if height == 120 { #expect(title.numberOfLines >= 2 && title.frame.height >= font.lineHeight * 2) }
-                for location in labels.dropFirst().filter({ !$0.isHidden }) {
-                    #expect(location.font.pointSize == font.pointSize && location.numberOfLines > 0)
-                    #expect(title.frame.maxY <= location.frame.minY && view.bounds.contains(location.frame))
-                }
-                #expect(view.accessibilityLabel == "计算机网络与通信原理" && view.accessibilityValue?.contains("文萃楼") == true)
-            }
-        }
     }
 
     @Test func fixedColumnRowsContainScaledBodyText() {

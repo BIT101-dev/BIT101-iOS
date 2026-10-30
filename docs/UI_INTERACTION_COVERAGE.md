@@ -53,8 +53,11 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `ScheduleEditingUITests/testCustomSchedulesAreIsolatedBetweenAccounts` | 退出、改账号登录、账号日程隔离 |
 | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击 |
 | `ScheduleLayoutUITests/testScheduleKeepsWeekAndControlsAcrossWindowRotation` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
+| `ScheduleLayoutUITests/testWeeklyHeaderKeepsItsCompactDateRow` | 26 点日期行及 44 点周次触控高度 |
+| `ScheduleLayoutUITests/testSideToolbarUsesTheSpaceAboveMainNavigation` | 地图、话题及文章的原生侧方工具栏边界、竖向排列，以及系统更多菜单中的完整标题与可触达状态 |
 | `LandscapeLayoutUITests/testCurrentWindowUsesAdaptivePanesAndReadableCards` | 当前窗口的资料 / 空教室分栏、话题 / 文章 / 成绩 / 课程列表与详情分栏、公共侧栏宽度、导航背景像素与刷新行边界、课表与单列 DDL 并排、地图图层切换、编辑草稿与键盘收起、辅助功能字号单列 |
 | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome` | 成绩 / 课程原生入口、列表与详情分栏、切页详情保留、与日程 / 话题 / 文章共享侧栏宽度及顶部背景 |
+| `LandscapeLayoutUITests/testGallerySurfaceChangesKeepCompactNavigation` | 话题与文章反复切换后的主导航与分区栏间距、当前操作入口及实际截图 |
 | `LandscapeLayoutUITests/testMineSettingsFillTheAvailableDetailWidth` | 逐一选中账号 / 日历 / DDL / 话廊 / 关于设置，核对右侧列表或滚动区域占满可用详情宽度 |
 | `LandscapeLayoutUITests/testScheduleChromeSurvivesRotationsWhileSelected` | 从设置详情进入日程并保持选中，连续六次横竖旋转，核对刷新行与主导航边界、竖屏分区入口及当前周次 |
 | `CommunityRecoveryUITests/testArticleCountersUpdateTheVisibleListFromItsDetail` | 文章详情点赞与评论后的卡片计数、横屏同屏展示与紧凑窗口返回列表 |
@@ -102,7 +105,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `ScheduleEditingUITests/testDDLEmptyStateExplainsTheRetentionWindow` | 过期日程与滞留范围说明 |
 | `ServiceInteractionUITests/testSchoolSSODDLVerificationCancelAndContinuation` | 学校 DDL 刷新、SSO 短信取消、验证继续、刷新结果 |
 | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` | 空结果刷新、节次单选、全选 / 全不选、清除筛选与状态 |
-| `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` | 三个校区、图层、地图平移 / 双指缩放、重新装载恢复 |
+| `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` | 三个校区、图层、地图平移 / 双指缩放、重新装载恢复、公共按钮边界及系统更多菜单操作 |
 | `ScheduleNavigationUITests/testMapLocationAndScheduleLocationRoute` | 课程地点进入地图、定位 / 单次权限、下一节课导航到 Maps、返回 |
 
 ## 成绩与课程
@@ -313,7 +316,7 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppBrowserListRow` | `{"Button":1}` | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome,ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancelAndPendingDetail` |
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppDetailCircleButton` | `{"Button":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` |
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppDetailShareLink` | `{"ShareLink":1}` | `CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare` |
-| `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppFloatingActionButton` | `{"Button":1}` | `ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` |
+| `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppFloatingActionButton` | `{"Button":2}` | `ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetailAndDelete,ScheduleLayoutUITests/testSideToolbarUsesTheSpaceAboveMainNavigation` |
 | `Modules/DesignSystemKit/Sources/AppRefreshStatusComponents.swift:AppRefreshStatusRow` | `{"Button":1}` | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh,ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentNativeGeometry` |
 | `Modules/DesignSystemKit/Sources/AppStateComponents.swift:AppEmptyState` | `{"Button":1}` | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefreshAndDDLRefresh` |
 | `Modules/DesignSystemKit/Sources/AppStateComponents.swift:AppFailureState` | `{"Button":1}` | `CommunityEditingRecoveryUITests/testPosterCommentsRetryInPlaceAfterInitialFailure,ServiceInteractionUITests/testCommunityFailedRequestsRetryToLoadedState` |
@@ -330,10 +333,10 @@ SwiftSyntax 清点每个源码作用域的控件、输入、滚动和手势声�
 | `Modules/GalleryFeature/Sources/GalleryMessagesView.swift:GalleryMessagesView` | `{"AppEmptyState":1,"AppFailureState":1,"Button":6,"CommunityPaginationFooter":1,"List":1,"refreshable":1,"simultaneousGesture":1}` | `CommunityRecoveryUITests/testMessagePaginationRetriesAtTheVisibleTail,CommunityRecoveryUITests/testMessageReadStorageRecoveryKeepsMessagesAvailable,CommunityRecoveryUITests/testMessagesAndFavoritesOpenNativeResources,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/GalleryFeature/Sources/GalleryPosterActionViews.swift:GalleryReportSheet` | `{"AppCancelEditingButton":1,"Button":3,"Picker":1,"TextField":1}` | `CommunityEditingRecoveryUITests/testReportEditingAndSubmissionKeepTheirSheet,CommunityInteractionUITests/testPosterReportSelectionCancellationAndSubmission` |
 | `Modules/GalleryFeature/Sources/GalleryPosterDetailView.swift:GalleryPosterDetailViewScene` | `{"AppDetailCircleButton":2,"AppDetailShareLink":1,"AppFailureState":1,"Button":6,"CommunityLinkedText":1,"CommunityPosterActionMenu":1,"Menu":1,"ScrollView":2,"refreshable":1}` | `CommunityEditingRecoveryUITests/testPosterCommentsRetryInPlaceAfterInitialFailure,CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites,CommunityPublishingUITests/testGalleryComposerTagsSettingsPublishAndDelete,CommunityRecoveryUITests/testLongPostAndCommentKeepACompleteNativeReadingPath,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testCommunityMediaPreviewsDraftRetryAndRemoval,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
-| `Modules/GalleryFeature/Sources/GalleryRootView.swift:GalleryRootViewScene` | `{"AppFloatingActionButton":4,"TabView":1,"simultaneousGesture":1}` | `CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testPaperSortSurvivesSwitchingToTopicsAndBack` |
+| `Modules/GalleryFeature/Sources/GalleryRootView.swift:GalleryRootViewScene` | `{"AppFloatingActionButton":4,"simultaneousGesture":1}` | `CommunityInteractionUITests/testPosterSubscriptionsPersistAndAppearInFavorites,InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes,InteractionCoverageUITests/testPaperSortSurvivesSwitchingToTopicsAndBack` |
 | `Modules/GalleryFeature/Sources/GallerySearchView.swift:GallerySearchView` | `{"AppOrderedSearchBar":1,"Button":1}` | `InteractionCoverageUITests/testCommunityCommentLikesRepliesSortsAndPhotoPicker,InteractionCoverageUITests/testGalleryFeedAndSurfaceSwipesMessagesAndSearchResultRoutes` |
 | `Modules/MapFeature/Sources/CampusMapScreen.swift:CampusMapScreen` | `{"AppFloatingActionButton":3}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist,ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetailAndDelete` |
-| `Modules/MapFeature/Sources/CampusMapScreen.swift:FloatingMapLabelButton` | `{"Button":1}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` |
+| `Modules/MapFeature/Sources/CampusMapScreen.swift:FloatingMapLabelButton` | `{"Button":2}` | `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` |
 | `Modules/MediaKit/Sources/ImagePreview.swift:ImageQuickLookPresenter.Coordinator` | `{"UIButton":1}` | `CommunityRecoveryUITests/testLaterPreviewPageRecoversThroughTheNativeRetryButton` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MinePosterListView` | `{"AppEmptyState":1,"AppFailureState":2,"Button":2,"CommunityPosterCard":1,"ScrollView":1,"refreshable":1}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |
 | `Modules/MineFeature/Sources/MineRootView.swift:MineProfileCard` | `{"Button":2}` | `MineInteractionUITests/testMinePublicProfileFollowAndPostDeletion` |

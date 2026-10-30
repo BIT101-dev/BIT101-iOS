@@ -461,8 +461,28 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label IN %@",
-            "app.tab.", UITestMainNavigation.labels(title))).firstMatch
+        let labels = UITestMainNavigation.labels(title)
+        let query = native.buttons.matching(NSPredicate(format: "label IN %@", labels))
+        guard let application = UITestSnapshotReader.application,
+              let snapshot = try? application.snapshot() else {
+            XCTFail("主导航查询需要当前应用的界面快照。")
+            return UIElement(query.firstMatch)
+        }
+        let buttons = snapshot.snapshots(matching: .button)
+        guard let map = buttons.first(where: { $0.identifier == "app.tab.map" }),
+              let mine = buttons.first(where: { $0.identifier == "app.tab.mine" }) else {
+            XCTFail("系统主导航应提供地图与个人页入口。")
+            return UIElement(query.firstMatch)
+        }
+        let horizontal = abs(map.frame.midY - mine.frame.midY) <= 1
+        let candidates = buttons.filter { labels.contains($0.label) }
+        guard let index = candidates.firstIndex(where: {
+            horizontal ? abs($0.frame.midY - map.frame.midY) <= 1 : abs($0.frame.midX - map.frame.midX) <= 1
+        }) else { XCTFail("主导航应沿同一行或列呈现：\(title)。"); return UIElement(query.firstMatch) }
+        let element = UIElement(query.element(boundBy: index))
+        element.capturedSnapshot = candidates[index]
+        element.capturedGeneration = UITestSnapshotReader.generation
+        return element
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
@@ -593,6 +613,70 @@ extension XCUIElementSnapshot {
 
 @MainActor
 extension UIAutomationTestCase {
+    func captureBrowserScreenshot(_ title: String) {
+        let attachment = XCTAttachment(screenshot: app.native.screenshot())
+        attachment.name = "界面截图：\(title)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    func checkSideToolbar(_ labels: [String]) {
+        let window = app.native.windows.firstMatch.frame
+        guard let safe = app.scrollGestureFrame(in: window) else { return }
+        let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { app.native.buttons[$0].frame }
+            .reduce(CGRect.null) { $0.union($1) }
+        var previous: CGRect?
+        let buttons = labels.map { app.native.buttons[$0] }
+        let visible = buttons.filter { $0.exists && $0.isHittable }
+        assertUI(!visible.isEmpty, "侧栏应直接呈现主要操作。")
+        for button in visible {
+            assertUI(button.frame.minX >= safe.maxX - 0.5 && button.frame.maxX <= window.maxX
+                && button.frame.maxY <= navigation.minY,
+                "工具应完整排列在主导航上方的系统侧栏：\(button.label)，按钮 \(button.frame)。")
+            if let previous { assertUI(button.frame.minY >= previous.maxY, "侧栏工具应按顺序竖向排列。") }
+            previous = button.frame
+        }
+        let hidden = labels.filter { !app.native.buttons[$0].exists || !app.native.buttons[$0].isHittable }
+        if !hidden.isEmpty {
+            let overflow = app.native.buttons["BottomOverflowBarButtonItem"]
+            assertUI(overflow.exists && overflow.isHittable && overflow.frame.minX >= safe.maxX
+                && overflow.frame.maxY <= navigation.minY, "剩余操作应由系统侧栏更多菜单承载。")
+            overflow.press(forDuration: 0.01)
+            for label in hidden {
+                let item = app.native.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+                assertUI(item.waitForExistence(timeout: 5) && item.isHittable, "更多菜单应提供原有操作：\(label)。")
+            }
+            dismissBrowserActionMenu()
+        }
+    }
+
+    func checkBrowserActionBounds(_ labels: [String]) {
+        let window = app.native.windows.firstMatch.frame
+        if window.height > window.width && (windowTraits()["safeTrailing"] ?? 0) > 0 { checkSideToolbar(labels); return }
+        let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+            .reduce(CGRect.null) { $0.union($1) }
+        for label in labels {
+            let button = app.native.buttons[label]
+            assertUI(button.isHittable && window.contains(button.frame) && !button.frame.intersects(navigation),
+                "悬浮工具应完整显示在主导航之外：\(label)。")
+        }
+    }
+
+    func revealBrowserAction(_ label: String) -> UIElement {
+        if !app.native.buttons[label].exists {
+            let overflow = app.native.buttons["BottomOverflowBarButtonItem"]
+            assertUI(overflow.exists && overflow.isHittable, "折叠操作应提供系统更多菜单：\(label)。")
+            overflow.press(forDuration: 0.01)
+        }
+        assertUI(app.native.buttons[label].waitForExistence(timeout: 5) && app.native.buttons[label].isHittable,
+            "当前操作应可触达：\(label)。")
+        return app.buttons[label]
+    }
+
+    func dismissBrowserActionMenu() {
+        app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.75)).tapBriefly()
+    }
+
     func checkScheduleGeometry() {
         let schedule = app.mainTab("日程")
         guard schedule.exists, schedule.isSelected else { return }

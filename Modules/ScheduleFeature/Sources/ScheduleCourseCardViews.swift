@@ -147,29 +147,17 @@ struct ScheduleCardTextView: UIViewRepresentable {
             }
 
             let gap = AppDesignSystem.Schedule.Grid.cellSpacing
-            let titleHeight = measuredHeight(text: title, font: baseFont, width: bounds.width)
-            let availableLocationHeight = max(bounds.height - titleHeight - gap, 0)
-            guard availableLocationHeight >= baseFont.lineHeight else {
-                layoutTitle(text: title, in: bounds)
-                hideLocation()
-                return
-            }
             let locationHeight = min(
                 measuredHeight(text: location, font: baseFont, width: bounds.width),
-                floor(availableLocationHeight / baseFont.lineHeight) * baseFont.lineHeight
+                bounds.height
             )
             let titleAvailableHeight = max(bounds.height - locationHeight - gap, 0)
-            _ = layoutTitle(
-                text: title,
-                in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight)
-            )
-            configureLocationLabel(text: location, height: locationHeight)
-            locationLabel.frame = CGRect(
-                x: 0,
-                y: bounds.height - locationHeight,
-                width: bounds.width,
-                height: locationHeight
-            )
+            if titleAvailableHeight >= baseFont.lineHeight {
+                layoutTitle(text: title,
+                    in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight))
+            } else { hideTitle() }
+            layoutLocation(text: location,
+                in: CGRect(x: 0, y: bounds.height - locationHeight, width: bounds.width, height: locationHeight))
         }
 
         @discardableResult
@@ -199,13 +187,26 @@ struct ScheduleCardTextView: UIViewRepresentable {
             in rect: CGRect,
             verticallyCentered: Bool = false
         ) {
-            guard !text.isEmpty else {
+            guard !text.isEmpty, rect.height > 0 else {
                 hideLocation()
                 return
             }
             locationLabel.textAlignment = .center
-            let height = min(measuredHeight(text: text, font: baseFont, width: rect.width), rect.height)
-            configureLocationLabel(text: text, height: height)
+            let naturalHeight = measuredHeight(text: text, font: baseFont, width: rect.width)
+            var font = baseFont
+            if naturalHeight > rect.height {
+                var lower = baseFont.pointSize * rect.height / naturalHeight
+                var upper = baseFont.pointSize
+                while upper - lower > 1 / contentScaleFactor {
+                    let size = (lower + upper) / 2
+                    if measuredHeight(text: text, font: baseFont.withSize(size), width: rect.width) <= rect.height {
+                        lower = size
+                    } else { upper = size }
+                }
+                font = baseFont.withSize(lower)
+            }
+            let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
+            configureLocationLabel(text: text, height: height, font: font)
             locationLabel.frame = CGRect(
                 x: rect.minX,
                 y: verticallyCentered
@@ -216,11 +217,11 @@ struct ScheduleCardTextView: UIViewRepresentable {
             )
         }
 
-        private func configureLocationLabel(text: String, height: CGFloat) {
+        private func configureLocationLabel(text: String, height: CGFloat, font: UIFont) {
             locationLabel.isHidden = false
             locationLabel.text = text
-            locationLabel.font = baseFont
-            locationLabel.numberOfLines = max(Int(floor(height / baseFont.lineHeight)), 1)
+            locationLabel.font = font
+            locationLabel.numberOfLines = max(Int(floor(height / font.lineHeight)), 1)
             locationLabel.preferredMaxLayoutWidth = bounds.width
         }
 

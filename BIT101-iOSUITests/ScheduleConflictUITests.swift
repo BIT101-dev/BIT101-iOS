@@ -127,6 +127,18 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var sidebarWidth: CGFloat?
     private var navigationBackground: [Int]?
     @MainActor
+    @objc func testGallerySurfaceChangesKeepCompactNavigation() {
+        if UIDevice.current.userInterfaceIdiom != .phone { XCUIDevice.shared.orientation = .portrait }
+        app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
+        for surface in ["话题", "文章", "话题", "文章"] {
+            app.native.segmentedControls.buttons[surface].press(forDuration: 0.01)
+            assertCompactNavigation(requiresSections: true)
+            let search = surface == "话题" ? "搜索话廊" : "搜索文章"
+            assertUI(app.native.buttons[search].isHittable, "切换内容应保留当前页面的操作入口。")
+        }
+        captureBrowserScreenshot("话廊顶部间距")
+    }
+    @MainActor
     @objc func testCompactWindowKeepsSystemBarsAndListsWithinBounds() {
         if UIDevice.current.userInterfaceIdiom != .phone { XCUIDevice.shared.orientation = .portrait }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
@@ -718,9 +730,12 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         }
         if frame.midY < app.native.windows.firstMatch.frame.midY,
            let first = controls.min(by: { $0.frame.minY < $1.frame.minY }) {
-            let gap = first.frame.minY - frame.maxY
-            assertUI(gap >= 0 && gap <= first.frame.height,
-                "顶部导航与分区栏应沿内容间距排列：间距 \(gap)，分区栏 \(first.frame)，主导航 \(frame)。")
+            assertUI(waitUntil(NSPredicate { _, _ in
+                let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { self.app.mainTab($0).native.frame }
+                    .reduce(CGRect.null) { $0.union($1) }
+                let gap = first.frame.minY - navigation.maxY
+                return gap >= 0 && gap <= first.frame.height
+            }, on: app), "顶部导航与分区栏应沿内容间距排列：分区栏 \(first.frame)，主导航 \(frame)。")
         }
     }
     @MainActor private func checkAcademicBrowsers() {

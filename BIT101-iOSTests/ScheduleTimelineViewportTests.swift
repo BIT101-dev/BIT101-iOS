@@ -1,6 +1,8 @@
 @testable import ScheduleFeature
 import Foundation
 import Testing
+import UIKit
+import ScheduleDomain
 @testable import BIT101_iOS
 
 @Suite("Schedule linear timeline viewport")
@@ -127,6 +129,55 @@ struct ScheduleTimelineViewportTests {
             #expect(abs(currentRatio - anchoredRatio) < 0.001)
             #expect(viewport.offsetY > 0)
         }
+    }
+}
+
+@MainActor
+@Suite("Schedule card location priority")
+struct ScheduleCardTextLayoutTests {
+    @Test func buildingAndRoomKeepTheirLinesAcrossCardHeights() throws {
+        let location = "文萃楼A\n101"
+        for font in [UIFont.preferredFont(forTextStyle: .caption1), UIFont.preferredFont(forTextStyle: .title1)] {
+            for height: CGFloat in [18, 40, 120] {
+                let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: height))
+                view.configure(title: String(repeating: "计算机网络与通信原理", count: 5), location: location,
+                    contentMode: .nameAndLocation, font: font, textColor: .label)
+                view.layoutIfNeeded()
+                let labels = view.subviews.compactMap { $0 as? UILabel }
+                let title = try #require(labels.first), room = try #require(labels.last)
+                #expect(!room.isHidden && room.text == location && room.numberOfLines >= 2)
+                let fullRoom = UILabel()
+                fullRoom.text = location; fullRoom.font = room.font; fullRoom.numberOfLines = 0
+                let requiredHeight = fullRoom.sizeThatFits(CGSize(width: room.bounds.width, height: .greatestFiniteMagnitude)).height
+                #expect(room.bounds.height >= requiredHeight - 0.5 && view.bounds.contains(room.frame))
+                #expect(room.font.pointSize <= font.pointSize)
+                if title.isHidden { #expect(title.frame == .zero) }
+                else {
+                    #expect(title.font.pointSize == font.pointSize && view.bounds.contains(title.frame))
+                    #expect(title.frame.maxY <= room.frame.minY)
+                }
+                #expect(view.accessibilityValue == "地点：\(location)")
+            }
+        }
+    }
+
+    @Test func changingCourseNamePreservesTheRoomSpaceAndContentModes() throws {
+        let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: 100))
+        let font = UIFont.preferredFont(forTextStyle: .caption1), location = "文萃楼A\n101"
+        let labels = view.subviews.compactMap { $0 as? UILabel }
+        let title = try #require(labels.first), room = try #require(labels.last)
+        func configure(_ name: String, _ mode: ScheduleCardContentMode) {
+            view.configure(title: name, location: location, contentMode: mode, font: font, textColor: .label)
+            view.layoutIfNeeded()
+        }
+        configure("高数", .nameAndLocation)
+        let roomFrame = room.frame
+        configure(String(repeating: "长课程名称", count: 20), .nameAndLocation)
+        #expect(room.frame == roomFrame && !title.isHidden && room.numberOfLines >= 2)
+        configure("高数", .name)
+        #expect(room.isHidden && !title.isHidden)
+        configure("高数", .location)
+        #expect(title.isHidden && !room.isHidden && room.numberOfLines >= 2)
     }
 }
 

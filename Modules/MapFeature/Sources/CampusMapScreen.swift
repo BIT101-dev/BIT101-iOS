@@ -74,6 +74,7 @@ public struct CampusMapScreen: View {
     @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
     @StateObject private var locationController = CampusLocationController()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appWindowLayout) private var layout
     @State private var isVisible = false
     /// SwiftUI 发给地图桥接层的聚焦请求。
     @State private var focusRequest = MapFocusRequest(preset: .liangxiang, animated: false)
@@ -96,7 +97,7 @@ public struct CampusMapScreen: View {
 
     /// 地图主页主体。
     public var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        ZStack {
             CampusNativeMapView(
                 focusRequest: focusRequest,
                 centerOnUserRequestID: centerOnUserRequestID,
@@ -110,36 +111,35 @@ public struct CampusMapScreen: View {
                 }
             )
             .ignoresSafeArea(edges: [.top, .bottom])
-
-            AppFloatingActionStack {
-                AppFloatingActionButton(
-                    systemImage: displayMode.systemImage,
-                    accessibilityLabel: "切换地图图层"
-                ) {
-                    toggleDisplayMode()
-                }
-                .accessibilityValue(displayMode.title)
-
-                if let place = nextCourseTarget?.place {
-                    AppFloatingActionButton(
-                        systemImage: "arrow.triangle.turn.up.right.diamond.fill",
-                        accessibilityLabel: "导航到下一节课"
-                    ) {
-                        openDirections(to: place)
-                    }
-                }
-
-                AppFloatingActionButton(
-                    systemImage: locationController.isAuthorized ? "location.fill" : "location",
-                    accessibilityLabel: "定位到我的位置"
-                ) {
-                    centerOnUser()
-                }
-
-                campusButtons
-            }
         }
-        .toolbar(.hidden, for: .navigationBar)
+        .appBrowserActions {
+            AppFloatingActionButton(
+                systemImage: displayMode.systemImage,
+                accessibilityLabel: "切换地图图层"
+            ) {
+                toggleDisplayMode()
+            }
+            .accessibilityValue(displayMode.title)
+
+            if let place = nextCourseTarget?.place {
+                AppFloatingActionButton(
+                    systemImage: "arrow.triangle.turn.up.right.diamond.fill",
+                    accessibilityLabel: "导航到下一节课"
+                ) {
+                    openDirections(to: place)
+                }
+            }
+
+            AppFloatingActionButton(
+                systemImage: locationController.isAuthorized ? "location.fill" : "location",
+                accessibilityLabel: "定位到我的位置"
+            ) {
+                centerOnUser()
+            }
+
+            campusButtons
+        }
+        .toolbar(layout.usesSideToolbar ? .visible : .hidden, for: .navigationBar)
         .onAppear {
             isVisible = true
             guard !hasRestoredStoredCampus else { return }
@@ -251,26 +251,39 @@ private struct FloatingMapLabelButton: View {
     let accessibilityLabel: String
     let isSelected: Bool
     let action: () -> Void
+    @Environment(\.appUsesNativeToolbarActions) private var usesNativeToolbar
     @State private var feedbackToken = 0
 
     /// 校区切换按钮主体。
     var body: some View {
-        Button {
-            feedbackToken &+= 1
-            action()
-        } label: {
-            AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil) {
-                Text(label)
-                    .font(AppDesignSystem.Typography.floatingLabel)
-                    .foregroundStyle(isSelected ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Foreground.primaryColor)
+        Group {
+            if usesNativeToolbar {
+                Button(accessibilityLabel, systemImage: isSelected ? "building.2.fill" : "building.2", action: performAction)
+                    .labelStyle(.iconOnly)
+                    .accessibilityLabel(accessibilityLabel)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityIdentifier("ui.floating-map-label-button.toolbar-action")
+            } else {
+                Button(action: performAction) {
+                    AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil) {
+                        Text(label)
+                            .font(AppDesignSystem.Typography.floatingLabel)
+                            .foregroundStyle(isSelected ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Foreground.primaryColor)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityIdentifier("ui.floating-map-label-button.action")
             }
         }
-        .buttonStyle(.plain)
         .appImpactFeedback(trigger: feedbackToken)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .accessibilityIdentifier("ui.floating-map-label-button.action")
     }
+    private func performAction() {
+        feedbackToken &+= 1
+        action()
+    }
+
 }
 
 #endif

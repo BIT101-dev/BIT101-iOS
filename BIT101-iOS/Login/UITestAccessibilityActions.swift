@@ -151,6 +151,7 @@ enum UITestAccessibilityActions {
             "latitude": map.region.center.latitude, "longitude": map.region.center.longitude,
             "latitudeDelta": map.region.span.latitudeDelta, "longitudeDelta": map.region.span.longitudeDelta,
             "distance": map.camera.centerCoordinateDistance,
+            "configuration": String(describing: type(of: map.preferredConfiguration)),
             "scrollEnabled": map.isScrollEnabled, "zoomEnabled": map.isZoomEnabled
         ])
     }

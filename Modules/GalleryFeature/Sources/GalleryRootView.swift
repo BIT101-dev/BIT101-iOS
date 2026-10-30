@@ -158,18 +158,13 @@ private struct GalleryRootViewScene: View {
             } else if !includesPaperSurface {
                 galleryContent
             } else {
-                TabView(selection: surfaceSelection) {
+                AppPairedPages(showsFirst: selectedSurface == .gallery, pairsInLandscape: false) {
                     galleryContent
-                        .tag(GallerySurface.gallery)
-                        .tabItem { Text(GallerySurface.gallery.title) }
-                        .toolbar(.hidden, for: .tabBar)
+                } second: {
                     destinations.papers(
                         $requestedPaperID,
                         { selectedSurface = .gallery }
                     )
-                    .tag(GallerySurface.paper)
-                    .tabItem { Text(GallerySurface.paper.title) }
-                    .toolbar(.hidden, for: .tabBar)
                 }
                 .accessibilityIdentifier("gallery.surfaces")
             }

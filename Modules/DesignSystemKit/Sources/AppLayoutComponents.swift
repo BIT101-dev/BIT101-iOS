@@ -50,6 +50,12 @@ public struct AppWindowLayout: Equatable {
         if #available(iOS 18.0, *) { return isRegularWidth && usesOpaqueNavigation } else { return false }
     }
     public var usesBottomTabBar: Bool { !usesTopTabBar && !hasHorizontalSystemInsets }
+    public var usesSideToolbar: Bool {
+#if !targetEnvironment(macCatalyst)
+        if #available(iOS 27.1, *) { return hasHorizontalSystemInsets && !isLandscapeWindow }
+#endif
+        return false
+    }
     public var usesOpaqueNavigation: Bool {
         switch interfaceIdiom {
         case .phone: false
@@ -65,6 +71,7 @@ private struct AppWindowLayoutKey: EnvironmentKey {
 extension EnvironmentValues {
     @Entry public var appExpandedNavigation = false
     @Entry public var appPageIsVisible = true
+    @Entry public var appUsesNativeToolbarActions = false
     @Entry public var appBrowserHeader: AnyView? = nil
     @Entry public var appFeedRowIsSelected = false
     @Entry public var appContentColumn: AppContentColumn? = nil
@@ -124,6 +131,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
     @Environment(\.appPageIsVisible) private var isVisible
     @Binding private var selection: Selection?
     @State private var wasLandscapeWindow = false
+    @State private var hasSideActions = false
     private let master: Master
     private let detail: (Selection) -> Detail
     private let defaultDetail: DefaultDetail
@@ -141,49 +149,39 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
         self.master = master(); self.detail = detail
     }
     public var body: some View {
-        let arrangement = layout.isLandscape
-            ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.none))
-            : AnyLayout(ZStackLayout(alignment: .leading))
-        let showsDetail = layout.isLandscape || selection != nil
-        arrangement {
-            NavigationStack { masterContent }
-            .environment(\.appContentColumn, layout.isLandscape ? .leading : nil)
-            .frame(width: layout.isLandscape ? layout.sidebarWidth : nil)
-            .frame(maxWidth: layout.isLandscape ? nil : .infinity, maxHeight: .infinity)
-            .overlay(alignment: .trailing) {
-                if layout.isLandscape {
-                    HStack(spacing: AppDesignSystem.Spacing.none) {
-                        Spacer(minLength: AppDesignSystem.Spacing.none)
-                        Divider()
-                    }
-                    .allowsHitTesting(false)
-                }
-            }
-            .allowsHitTesting(layout.isLandscape || selection == nil)
-            .accessibilityHidden(!layout.isLandscape && selection != nil)
-            .environment(\.appPageIsVisible, isVisible && (layout.isLandscape || selection == nil))
-            NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
-                Group {
-                    if layout.isLandscape {
+        Group {
+            if layout.isLandscape {
+                HStack(spacing: AppDesignSystem.Spacing.none) {
+                    NavigationStack { masterContent }
+                        .environment(\.appContentColumn, .leading)
+                        .frame(width: layout.sidebarWidth)
+                    Divider()
+                    NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
                         defaultDetail
-                    } else { Color.clear }
-                }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppDesignSystem.Palette.Background.grouped)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar(layout.isLandscape ? .visible : .hidden, for: .navigationBar)
-                    .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                    .navigationDestination(for: Selection.self) { selected in
-                        detailContent(selected).appPaneBackButton(isPresented: layout.isLandscape) { selection = nil }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(AppDesignSystem.Palette.Background.grouped)
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar(.visible, for: .navigationBar)
+                            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+                            .navigationDestination(for: Selection.self) { selected in
+                                detailContent(selected).appPaneBackButton(isPresented: true) { selection = nil }
+                            }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
+                    .environment(\.appContentColumn, .trailing)
+                    .padding(.top, header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
+                }
+            } else {
+                NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
+                    masterContent
+                        .environment(\.appPageIsVisible, isVisible && selection == nil)
+                        .navigationDestination(for: Selection.self) { selected in
+                            detailContent(selected)
+                                .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
+                        }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(showsDetail ? 1 : 0)
-            .allowsHitTesting(showsDetail)
-            .accessibilityHidden(!showsDetail)
-            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
-            .environment(\.appContentColumn, layout.isLandscape ? .trailing : nil)
-            .padding(.top, header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
         }
         .padding(.top, header == nil ? layout.contentTopInset : AppDesignSystem.Spacing.none)
         .ignoresSafeArea(.keyboard, edges: layout.isLandscapeWindow ? .bottom : [])
@@ -208,8 +206,9 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
             .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
                 header?.padding(.top, layout.contentTopInset)
             }
-            .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
+            .toolbar(layout.usesTopTabBar || hasSideActions ? .visible : .hidden, for: .navigationBar)
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+            .onPreferenceChange(AppSideToolbarPreferenceKey.self) { hasSideActions = $0 }
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
     }
 
@@ -474,6 +473,7 @@ public struct AppFloatingActionButton: View {
     let badgeText: String?
     let accessibilityLabel: String
     let action: () -> Void
+    @Environment(\.appUsesNativeToolbarActions) private var usesNativeToolbar
     @State private var feedbackToken = 0
 
     public init(
@@ -489,33 +489,46 @@ public struct AppFloatingActionButton: View {
     }
 
     public var body: some View {
-        Button {
-            feedbackToken &+= 1
-            action()
-        } label: {
-            ZStack(alignment: .topTrailing) {
-                AppFloatingActionButtonLabel(systemImage: systemImage)
+        Group {
+            if usesNativeToolbar {
+                Button(accessibilityLabel, systemImage: systemImage, action: performAction)
+                    .labelStyle(.iconOnly)
+                    .badge(badgeText.map { Text($0) })
+                    .accessibilityLabel(accessibilityLabel)
+                    .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
+                    .accessibilityIdentifier("ui.app-floating-action-button.toolbar-action")
+            } else {
+                Button(action: performAction) {
+                    ZStack(alignment: .topTrailing) {
+                        AppFloatingActionButtonLabel(systemImage: systemImage)
 
-                if let badgeText {
-                    Text(badgeText)
-                        .font(AppDesignSystem.Typography.captionEmphasis)
-                        .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
-                        .padding(.horizontal, AppDesignSystem.Spacing.tiny)
-                        .frame(
-                            minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
-                            minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
-                        )
-                        .background(AppDesignSystem.Palette.Status.danger, in: Capsule())
-                        .offset(x: AppDesignSystem.Spacing.tiny, y: -AppDesignSystem.Spacing.tiny)
+                        if let badgeText {
+                            Text(badgeText)
+                                .font(AppDesignSystem.Typography.captionEmphasis)
+                                .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
+                                .padding(.horizontal, AppDesignSystem.Spacing.tiny)
+                                .frame(
+                                    minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
+                                    minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
+                                )
+                                .background(AppDesignSystem.Palette.Status.danger, in: Capsule())
+                                .offset(x: AppDesignSystem.Spacing.tiny, y: -AppDesignSystem.Spacing.tiny)
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
+                .accessibilityIdentifier("ui.app-floating-action-button.action")
             }
         }
-        .buttonStyle(.plain)
         .appImpactFeedback(trigger: feedbackToken)
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-            .accessibilityIdentifier("ui.app-floating-action-button.action")
     }
+    private func performAction() {
+        feedbackToken &+= 1
+        action()
+    }
+
 }
 
 /// 菜单标签复用圆形操作按钮主体，`Button` 和 `Menu` 保持相同的尺寸。
@@ -587,7 +600,37 @@ public struct AppFloatingActionStack<Content: View>: View {
 
 extension View {
     public func appBrowserActions<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
-        overlay(alignment: .bottomTrailing) { AppFloatingActionStack { actions() } }
+        modifier(AppBrowserActionsModifier(actions: actions()))
+    }
+}
+
+private struct AppSideToolbarPreferenceKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
+private struct AppBrowserActionsModifier<Actions: View>: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appPageIsVisible) private var isVisible
+    let actions: Actions
+    private var usesSideToolbar: Bool { layout.usesSideToolbar && isVisible }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottomTrailing) {
+                if !usesSideToolbar { AppFloatingActionStack { actions } }
+            }
+            .toolbar {
+#if !targetEnvironment(macCatalyst)
+                if #available(iOS 27.1, *), usesSideToolbar {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        actions.environment(\.appUsesNativeToolbarActions, true)
+                    }
+                    .axisBehavior(.verticalPreferred)
+                }
+#endif
+            }
+            .preference(key: AppSideToolbarPreferenceKey.self, value: usesSideToolbar)
     }
 }
 

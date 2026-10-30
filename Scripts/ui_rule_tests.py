@@ -119,17 +119,17 @@ func sample() {
     haptic_source = '''
 extension View {
     public func appSelectionFeedback<T: Equatable>(trigger: T) -> some View {
-        sensoryFeedback(.selection, trigger: trigger)
+        onChange(of: trigger) { _, _ in UISelectionFeedbackGenerator().selectionChanged() }
     }
     public func appImpactFeedback<T: Equatable>(trigger: T) -> some View {
-        sensoryFeedback(.impact, trigger: trigger)
+        onChange(of: trigger) { _, _ in UIImpactFeedbackGenerator().impactOccurred() }
     }
 }
 '''
     haptic_syntax = swift_syntax_index_sources({str(haptic_path): haptic_source})
     if haptic_entry_findings({haptic_path: haptic_source}, haptic_syntax)[0]:
         findings.append("UI 契约规则边界自检失败：公共触感声明应支持文件迁移")
-    wrong_source = haptic_source.replace(".selection", ".impact")
+    wrong_source = haptic_source.replace("UISelectionFeedbackGenerator", "UIImpactFeedbackGenerator")
     wrong_syntax = swift_syntax_index_sources({str(haptic_path): wrong_source})
     if len(haptic_entry_findings({haptic_path: wrong_source}, wrong_syntax)[0]) != 1:
         findings.append("UI 契约规则边界自检失败：公共触感声明需要对应系统动作")

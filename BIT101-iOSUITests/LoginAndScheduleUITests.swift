@@ -6,6 +6,32 @@ import os
 
 nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
+    func testSideToolbarUsesTheSpaceAboveMainNavigation() throws {
+        app = configureApp(resetStorage: true, content: true, school: true, initialTab: "map")
+        let traits = windowTraits(), window = app.native.windows.firstMatch.frame
+        try XCTSkipIf(window.width > window.height || (traits["safeTrailing"] ?? 0) == 0,
+            "侧栏工具验收使用带侧方系统安全区的竖屏窗口。")
+        checkSideToolbar(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
+        if app.native.buttons["导航到下一节课"].exists { checkSideToolbar(["导航到下一节课"]) }
+        captureBrowserScreenshot("地图侧栏工具")
+        app.mainTab("话廊").tapBriefly()
+        checkSideToolbar(["我的收藏", "消息", "发布话题", "搜索话廊"])
+        captureBrowserScreenshot("话题侧栏工具")
+        app.native.segmentedControls.buttons["文章"].press(forDuration: 0.01)
+        checkSideToolbar(["发布文章", "搜索文章"])
+        captureBrowserScreenshot("文章侧栏工具")
+    }
+    @MainActor
+    func testWeeklyHeaderKeepsItsCompactDateRow() {
+        app = configureApp(resetStorage: true, school: true)
+        let date = app.native.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
+        assertUI(waitUntil(NSPredicate { _, _ in date.exists && abs(date.frame.height - 26) <= 0.5 }, on: app),
+            "周次日期行应保留原来的 26 点高度：\(date.frame)。")
+        let week = app.native.buttons["第1周"]
+        assertUI(week.exists && week.frame.height >= 44 && week.isHittable, "周次滑动条应保留可触达的刻度。")
+    }
+
+    @MainActor
     func testDeadlineWidgetLinkOpensTheDDLSection() throws {
         app = configureApp(resetStorage: true, ddlFixture: "sources")
         defer { Self.endSharedSession() }
@@ -464,20 +490,25 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, initialTab: "map")
         let layer = app.buttons["切换地图图层"]
         assertUI(layer.appears(timeout: 5), "地图应提供图层入口。")
-        let original = layer.value as? String
-        layer.tapBriefly()
-        assertUI(layer.value as? String != original, "切换图层应改变地图模式。")
-        for campus in ["良乡校区", "中关村校区", "珠海校区"] {
-            let button = app.buttons["切换到\(campus)"]
-            button.tapBriefly()
-            assertUI(button.isSelected, "校区切换应更新选中状态：\(campus)")
-        }
-        let map = app.maps.firstMatch
-        assertUI(map.exists, "地图应暴露可交互的地图区域。")
+        checkBrowserActionBounds(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
         func camera() throws -> [String: Any] {
             let snapshot = try XCTUnwrap(UITestControlClient.request(["command": "map-camera"]))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(snapshot.utf8)) as? [String: Any])
         }
+        let original = try XCTUnwrap(try camera()["configuration"] as? String)
+        layer.tapBriefly()
+        let changed = try XCTUnwrap(try camera()["configuration"] as? String)
+        assertUI(changed != original, "切换图层应改变原生地图配置。")
+        var longitude = try XCTUnwrap(try camera()["longitude"] as? Double)
+        for campus in ["中关村校区", "良乡校区", "珠海校区"] {
+            revealBrowserAction("切换到\(campus)").tapBriefly()
+            assertUI(waitUntil(NSPredicate { _, _ in
+                (try? camera()["longitude"] as? Double).map { $0 != longitude } == true
+            }, on: app), "校区切换应改变地图中心：\(campus)。")
+            longitude = try XCTUnwrap(try camera()["longitude"] as? Double)
+        }
+        let map = app.maps.firstMatch
+        assertUI(map.exists, "地图应暴露可交互的地图区域。")
         let initialCamera = try camera()
         XCTAssertEqual(initialCamera["scrollEnabled"] as? Bool, true, "原生地图应启用平移。")
         XCTAssertEqual(initialCamera["zoomEnabled"] as? Bool, true, "原生地图应启用缩放。")
@@ -491,8 +522,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             try XCTUnwrap(pannedCamera["distance"] as? Double), "双指展开应拉近地图相机距离。")
         assertUI(layer.isHittable, "平移和缩放后地图操作仍可触达。")
         app = configureApp(resetStorage: false, initialTab: "map")
-        assertUI(app.buttons["切换地图图层"].value as? String != original, "重新装载应保留图层设置。")
-        assertUI(app.buttons["切换到珠海校区"].isSelected, "重新装载应保留校区。")
+        let restored = try camera()
+        assertUI(restored["configuration"] as? String == changed, "重新装载应保留图层设置。")
+        XCTAssertEqual(try XCTUnwrap(restored["longitude"] as? Double),
+            try XCTUnwrap(initialCamera["longitude"] as? Double), accuracy: 0.0001, "重新装载应保留校区。")
     }
 
     @MainActor

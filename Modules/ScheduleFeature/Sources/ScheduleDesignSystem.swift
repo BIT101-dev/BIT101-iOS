@@ -48,7 +48,7 @@ extension AppDesignSystem {
             static let selectedBarWidth: CGFloat = 4
             static let barWidth: CGFloat = 3
             static let sliderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
-            static let dateHeaderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
+            static let dateHeaderHeight: CGFloat = 26
             static let compactHeaderHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
         }
         static let timelineDefaultScale: CGFloat = CGFloat(24) / CGFloat(13)
