@@ -377,7 +377,10 @@ bit101_checker_audit() {
     python3 "$ROOT_DIR/Scripts/check-code-quality.py" --combined &
   fi
   local quality_process=$!
-  if [[ -n "$evidence_process" ]]; then wait "$evidence_process" || checker_status=1; fi
-  wait "$quality_process" || checker_status=1
+  local child_status=0
+  if [[ -n "$evidence_process" ]]; then
+    wait "$evidence_process" || { child_status=$?; print -u2 -- "[失败] 验证证据自测 · 退出状态 $child_status"; checker_status=1; }
+  fi
+  wait "$quality_process" || { child_status=$?; print -u2 -- "[失败] 源码与 UI 检查 · 退出状态 $child_status"; checker_status=1; }
   return "$checker_status"
 }

@@ -186,6 +186,11 @@ def audit_self_test_selection() -> None:
         assert 'check-code-quality.py --combined' in result.stdout
         assert ('validation_evidence.py self-test' in result.stdout) == (enabled == '1')
         assert ('--combined --self-test' in result.stdout) == (enabled == '1')
+    script = 'ROOT_DIR=/fixture BIT101_AUDIT_SELF_TESTS=1\npython3() { case "$1" in */validation_evidence.py) return 7;; */check-code-quality.py) return 137;; esac; }\n'
+    failed = subprocess.run(['zsh', '-c', script + function + '\nbit101_checker_audit'], capture_output=True, text=True)
+    assert failed.returncode == 1
+    assert '[失败] 验证证据自测 · 退出状态 7' in failed.stderr
+    assert '[失败] 源码与 UI 检查 · 退出状态 137' in failed.stderr
     source = (ROOT / 'Scripts/run-static-audit.sh').read_text()
     parser = source[source.index('set -euo pipefail'):source.index('\nROOT_DIR=')]
     lock_selection = source[source.index('if (( run_artifacts ||'):source.index('bit101_acquire_script_lock "$ROOT_DIR/.build/static-audit/audit.lock"')]
