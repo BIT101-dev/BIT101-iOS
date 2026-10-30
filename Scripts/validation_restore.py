@@ -322,7 +322,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         'supportedDeviceTypes': [{'name': 'iPhone 17 Pro', 'identifier': 'phone'}]}], 'devices': {runtime: [
             {'udid': 'shutdown', 'name': 'iPhone 17 Pro', 'isAvailable': True, 'state': 'Shutdown', 'deviceTypeIdentifier': 'phone'},
             {'udid': 'booted', 'name': 'iPhone 17 Pro', 'isAvailable': True, 'state': 'Booted', 'deviceTypeIdentifier': 'phone'}]}}
-    for hosted, expected in (('true', 'booted'), ('false', 'created')):
+    for hosted in ('true', 'false'):
         def command_output(command, **kwargs):
             return json.dumps(stock) if command[2] == 'list' else 'created'
         with patch.dict(os.environ, GITHUB_ACTIONS=hosted, DEVELOPER_DIR='/fixture/Xcode.app/Contents/Developer'), \
@@ -331,8 +331,8 @@ def simulator_startup_findings(source: str) -> list[str]:
                 patch.object(subprocess, 'check_output', side_effect=command_output) as executed, \
                 patch.object(subprocess, 'run') as prepared, redirect_stdout(StringIO()):
             exec(compile(device_program, '<simulator-stock-device>', 'exec'), {})
-        if json.loads(saved.call_args.args[0])['identifier'] != expected or executed.call_count != (1 if hosted == 'true' else 2):
-            findings.append('模拟器选择自测：托管环境优先复用已启动 iPhone，本机维护项目独立设备')
+        if json.loads(saved.call_args.args[0])['identifier'] != 'booted' or executed.call_count != 1:
+            findings.append('模拟器选择自测：本机与托管环境沿运行时和设备类型复用已启动库存设备')
         if hosted == 'true' and prepared.call_count: findings.append('模拟器选择自测：已启动库存设备保持运行')
     for hosted, operation in (('true', 'app'), ('true', 'release-runtime'), ('true', 'ui'), ('false', 'ui')):
         with patch.object(sys, 'argv', ['ready', str(ROOT / 'Scripts'), 'device', '/fixture', operation, hosted]), \
