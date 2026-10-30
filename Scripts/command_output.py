@@ -126,6 +126,7 @@ def run_command(arguments: list[str]) -> int:
     report_path = Path(arguments[0])
     label = arguments[1]
     started = time.monotonic()
+    build_command = any(Path(argument).name == 'xcodebuild' for argument in arguments[2:])
     report_path.parent.mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(arguments[2:], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     display_limit = OUTPUT_LINE_LIMIT
@@ -143,7 +144,7 @@ def run_command(arguments: list[str]) -> int:
     with report_path.open("w", encoding="utf-8", buffering=1) as report:
         for line in process.stdout:
             report.write(line)
-            if arguments[2] == "xcodebuild":
+            if build_command:
                 match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
                 if match:
                     path = Path(match[1])

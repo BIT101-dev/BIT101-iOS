@@ -312,7 +312,7 @@ sleep() {{ SECONDS=$(( SECONDS + 60 )); }}
 def cache_and_ui_products(fixture: Path) -> None:
     import ctypes
     from ci_evidence import native_cache_available
-    from validation_artifacts import prune_native_storage
+    from validation_artifacts import prune_native_cache_storage
     from test_results import ui_host_product_paths
     cache = fixture / 'cache'
     native = cache / 'CompilationCache.noindex'
@@ -336,7 +336,7 @@ def cache_and_ui_products(fixture: Path) -> None:
         return '/active/usr/bin/swiftc\n' if command[0] == 'xcrun' else '1\t' + str(native) + '\n'
     with patch.object(subprocess, 'run') as prune, patch.object(subprocess, 'check_output', side_effect=output), \
             patch.object(ctypes, 'CDLL', return_value=library) as load:
-        prune_native_storage(cache)
+        prune_native_cache_storage(cache)
     prune.assert_called_once_with(['xcrun', 'llvm-cas', '--cas=' + str(native / 'generic'), '--prune'], check=True, stdout=subprocess.DEVNULL)
     assert [entry.args[0] for entry in load.call_args_list] == [
         '/active/usr/lib/swift/host/compiler/lib_InternalSwiftScan.dylib', '/active/usr/lib/libIndexStore.dylib']
@@ -349,6 +349,7 @@ def cache_and_ui_products(fixture: Path) -> None:
     from compiler_cache import run_cache
     with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
             patch('validation_artifacts.cache_space_report', return_value={'projectBytes': 1}), \
+            patch('validation_artifacts.prune_compilation_cache', return_value=(0, 0)), \
             patch('validation_artifacts.prune_native_storage') as automatic:
         try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
         except SystemExit as status: assert status.code == 0
@@ -364,7 +365,9 @@ def cache_and_ui_products(fixture: Path) -> None:
     saved = json.loads(metadata.read_text())
     assert saved['identity'] == identity and saved['flavor'] == 'simulator-app' and saved['space']['projectBytes'] > 0
     current = record_cache_space(fixture)
-    assert json.loads(metadata.read_text()) == dict(identity=identity, flavor='simulator-app', space=current)
+    saved = json.loads(metadata.read_text())
+    assert saved['identity'] == identity and saved['flavor'] == 'simulator-app' and saved['space'] == current
+    assert saved['sampleFreeBytes'] > 0
     from validation_artifacts import cache_space_report
     measured = cache_space_report(fixture)
     assert measured['projectBytes'] > 0 and measured['casGenerationLimitBytes'] == CAS_GENERATION_LIMIT
@@ -373,6 +376,7 @@ def cache_and_ui_products(fixture: Path) -> None:
         def execute(command, **kwargs):
             return subprocess.CompletedProcess(command, 0) if command[0] == 'zsh' else original_run(command, **kwargs)
         with patch.object(subprocess, 'run', side_effect=execute), \
+                patch('validation_artifacts.cache_maintenance_needed', return_value=True), \
                 patch('validation_artifacts.prune_compilation_cache', return_value=(0, 0)):
             try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
             except SystemExit as status: assert status.code == 0
@@ -391,6 +395,7 @@ def cache_and_ui_products(fixture: Path) -> None:
         result.parent.mkdir(parents=True, exist_ok=True)
         result.write_bytes(b'result' * 4096)
     assert sample_after_build()['diagnosticBytes'] > after['diagnosticBytes']
+    cache_maintenance_self_test(fixture)
     from compiler_cache import cache_layout_ready
     from validation_artifacts import cache_names
     derived = fixture / 'ready'; derived.mkdir()
@@ -428,6 +433,55 @@ def cache_and_ui_products(fixture: Path) -> None:
     try: ui_host_product_paths(products)
     except ValueError: pass
     else: raise AssertionError('运行文件需要位于当前产品目录')
+
+
+def cache_maintenance_self_test(fixture: Path) -> None:
+    import sqlite3
+    import validation_artifacts as artifacts
+    from compiler_cache import run_cache
+    metadata = fixture / '.build/compiler-cache/compilation-cache.json'
+    saved = json.loads(metadata.read_text())
+    free = saved['sampleFreeBytes']
+    with patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free})()):
+        assert not artifacts.cache_maintenance_needed(fixture)
+    with patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free - artifacts.CACHE_GROWTH_INTERVAL})()):
+        assert artifacts.cache_maintenance_needed(fixture)
+    with patch.object(subprocess, 'check_output', return_value=str((saved['space']['casBytes'] + artifacts.CACHE_GROWTH_INTERVAL) // 1024)), \
+            patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free})()):
+        assert artifacts.cache_maintenance_needed(fixture)
+    for exit_code, needed, crashed in ((0, False, False), (7, True, False), (0, True, True)):
+        with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], exit_code)), \
+                patch.object(artifacts, 'cache_maintenance_needed', return_value=needed), \
+                patch.object(artifacts, 'prune_compilation_cache', side_effect=RuntimeError('native signal 11')) as prune, \
+                patch.object(artifacts, 'record_cache_space') as sample, redirect_stderr(StringIO()):
+            try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build'])
+            except SystemExit as status: assert status.code == exit_code
+            assert prune.called == crashed
+            sample.assert_not_called()
+    for exit_code in (-11, 1, 124):
+        with patch('workflow_processes.capture_command', return_value=subprocess.CompletedProcess([], exit_code, '', 'native failure')):
+            try: artifacts.prune_compilation_cache(fixture / 'cache')
+            except RuntimeError as error: assert str(exit_code) in str(error) and 'native failure' in str(error)
+            else: raise AssertionError('原生维护失败应回到父进程处理。')
+    derived = fixture / 'database'
+    database = derived / 'Build/Intermediates.noindex/XCBuildData/build.db'
+    database.parent.mkdir(parents=True)
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute('CREATE TABLE incremental (id INTEGER PRIMARY KEY, value BLOB)')
+        connection.executemany('INSERT INTO incremental VALUES (?, ?)', [(i, b'x' * 4096) for i in range(100)])
+        connection.execute('DELETE FROM incremental WHERE id > 2'); connection.commit()
+        rows = connection.execute('SELECT * FROM incremental').fetchall()
+    finally: connection.close()
+    before = database.stat().st_size
+    with patch.object(artifacts, 'CACHE_GROWTH_INTERVAL', 1): artifacts.compact_build_databases([derived])
+    connection = sqlite3.connect(database)
+    try: assert connection.execute('SELECT * FROM incremental').fetchall() == rows
+    finally: connection.close()
+    assert database.stat().st_size < before
+    metadata.write_text('{')
+    assert artifacts.cache_maintenance_needed(fixture)
+    artifacts.update_cache_metadata(metadata, saved)
 
 
 def incremental_archives(fixture: Path) -> None:

@@ -148,7 +148,7 @@ def capture_command(command: list[str], *, cwd=None, timeout=60) -> subprocess.C
             stop_groups({process.pid} | descendant_groups(process.pid), grace_seconds=0)
             output, error = process.communicate()
             status = 124
-            error += f'\n[超时] 远端请求达到 {timeout:g} 秒执行期限。\n'
+            error += f'\n[超时] 命令达到 {timeout:g} 秒执行期限。\n'
         return subprocess.CompletedProcess(command, status, output, error)
     finally:
         if process.poll() is None:

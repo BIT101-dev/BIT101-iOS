@@ -14,6 +14,7 @@ case "$operation" in
   runtime)
     [[ $# -eq 1 && "$1" == info ]] \
       || [[ $# -eq 2 && "$1" == (upgrade|prune) && "$2" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
+      || [[ $# -eq 3 && "$1" == (upgrade|prune) && "$2" == (iOS|watchOS|tvOS|visionOS) && "$3" =~ '^[0-9]+(\.[0-9]+){1,2}$' ]] \
       || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ '^([0-9]+(\.[0-9]+){1,2}|[0-9]+[A-Z][0-9]+[a-z]?)$' ]] || exit 64;;
   devices) [[ $# -ge 2 && "$1" == (prune|clean) ]] || exit 64;;
   app|release-runtime|ui) ;;
@@ -43,11 +44,14 @@ PYDEVICEPRUNE
 fi
 if [[ "$operation" == runtime ]]; then
   if [[ "$1" == (upgrade|prune) ]]; then
-    python3 - "$ROOT_DIR/Scripts" "$1" "$2" <<'PYRUNTIMEMANAGE'
+    runtime_platform=iOS
+    runtime_version="$2"
+    if (( $# == 3 )); then runtime_platform="$2"; runtime_version="$3"; fi
+    python3 - "$ROOT_DIR/Scripts" "$1" "$runtime_version" "$runtime_platform" <<'PYRUNTIMEMANAGE'
 import sys
 sys.path.insert(0, sys.argv[1])
 from validation_simulator import manage_runtimes
-manage_runtimes(sys.argv[2], sys.argv[3])
+manage_runtimes(sys.argv[2], sys.argv[3], sys.argv[4])
 PYRUNTIMEMANAGE
     exit 0
   fi

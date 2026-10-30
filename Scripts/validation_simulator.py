@@ -63,7 +63,9 @@ def remove_runtime_images(identifiers: set[str]) -> None:
     print(f'运行时已回收，系统登记大小 {removed / 1024 ** 3:.2f} GiB。')
 
 
-def manage_runtimes(action: str, version: str) -> None:
+def manage_runtimes(action: str, version: str, platform_name: str = 'iOS') -> None:
+    if platform_name not in {'iOS', 'watchOS', 'tvOS', 'visionOS'}:
+        raise ValueError('运行时维护需要指定 iOS、watchOS、tvOS 或 visionOS。')
     def inventory():
         return json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', '--json'], text=True))
 
@@ -75,11 +77,11 @@ def manage_runtimes(action: str, version: str) -> None:
 
     data = inventory()
     target_version = version_tuple(version)
-    targets = [row for row in data['runtimes'] if row['isAvailable'] and row['version'] == version]
-    older = [row for row in data['runtimes'] if version_tuple(row['version']) < target_version]
-    families = {platform(row) for row in older}
-    if missing := families - {platform(row) for row in targets}:
-        raise ValueError('目标运行时需要覆盖已安装平台：' + ', '.join(sorted(missing)))
+    selected = [row for row in data['runtimes'] if platform(row) == platform_name]
+    targets = [row for row in selected if row['isAvailable'] and row['version'] == version]
+    if not targets:
+        raise ValueError(f'{platform_name} {version} 运行时需要先安装并可用。')
+    older = [row for row in selected if version_tuple(row['version']) < target_version]
     if action == 'upgrade':
         plan = []
         for runtime in older:
@@ -105,7 +107,7 @@ def manage_runtimes(action: str, version: str) -> None:
                 owned['runtime'] = runtime
                 record.write_text(json.dumps(owned) + '\n')
         print(f'运行时迁移完成：{len(plan)} 台设备。')
-        manage_runtimes('prune', version)
+        manage_runtimes('prune', version, platform_name)
     elif action == 'prune':
         if any(data['devices'].get(row['identifier']) for row in older):
             raise ValueError('旧运行时的全部设备需要先完成迁移。')

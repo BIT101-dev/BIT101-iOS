@@ -7,7 +7,7 @@ import shutil
 import sys
 import subprocess
 import json
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager, ExitStack, closing
 from validation_policy import TEST_GROUPS, BUILD_HOSTS
 
 if not __debug__:
@@ -144,9 +144,25 @@ def recover_self_test_artifacts(root: Path) -> None:
 
 
 CAS_GENERATION_LIMIT = 2 * 1024 ** 3
+CACHE_GROWTH_INTERVAL = 64 * 1024 ** 2
 
 
 def prune_compilation_cache(shared: Path, compiler: Path | None = None) -> tuple[int, int]:
+    return native_cache_process(shared, 'cas', compiler)
+
+
+def native_cache_process(shared: Path, operation: str, compiler: Path | None = None) -> tuple[int, int]:
+    from workflow_processes import capture_command
+    command = [sys.executable, '-B', '-E', str(Path(__file__).resolve()), '--native-cache', operation, str(shared)]
+    if compiler is not None: command.append(str(compiler))
+    result = capture_command(command)
+    if result.returncode:
+        raise RuntimeError(f'原生缓存维护退出 {result.returncode}：{result.stderr.strip()}')
+    before, after = json.loads(result.stdout)
+    return before, after
+
+
+def prune_cas_storage(shared: Path, compiler: Path | None = None) -> tuple[int, int]:
     import ctypes
     stores = [path for path in (shared / 'CompilationCache.noindex').iterdir()
               if path.is_dir() and any(path.glob('v*'))] if (shared / 'CompilationCache.noindex').is_dir() else []
@@ -214,7 +230,9 @@ def cache_space_report(root: Path) -> dict:
 
 
 def update_cache_metadata(output: Path, fields: dict) -> dict:
-    metadata = json.loads(output.read_text()) if output.is_file() else {}
+    try: metadata = json.loads(output.read_text())
+    except (OSError, ValueError): metadata = {}
+    if not isinstance(metadata, dict): metadata = {}
     metadata.update(fields)
     output.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
     return metadata
@@ -223,14 +241,47 @@ def update_cache_metadata(output: Path, fields: dict) -> dict:
 def record_cache_space(root: Path) -> dict:
     output = root / '.build/compiler-cache/compilation-cache.json'
     report = cache_space_report(root)
-    update_cache_metadata(output, {'space': report})
+    update_cache_metadata(output, {'space': report, 'sampleFreeBytes': shutil.disk_usage(root).free})
     return report
 
 
+def cache_maintenance_needed(root: Path) -> bool:
+    shared = root / '.build/compiler-cache'
+    try:
+        metadata = json.loads((shared / 'compilation-cache.json').read_text())
+        sampled_cas = metadata['space']['casBytes']
+        sampled_free = metadata['sampleFreeBytes']
+        if not isinstance(sampled_cas, int) or not isinstance(sampled_free, int): return True
+    except (OSError, ValueError, TypeError, KeyError):
+        return True
+    cas = shared / 'CompilationCache.noindex'
+    size = int(subprocess.check_output(['du', '-sk', str(cas)], text=True).split()[0]) * 1024 if cas.is_dir() else 0
+    return max(size - sampled_cas, sampled_free - shutil.disk_usage(root).free) >= CACHE_GROWTH_INTERVAL
+
+
+def compact_build_databases(derived_roots: list[Path]) -> None:
+    import sqlite3
+    for derived in derived_roots:
+        database = derived / 'Build/Intermediates.noindex/XCBuildData/build.db'
+        if not database.is_file(): continue
+        try:
+            with closing(sqlite3.connect(database, timeout=0)) as connection:
+                page_size = connection.execute('PRAGMA page_size').fetchone()[0]
+                free_pages = connection.execute('PRAGMA freelist_count').fetchone()[0]
+                if page_size * free_pages >= CACHE_GROWTH_INTERVAL and shutil.disk_usage(database.parent).free > database.stat().st_size:
+                    connection.execute('VACUUM')
+        except sqlite3.Error as error:
+            raise RuntimeError(f'构建数据库维护：{database}：{error}') from error
+
+
 def prune_native_storage(shared: Path) -> None:
+    native_cache_process(shared, 'all')
+
+
+def prune_native_cache_storage(shared: Path, compiler: Path | None = None) -> tuple[int, int]:
     # v<格式>.<代际> 的主代与上游代共享引用关系，交由原生工具沿父目录回收。
-    compiler = Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
-    prune_compilation_cache(shared, compiler)
+    compiler = compiler or Path(subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip())
+    sizes = prune_cas_storage(shared, compiler)
     index = shared / 'Index.noindex/DataStore'
     if index.is_dir():
         import ctypes
@@ -246,6 +297,7 @@ def prune_native_storage(shared: Path) -> None:
         if not store: raise RuntimeError('索引缓存需要可读取的原生存储。')
         try: library.indexstore_store_purge_stale_data(store)
         finally: library.indexstore_store_dispose(store)
+    return sizes
 
 
 def maintain_native_storage(shared: Path) -> None:
@@ -327,4 +379,10 @@ def main(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    if sys.argv[1:2] == ['--native-cache']:
+        import resource
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        operation = {'cas': prune_cas_storage, 'all': prune_native_cache_storage}[sys.argv[2]]
+        print(json.dumps(operation(Path(sys.argv[3]), Path(sys.argv[4]) if len(sys.argv) > 4 else None)))
+    else:
+        main(Path(sys.argv[1]))

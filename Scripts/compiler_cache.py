@@ -39,7 +39,8 @@ def run_cache(arguments: list[str]) -> None:
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
     root = Path(arguments[0])
     sys.path.insert(0, str(root / "Scripts"))
-    from validation_artifacts import clear_diagnostic_exports, prune_native_storage, prune_compilation_cache, cache_space_report, record_cache_space
+    from validation_artifacts import (clear_diagnostic_exports, prune_native_storage, prune_compilation_cache,
+        cache_space_report, record_cache_space, cache_maintenance_needed, compact_build_databases)
     arguments = arguments[1:]
     maintenance = arguments == ["--maintenance"]
     shared = root / ".build/compiler-cache"
@@ -189,6 +190,7 @@ def run_cache(arguments: list[str]) -> None:
                     for module in cache.rglob('*.pcm'):
                         if module not in referenced: module.unlink()
             prune_native_storage(shared)
+            compact_build_databases(derived_roots)
             after = occupied_kib()
             print(f"缓存整理：{before / 1048576:.2f} → {after / 1048576:.2f} GiB；释放 {(before - after) / 1048576:.2f} GiB")
             report_cache_space(root, record_cache_space(root))
@@ -204,11 +206,13 @@ def run_cache(arguments: list[str]) -> None:
                 pass
             else:
                 try:
-                    before_cas, after_cas = prune_compilation_cache(shared)
-                    report = record_cache_space(root)
-                    if before_cas - after_cas >= 64 * 1024 ** 2:
-                        print(f"自动缓存回收：释放 {(before_cas - after_cas) / 1024 ** 3:.2f} GiB；项目 {report['projectBytes'] / 1024 ** 3:.2f} GiB")
-                except (OSError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
+                    if result.returncode == 0 and cache_maintenance_needed(root):
+                        before_cas, after_cas = prune_compilation_cache(shared)
+                        compact_build_databases(derived_roots)
+                        report = record_cache_space(root)
+                        if before_cas - after_cas >= 64 * 1024 ** 2:
+                            print(f"自动缓存回收：释放 {(before_cas - after_cas) / 1024 ** 3:.2f} GiB；项目 {report['projectBytes'] / 1024 ** 3:.2f} GiB")
+                except (OSError, ValueError, RuntimeError, AttributeError, subprocess.SubprocessError) as error:
                     print(f'缓存回收待重试：{error}', file=sys.stderr)
             raise SystemExit(result.returncode if result.returncode >= 0 else 128 - result.returncode)
 

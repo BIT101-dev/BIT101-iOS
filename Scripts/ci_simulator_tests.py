@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
     maintenance_self_test()
+    runtime_maintenance_self_test()
     from validation_policy import IOS_MODULE_COVERAGE_FLOORS
     from validation_simulator import METADATA_PREFIX
     from script_test_support import heredoc_body
@@ -169,6 +170,55 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         try: ci.merge_simulator_ci()
         except ValueError: pass
         else: raise AssertionError('正式组装产物需要自己的生产记录。')
+
+
+def runtime_maintenance_self_test() -> None:
+    from validation_simulator import manage_runtimes
+    def runtime(family, version, device_type):
+        return dict(identifier=family + version, name=family + ' ' + version, version=version,
+            isAvailable=True, buildversion=version, supportedDeviceTypes=[dict(identifier=device_type)])
+    old_ios, ios, old_watch, watch = (runtime(family, version, kind) for family, version, kind in (
+        ('iOS', '27.0', 'phone'), ('iOS', '27.1', 'phone'), ('watchOS', '27.0', 'watch'), ('watchOS', '27.1', 'watch')))
+    phone = dict(udid='phone', name='phone', state='Shutdown', deviceTypeIdentifier='phone')
+    wearable = dict(udid='watch', name='watch', state='Booted', deviceTypeIdentifier='watch')
+    inventory = dict(runtimes=[old_ios, ios, old_watch], devices={
+        old_ios['identifier']: [phone], ios['identifier']: [], old_watch['identifier']: [wearable]})
+    commands = []
+    def output(command, **kwargs):
+        if command == ['xcrun', 'simctl', 'list', '--json']: return json.dumps(inventory)
+        assert command == ['xcrun', 'simctl', 'runtime', 'list', '--json'], command
+        return json.dumps({row['identifier']: dict(runtimeIdentifier=row['identifier'], sizeBytes=1024)
+            for row in inventory['runtimes']})
+    def execute(command, **kwargs):
+        commands.append(command)
+        if command[2] == 'upgrade':
+            device = next(device for rows in inventory['devices'].values() for device in rows if device['udid'] == command[3])
+            for rows in inventory['devices'].values():
+                if device in rows: rows.remove(device); break
+            inventory['devices'].setdefault(command[4], []).append(device)
+    with patch.object(subprocess, 'check_output', output), patch.object(subprocess, 'run', execute), \
+            patch.object(Path, 'is_file', return_value=False), redirect_stdout(StringIO()):
+        for action in ('prune', 'upgrade'):
+            try: manage_runtimes(action, '27.2')
+            except ValueError: pass
+            else: raise AssertionError('运行时维护需要已安装的目标版本。')
+        try: manage_runtimes('prune', '27.1')
+        except ValueError: pass
+        else: raise AssertionError('运行时回收需要先迁移所属设备。')
+        assert not commands
+        manage_runtimes('upgrade', '27.1')
+        assert inventory['devices'][ios['identifier']] == [phone]
+        assert inventory['devices'][old_watch['identifier']] == [wearable]
+        assert commands == [['xcrun', 'simctl', 'upgrade', 'phone', ios['identifier']],
+            ['xcrun', 'simctl', 'runtime', 'delete', old_ios['identifier']]]
+        commands.clear()
+        inventory['runtimes'].append(watch)
+        manage_runtimes('upgrade', '27.1', 'watchOS')
+        assert inventory['devices'][watch['identifier']] == [wearable]
+        assert inventory['devices'][ios['identifier']] == [phone]
+        assert commands == [['xcrun', 'simctl', 'shutdown', 'watch'],
+            ['xcrun', 'simctl', 'upgrade', 'watch', watch['identifier']],
+            ['xcrun', 'simctl', 'runtime', 'delete', old_watch['identifier']]]
 
 
 def maintenance_self_test() -> None:

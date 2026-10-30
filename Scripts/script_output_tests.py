@@ -19,7 +19,7 @@ class RetainedLog(StringIO):
     def close(self): pass
 
 
-def captured_command(lines, status=7, *, ci=False, executable='fixture'):
+def captured_command(lines, status=7, *, ci=False, executable='fixture', arguments=()):
     saved = RetainedLog()
     def open_log(path, mode='r', **kwargs):
         if mode != 'w': saved.seek(0)
@@ -29,7 +29,7 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture'):
     with patch.object(Path, 'open', open_log), patch.object(Path, 'mkdir'), \
             patch.object(subprocess, 'Popen', return_value=child), \
             patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false'), redirect_stdout(output):
-        assert run_command(['/dev/null', 'fixture', executable]) == (status if status >= 0 else 128 - status)
+        assert run_command(['/dev/null', 'fixture', executable, *arguments]) == (status if status >= 0 else 128 - status)
     return output.getvalue(), saved.getvalue()
 
 
@@ -97,12 +97,15 @@ def log_output_boundary_findings() -> list[str]:
     assert cache_warning in output and raw == cache_warning
     temporary_bundle = Path('/fixture/cache/ResultBundle_failure.xcresult')
     diagnostic_bundle = Path('/fixture/diagnostics/test-results.xcresult')
-    for status in (0, 7):
+    for status, (executable, arguments) in ((status, command) for status in (0, 7) for command in (
+            ('xcodebuild', ()), ('script', ('-q', '/dev/null', '/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild')),
+            ('xcrun', ('xcodebuild',)))):
         with patch.dict(os.environ, BIT101_COMMAND_DIAGNOSTICS=str(diagnostic_bundle.parent)), \
                 patch('tempfile.gettempdir', return_value='/fixture/cache'), \
                 patch.object(Path, 'resolve', lambda path: path), patch.object(Path, 'is_dir', return_value=True), \
                 patch('shutil.move') as moved, patch('shutil.rmtree') as removed:
-            captured_command([f'Writing error result bundle to {temporary_bundle}\n'], status, executable='xcodebuild')
+            captured_command([f'Writing error result bundle to {temporary_bundle}\n'], status,
+                executable=executable, arguments=arguments)
             assert moved.call_args.args == (str(temporary_bundle), str(diagnostic_bundle)) if status else not moved.called
             assert removed.call_args.args[0] == (diagnostic_bundle if status else temporary_bundle)
     from test_results import report_test_results
