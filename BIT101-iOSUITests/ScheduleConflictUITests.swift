@@ -128,12 +128,14 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     private var navigationBackground: [Int]?
     @MainActor
     @objc func testCompactWindowKeepsSystemBarsAndListsWithinBounds() {
+        if UIDevice.current.userInterfaceIdiom != .phone { XCUIDevice.shared.orientation = .portrait }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         checkCompactWindowBounds()
         app.mainTab("日程").tapBriefly()
+        let headerFrame = app.native.segmentedControls.firstMatch.frame
         for section in ["课表", "DDL", "空教室"] {
             tapHeader(app.sectionTab(section))
-            assertRefreshBelowSectionTabs()
+            assertRefreshBelowSectionTabs(referenceHeader: headerFrame)
         }
         app.buttons["classroom.section-filter"].tapBriefly()
         let navigation = app.navigationBars["节次筛选"]
@@ -144,18 +146,6 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         assertUI(navigation.disappears(timeout: 5) && app.buttons["classroom.section-filter"].exists,
             "竖屏筛选返回应恢复空教室查询页。")
         assertRefreshBelowSectionTabs()
-    }
-    @MainActor private func assertRefreshBelowSectionTabs() {
-        let header = app.native.segmentedControls.firstMatch
-        guard let list = app.native.collectionViews.allElementsBoundByIndex.first(where: { $0.frame.width > 0 }) else {
-            assertUI(false, "当前分区应提供可见的原生列表。")
-            return
-        }
-        let row = list.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
-        let stamp = row.staticTexts["app.refresh-status.timestamp"]
-        assertUI(header.exists && row.exists && stamp.exists && row.frame.minY >= header.frame.maxY
-            && stamp.frame.minY >= header.frame.maxY && stamp.isHittable,
-            "刷新行与时间文字应完整显示在分区栏下方：分区栏 \(header.frame)，刷新行 \(row.frame)，时间 \(stamp.frame)。")
     }
     @MainActor
     @objc func testWindowChangesKeepBrowsersWithinSystemInsets() throws {
@@ -212,10 +202,12 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let add = app.buttons["schedule.add-content"]
         assertUI(add.appears(timeout: 5), "紧凑窗口应展示课表操作。")
         print("Schedule geometry: button=\(add.frame), available=\(available)")
-        let contentBottom = bar.width > bar.height && bar.minY > window.midY ? bar.minY : available.maxY
+        let hasBottomBar = bar.width > bar.height && bar.minY > window.midY
+        let contentBottom = hasBottomBar ? bar.minY : window.maxY
         let grid = app.descendants(matching: .any)["schedule.calendar"]
         print("Portrait spacing: grid=\(grid.frame), contentBottom=\(contentBottom)")
-        assertUI(grid.frame.maxY <= contentBottom - 8 && add.frame.maxY <= grid.frame.maxY - 19,
+        let gap = contentBottom - grid.frame.maxY
+        assertUI((hasBottomBar ? gap >= 8 : abs(gap) <= 1) && add.frame.maxY <= grid.frame.maxY - 19,
             "竖屏课表与悬浮操作应保留底部间距：课表 \(grid.frame)，按钮 \(add.frame)，正文底部 \(contentBottom)。")
         recordLayoutScreenshot("紧凑课表底部")
     }
@@ -506,10 +498,10 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @MainActor
     @objc func testScheduleChromeSurvivesRotationsWhileSelected() {
         guard UIDevice.current.userInterfaceIdiom != .phone else { return }
-        XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
-        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true,
+        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, school: true,
             initialTab: "mine", initialSettings: "account")
+        XCUIDevice.shared.orientation = .landscapeLeft
         app.mainTab("日程").tapBriefly()
         for orientation: UIDeviceOrientation in [.portrait, .landscapeRight, .portraitUpsideDown,
                                                   .landscapeLeft, .portrait, .landscapeRight] {

@@ -70,6 +70,7 @@ final class UITestSceneConfiguration {
         AppUITestBootstrap.releaseRequests()
         AppUITestBootstrap.failingRequests.removeAll()
         values = environment
+        UIView.setAnimationsEnabled(environment["BIT101_UI_TEST_ANIMATIONS"] == "1")
         revision += 1
     }
 }

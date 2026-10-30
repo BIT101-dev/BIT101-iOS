@@ -1,4 +1,5 @@
 """Exercise cross-file request ownership and lifecycle call boundaries."""
+from pathlib import Path
 from code_quality_rules import ROOT, ast_has_view_request, view_transport_findings, automatic_school_fetch_findings, declaration_conformances
 
 
@@ -147,4 +148,17 @@ def cross_file_view_request_self_test() -> list[str]:
             f'class Controller: {owner} {{ let service: any ScoreListServicing; func {callback}() {{ {action} }} }}')
         if bool(automatic_school_fetch_findings(swift_syntax_index_sources({'Delegate.swift': source}))) != expected:
             return ['代码质量规则边界自检失败：系统 delegate 生命周期及手动入口归属']
+    ports = str(ROOT / 'Modules/SchedulePorts/Sources/ScheduleServicing.swift')
+    path = str(ROOT / 'BIT101-iOS/LifecycleClassroom.swift')
+    for owner, entry, extra, expected in (
+            ('ScheduleRootView', 'startClassroomPageRefresh', '', False),
+            ('ScheduleRootView', 'startClassroomPageRefresh', 'try await service.syncCourses(term: nil)', True),
+            ('Screen', 'startClassroomPageRefresh', '', True),
+            ('ScheduleRootView', 'renamed', '', True)):
+        source = (f'import SchedulePorts; struct {owner}: View {{ let service: any ScheduleServicing; '
+            f'func {entry}() async throws {{ _ = try await service.prefetchClassrooms(buildingID: "building", term: "term", date: Date()); {extra} }}; '
+            f'var body: some View {{ Text("x").task {{ try? await {entry}() }} }} }}')
+        facts = swift_syntax_index_sources({ports: Path(ports).read_text(), path: source})
+        if bool(automatic_school_fetch_findings(facts)) != expected:
+            return ['学校生命周期自测：空教室预取沿所属页面入口，课表同步及其他入口保持显式操作边界']
     return []

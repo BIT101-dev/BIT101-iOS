@@ -183,9 +183,11 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
         if !courseData.schedulesByTerm.values.allSatisfy({
             $0.exams.allSatisfy(\.hasValidPlacement) && hasUniqueIdentities($0.exams.map(\.id))
         }) { return .exams }
-        if classroomData.cachedClassroomQueriesByBuildingID?.contains(where: {
-            $0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.value.isValid
-        }) == true { return .classroomData }
+        for queries in [classroomData.cachedClassroomQueriesByBuildingID, classroomData.nextDayClassroomQueriesByBuildingID] {
+            if queries?.contains(where: {
+                $0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.value.isValid
+            }) == true { return .classroomData }
+        }
         return nil
     }
 

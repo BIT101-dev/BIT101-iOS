@@ -100,6 +100,20 @@ struct NetworkClientTests {
         #expect(rows.isEmpty)
         #expect(dates == ["2001-01-01", "2001-01-01"])
         #expect(restorations == 1)
+        #expect(try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)?.isEmpty == true)
+        #expect(dates.count == 3 && restorations == 1)
+        dates.removeAll()
+        state.invalidate()
+        #expect(try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate) == nil)
+        #expect(dates.isEmpty)
+        state.markDirectPreferred(for: credentials.currentStudentID)
+        state.markPrepared(for: credentials.currentStudentID)
+        do {
+            _ = try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)
+            Issue.record("过期会话预取应交回失败结果")
+        } catch ScheduleServiceError.teachingCenterSessionExpired {
+            #expect(dates == ["2001-01-01"] && restorations == 1)
+        }
     }
 
     @Test("The Eclass snapshot deadline cancels an active transport", .timeLimit(.minutes(1)))

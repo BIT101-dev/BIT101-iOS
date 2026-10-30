@@ -10,6 +10,50 @@ import TransportCore
 
 @MainActor
 struct EclassDDLSyncTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func identicalSchoolContentUsesTheLatestNoticeAcrossSourceDelivery(streamed: Bool) async {
+        var cache = ScheduleCache()
+        cache.ddlEvents = [event("lexue", group: "lexue", done: true), event("eclass:1", group: "eclass"),
+            event("personal", group: "main")]
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "ddl-latest") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let service = Service(payload: .init(url: "", events: [event("eclass:1", group: "eclass", done: true),
+            event("lexue", group: "lexue")], syncedGroups: ["lexue", "eclass"]))
+        service.streamSources = streamed
+        let model = ScheduleDDLViewModel(service: service, repository: repository)
+        #expect(await model.syncDDL())
+        #expect(model.notice?.title == "DDL 已是最新")
+        #expect(model.notice?.message == "本次获取结果与学校原始日程完全一致。")
+        #expect(model.cache.ddlEvents.first(where: { $0.id == "personal" }) != nil)
+        #expect(model.cache.ddlEvents.first(where: { $0.id == "lexue" })?.done == true)
+        #expect(model.cache.ddlUpdatedAt != nil)
+        service.payload = .init(url: "", events: service.payload.events, syncedGroups: service.payload.syncedGroups,
+            warnings: ["部分来源获取失败"])
+        #expect(await model.syncDDL() == false)
+        #expect(model.notice?.title == "DDL 部分更新")
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["title", "date", "added", "removed"])
+    func changedSchoolContentUsesTheSyncResult(change: String) async {
+        var cache = ScheduleCache()
+        cache.ddlEvents = [event("eclass:1", group: "eclass")]
+        var events = cache.ddlEvents
+        switch change {
+        case "title": events[0].title = "更新的作业"
+        case "date": events[0].dueAt = events[0].dueAt.addingTimeInterval(60)
+        case "added": events.append(event("eclass:2", group: "eclass"))
+        default: events = []
+        }
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "ddl-changed") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleDDLViewModel(service: Service(payload: .init(url: "", events: events, syncedGroups: ["eclass"])),
+            repository: repository)
+        #expect(await model.syncDDL())
+        #expect(model.notice?.title == "DDL 同步成功")
+    }
+
     @Test func manualDDLPhotosPersistAndRemainEditable() throws {
         let image = DDLImageAttachment(data: Data([1, 2, 3]))
         var draft = DDLDraft(title: "论文", dueAt: Date(timeIntervalSince1970: 100), text: "要求", images: [image])
@@ -268,11 +312,13 @@ struct EclassDDLSyncTests {
         var syncCalls = 0
         var subscriptionCalls = 0
         var beforeReturn: (() -> Void)?
+        var streamSources = false
         init(payload: DDLSyncPayload) { self.payload = payload }
         func syncDDLEvents(existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?) async throws -> DDLSyncPayload {
             syncCalls += 1
             if let error { throw error }
             beforeReturn?()
+            if streamSources { try await onSource?(payload) }
             return payload
         }
         func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String { subscriptionCalls += 1; return "" }

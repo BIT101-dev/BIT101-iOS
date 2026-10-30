@@ -22,9 +22,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private var checkedScrollContainers = Set<String>()
     @MainActor private var checkingRefreshRows = false
     @MainActor private var checkedRefreshRows = Set<String>()
+    @MainActor var scheduleHeaderFrames: [String: CGRect] = [:]
     @MainActor private var capturedFailure = false
     private let runIdentifier = "ui"
-
     @MainActor
     override func tearDown() async throws {
         if testRun?.totalFailureCount == 0 { checkScrollContainers() }
@@ -42,7 +42,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         UITestSnapshotReader.printTimingSummary()
         try await super.tearDown()
     }
-
     @MainActor
     private static func captureControlInventory() {
         guard let application = Self.sessionApplication, application.state != .notRunning else { return }
@@ -57,7 +56,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         print("UI control inventory: \(coverage)")
     }
-
     @MainActor
     func assertSelectedWeek(_ week: Int) {
         let button = app.buttons["第\(week)周"]
@@ -610,6 +608,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         assertUI(cell.frame.insetBy(dx: 0, dy: 3).contains(nativeText.frame),
             "更新时间文字应完整落在行内容区域：行 \(cell.frame)，文字 \(nativeText.frame)。")
+        checkScheduleGeometry()
         checkedRefreshRows.insert(key)
     }
 

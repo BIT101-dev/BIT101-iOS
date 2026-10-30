@@ -11,6 +11,7 @@ public struct AppWindowLayout: Equatable {
     public var interfaceIdiom: UIUserInterfaceIdiom
     public var safeAreaInsets: UIEdgeInsets
     public var divisionX: CGFloat?
+    private var windowUsesTopTabBar: Bool?
     public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
                 availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
                 interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
@@ -38,13 +39,17 @@ public struct AppWindowLayout: Equatable {
     }
     public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
     public var singleColumn: AppWindowLayout {
-        var value = self; value.isRegularWidth = false
+        var value = self
+        value.windowUsesTopTabBar = usesTopTabBar
+        value.isRegularWidth = false
         return value
     }
     public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
     public var usesTopTabBar: Bool {
-        if #available(iOS 18.0, *) { isRegularWidth && usesOpaqueNavigation } else { false }
+        if let windowUsesTopTabBar { return windowUsesTopTabBar }
+        if #available(iOS 18.0, *) { return isRegularWidth && usesOpaqueNavigation } else { return false }
     }
+    public var usesBottomTabBar: Bool { !usesTopTabBar && !hasHorizontalSystemInsets }
     public var usesOpaqueNavigation: Bool {
         switch interfaceIdiom {
         case .phone: false
@@ -178,8 +183,9 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
             .accessibilityHidden(!showsDetail)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
             .environment(\.appContentColumn, layout.isLandscape ? .trailing : nil)
+            .padding(.top, header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
         }
-        .padding(.top, layout.contentTopInset)
+        .padding(.top, header == nil ? layout.contentTopInset : AppDesignSystem.Spacing.none)
         .ignoresSafeArea(.keyboard, edges: layout.isLandscapeWindow ? .bottom : [])
         .background(AppDesignSystem.Palette.Background.grouped)
         .onChange(of: layout.isLandscapeWindow, initial: true) { _, isLandscape in
@@ -199,8 +205,11 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
             .background(AppDesignSystem.Palette.Background.grouped)
             .focusEffectDisabled()
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) { header }
-            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+                header?.padding(.top, layout.contentTopInset)
+            }
+            .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
+            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
     }
 

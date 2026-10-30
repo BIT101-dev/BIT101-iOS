@@ -29,6 +29,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private let now: @MainActor () -> Date
     private var classroomTask: Task<Void, Never>?
     private var classroomTaskID: UUID?
+    private(set) var classroomPrefetchTask: Task<Void, Never>?
+    private var classroomPrefetchID: UUID?
+    private var classroomPrefetchBuildingID: String?
     private var subscription: AnyCancellable?
     private var cacheSubscription: AnyCancellable?
 
@@ -42,7 +45,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             .sink { [weak self] in self?.selectedBuildingID = $0 }
     }
 
-    deinit { classroomTask?.cancel() }
+    deinit { classroomTask?.cancel(); classroomPrefetchTask?.cancel() }
 
     func restoreCachedState() {
         selectedBuildingID = cache.selectedBuildingID
@@ -71,6 +74,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         classroomTask?.cancel()
         classroomTask = nil
         classroomTaskID = nil
+        cancelClassroomPrefetch()
         classroomCoordinator.reset()
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
@@ -165,7 +169,11 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         let queryDate = now()
         let cached = restoreClassroomQuery()
         if !force, let cached,
-           ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate) { return }
+           ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate) {
+            if cached.records != nil { startNextDayPrefetch(buildingID: buildingID, term: cached.term) }
+            return
+        }
+        cancelClassroomPrefetch()
         var term = ""
         isLoadingClassrooms = true
         defer {
@@ -190,6 +198,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             classroomRecords = records
             classroomQueryDate = queryDate
             classroomLastUpdatedAt = updatedAt
+            startNextDayPrefetch(buildingID: buildingID, term: term)
         } catch {
             if isCurrentClassroomRequest(requestID), !TaskCancellation.matches(error) {
                 var entry = cache.cachedClassroomQueriesByBuildingID?[buildingID]
@@ -204,6 +213,16 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     @discardableResult
     private func restoreClassroomQuery() -> ClassroomQueryCache? {
+        let date = now()
+        if let prefetched = cache.nextDayClassroomQueriesByBuildingID?[selectedBuildingID],
+           prefetched.records != nil, ScheduleDateCodec.calendar.isDate(prefetched.queryDate, inSameDayAs: date),
+           cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID].map({
+               ScheduleDateCodec.calendar.isDate($0.attemptedAt, inSameDayAs: date)
+           }) != true {
+            storeClassroomQuery(prefetched, buildingID: selectedBuildingID)
+            cache.nextDayClassroomQueriesByBuildingID?.removeValue(forKey: selectedBuildingID)
+            persistClassroomState()
+        }
         guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID] else {
             classroomRecords = []; classroomQueryDate = nil; classroomLastUpdatedAt = nil
             return nil
@@ -215,8 +234,10 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     private func storeClassroomQuery(_ entry: ClassroomQueryCache, buildingID: String) {
+        let date = now()
         var queries = (cache.cachedClassroomQueriesByBuildingID ?? [:]).filter {
-            ScheduleDateCodec.calendar.isDate($0.value.attemptedAt, inSameDayAs: entry.attemptedAt)
+            ScheduleDateCodec.calendar.isDate($0.value.attemptedAt, inSameDayAs: date)
+                || ScheduleDateCodec.calendar.isDate($0.value.queryDate, inSameDayAs: date)
         }
         queries[buildingID] = entry
         cache.cachedClassroomQueriesByBuildingID = queries
@@ -225,6 +246,55 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     private func persistClassroomState() {
         if repository.acceptsEdits { repository.persist() }
+    }
+
+    private func startNextDayPrefetch(buildingID: String, term: String) {
+        let calendar = ScheduleDateCodec.calendar, date = now()
+        guard classroomPrefetchTask == nil,
+              let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date)),
+              cache.nextDayClassroomQueriesByBuildingID?[buildingID].map({
+                  calendar.isDate($0.queryDate, inSameDayAs: nextDay)
+              }) != true else { return }
+        let generation = accountGeneration, taskID = UUID()
+        classroomPrefetchID = taskID
+        classroomPrefetchBuildingID = buildingID
+        classroomPrefetchTask = Task(priority: .utility) { @MainActor [weak self, service] in
+            guard let self else { return }
+            defer {
+                if self.classroomPrefetchID == taskID {
+                    self.classroomPrefetchTask = nil
+                    self.classroomPrefetchID = nil
+                    self.classroomPrefetchBuildingID = nil
+                }
+            }
+            let entry: ClassroomQueryCache
+            do {
+                guard let records = try await self.classroomCoordinator.withTimeout(operation: {
+                    try await service.prefetchClassrooms(buildingID: buildingID, term: term, date: nextDay)
+                }) else { return }
+                entry = ClassroomQueryCache(term: term, queryDate: nextDay, attemptedAt: self.now(),
+                    updatedAt: self.now(), records: records)
+            } catch {
+                guard !TaskCancellation.matches(error) else { return }
+                entry = ClassroomQueryCache(term: term, queryDate: nextDay, attemptedAt: self.now())
+            }
+            guard !Task.isCancelled, self.accountGeneration == generation, entry.isValid,
+                  calendar.isDate(self.now(), inSameDayAs: date) else { return }
+            var queries = (self.cache.nextDayClassroomQueriesByBuildingID ?? [:]).filter {
+                calendar.isDate($0.value.queryDate, inSameDayAs: nextDay)
+                    || calendar.isDate($0.value.queryDate, inSameDayAs: date)
+            }
+            queries[buildingID] = entry
+            self.cache.nextDayClassroomQueriesByBuildingID = queries
+            self.persistClassroomState()
+        }
+    }
+
+    private func cancelClassroomPrefetch() {
+        classroomPrefetchTask?.cancel()
+        classroomPrefetchTask = nil
+        classroomPrefetchID = nil
+        classroomPrefetchBuildingID = nil
     }
 
     /// 供页面顶部刷新按钮使用的统一入口。
@@ -272,6 +342,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         _ operation: @escaping @MainActor (ScheduleClassroomViewModel, Int) async throws -> Void
     ) -> Task<Void, Never> {
         classroomTask?.cancel()
+        if classroomPrefetchBuildingID != selectedBuildingID { cancelClassroomPrefetch() }
         let taskID = UUID()
         let generation = accountGeneration
         let requestID = beginClassroomRequest()

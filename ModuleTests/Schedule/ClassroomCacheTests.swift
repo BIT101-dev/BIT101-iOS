@@ -17,6 +17,11 @@ struct ClassroomCacheTests {
         var currentTerm = "term"
         var queriedTerms: [String] = []
         var termError: Error?
+        var enablesPrefetch = false
+        var prefetchQueries: [(buildingID: String, term: String, date: Date)] = []
+        var prefetchError: Error?
+        var beforePrefetchReturn: (() async -> Void)?
+        var beforeClassroomsReturn: (() async -> Void)?
         func fetchCurrentTermOnly() async throws -> String {
             if let termError { throw termError }
             return currentTerm
@@ -33,8 +38,16 @@ struct ClassroomCacheTests {
         func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
             queries.append(buildingID)
             queriedTerms.append(term)
+            await beforeClassroomsReturn?()
             if let error { throw error }
             return [ClassroomRecord(id: buildingID + "-room", name: "101", busyTimeCodes: [1])]
+        }
+        func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? {
+            guard enablesPrefetch else { return nil }
+            prefetchQueries.append((buildingID, term, date))
+            await beforePrefetchReturn?()
+            if let prefetchError { throw prefetchError }
+            return [ClassroomRecord(id: buildingID + "-next", name: "102", busyTimeCodes: [])]
         }
     }
 
@@ -47,6 +60,118 @@ struct ClassroomCacheTests {
         cache.selectedClassroomSectionIDs = []
         cache.isClassroomSectionFilterCustomized = true
         return cache
+    }
+
+    @Test(.timeLimit(.minutes(1))) func nextDayPrefetchPersistsAndDisplaysBeforeDailyRevalidation() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-30")).addingTimeInterval(7 * 3600)
+        var disk = try JSONEncoder().encode(initialCache())
+        let service = Service()
+        service.enablesPrefetch = true
+        var releasePrefetch = false
+        service.beforePrefetchReturn = { try? await waitForTestEvent { releasePrefetch } }
+        func open() async throws -> (ScheduleRepository, ScheduleClassroomViewModel) {
+            let initial = try JSONDecoder().decode(ScheduleCache.self, from: disk)
+            let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-classroom") },
+                load: { _ in .loaded(initial) }, save: { value, _, _ in disk = try JSONEncoder().encode(value) })
+            await repository.loadIfNeeded()
+            return (repository, ScheduleClassroomViewModel(service: service, repository: repository, now: { now }))
+        }
+        let (repository, model) = try await open()
+        await model.refreshClassroomPage(force: false)
+        try await waitForTestEvent { service.prefetchQueries.count == 1 }
+        let inFlight = try #require(model.classroomPrefetchTask)
+        await model.refreshClassroomPage(force: false)
+        #expect(!inFlight.isCancelled && service.prefetchQueries.count == 1)
+        releasePrefetch = true
+        await inFlight.value
+        #expect(service.prefetchQueries.count == 1)
+        #expect(service.prefetchQueries.first?.buildingID == "a1" && service.prefetchQueries.first?.term == "term")
+        #expect(service.prefetchQueries.first.map { ScheduleDateCodec.formatDate($0.date) } == "2026-10-01")
+        #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"])
+        await model.refreshClassroomPage(force: false)
+        await model.classroomPrefetchTask?.value
+        #expect(service.prefetchQueries.count == 1)
+        #expect(await repository.persistAndWait())
+        let prefetchedAt = now
+        now = try #require(ScheduleDateCodec.parseDate("2026-10-01")).addingTimeInterval(7 * 3600)
+        let (_, reopened) = try await open()
+        reopened.restoreCachedState()
+        #expect(reopened.classroomAvailabilities.map(\.id) == ["a1-next"])
+        #expect(reopened.classroomLastUpdatedAt == prefetchedAt && !reopened.hasExpiredClassroomData(at: now))
+        var release = false
+        service.beforeClassroomsReturn = { try? await waitForTestEvent { release } }
+        let refresh = Task { await reopened.refreshClassroomPage(force: false) }
+        try await waitForTestEvent { reopened.isLoadingClassrooms }
+        #expect(reopened.classroomAvailabilities.map(\.id) == ["a1-next"])
+        release = true
+        await refresh.value
+        await reopened.classroomPrefetchTask?.value
+        #expect(reopened.classroomAvailabilities.map(\.id) == ["a1-room"])
+        #expect(service.queries == ["a1", "a1"] && service.prefetchQueries.count == 2)
+        #expect(reopened.classroomLastUpdatedAt == now)
+        #expect(reopened.cache.nextDayClassroomQueriesByBuildingID?.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func failedPrefetchIsSilentAndWaitsUntilTheNextDay() async throws {
+        let date = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
+        let service = Service(), initial = initialCache()
+        service.enablesPrefetch = true
+        service.prefetchError = ScheduleServiceError.teachingCenterSessionExpired
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-failure") },
+            load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { date })
+        await model.refreshClassroomPage(force: false)
+        await model.classroomPrefetchTask?.value
+        await model.refreshClassroomPage(force: false)
+        await model.classroomPrefetchTask?.value
+        #expect(service.prefetchQueries.count == 1 && model.notice == nil)
+        #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"] && !model.isRefreshingPage)
+        #expect(model.cache.nextDayClassroomQueriesByBuildingID?["a1"]?.records == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func nextPrefetchPreservesOtherBuildingsReadyForToday() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
+        let service = Service(), initial = initialCache()
+        service.enablesPrefetch = true
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-buildings") },
+            load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        await model.refreshClassroomPage(force: false)
+        await model.classroomPrefetchTask?.value
+        await model.selectCampus(code: "b")?.value
+        await model.classroomPrefetchTask?.value
+        await model.selectCampus(code: "a")?.value
+        now = try #require(ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: now))
+        await model.refreshClassroomPage(force: false)
+        await model.classroomPrefetchTask?.value
+        let other = try #require(model.cache.nextDayClassroomQueriesByBuildingID?["b1"])
+        #expect(ScheduleDateCodec.calendar.isDate(other.queryDate, inSameDayAs: now))
+        let selection = model.selectCampus(code: "b")
+        #expect(model.classroomAvailabilities.map(\.id) == ["b1-next"])
+        await selection?.value
+        await model.classroomPrefetchTask?.value
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancelledPrefetchPreservesTheResetState() async throws {
+        let date = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
+        let service = Service(), initial = initialCache()
+        service.enablesPrefetch = true
+        var release = false
+        service.beforePrefetchReturn = { try? await waitForTestEvent { release } }
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-reset") },
+            load: { _ in .loaded(initial) }, save: { _, _, _ in })
+        await repository.loadIfNeeded()
+        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { date })
+        await model.refreshClassroomPage(force: false)
+        try await waitForTestEvent { service.prefetchQueries.count == 1 }
+        let prefetch = model.classroomPrefetchTask
+        model.reset()
+        release = true
+        await prefetch?.value
+        #expect(model.cache.nextDayClassroomQueriesByBuildingID == nil && model.notice == nil)
+        #expect(model.classroomAvailabilities.isEmpty && model.selectedBuildingID.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1))) func classroomDatesUseTheSchoolTermWhileTheTimetableShowsHistory() async throws {
@@ -228,6 +353,7 @@ struct ClassroomCacheTests {
         var invalid = valid
         invalid.records = [ClassroomRecord(id: "a2-room", name: "102", busyTimeCodes: [0])]
         cache.classroomData.cachedClassroomQueriesByBuildingID = ["a1": valid, "a2": invalid]
+        cache.classroomData.nextDayClassroomQueriesByBuildingID = ["a1": valid, "a2": invalid]
         let bytes = try JSONEncoder().encode(cache)
         let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "damaged-classroom")
         let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/damaged-classroom"),
@@ -238,6 +364,7 @@ struct ClassroomCacheTests {
         let restored = try #require(result.cacheIfReadable)
         #expect(result.isRecovered && restored.customSchedules == cache.customSchedules)
         #expect(restored.classroomData.cachedClassroomQueriesByBuildingID == ["a1": valid])
+        #expect(restored.classroomData.nextDayClassroomQueriesByBuildingID == ["a1": valid])
         #expect(try files.readData(at: url) == bytes)
     }
 }

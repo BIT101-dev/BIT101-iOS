@@ -140,6 +140,7 @@ struct CourseScheduleTabView: View {
                 }
             }
         }
+        .padding(.bottom, layout.usesBottomTabBar ? AppDesignSystem.Spacing.none : layout.safeAreaInsets.bottom)
     }
 
     @ViewBuilder
@@ -233,7 +234,7 @@ struct CourseScheduleTabView: View {
                 listHeight
                     - refreshStatusHeight
                     - scheduleSectionGap
-                    - (usesLandscapeCalendar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
+                    - (usesLandscapeCalendar || !layout.usesBottomTabBar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
                 1
             )
 
@@ -291,6 +292,7 @@ struct CourseScheduleTabView: View {
             }
 #endif
         }
+        .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
         .simultaneousGesture(scheduleSwitchGesture)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")

@@ -37,6 +37,12 @@ public protocol ScheduleClassroomServicing {
     func fetchCampuses() async throws -> [CampusRecord]
     func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord]
     func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]
+    /// 使用已准备好的会话预取；会话尚待认证时返回 nil。
+    func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]?
+}
+
+public extension ScheduleClassroomServicing {
+    func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? { nil }
 }
 
 public protocol ScheduleServicing: ScheduleCourseServicing, ScheduleDDLServicing, ScheduleClassroomServicing {}

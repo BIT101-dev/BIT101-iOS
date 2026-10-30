@@ -44,6 +44,15 @@ extension ScheduleService {
         }
     }
 
+    public func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? {
+        let owner = credentials.schoolSessionIdentity
+        guard teachingCenterState.isPrepared(for: owner.accountIdentifier) else { return nil }
+        try Task.checkCancellation()
+        let records = try await fetchClassroomsDirect(buildingID: buildingID, term: term, date: date)
+        try validateAuthenticationOwner(owner)
+        return records
+    }
+
     /// 教学中心读操作先选择可用路线，再执行一次会话预热。
     func withPreparedTeachingCenterSession<T>(
         operation: () async throws -> T

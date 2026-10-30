@@ -144,6 +144,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         do {
             try repository.requireWritable()
             try Task.checkCancellation()
+            let previousEvents = cache.ddlEvents
             var deliveredGroups: Set<String> = []
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents, storedURL: cache.lexueCalendarURL,
@@ -155,10 +156,22 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             guard accountGeneration == generation else { return false }
             if deliveredGroups.isEmpty { try await applySyncPayload(payload, generation: generation) }
             if showSuccessNotice {
-                notice = ScheduleNotice.informational(
-                    title: payload.warnings.isEmpty ? "DDL 同步成功" : "DDL 部分更新",
-                    message: (["已同步 \(payload.events.count) 条学校日程。"] + payload.warnings).joined(separator: "\n")
-                )
+                func schoolContent(_ events: [DDLEventRecord]) -> Set<DDLEventRecord> {
+                    Set(events.filter { $0.isSchoolSynced && payload.syncedGroups.contains($0.group) }.map {
+                        var event = $0
+                        event.done = false
+                        return event
+                    })
+                }
+                if payload.warnings.isEmpty, !payload.syncedGroups.isEmpty,
+                   schoolContent(previousEvents) == schoolContent(cache.ddlEvents) {
+                    notice = .informational(title: "DDL 已是最新", message: "本次获取结果与学校原始日程完全一致。")
+                } else {
+                    notice = .informational(
+                        title: payload.warnings.isEmpty ? "DDL 同步成功" : "DDL 部分更新",
+                        message: (["已同步 \(payload.events.count) 条学校日程。"] + payload.warnings).joined(separator: "\n")
+                    )
+                }
             }
             return payload.warnings.isEmpty
         } catch is DDLPersistenceFailure {

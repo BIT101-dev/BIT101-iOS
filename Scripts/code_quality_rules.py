@@ -812,7 +812,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             reasons[key][operation] = [".".join(target[0] + (target[1],))] + reasons[target][operation]
             pending.append((key, operation))
     exceptions = {("ScheduleTermPickerPage", "loadAvailableTerms"): {"loadAvailableTerms", "fetchAvailableTerms"},
-        ("ScheduleRootView", "startClassroomPageRefresh"): {"fetchCurrentTermOnly", "prepareTeachingCenterAccess", "fetchCampuses", "fetchBuildings", "fetchClassrooms"},
+        ("ScheduleRootView", "startClassroomPageRefresh"): {"fetchCurrentTermOnly", "prepareTeachingCenterAccess", "fetchCampuses", "fetchBuildings", "fetchClassrooms", "prefetchClassrooms"},
         ("TrustedTranscriptPage", "applyIfNeeded"): {"fetchTrustedTranscriptPages"}}
     for call in roots:
         name = call["value"].rsplit(".", 1)[-1].strip()

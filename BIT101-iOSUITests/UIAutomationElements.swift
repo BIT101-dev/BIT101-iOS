@@ -593,6 +593,55 @@ extension XCUIElementSnapshot {
 
 @MainActor
 extension UIAutomationTestCase {
+    func checkScheduleGeometry() {
+        let schedule = app.mainTab("日程")
+        guard schedule.exists, schedule.isSelected else { return }
+        let window = app.native.windows.firstMatch.frame
+        let traits = windowTraits()
+        let grid = app.native.descendants(matching: .any)["schedule.calendar"]
+        if grid.exists {
+            let bar = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+                .reduce(CGRect.null) { $0.union($1) }
+            let hasBottomBar = bar.width > bar.height && bar.minY > window.midY
+            let gap = (hasBottomBar ? bar.minY : window.maxY) - grid.frame.maxY
+            assertUI(hasBottomBar ? gap >= 8 : abs(gap) <= 1,
+                "课表底部应按系统导航位置分配空间：课表 \(grid.frame)，导航 \(bar)，间隙 \(gap)。")
+            let action = app.native.buttons["schedule.add-content"]
+            let bottom = hasBottomBar ? bar.minY : window.maxY - CGFloat(traits["safeBottom"] ?? 0)
+            assertUI(action.exists && action.frame.maxY <= bottom + 0.5,
+                "课表操作应保持在系统可触达区域：按钮 \(action.frame)，底部边界 \(bottom)。")
+        }
+        guard app.native.segmentedControls.buttons["空教室"].exists else { return }
+        let header = app.native.segmentedControls.firstMatch.frame
+        let top = CGFloat(traits["safeTop"] ?? 0)
+        let side = (traits["safeLeading"] ?? 0) + (traits["safeTrailing"] ?? 0)
+        let minimumTop = window.minY + (top == 0 && side > 0 ? 16 : top)
+        assertUI(header.minY >= minimumTop - 0.5,
+            "日程各分区应保留窗口安全距离：分区栏 \(header)，顶部边界 \(minimumTop)。")
+        let key = "\(window):\(traits["safeTop"] ?? 0):\(side):\(header.height)"
+        if let reference = scheduleHeaderFrames[key] {
+            assertUI(abs(header.minY - reference.minY) <= 1,
+                "日程各分区应共享顶部位置：当前 \(header)，参考 \(reference)。")
+        } else { scheduleHeaderFrames[key] = header }
+    }
+
+    func assertRefreshBelowSectionTabs(referenceHeader: CGRect? = nil) {
+        let header = app.native.segmentedControls.firstMatch
+        guard let list = app.native.collectionViews.allElementsBoundByIndex.first(where: { $0.frame.width > 0 }) else {
+            assertUI(false, "当前分区应提供可见的原生列表。")
+            return
+        }
+        if let referenceHeader {
+            assertUI(abs(header.frame.minY - referenceHeader.minY) <= 1 && abs(header.frame.height - referenceHeader.height) <= 1,
+                "课表、DDL 与空教室应共享分区栏安全距离：当前 \(header.frame)，参考 \(referenceHeader)。")
+        }
+        let row = list.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
+        let stamp = row.staticTexts["app.refresh-status.timestamp"]
+        assertUI(header.exists && row.exists && stamp.exists && row.frame.minY >= header.frame.maxY
+            && stamp.frame.minY >= header.frame.maxY && stamp.isHittable,
+            "刷新行与时间文字应完整显示在分区栏下方：分区栏 \(header.frame)，刷新行 \(row.frame)，时间 \(stamp.frame)。")
+    }
+
     func windowTraits() -> [String: Int] {
         guard let response = UITestControlClient.request(["command": "window-layout"]),
               let values = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [[String: Any]],
