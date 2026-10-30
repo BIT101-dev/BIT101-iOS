@@ -346,6 +346,7 @@ def script_command_boundary_findings() -> list[str]:
     for source in ('# exec python3 Scripts/check-docs.py --staged', 'echo "python3 Scripts/check-docs.py --staged"',
             'exit 0\nexec python3 Scripts/check-docs.py --staged',
             'if false; then\nexec python3 Scripts/check-docs.py --staged\nfi',
+            "cat <<'TEXT'\nexec python3 Scripts/check-docs.py --staged\nTEXT",
             'exec python3 Scripts/check-docs.py --staged || true'):
         assert not hook_documents_checked(source)
     assert 'xccov' not in active_script_markers('# xccov\necho ready # xccov')

@@ -329,6 +329,28 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
 
 nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
     @MainActor
+    @objc func testSelectedScoreDetailFollowsTheDetailedRefresh() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        guard waitUntil(NSPredicate { _, _ in self.app.windows.firstMatch.frame.width > self.app.windows.firstMatch.frame.height }, on: app) else {
+            throw XCTSkip("本例验收横屏双栏窗口。")
+        }
+        assertUI(UITestControlClient.request(["command": "hold-request", "key": "score-details"]) == "queued", "详细成绩应进入受控等待。")
+        defer { _ = UITestControlClient.request(["command": "release-request", "key": "score-details"]) }
+        app.buttons["score.query"].tapBriefly()
+        fillVerificationCode("123456", in: app.textFields["verification.code"])
+        waitForRequest("score-details")
+        let grade = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ui.score-list-page.score.")).firstMatch
+        reveal(grade, description: "简略成绩记录")
+        grade.tapBriefly()
+        assertUI(app.navigationBars["成绩详情"].appears(timeout: 5), "简略成绩应在右栏打开详情。")
+        assertUI(!textElement("平均分、94.50").exists, "详细字段等待服务响应后展示。")
+        releaseRequest("score-details")
+        assertUI(textElement("平均分、94.50").appears(timeout: 5), "详细结果到达后，已打开的详情应原位更新。")
+    }
+
+    @MainActor
     @objc func testScoreIndividualFiltersRefreshCancelAndPendingDetail() {
         XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")

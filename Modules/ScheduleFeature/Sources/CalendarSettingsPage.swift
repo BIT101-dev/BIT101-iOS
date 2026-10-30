@@ -80,6 +80,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             ))
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.iCloudSyncEnabled)
             .appInteractiveListRow()
+            .disabled(!viewModel.isCacheWritable)
             preferenceSyncControls
         } header: {
             AppListSectionHeader("iCloud 同步")
@@ -283,7 +284,6 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             displaySettingsSection
                 .disabled(!viewModel.isCacheWritable)
             iCloudSyncSection
-                .disabled(!viewModel.isCacheWritable)
         }
         .accessibilityIdentifier("interaction.CalendarSettingsPage.list")
         .appGroupedListStyle()

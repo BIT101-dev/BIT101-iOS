@@ -39,6 +39,7 @@ extension MineServiceError: CommunityAPIServiceError {
 public struct MineService {
     /// “我的”页请求使用的社区 API 客户端。
     private let api: CommunityAPIClient<MineServiceError>
+    private let session: CommunitySession
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
     public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
 
@@ -49,6 +50,7 @@ public struct MineService {
     /// 资料请求通过注入会话取得当前账号凭据，并复用社区连接池。
     public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
         resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+        self.session = session
         self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Mine")
         self.preferences = preferences
@@ -102,6 +104,7 @@ public struct MineService {
     }
 
     private func fetchPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
+        let identity = session.currentCredentials.identity
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
         var queryItems = [
@@ -112,14 +115,17 @@ public struct MineService {
         if await shouldHideBotPosters() {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
-        let result: [CommunityPoster] = try await api.request(
+        let response: CommunityAPIResponse<[CommunityPoster]> = try await api.response(
             path: "posters",
             queryItems: queryItems,
             validate: { posters in
                 guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else { throw MineServiceError.invalidResponse }
             }
         )
-        return resourceUpdates.resolve(result, since: revision)
+        if let issue = response.value.compactMap(\.imageRecoveryIssue).first { await response.reportValidationFailure(issue) }
+        try Task.checkCancellation()
+        guard session.currentCredentials.identity == identity else { throw CancellationError() }
+        return resourceUpdates.resolve(response.value, since: revision)
     }
 
     private func shouldHideBotPosters() async -> Bool {

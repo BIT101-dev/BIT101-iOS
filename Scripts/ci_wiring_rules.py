@@ -47,6 +47,11 @@ for job, paths in DIAGNOSTIC_PATHS.items():
 
 def hook_documents_checked(source: str) -> bool:
     controls = {'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'case', 'esac', 'function', '{', '}'}
+    prefixes = [
+        ['source', 'Scripts/script-support.sh'], ['git', 'diff', '--cached', '--check'],
+        ['python3', 'Scripts/check-python-syntax.py', '.', '--staged', '--changed'],
+        ['python3', 'Scripts/check-file-lengths.py', '--staged'],
+    ]
     for line in source.replace('\\\n', ' ').splitlines():
         try: words = shlex.split(line, comments=True)
         except ValueError: return False
@@ -55,6 +60,7 @@ def hook_documents_checked(source: str) -> bool:
         if any(word in controls for word in words): return False
         if words == ['exec', 'python3', 'Scripts/check-docs.py', '--staged']: return True
         if words[:1] in (['exit'], ['return']) or line.lstrip().startswith('exec '): return False
+        if words not in prefixes: return False
     return False
 
 

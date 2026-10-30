@@ -624,6 +624,7 @@ public struct GalleryService {
         page: Int?,
         hideBot: Bool
     ) async throws -> [CommunityPoster] {
+        let identity = session.currentCredentials.identity
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
         var queryItems: [URLQueryItem] = []
@@ -652,11 +653,14 @@ public struct GalleryService {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
 
-        let result: [CommunityPoster] = try await api.request(path: "posters", queryItems: queryItems, validate: { posters in
+        let response: CommunityAPIResponse<[CommunityPoster]> = try await api.response(path: "posters", queryItems: queryItems, validate: { posters in
             guard posters.allSatisfy({ $0.id > 0 && $0.likeNum >= 0 && $0.commentNum >= 0 }) else {
                 throw GalleryServiceError.invalidResponse
             }
         })
-        return resourceUpdates.resolve(result, since: revision)
+        if let issue = response.value.compactMap(\.imageRecoveryIssue).first { await response.reportValidationFailure(issue) }
+        try Task.checkCancellation()
+        guard session.currentCredentials.identity == identity else { throw CancellationError() }
+        return resourceUpdates.resolve(response.value, since: revision)
     }
 }

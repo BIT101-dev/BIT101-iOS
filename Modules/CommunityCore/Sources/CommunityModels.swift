@@ -126,6 +126,19 @@ public nonisolated struct CommunityClaim: Codable, Hashable, Identifiable, Senda
     public let text: String
 }
 
+private nonisolated struct CommunityImageList: Decodable {
+    var images: [CommunityImage] = []
+    var discardedCount = 0
+    init(from decoder: Decoder) throws {
+        var values = try decoder.unkeyedContainer()
+        while !values.isAtEnd {
+            let item = try values.superDecoder()
+            if let image = try? CommunityImage(from: item), image.hasResourceIdentity { images.append(image) }
+            else { discardedCount += 1 }
+        }
+    }
+}
+
 /// 信息流帖子卡片模型。
 ///
 /// 模型按列表预览预算保留正文，完整正文由详情请求承接。
@@ -162,6 +175,12 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
     public let editTime: String
     public let id: Int
     public let images: [CommunityImage]
+    public private(set) var discardedImageCount = 0
+    public var imageRecoveryIssue: DecodingError? {
+        guard discardedImageCount > 0 else { return nil }
+        return .dataCorrupted(.init(codingPath: [CodingKeys.images],
+            debugDescription: "帖子 \(id) 的 \(discardedImageCount) 项图片资料异常，有效图片已保留。"))
+    }
     public private(set) var likeNum: Int
     public let `public`: Bool
     public let tags: [String]
@@ -184,7 +203,11 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         commentNum = (try? fields.decode(Int.self, forKey: .commentNum)) ?? 0
         createTime = (try? fields.decode(String.self, forKey: .createTime)) ?? ""
         editTime = (try? fields.decode(String.self, forKey: .editTime)) ?? ""
-        images = (try? fields.decode([CommunityImage].self, forKey: .images)) ?? []
+        do {
+            let decoded = try fields.decodeIfPresent(CommunityImageList.self, forKey: .images)
+            images = decoded?.images ?? []
+            discardedImageCount = decoded?.discardedCount ?? 0
+        } catch { images = []; discardedImageCount = 1 }
         likeNum = (try? fields.decode(Int.self, forKey: .likeNum)) ?? 0
         self.public = (try? fields.decode(Bool.self, forKey: .public)) ?? false
         tags = (try? fields.decode([String].self, forKey: .tags)) ?? []

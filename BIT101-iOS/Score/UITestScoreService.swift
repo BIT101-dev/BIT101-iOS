@@ -25,11 +25,15 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
     ) async throws -> [ScoreRow] {
-        [
+        if detail, AppUITestBootstrap.takeRequest("score-details", query: [], from: &AppUITestBootstrap.holdingRequests) {
+            await AppUITestBootstrap.holdRequest("score-details")
+            try Task.checkCancellation()
+        }
+        return [
             ScoreRow(
                 index: 1,
-                headers: ["课程编号", "课程名称", "开课学期", "成绩", "学分", "课程性质"],
-                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "专业教育"]
+                headers: ["课程编号", "课程名称", "开课学期", "成绩", "学分", "课程性质"] + (detail ? ["平均分"] : []),
+                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "专业教育"] + (detail ? ["94.50"] : [])
             ),
         ]
     }

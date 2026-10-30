@@ -10,6 +10,9 @@ final class ScheduleConflictUITests: UIAutomationTestCase {
         let cloudSync = app.switches["iCloud 多端同步"]
         reveal(cloudSync)
         cloudSync.assertDisabled("日程恢复确认期间，同步开关应沿共享写入资格置灰。")
+        let preferenceSync = app.switches["同步设置与使用偏好（实验性）"]
+        reveal(preferenceSync)
+        assertUI(preferenceSync.isEnabled, "独立偏好同步应保留操作能力。")
         reveal(rebuild)
         rebuild.tapBriefly()
         tap("schedule.recovery.rebuild.cancel")

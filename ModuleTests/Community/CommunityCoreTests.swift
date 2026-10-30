@@ -114,6 +114,12 @@ struct CommunityCoreTests {
         #expect(!CommunityTextLimits.requiresFullReading(String(repeating: "A", count: CommunityTextLimits.maximumDisplayBytes)))
     }
 
+    @Test(arguments: [("e\u{0301}", 1), ("🇨🇳", 4), ("👨‍👩‍👧‍👦", 4)])
+    func displayBudgetsKeepWholeCharactersAtTheByteBoundary(character: String, partialBytes: Int) {
+        let prefix = String(repeating: "A", count: CommunityTextLimits.maximumPreviewBytes - 3 - partialBytes)
+        #expect(CommunityTextLimits.displayText(prefix + character + "long tail", preview: true) == prefix + "…")
+    }
+
     @Test(.timeLimit(.minutes(1))) func unreadCandidatesSurviveNewNotificationsManualReadsAndReload() async throws {
         let domain = "BIT101ModulesTests.unread-candidates"
         let defaults = try #require(UserDefaults(suiteName: domain))

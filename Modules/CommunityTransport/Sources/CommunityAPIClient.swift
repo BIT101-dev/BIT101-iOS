@@ -100,6 +100,11 @@ private enum CommunityCredentialRefreshContext {
 public nonisolated struct CommunityAPIResponse<Value: Sendable>: Sendable {
     public let value: Value
     public let isAuthenticated: Bool
+    private let transportResponse: HTTPResponse
+    init(value: Value, isAuthenticated: Bool, transportResponse: HTTPResponse) {
+        self.value = value; self.isAuthenticated = isAuthenticated; self.transportResponse = transportResponse
+    }
+    public func reportValidationFailure(_ error: any Error) async { await transportResponse.reportValidationFailure(error) }
 }
 
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
@@ -177,7 +182,7 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                         NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
             }
             try validateIdentity(identity)
-            return CommunityAPIResponse(value: value, isAuthenticated: wire.isAuthenticated)
+            return CommunityAPIResponse(value: value, isAuthenticated: wire.isAuthenticated, transportResponse: response)
         }
     }
 

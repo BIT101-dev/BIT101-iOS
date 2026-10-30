@@ -32,9 +32,8 @@ public struct ScoreListPage: View {
     @State private var selectedPage: ScorePageSelection?
 
     private enum ScorePageSelection: Hashable {
-        case score(ScoreRow), pending(ScoreCourseSummary), transcript, terms, types, sort
-        var scoreID: String? { if case let .score(row) = self { row.id } else { nil } }
-        var pendingID: String? { if case let .pending(course) = self { course.id } else { nil } }
+        case course(ScoreDetailSelection), transcript, terms, types, sort
+        var course: ScoreDetailSelection? { if case let .course(value) = self { value } else { nil } }
     }
 
     public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
@@ -57,6 +56,7 @@ public struct ScoreListPage: View {
 
     @ViewBuilder private var content: some View {
         let visibleRows = viewModel.visibleRows
+        let selectedRowID = selectedPage?.course?.row(in: viewModel.rows)?.id
         Group {
             switch viewModel.state {
             case .idle, .loading:
@@ -95,8 +95,8 @@ public struct ScoreListPage: View {
                             .frame(maxWidth: .infinity)
                         } else {
                             ForEach(visibleRows) { row in
-                                AppBrowserListRow(isSelected: selectedPage?.scoreID == row.id,
-                                    action: { selectedPage = .score(row) }) {
+                                AppBrowserListRow(isSelected: selectedRowID == row.id,
+                                    action: { selectedPage = .course(.init(row: row)) }) {
                                     ScoreListRowCard(row: row)
                                 }
                                 .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
@@ -108,8 +108,8 @@ public struct ScoreListPage: View {
                     if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
                         Section("未出分") {
                             ForEach(pendingCourses) { course in
-                                AppBrowserListRow(isSelected: selectedPage?.pendingID == course.id,
-                                    action: { selectedPage = .pending(course) }) {
+                                AppBrowserListRow(isSelected: selectedPage?.course?.pendingCourseID == course.id,
+                                    action: { selectedPage = .course(.init(course: course)) }) {
                                     ScoreListRowCard(course: course)
                                 }
                                 .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
@@ -212,8 +212,14 @@ public struct ScoreListPage: View {
 
     @ViewBuilder private func detail(_ page: ScorePageSelection) -> some View {
         switch page {
-        case let .score(row): ScoreDetailView(row: row, onSearchCourse: onSearchCourse)
-        case let .pending(course): PendingScoreDetailView(course: course)
+        case let .course(selection):
+            if let row = selection.row(in: viewModel.rows) {
+                ScoreDetailView(row: row, onSearchCourse: onSearchCourse)
+            } else if let course = viewModel.pendingCourses?.first(where: { $0.id == selection.pendingCourseID }) {
+                PendingScoreDetailView(course: course)
+            } else {
+                AppEmptyState(title: "成绩列表已更新", systemImage: "chart.bar.doc.horizontal", message: "请选择当前列表中的课程。")
+            }
         case .transcript: TrustedTranscriptDestination(service: transcriptService)
         case .terms:
             ScoreFilterPage(title: "学期筛选", options: viewModel.availableTerms,

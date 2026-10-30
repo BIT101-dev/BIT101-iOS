@@ -48,6 +48,7 @@ class BoundedLines:
 
 def useful_line(line):
     if not line.strip(): return False
+    if 'Retrying failed scroll-to-visible with containing cell' in line: return False
     if line.startswith('[') and line[1:2].isdigit() and re.search(r'error:|warning:|fatal:|failed', line, re.IGNORECASE): return True
     if re.match(r"^\s*t =\s*(?:[\d.]+s|nans)\s", line) and not re.search(r"error:|failed", line, re.IGNORECASE): return False
     if line.startswith(("UI control inventory: ", "UI query metrics: ", "UI input replace: ",

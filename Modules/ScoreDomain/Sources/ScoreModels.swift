@@ -112,6 +112,39 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Hashable, Sendable {
 }
 
 
+public nonisolated struct ScoreDetailSelection: Hashable, Sendable {
+    public let pendingCourseID: String?
+    private let rowID: String?
+    private let term: String
+    private let number: String
+    private let name: String
+
+    public init(row: ScoreRow) {
+        rowID = row.id; pendingCourseID = nil
+        term = Self.normalized(row.term); number = Self.normalized(row.courseNumber); name = Self.normalized(row.courseName)
+    }
+
+    public init(course: ScoreCourseSummary) {
+        rowID = nil; pendingCourseID = course.id
+        term = Self.normalized(course.term); number = Self.normalized(course.number); name = Self.normalized(course.name)
+    }
+
+    public func row(in rows: [ScoreRow]) -> ScoreRow? {
+        let matches = rows.filter { row in
+            let rowTerm = Self.normalized(row.term), rowNumber = Self.normalized(row.courseNumber)
+            guard term.isEmpty || rowTerm.isEmpty || term == rowTerm else { return false }
+            if !number.isEmpty, !rowNumber.isEmpty { return number == rowNumber }
+            return !name.isEmpty && name == Self.normalized(row.courseName)
+        }
+        if let rowID, let row = matches.first(where: { $0.id == rowID }) { return row }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.components(separatedBy: .whitespacesAndNewlines).joined().lowercased()
+    }
+}
+
 /// 对比完整成绩与简略载荷，维护缓存状态和刷新反馈。
 public nonisolated enum ScoreRowComparison {
     private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]

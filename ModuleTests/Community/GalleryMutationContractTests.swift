@@ -6,6 +6,32 @@ import TransportCore
 @testable import GalleryFeature
 
 extension ServiceContractTests {
+    private final class ImageRecoveryObserver: HTTPClientObserving {
+        var failures = 0
+        func willSend(_ request: URLRequest) async throws {}
+        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
+            if error != nil { failures += 1 }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func posterImagesKeepValidNeighborsAndReportTheirPartialResponse() async throws {
+        let body = #"[{"id":42,"anonymous":false,"user":{"id":1},"title":"图片","text":"正文","images":[{"mid":"first","url":"https://example.invalid/first"},{"url":"https://example.invalid/missing"},null,{"mid":"last","url":"https://example.invalid/last"}]}]"#
+        let transport = Transport([(200, body)])
+        let observer = ImageRecoveryObserver()
+        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: observer),
+            baseURL: AppURL.required("https://example.invalid"), credentials: {
+                .init(identity: .init(accountIdentifier: "image-recovery"), cookie: "fixture")
+            }, refresh: { _ in })
+        let service = GalleryService(session: session, preferences: {
+            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
+        })
+        let page = try await service.fetchFeed(kind: .newest, page: 0)
+        #expect(page.items.first?.images.map(\.mid) == ["first", "last"])
+        #expect(page.items.first?.discardedImageCount == 2 && observer.failures == 1)
+        #expect(transport.requests.count == 1)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "different", "readFailed", "rejected"])
     func posterEditsVerifyAmbiguousResponsesAndRetainClearRejections(scenario: String) async throws {
         let transport = Transport([])

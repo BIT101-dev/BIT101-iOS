@@ -35,6 +35,9 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture', argumen
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    retry = '    t = 3.50s Retrying failed scroll-to-visible with containing cell Cell\n'
+    output, raw = captured_command([retry], status=0)
+    assert 'Retrying failed scroll-to-visible' not in output and raw == retry
     script = (SCRIPT_ROOT / 'release-network-smoke.sh').read_text()
     function = 'show_smoke_progress() {' + script.split('show_smoke_progress() {', 1)[1].split('\n}', 1)[0] + '\n}'
     stages = ['NETWORK_SMOKE_START name=school.session', 'NETWORK_SMOKE_SMS_REQUIRED purpose=成绩查询',
