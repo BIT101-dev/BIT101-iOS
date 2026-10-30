@@ -53,7 +53,7 @@ UIKit 控件沿构造类型、继承或别名进入源码清单，运行门禁�
 | `LandscapeLayoutUITests/testClassroomSMSUsesTheCurrentNativeDestination` | 空教室入口触发短信验证、当前页面承载验证、验证后续接查询与分区保持 |
 | `LandscapeLayoutUITests/testClassroomLoadingKeepsThePageBackground` | 宽幅空教室首次查询期间，比较侧栏和空结果区域的实际背景像素并记录截图 |
 | `LandscapeLayoutUITests/testLandscapeEdgesAndColumnBoundaries` | 横屏课表及悬浮按钮的底部安全区边界、各页统一分栏位置、Duo 系统分隔位置与顶部标准间距，iPad 双横屏方向回归 |
-| `LandscapeLayoutUITests/testCompactWindowKeepsSystemBarsAndListsWithinBounds` | 紧凑窗口原生主导航及分组行边界、顶部标准间距、竖屏课表及悬浮操作底部间距与实际截图、空教室节次筛选整页进入及返回 |
+| `LandscapeLayoutUITests/testCompactWindowKeepsSystemBarsAndListsWithinBounds` | 紧凑窗口原生主导航及分组行边界、顶部标准间距、竖屏课表及悬浮操作底部间距与实际截图；课表 / DDL / 空教室切换时核对可见列表刷新行与时间文字的顶部边界，空教室节次筛选整页进入及返回后再次核对 |
 | `LandscapeLayoutUITests/testWindowChangesKeepBrowsersWithinSystemInsets` | 连续展开、折叠及重新展开，紧凑列表安全边界及宽幅浏览列表沿系统分隔位置恢复 |
 | `LandscapeLayoutUITests/testLandscapeDetailBackAndClassroomFilterUseTheRightPane` | 右栏左上侧返回键、成绩排序返回占位、空教室节次筛选右栏呈现、选择、横竖屏导航续接及返回查询结果 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayAndTransferConfirmationCancellation` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |

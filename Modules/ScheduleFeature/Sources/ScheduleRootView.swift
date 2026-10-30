@@ -79,7 +79,10 @@ public struct ScheduleRootView: View {
     private var content: some View {
         GeometryReader { proxy in
             ZStack {
-                if displayedSection == .classroom { FreeClassroomTabView(viewModel: viewModel.classroom) }
+                if displayedSection == .classroom {
+                    FreeClassroomTabView(viewModel: viewModel.classroom)
+                        .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
+                }
                 else {
                     AppPairedPages(showsFirst: displayedSection == .courses) {
                         CourseScheduleTabView(viewModel: viewModel, resetSignal: courseTabResetSignal, destinations: destinations)
@@ -101,7 +104,7 @@ public struct ScheduleRootView: View {
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation { sectionTabs }
+            if !expandedNavigation && displayedSection != .classroom { sectionTabs }
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。

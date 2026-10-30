@@ -122,7 +122,10 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         checkCompactWindowBounds()
         app.mainTab("日程").tapBriefly()
-        tapHeader(app.sectionTab("空教室"))
+        for section in ["课表", "DDL", "空教室"] {
+            tapHeader(app.sectionTab(section))
+            assertRefreshBelowSectionTabs()
+        }
         app.buttons["classroom.section-filter"].tapBriefly()
         let navigation = app.navigationBars["节次筛选"]
         assertUI(navigation.appears(timeout: 5), "竖屏节次筛选应沿整页导航打开。")
@@ -131,6 +134,19 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         back()
         assertUI(navigation.disappears(timeout: 5) && app.buttons["classroom.section-filter"].exists,
             "竖屏筛选返回应恢复空教室查询页。")
+        assertRefreshBelowSectionTabs()
+    }
+    @MainActor private func assertRefreshBelowSectionTabs() {
+        let header = app.native.segmentedControls.firstMatch
+        guard let list = app.native.collectionViews.allElementsBoundByIndex.first(where: { $0.frame.width > 0 }) else {
+            assertUI(false, "当前分区应提供可见的原生列表。")
+            return
+        }
+        let row = list.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
+        let stamp = row.staticTexts["app.refresh-status.timestamp"]
+        assertUI(header.exists && row.exists && stamp.exists && row.frame.minY >= header.frame.maxY
+            && stamp.frame.minY >= header.frame.maxY && stamp.isHittable,
+            "刷新行与时间文字应完整显示在分区栏下方：分区栏 \(header.frame)，刷新行 \(row.frame)，时间 \(stamp.frame)。")
     }
     @MainActor
     @objc func testWindowChangesKeepBrowsersWithinSystemInsets() throws {
