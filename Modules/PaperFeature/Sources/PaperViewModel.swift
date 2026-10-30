@@ -214,7 +214,7 @@ class PaperCollectionViewModel: ObservableObject {
     func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
         guard state.status == .loaded else { return }
         guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id) else { return }
-        guard !previewLoadingIDs.contains(paper.id) else { return }
+        guard !previewLoadingIDs.contains(paper.id), !previewFailedIDs.contains(paper.id) else { return }
         let generation = refreshGeneration
         previewLoadingIDs.insert(paper.id)
         previewFailedIDs.remove(paper.id)
@@ -237,7 +237,10 @@ class PaperCollectionViewModel: ObservableObject {
     }
 
     func retryFailedPreviews() {
-        if !previewFailedIDs.isEmpty || !previewRevalidationIDs.isEmpty { previewGeneration &+= 1 }
+        if !previewFailedIDs.isEmpty || !previewRevalidationIDs.isEmpty {
+            previewFailedIDs.removeAll()
+            previewGeneration &+= 1
+        }
     }
 
     func reset() {

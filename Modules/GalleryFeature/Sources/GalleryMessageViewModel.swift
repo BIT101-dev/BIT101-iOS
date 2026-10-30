@@ -14,14 +14,14 @@ nonisolated enum GalleryMessageDestination: Hashable {
 private enum GalleryMessagePersistenceError: LocalizedError {
     case unavailable
     case unreadable
-    case unreadSummary(String)
+    case unreadSummary(any Error)
     case recoveryLimit
     case changingSummary
     var errorDescription: String? {
         switch self {
         case .unavailable: "消息已读状态保存失败，原记录已保留，请重试。"
         case .unreadable: "消息已读状态读取失败，原记录已保留，请重试。"
-        case .unreadSummary(let reason): "未读消息摘要读取失败：\(reason)"
+        case .unreadSummary(let reason): "未读消息摘要读取失败：\(reason.localizedDescription)"
         case .recoveryLimit: "消息恢复达到处理上限，未读记录已保留，请继续刷新。"
         case .changingSummary: "消息持续更新，请稍后刷新。"
         }
@@ -40,7 +40,7 @@ final class GalleryMessageViewModel: ObservableObject {
     @Published private(set) var unreadCountsFailure: String?
     @Published private(set) var isRecoveringReadState = false
     @Published private var pendingRecoveryTypes: Set<GalleryMessageType> = []
-    private static let logger = Logger(subsystem: "BIT101-dev.BIT101-iOS", category: "GalleryMessages")
+    private static let logger = Logger(subsystem: "BIT101", category: "GalleryMessages")
     @Published var alert: AppAlert?
     @Published var destination: GalleryMessageDestination?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
@@ -167,7 +167,7 @@ final class GalleryMessageViewModel: ObservableObject {
         do { return try await service.fetchMessageUnreadCounts() }
         catch {
             if TaskCancellation.matches(error) { throw error }
-            throw GalleryMessagePersistenceError.unreadSummary(error.localizedDescription)
+            throw GalleryMessagePersistenceError.unreadSummary(error)
         }
     }
 
@@ -265,8 +265,10 @@ final class GalleryMessageViewModel: ObservableObject {
             pendingRecoveryTypes.remove(type)
         } catch {
             guard listGenerations[type] == generation, session == readStore.currentSession else { return }
+            var diagnosticError = error
             if let failure = error as? GalleryMessagePersistenceError, case .unreadSummary(let reason) = failure {
-                unreadCountsFailure = reason
+                unreadCountsFailure = reason.localizedDescription
+                diagnosticError = reason
             }
             let cancelled = TaskCancellation.matches(error)
             if state(for: type).status == .loading {
@@ -279,7 +281,7 @@ final class GalleryMessageViewModel: ObservableObject {
             pendingRecoveryTypes.insert(type)
             if cancelled { return }
             alert = AppAlert(title: error is GalleryMessagePersistenceError ? "消息状态同步受阻" : "加载消息失败",
-                message: error.localizedDescription)
+                message: error.localizedDescription, underlyingError: diagnosticError)
         }
     }
 

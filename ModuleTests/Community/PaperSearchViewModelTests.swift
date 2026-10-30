@@ -231,6 +231,11 @@ struct PaperSearchViewModelTests {
         func failures() -> Set<Int> { search ? results.previewFailedIDs : list.previewFailedIDs }
         await refresh(); await load()
         #expect(failures() == [paper.id])
+        await load()
+        #expect(service.metadataRequests == 1)
+        if search { results.retryFailedPreviews() } else { list.retryFailedPreviews() }
+        await load()
+        #expect(service.metadataRequests == 2 && failures() == [paper.id])
         service.metadata = { _ in throw CancellationError() }
         await refresh(); await load()
         #expect(failures().isEmpty)

@@ -451,7 +451,7 @@ private struct GalleryRootViewScene: View {
 }
 
 final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-    private static let logger = Logger(subsystem: "BIT101-iOS", category: "GalleryWeb")
+    private static let logger = Logger(subsystem: "BIT101", category: "GalleryWeb")
     let credentials: GalleryWebCredentials
     let openExternal: (URL) -> Void
     init(credentials: GalleryWebCredentials, openExternal: @escaping (URL) -> Void) {

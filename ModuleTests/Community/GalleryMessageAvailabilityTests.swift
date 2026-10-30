@@ -182,6 +182,8 @@ struct GalleryMessageAvailabilityTests {
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshSelectedType()
         #expect(model.state(for: .comment).status == .loaded && model.state(for: .comment).items.map(\.id) == [42])
+        let underlying = try #require(model.alert?.underlyingError as? URLError)
+        #expect(underlying.code == (stage == "summary" ? .notConnectedToInternet : .networkConnectionLost))
         let previousRequests = service.cursors.count
         service.failure = nil
         service.acknowledgementFails = false

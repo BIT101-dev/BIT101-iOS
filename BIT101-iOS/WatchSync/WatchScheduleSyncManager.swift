@@ -151,7 +151,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     static let shared = WatchScheduleSyncManager()
     static let snapshotReceivedNotification = Notification.Name("WatchScheduleSnapshotDidReceive")
     nonisolated private static let logger = Logger(
-        subsystem: "BIT101-dev.BIT101-iOS",
+        subsystem: "BIT101",
         category: "WatchScheduleSync"
     )
 

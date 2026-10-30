@@ -91,7 +91,7 @@ nonisolated enum CampusLocationFailurePolicy {
                 recoveryAction: .openAppSettings
             )
         }
-        return MapNotice(title: "定位失败", message: error.localizedDescription)
+        return MapNotice(title: "定位失败", error: error)
     }
 
     static func contains(_ error: Error, code: CLError.Code) -> Bool {

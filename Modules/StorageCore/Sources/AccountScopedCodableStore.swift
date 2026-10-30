@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 private let accountScopedStoreLogger = Logger(
-    subsystem: "BIT101-dev.BIT101-iOS",
+    subsystem: "BIT101",
     category: "AccountScopedStore"
 )
 

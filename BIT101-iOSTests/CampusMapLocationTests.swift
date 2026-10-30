@@ -192,6 +192,7 @@ struct CampusMapLocationTests {
         controller.handleLocationFailure(CLError(.network))
         #expect(controller.notice?.title == "定位失败")
         #expect(controller.notice?.allowsDiagnostics == true)
+        #expect((controller.notice?.underlyingError as? CLError)?.code == .network)
     }
 
     @Test("All retained timetable locations match their calibrated map place")
