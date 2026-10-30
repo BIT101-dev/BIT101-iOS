@@ -166,8 +166,10 @@ if device and device.get('isAvailable'):
 else:
     if device and device.get('name') == 'BIT101':
         subprocess.run(['xcrun', 'simctl', 'delete', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
+    reusable_types = {phone['identifier']} if hosted or requested_type else {
+        row['identifier'] for row in runtime['supportedDeviceTypes'] if row['name'].startswith('iPhone')}
     reusable = [row for row in data['devices'].get(runtime['identifier'], []) if row.get('isAvailable')
-        and (row.get('deviceTypeIdentifier') == phone['identifier'] if hosted or requested_type else row['name'] == 'BIT101')]
+        and row.get('deviceTypeIdentifier') in reusable_types]
     if reusable:
         device = min(reusable, key=lambda row: (row['name'] != 'BIT101', row['state'] != 'Booted', row['udid']))
         identifier = device['udid']

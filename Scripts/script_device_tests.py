@@ -72,11 +72,11 @@ def simulator_identity_boundary_findings() -> list[str]:
             {'name': 'iPhone 16', 'identifier': 'older-type'}, {'name': 'iPhone 17 Pro Max', 'identifier': 'larger-type'},
             {'name': 'iPhone 17 Pro', 'identifier': 'phone-type'}]}
     for ci, state in [(False, 'valid'), (False, 'deleted'), (False, 'unavailable'),
-                      (False, 'manifest-missing'), (False, 'empty'), (True, 'valid'), (True, 'deleted'),
+                      (False, 'manifest-missing'), (False, 'default-name'), (False, 'empty'), (True, 'valid'), (True, 'deleted'),
                       (True, 'unavailable'), (True, 'empty'), (True, 'adaptive')]:
         old = {'udid': 'old', 'name': 'BIT101', 'isAvailable': state in {'valid', 'adaptive'}, 'state': 'Booted',
             'deviceTypeIdentifier': 'adaptive-type' if state == 'adaptive' else 'phone-type'}
-        reusable = {'udid': 'ready', 'name': 'iPhone 17 Pro' if ci else 'BIT101', 'isAvailable': True,
+        reusable = {'udid': 'ready', 'name': 'iPhone 17 Pro' if ci or state == 'default-name' else 'BIT101', 'isAvailable': True,
             'state': 'Booted', 'deviceTypeIdentifier': 'phone-type'}
         adaptive = {'udid': 'first', 'name': 'iPhone Duo', 'isAvailable': True, 'state': 'Booted', 'deviceTypeIdentifier': 'adaptive-type'}
         devices = ([adaptive] if ci else []) + ([] if state == 'empty' else [reusable] + ([old] if state in {'valid', 'unavailable', 'adaptive'} else []))
@@ -96,7 +96,7 @@ def simulator_identity_boundary_findings() -> list[str]:
             return SimpleNamespace(returncode=0)
         with patch.object(sys, 'argv', ['device', str(path), 'prepare']), \
                 patch.dict(os.environ, GITHUB_ACTIONS='true' if ci else 'false', DEVELOPER_DIR='/Xcode/Contents/Developer'), \
-                patch.object(Path, 'is_file', return_value=state != 'manifest-missing'), \
+                patch.object(Path, 'is_file', return_value=state not in {'manifest-missing', 'default-name'}), \
                 patch.object(Path, 'read_text', return_value=json.dumps({'identifier': 'old', 'runtime': runtime['identifier']})), \
                 patch.object(Path, 'write_text', side_effect=lambda text: saved.append(json.loads(text))), \
                 patch.object(subprocess, 'check_output', side_effect=output), patch.object(subprocess, 'run', side_effect=run), \

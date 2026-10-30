@@ -85,11 +85,18 @@ def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
     return findings
 
 
+def text_loading_state_findings(syntax: dict[str, dict]) -> list[str]:
+    return [f'{Path(path).relative_to(ROOT)}: 首屏文字加载状态必须使用 AppLoadingState/AppInlineLoadingState'
+        for path, facts in syntax.items() if Path(path) != ROOT / 'Modules/DesignSystemKit/Sources/AppStateComponents.swift'
+        for call in facts.get('invocations', []) if call_name(call['calledExpression']) == 'ProgressView'
+        and call.get('arguments') and re.match(r'^\s*#*"', mask_comments(call['arguments'][0]))]
+
+
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
     errors.extend(list_row_layout_findings(syntax))
+    errors.extend(text_loading_state_findings(syntax))
     sources = {path: source_text(path) for path in swift_files()}
     code_sources = {path: mask_literals_and_comments(source) for path, source in sources.items()}
-    comment_free_sources = {path: mask_comments(source) for path, source in sources.items()}
 
     # Public component existence comes from declaration nodes, independent of comments and strings.
     component_declarations = [
@@ -104,14 +111,6 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
                 expected = COMPONENT_INHERITANCE[symbol]
                 requirement = "struct" if expected is None else f"struct: {expected}"
                 errors.append(f"公共组件组「{group}」缺少符合 {requirement} 的 {symbol}")
-
-    # 首屏文字加载状态必须走公共状态组件；按钮内的无文字进度条仍可保留。
-    for path in swift_files():
-        if path == ROOT / "Modules/DesignSystemKit/Sources/AppStateComponents.swift":
-            continue
-        source = comment_free_sources[path]
-        if re.search(r"\bProgressView\s*\(\s*\"", source):
-            errors.append(f"{str(path.relative_to(ROOT))}: 首屏文字加载状态必须使用 AppLoadingState/AppInlineLoadingState")
 
     # 页面级公共规则按语义模式发现。
     for path, source in code_sources.items():

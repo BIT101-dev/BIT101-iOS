@@ -16,7 +16,7 @@ if not __debug__:
 cache_names = {"SDKExplicitPrecompiledModules", "ModuleCache.noindex", "SDKStatCaches.noindex", "CompilationCache.noindex", "Index.noindex"}
 DERIVED_ROOT_NAMES = ('.build/extended-automation', 'build/DeviceInstall', '.build/release-network-smoke',
     '.build/icloud-cross-device-smoke/Phone', '.build/icloud-cross-device-smoke/Mac', '.build/extended-automation/out')
-BUILD_DATABASE_RELATIVE = 'Build/Intermediates.noindex/XCBuildData/build.db'
+BUILD_DATABASE_RELATIVES = ('Build/Intermediates.noindex/XCBuildData/build.db', 'Intermediates.noindex/XCBuildData/build.db')
 derived_names = cache_names | {"Build", "Logs", "SourcePackages", "info.plist"}
 fixed_children = {
     ".build/compiler-cache": cache_names | {"cache.lock", "compilation-cache.json",
@@ -213,9 +213,13 @@ def prune_cas_storage(shared: Path, compiler: Path | None = None) -> tuple[int, 
     return before, after
 
 
+def build_databases(derived_roots: list[Path]) -> list[Path]:
+    return [path for derived in derived_roots for relative in BUILD_DATABASE_RELATIVES
+        if (path := derived / relative).is_file()]
+
+
 def build_database_bytes(root: Path) -> int:
-    return sum(path.stat().st_size for name in DERIVED_ROOT_NAMES
-        for path in [root / name / BUILD_DATABASE_RELATIVE] if path.is_file())
+    return sum(path.stat().st_size for path in build_databases([root / name for name in DERIVED_ROOT_NAMES]))
 
 
 def cache_space_report(root: Path) -> dict:
@@ -269,9 +273,7 @@ def cache_maintenance_needed(root: Path) -> bool:
 
 def compact_build_databases(derived_roots: list[Path]) -> None:
     import sqlite3
-    for derived in derived_roots:
-        database = derived / BUILD_DATABASE_RELATIVE
-        if not database.is_file(): continue
+    for database in build_databases(derived_roots):
         try:
             with closing(sqlite3.connect(database, timeout=0)) as connection:
                 page_size = connection.execute('PRAGMA page_size').fetchone()[0]

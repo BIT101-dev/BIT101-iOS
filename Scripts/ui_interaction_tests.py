@@ -394,6 +394,7 @@ def checker_report_boundary_findings() -> list[str]:
 
 def visual_contract_boundary_findings() -> list[str]:
     list_semantics_boundary_self_test()
+    text_loading_state_boundary_self_test()
     from ui_rules import visual_contract_present, rendered_component_counts
     marker = 'StrokeStyle(lineWidth: 2, dash: [5, 4])'
     contract = 'Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift'
@@ -427,6 +428,21 @@ def visual_contract_boundary_findings() -> list[str]:
     custom = ROOT / 'Modules/CourseFeature/Sources/Operators.swift'
     assert visual_contract_present(contract, marker, {moved: source.replace('if false', 'if 1 == 2'), custom: 'struct Bool {}'})
     return []
+
+
+def text_loading_state_boundary_self_test() -> None:
+    from ui_rules import text_loading_state_findings
+    path = str(ROOT / 'BIT101-iOS/LoadingProbe.swift')
+    bodies = [
+        ('ProgressView("加载中")', True),
+        ('ProgressView(#"加载中"#)', True),
+        ('ProgressView()', False),
+        ('let example = #"ProgressView("loading")"#; Text(example)', False),
+        ('// ProgressView("loading")\nText("加载中")', False),
+    ]
+    for body, expected in bodies:
+        syntax = swift_syntax_index_sources({path: 'struct Screen: View { var body: some View { ' + body + ' } }'})
+        assert bool(text_loading_state_findings(syntax)) == expected, body
 
 
 def list_semantics_boundary_self_test() -> None:

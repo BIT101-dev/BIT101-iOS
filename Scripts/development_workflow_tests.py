@@ -472,21 +472,24 @@ def cache_maintenance_self_test(fixture: Path) -> None:
             except RuntimeError as error: assert str(exit_code) in str(error) and 'native failure' in str(error)
             else: raise AssertionError('原生维护失败应回到父进程处理。')
     derived = fixture / 'database'
-    database = derived / 'Build/Intermediates.noindex/XCBuildData/build.db'
-    database.parent.mkdir(parents=True)
-    connection = sqlite3.connect(database)
-    try:
-        connection.execute('CREATE TABLE incremental (id INTEGER PRIMARY KEY, value BLOB)')
-        connection.executemany('INSERT INTO incremental VALUES (?, ?)', [(i, b'x' * 4096) for i in range(100)])
-        connection.execute('DELETE FROM incremental WHERE id > 2'); connection.commit()
-        rows = connection.execute('SELECT * FROM incremental').fetchall()
-    finally: connection.close()
-    before = database.stat().st_size
-    with patch.object(artifacts, 'CACHE_GROWTH_INTERVAL', 1): artifacts.compact_build_databases([derived])
-    connection = sqlite3.connect(database)
-    try: assert connection.execute('SELECT * FROM incremental').fetchall() == rows
-    finally: connection.close()
-    assert database.stat().st_size < before
+    for relative in artifacts.BUILD_DATABASE_RELATIVES:
+        database = derived / relative
+        database.parent.mkdir(parents=True)
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute('CREATE TABLE incremental (id INTEGER PRIMARY KEY, value BLOB)')
+            connection.executemany('INSERT INTO incremental VALUES (?, ?)', [(i, b'x' * 4096) for i in range(100)])
+            connection.execute('DELETE FROM incremental WHERE id > 2'); connection.commit()
+            rows = connection.execute('SELECT * FROM incremental').fetchall()
+        finally: connection.close()
+        before = database.stat().st_size
+        with patch.object(artifacts, 'CACHE_GROWTH_INTERVAL', 1): artifacts.compact_build_databases([derived])
+        connection = sqlite3.connect(database)
+        try: assert connection.execute('SELECT * FROM incremental').fetchall() == rows
+        finally: connection.close()
+        assert database.stat().st_size < before
+    with patch.object(artifacts, 'DERIVED_ROOT_NAMES', ('database',)):
+        assert artifacts.build_database_bytes(fixture) == sum(path.stat().st_size for path in artifacts.build_databases([derived]))
     metadata.write_text('{')
     assert artifacts.cache_maintenance_needed(fixture)
     artifacts.update_cache_metadata(metadata, saved)
