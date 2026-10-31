@@ -603,10 +603,8 @@ xcrun() {
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode or any(marker not in result.stdout for marker in markers):
             findings.append("装机恢复自测：当前工具链需要正式启动与进程读取参数")
-    ui_test_count = sum(
-        len(re.findall(r"^\s*(?:@objc )?func test\w+\(", path.read_text(), re.MULTILINE))
-        for path in (ROOT / "BIT101-iOSUITests").glob("*.swift")
-    )
+    from validation_test_areas import test_inventory
+    ui_test_count = len(test_inventory('ui'))
     cases = (
         ("build-install-device.sh", [], 0, "platform=iOS,id=udid", "DEVICE"),
         ("build-install-device.sh", ["build"], 0, "generic/platform=iOS", ""),

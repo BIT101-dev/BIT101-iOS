@@ -217,6 +217,7 @@ JWB_VPN = r'(?:/https?/[0-9a-f]+)?'
 NATIVE_SCORE_LIST = RequestContract(JWB_HOST, JWB_VPN + '/jsxsd/kscj/cjcx_list', 'POST',
     body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}),
     required_body_parameters=frozenset({'kksj', 'kcxz', 'kcmc', 'xsfs'}))
+NATIVE_SCORE_DETAIL = RequestContract(JWB_HOST, JWB_VPN + '/jsxsd/kscj/cjfx', resource_parameters=True)
 NATIVE_JWB_LANDING = RequestContract(JWB_HOST, JWB_VPN + r'/(?:;jsessionid=[A-Za-z0-9_-]+|jsxsd/(?:framework/main\.jsp|xk/LoginToXk))?',
     resource_parameters=True)
 NATIVE_TRANSCRIPT_ENTRY = RequestContract(r'jwb\.bit\.edu\.cn', '/cjd/Account/ExternalLogin',
@@ -268,7 +269,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
     if community_session:
         rows.extend(community(path, method='POST') for path in ('/user/webvpn_verify_init', '/user/webvpn_verify'))
     if community_session or school_session:
-        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', '/cas/login', method, statuses=range(200, 400),
+        rows.extend(RequestContract(r'sso\.bit\.edu\.cn', r'/cas/{1,2}login', method, statuses=range(200, 400),
             additional_parameters=frozenset({'service', 'renew', 'gateway', 'ticket', 'type'}),
             body_parameters=frozenset({'username', 'password', 'execution', 'croypto', 'captcha_payload',
                 'geolocation', 'captcha_code', '_eventId', 'trustDevice', 'risk_payload', 'targetSystem', 'siteId', 'riskEngine'}) if method == 'POST' else frozenset()) for method in ('GET', 'POST'))
@@ -299,7 +300,7 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
             RequestContract(r'jwb\.bit\.edu\.cn', r'/cjd/(?:Account/ExternalLogin(?:Callback)?|signin-cas)?', statuses=range(200, 400), resource_parameters=True),
             replace(NATIVE_JWB_LANDING, statuses=range(200, 400)),
             RequestContract(r'webvpn\.bit\.edu\.cn', r'/(?:set-fingerprint|fingerprint|login)', statuses=range(200, 400), resource_parameters=True),
-            RequestContract(r'sso\.bit\.edu\.cn', '/ustc-rba-front/fp', 'POST', body_parameters=frozenset({
+            RequestContract(r'sso\.bit\.edu\.cn', '/ustc-rba-front/fp', 'POST', statuses=(200, 404), body_parameters=frozenset({
                 'fonts', 'deviceMemory', 'hardwareConcurrency', 'localgroupId', 'timezone', 'cpuClass', 'platform',
                 'language', 'screenResolution', 'fingerprint', 'cookieValue', 'userAgent', 'platformAuthenticator'})),
         ])
@@ -318,10 +319,18 @@ def auxiliary_contracts(probe: str, contracts: list[RequestContract], *, allow_s
     return rows
 
 
-def requests_accounted_for(requests: list[dict], contracts: list[RequestContract], auxiliary: list[RequestContract]) -> bool:
+def requests_accounted_for(requests: list[dict], contracts: list[RequestContract], auxiliary: list[RequestContract], *, allow_sms: bool = False) -> bool:
     allowed = contracts + auxiliary
     for index, row in enumerate(requests):
         if any(contract.matches(row) for contract in allowed): continue
+        if row.get('method') == 'POST' and row.get('finalMethod') == 'GET' and row.get('statusCode') in range(200, 300) \
+                and (row.get('query', {}).get('type') != 'smsLogin' or allow_sms):
+            origin = dict(row, finalEndpoint=row.get('endpoint'), finalMethod=row.get('method'),
+                finalQuery=row.get('query'), finalBodyParameterNames=row.get('bodyParameterNames', []))
+            destination = dict(row, endpoint=row.get('finalEndpoint'), method=row.get('finalMethod'),
+                query=row.get('finalQuery'), bodyParameterNames=row.get('finalBodyParameterNames', []))
+            if any(contract.host == r'sso\.bit\.edu\.cn' and contract.matches(origin) for contract in auxiliary) \
+                    and any(contract.host != r'sso\.bit\.edu\.cn' and contract.matches(destination) for contract in allowed): continue
         if row.get('responseContentMissing') is True and any(contract.method == 'GET'
                 and contract.host == re.escape(API) and contract.path in {r'/posters/\d+', r'/papers/\d+'}
                 and replace(contract, statuses=(400, 404, 500)).matches(row) for contract in auxiliary): continue
@@ -366,8 +375,9 @@ def complete(probe: str, requests: list[dict], expected_parameters: dict | None 
     if search_probe and expected_parameters['search'] == expected_parameters['excludedSearch']: return False
     variants = [contracts_for(probe, expected_parameters)]
     if probe in NATIVE_CONTRACTS: variants.append(NATIVE_CONTRACTS[probe])
+    if probe == 'score.detail': variants.append([NATIVE_SCORE_DETAIL])
     contracts = next((candidate for candidate in variants if candidate
-        and requests_accounted_for(requests, candidate, auxiliary_contracts(probe, candidate, allow_sms=allow_sms))
+        and requests_accounted_for(requests, candidate, auxiliary_contracts(probe, candidate, allow_sms=allow_sms), allow_sms=allow_sms)
         and all(contract.complete(requests) for contract in candidate)), [])
     matched = bool(contracts)
     if matched and selectors and not search_probe:

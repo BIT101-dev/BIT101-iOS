@@ -892,7 +892,7 @@ def network_route_identity_self_test() -> None:
 
 
 def native_school_request_contracts_self_test() -> None:
-    from network_request_contracts import complete
+    from network_request_contracts import complete, auxiliary_contracts, NATIVE_CONTRACTS
     def request(path, *, host='jwms.bit.edu.cn', method='GET', status=200, body=(), query=None):
         endpoint = 'https://' + host + path
         return dict(endpoint=endpoint, finalEndpoint=endpoint, method=method, finalMethod=method,
@@ -909,7 +909,9 @@ def native_school_request_contracts_self_test() -> None:
     assert not complete('score.authentication', [session_redirect])
     analysis = request('/http/abcdef/jsxsd/kscj/cjfx', host='webvpn.bit.edu.cn', query={'kch': '[REDACTED]'})
     assert complete('score.detail', [grades, analysis])
-    assert not complete('score.detail', [analysis])
+    assert complete('score.detail', [analysis])
+    assert not complete('score.detail', [dict(analysis, statusCode=500)])
+    assert not complete('score.detail', [dict(analysis, finalEndpoint='https://outside.invalid/score')])
     for probe in ('school.session', 'schedule.teaching-center'):
         trace = network_trace_fixture({'requiredProbes': [probe]})['requestEvidence'][0]
         callbacks = [request('/auth-protocol-core/loginSuccess', host='jxzxehall.bit.edu.cn', status=302),
@@ -929,6 +931,23 @@ def native_school_request_contracts_self_test() -> None:
     assert complete('score.transcript', [entry, cas, report, page])
     assert not complete('score.transcript', [entry, cas, report, dict(page, statusCode=500)])
     assert not complete('score.transcript', [entry, cas, dict(report, query={'GPA': '0'}), page])
+    risk = next(contract for contract in auxiliary_contracts('score.authentication', NATIVE_CONTRACTS['score.authentication'])
+        if contract.path == '/ustc-rba-front/fp')
+    fingerprint = request(risk.path, host='sso.bit.edu.cn', method='POST', status=404, body=risk.body_parameters)
+    assert complete('score.authentication', [fingerprint, cas, landing])
+    assert not complete('score.authentication', [dict(fingerprint, statusCode=500), cas, landing])
+    assert not complete('score.authentication', [fingerprint, cas])
+    courses = network_trace_fixture({'requiredProbes': ['eclass.authentication']})['requestEvidence'][0]['requests']
+    index = request('/user/index', host='zy-eclass.bit.edu.cn')
+    redirected = dict(index, finalEndpoint='https://sso.bit.edu.cn/cas//login', finalQuery={'service': '[REDACTED]'})
+    sms = request('/cas//login', host='sso.bit.edu.cn', method='POST', body=('username', 'password', 'type', 'trustDevice'),
+        query={'service': '[REDACTED]', 'type': 'smsLogin'})
+    sms.update(finalEndpoint=index['endpoint'], finalMethod='GET', finalQuery={}, finalBodyParameterNames=[])
+    recovered = [dict(courses[0], statusCode=401), redirected, sms, index] + courses
+    assert complete('eclass.authentication', recovered, allow_sms=True)
+    assert not complete('eclass.authentication', recovered)
+    assert not complete('eclass.authentication', [redirected, sms, index], allow_sms=True)
+    assert not complete('eclass.authentication', [dict(sms, finalEndpoint='https://outside.invalid/')] + courses, allow_sms=True)
 
 
 def worker_cli_diagnostics_self_test() -> None:
