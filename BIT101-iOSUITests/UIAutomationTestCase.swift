@@ -105,7 +105,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         func isVisible() -> Bool {
             guard element.exists, element.isHittable else { return false }
             let target = UIElement.usesNativeInteraction ? element.native.frame : element.frame
-            let viewport = (interactionScrollFrame(for: element) ?? window).intersection(window)
+            let container = (interactionScrollFrame(for: element) ?? window).intersection(window)
+            guard let viewport = app.scrollGestureFrame(in: container) else { return false }
             if target.width <= viewport.width && target.height <= viewport.height { return viewport.contains(target) }
             return viewport.contains(CGPoint(x: target.midX, y: target.midY))
         }

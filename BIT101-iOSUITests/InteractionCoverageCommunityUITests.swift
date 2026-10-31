@@ -148,7 +148,9 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["发表评论"].disappears(timeout: 5), "发送完成应关闭评论编辑。")
         reveal(textElement("本次发布课程评价"), description: "本次发布课程评价")
         assertUI(textElement("本次发布课程评价").exists, "提交评价应更新课程评论区。")
-        tap("评论课程")
+        let commentEntry = app.buttons.matching(NSPredicate(format: "label == %@", "评论课程")).firstMatch
+        reveal(commentEntry, description: "评论课程")
+        commentEntry.tapBriefly()
         assertUI(app.navigationBars["发表评论"].appears(timeout: 5), "再次评论应打开新的编辑页面。")
         tap("取消")
         tap("点赞评论")
