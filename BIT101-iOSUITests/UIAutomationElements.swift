@@ -792,7 +792,20 @@ extension UIAutomationTestCase {
                 } != nil
             }
         }
-        if let owner = owning.last { return owner.frame }
+        if let owner = owning.last {
+            let frame = owner.frame
+            if let response = UITestControlClient.request(["command": "scroll-inventory"]),
+               let rows = (try? JSONSerialization.jsonObject(with: Data(response.utf8))) as? [[String: Any]],
+               let values = rows.first(where: { row in
+                   guard let bounds = row["frame"] as? [Double], bounds.count == 4,
+                         row["identifier"] as? String == owner.identifier else { return false }
+                   return zip(bounds, [frame.minX, frame.minY, frame.width, frame.height].map(Double.init))
+                       .allSatisfy { abs($0 - $1) <= 0.5 }
+               })?["viewport"] as? [Double], values.count == 4 {
+                return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+            }
+            return frame
+        }
         let candidates = containers.filter { container in
             let native = app.native.descendants(matching: container.elementType).matching(NSPredicate(
                 format: "identifier == %@ AND label == %@", container.identifier, container.label)).firstMatch

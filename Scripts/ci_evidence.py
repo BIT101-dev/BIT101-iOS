@@ -387,8 +387,12 @@ def stream_cache_range(endpoint: str, start: int, end: int, output, deadline: fl
             process.wait(timeout=max(0, deadline - time.monotonic()))
             if process.returncode: raise subprocess.CalledProcessError(process.returncode, command)
             return int(size[1])
-        except http.client.HTTPException as error:
-            raise ValueError('编译缓存响应需要完整且有界的 HTTP 头。') from error
+        except (http.client.HTTPException, ValueError) as error:
+            if time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(command, 0) from error
+            if isinstance(error, http.client.HTTPException):
+                raise ValueError('编译缓存响应需要完整且有界的 HTTP 头。') from error
+            raise
         finally:
             timer.cancel()
             if process.poll() is None: process.kill()
@@ -452,14 +456,15 @@ def cache_download_self_test() -> None:
                 else: raise AssertionError('分段需要按字节边界结束恢复。')
             assert destination.stat().st_size == len(data)
         original = subprocess.Popen
-        def stalled(command, **kwargs):
-            return original([sys.executable, '-c', f'import sys,time; sys.stdout.buffer.write({probe!r}); sys.stdout.flush(); time.sleep(60)'], **kwargs)
-        started = time.monotonic()
-        with patch.object(subprocess, 'Popen', side_effect=stalled):
-            try: stream_cache_range('fixture', 0, 0, io.BytesIO(), started + 0.2)
-            except subprocess.SubprocessError: pass
-            else: raise AssertionError('缓存下载需要在共享期限内结束。')
-        assert time.monotonic() - started < 5
+        for initial in (probe, b''):
+            def stalled(command, **kwargs):
+                return original([sys.executable, '-c', f'import sys,time; sys.stdout.buffer.write({initial!r}); sys.stdout.flush(); time.sleep(60)'], **kwargs)
+            started = time.monotonic()
+            with patch.object(subprocess, 'Popen', side_effect=stalled):
+                try: stream_cache_range('fixture', 0, 0, io.BytesIO(), started + 0.2)
+                except subprocess.SubprocessError: pass
+                else: raise AssertionError('缓存下载需要在共享期限内结束。')
+            assert time.monotonic() - started < 5
     finally:
         destination.unlink(missing_ok=True)
 
