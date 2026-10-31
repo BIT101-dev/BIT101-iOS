@@ -245,6 +245,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("提交")
         tap("返回补充")
+        dismissKeyboard()
         replaceText("测试联系信息", in: app.textFields["联系方式"])
         dismissKeyboard()
         tap("提交")

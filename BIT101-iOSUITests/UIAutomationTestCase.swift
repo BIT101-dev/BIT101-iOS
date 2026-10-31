@@ -120,11 +120,12 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for attempt in 0..<16 {
             let target = element.exists ? (UIElement.usesNativeInteraction ? element.native.frame : element.frame) : CGRect.null
-            let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
+            let horizontal = !target.isNull && target.width <= frame.width
+                && (target.minX < frame.minX || target.maxX > frame.maxX)
             let upward = target.isNull ? (attempt < 8) != searchFromTop : target.maxY > frame.maxY
             if horizontal {
                 let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
-                let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9), dy: frame.midY))
+                let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * (target.maxX > frame.maxX ? 0.1 : 0.9), dy: frame.midY))
                 start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
             } else {
                 let distance = target.isNull ? frame.height * 0.6 : min(abs(target.midY - frame.midY), frame.height * 0.6)

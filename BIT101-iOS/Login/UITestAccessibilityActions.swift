@@ -207,7 +207,9 @@ enum UITestAccessibilityActions {
                 values["scrolling"] = scroll.isDragging || scroll.isDecelerating || scroll.isTracking
                 values["bounces"] = scroll.bounces
                 values["alwaysBounceVertical"] = scroll.alwaysBounceVertical
-                let viewport = scroll.convert(scroll.bounds.inset(by: scroll.adjustedContentInset), to: window)
+                let insets = scroll.adjustedContentInset
+                let viewport = scroll.convert(scroll.bounds.inset(by: UIEdgeInsets(top: insets.top, left: 0,
+                    bottom: insets.bottom, right: 0)), to: window)
                     .intersection(window.safeAreaLayoutGuide.layoutFrame)
                 if !viewport.isEmpty {
                     let visible = window.convert(viewport, to: scene.screen.coordinateSpace)

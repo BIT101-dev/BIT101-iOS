@@ -719,7 +719,15 @@ extension UIAutomationTestCase {
             let bar = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
                 .reduce(CGRect.null) { $0.union($1) }
             let hasBottomBar = bar.width > bar.height && bar.minY > window.midY
-            let gap = (hasBottomBar ? bar.minY : window.maxY) - grid.frame.maxY
+            let cell = app.native.cells.containing(.button, identifier: "schedule.add-content").firstMatch
+            func renderedCalendarFrame() -> CGRect { cell.exists ? cell.frame : grid.frame }
+            let ready = NSPredicate { _, _ in
+                let gap = (hasBottomBar ? bar.minY : window.maxY) - renderedCalendarFrame().maxY
+                return hasBottomBar ? gap >= 8 : abs(gap) <= 1
+            }
+            assertUI(waitUntil(ready, on: app),
+                "课表底部应在当前字号布局完成后保留间距：\(grid.frame)，导航 \(bar)。")
+            let gap = (hasBottomBar ? bar.minY : window.maxY) - renderedCalendarFrame().maxY
             assertUI(hasBottomBar ? gap >= 8 : abs(gap) <= 1,
                 "课表底部应按系统导航位置分配空间：课表 \(grid.frame)，导航 \(bar)，间隙 \(gap)。")
             let action = app.native.buttons["schedule.add-content"]
@@ -765,6 +773,14 @@ extension UIAutomationTestCase {
         return traits.compactMapValues { ($0 as? NSNumber)?.intValue }
     }
 
+    func requireLandscapeSupport() throws {
+        let traits = windowTraits()
+        try XCTSkipIf(traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+            && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
+                || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue),
+            "当前手机窗口按 App 方向策略采用竖屏；横屏合同由支持横屏的窗口验收。")
+    }
+
     @MainActor
     func openSettings(_ route: String) {
         let mine = app.mainTab("我的")
@@ -781,7 +797,7 @@ extension UIAutomationTestCase {
     func interactionScrollFrame(for element: UIElement) -> CGRect? {
         guard let snapshot = try? app.native.snapshot() else { return nil }
         let window = snapshot.frame
-        let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
+        let containers = (snapshot.snapshots(matching: .table) + snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
             .filter { !$0.frame.isEmpty && window.intersects($0.frame) }
         var owning: [any XCUIElementSnapshot] = []
         if element.exists {
@@ -792,7 +808,7 @@ extension UIAutomationTestCase {
                 } != nil
             }
         }
-        if let owner = owning.last {
+        for owner in owning.reversed() {
             let frame = owner.frame
             if let response = UITestControlClient.request(["command": "scroll-inventory"]),
                let rows = (try? JSONSerialization.jsonObject(with: Data(response.utf8))) as? [[String: Any]],
@@ -802,7 +818,9 @@ extension UIAutomationTestCase {
                    return zip(bounds, [frame.minX, frame.minY, frame.width, frame.height].map(Double.init))
                        .allSatisfy { abs($0 - $1) <= 0.5 }
                })?["viewport"] as? [Double], values.count == 4 {
-                return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+                let viewport = CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+                if viewport.height >= min(element.native.frame.height, owner.frame.height) { return viewport }
+                continue
             }
             return frame
         }

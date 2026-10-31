@@ -226,12 +226,12 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         recordLayoutScreenshot("紧凑课表底部")
     }
 
-    @MainActor
-    @objc func testLandscapeDetailBackAndClassroomFilterUseTheRightPane() {
+    @MainActor @objc func testLandscapeDetailBackAndClassroomFilterUseTheRightPane() throws {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
         if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
         defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
+        try requireLandscapeSupport()
         assertUI(waitUntil(NSPredicate { _, _ in
             let window = self.app.windows.firstMatch.frame
             return window.width > window.height
@@ -304,13 +304,13 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             backButton.tapBriefly()
         }
     }
-    @MainActor
-    @objc func testLandscapeEdgesAndColumnBoundaries() {
+    @MainActor @objc func testLandscapeEdgesAndColumnBoundaries() throws {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
         if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
         defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
         for style in ["Light", "Dark"] {
             app = configureApp(resetStorage: true, userInterfaceStyle: style, ddlFixture: "sources", content: true, animations: true, school: true)
+            try requireLandscapeSupport()
             let isPhone = windowTraits()["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             for orientation: UIDeviceOrientation in rotates ? [.landscapeLeft, .landscapeRight] : [.unknown] {
                 if rotates { XCUIDevice.shared.orientation = orientation }
@@ -673,11 +673,11 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
         assertUI(day.appears(timeout: 5) && day.frame.height >= 44, "大字号日期入口保留完整点击高度。")
     }
-    @MainActor
-    @objc func testAcademicBrowsersKeepTheSharedChrome() {
+    @MainActor @objc func testAcademicBrowsersKeepTheSharedChrome() throws {
         let usesDeviceRotation = UIDevice.current.userInterfaceIdiom != .phone
         if usesDeviceRotation { XCUIDevice.shared.orientation = .portrait }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true)
+        try requireLandscapeSupport()
         if usesDeviceRotation {
             for tab in ["成绩", "话廊", "日程", "成绩", "话廊", "日程"] {
                 app.mainTab(tab).native.press(forDuration: 0.01)
@@ -933,7 +933,6 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
-
 
     @MainActor private func assertPlainRow(_ row: XCUIElement, matches expected: [Int]) {
         assertUI(row.exists, "分组背景验收需要实际列表行。")
