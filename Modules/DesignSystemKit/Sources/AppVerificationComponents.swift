@@ -265,6 +265,9 @@ public struct AppVerificationSheet: View {
             .onDisappear { modalActivity?(presentationID, false) }
             .onChange(of: isCaptcha) { _, _ in resetInput() }
             .onChange(of: captchaImage) { _, _ in resetInput() }
+            .onChange(of: submissionInProgress) { _, inProgress in
+                if !inProgress, errorMessage != nil { isCodeFieldFocused = true }
+            }
         }
         .presentationDetents(isCaptcha ? [.large] : [.medium])
     }

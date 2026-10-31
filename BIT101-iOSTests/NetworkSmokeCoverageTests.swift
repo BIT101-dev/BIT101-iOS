@@ -688,8 +688,11 @@ struct NetworkSmokeCoverageTests {
                 "data": ["text": String(repeating: "x", count: PaperContentResourceLimits.maximumBlockBytes + 1)]]]]), as: UTF8.self)
         }
         let blocks = PaperContentRenderer.blocks(from: raw)
-        #expect(blocks.count == 1)
-        if case .requiresOriginal = blocks[0] {} else { Issue.record("Oversized content should offer original reading") }
+        #expect(blocks.count == (kind == "blocks" ? PaperContentResourceLimits.maximumBlocks : 1))
+        if kind == "blocks" {
+            #expect(blocks.dropLast().allSatisfy { if case .paragraph = $0 { return true }; return false })
+        }
+        if case .requiresOriginal = try #require(blocks.last) {} else { Issue.record("Oversized content should offer original reading") }
     }
 
     private func user(_ id: Int) -> CommunityUser {

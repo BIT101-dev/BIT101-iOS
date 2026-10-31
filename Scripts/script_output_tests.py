@@ -1,4 +1,5 @@
 """Exercise public command logging and workflow completion boundaries."""
+import errno
 import os
 import re
 import shlex
@@ -35,6 +36,27 @@ def captured_command(lines, status=7, *, ci=False, executable='fixture', argumen
 
 def log_output_boundary_findings() -> list[str]:
     findings = []
+    class FullLog(RetainedLog):
+        worker = None
+        def write(self, value):
+            self.worker = int(value)
+            raise OSError(errno.ENOSPC, 'No space left on device')
+    children = []
+    start_process = subprocess.Popen
+    def start(*args, **kwargs):
+        child = start_process(*args, **kwargs)
+        children.append(child)
+        return child
+    log = FullLog()
+    program = 'import subprocess,sys,time; child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); print(child.pid,flush=True); time.sleep(30)'
+    with patch.object(Path, 'open', return_value=log), patch.object(subprocess, 'Popen', side_effect=start):
+        try:
+            run_command(['/dev/null', 'disk-full', sys.executable, '-c', program])
+        except OSError as error:
+            assert error.errno == errno.ENOSPC and children[0].poll() is not None
+            from workflow_processes import active_members
+            assert log.worker not in active_members({os.getpgrp()})
+        else: raise AssertionError('日志写满后需要保留错误并完成构建进程回收')
     retry = '    t = 3.50s Retrying failed scroll-to-visible with containing cell Cell\n'
     output, raw = captured_command([retry], status=0)
     assert 'Retrying failed scroll-to-visible' not in output and raw == retry

@@ -55,7 +55,7 @@ def audit_callback_findings(source: str, *, support_source: str | None = None) -
         "shell_parse": ["python3|/audit/Scripts/check-shell-syntax.py"],
         "python_parse": ["python3|/audit/Scripts/check-python-syntax.py|/audit|--self-test"],
         "worker_parse": ["find|/audit/Cloudflare|(|-name|node_modules|-o|-name|.wrangler|-o|-name|.git|)|-prune|-o|-type|f|-name|*.js|-print0", "node|--check|fixture.swift"],
-        "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high"],
+        "dependency_audit": ["cd|/audit/Cloudflare/EmergencyUpdateWorker", "npm|audit|--audit-level=high|--fetch-retries=0|--fetch-timeout=30000"],
         "git_check": ["git|-C|/audit|diff|--check", "git|-C|/audit|diff|--cached|--check"],
         "docs_check": ["cd|/audit", "python3|Scripts/check-docs.py|--self-test", "cd|/audit", "python3|Scripts/validate_versions.py|--compare-git-ref|base|--check-app-store"],
         "bit101_checker_audit": ["python3|/audit/Scripts/check-file-lengths.py", "python3|/audit/Scripts/check-file-lengths.py|--staged", "python3|/audit/Scripts/validation_evidence.py|self-test", "python3|/audit/Scripts/check-code-quality.py|--combined|--self-test"],

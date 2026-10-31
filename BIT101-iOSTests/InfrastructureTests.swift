@@ -34,9 +34,11 @@ struct InfrastructureTests {
         }
         try await waitForTestEvent { callerCondition() }
         try await waitForAsyncTestEvent { callerCondition() }
-        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { true } }
+        try await waitForTestEvent(timeout: .zero) { true }
+        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { false } }
         await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .milliseconds(5)) { false } }
-        await #expect(throws: URLError.self) { try await waitForAsyncTestEvent(timeout: .zero) { true } }
+        try await waitForAsyncTestEvent(timeout: .zero) { true }
+        await #expect(throws: URLError.self) { try await waitForAsyncTestEvent(timeout: .zero) { false } }
         await #expect(throws: URLError.self) {
             try await waitForAsyncTestEvent(timeout: .milliseconds(5)) { await Task.yield(); return false }
         }

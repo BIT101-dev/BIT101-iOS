@@ -557,7 +557,9 @@ actor RemoteImageCache {
             operation.task.cancel()
             for continuation in operation.waiters.values { continuation.resume(throwing: CancellationError()) }
         }
-        return await quota.clearDirectory(directory)
+        let imagesCleared = await quota.clearDirectory(directory)
+        let legacyAvatarsCleared = await quota.clearDirectory(ImageCacheDirectories.avatars(using: files))
+        return imagesCleared && legacyAvatarsCleared
     }
 
     func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, sharesStorage: Bool,

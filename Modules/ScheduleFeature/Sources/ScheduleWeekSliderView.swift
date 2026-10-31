@@ -12,6 +12,7 @@ struct ScheduleInlineWeekSlider: View {
     let highlightedWeek: Int
     let onSelectWeek: (Int) -> Void
     @State private var selectedWeek: Int?
+    @State private var viewportSize = CGSize.zero
 #if targetEnvironment(macCatalyst)
     @State private var dragStartIndex: Int?
 #endif
@@ -105,10 +106,11 @@ struct ScheduleInlineWeekSlider: View {
                     })
 #endif
                     .frame(maxWidth: .infinity)
-                    .onGeometryChange(for: WeekSliderViewport.self) { viewport in
-                        WeekSliderViewport(width: viewport.size.width, padding: horizontalPadding)
-                    } action: { viewport in
-                        guard viewport.width > 0 else { return }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { viewportSize = $0 }
+                    .task(id: viewportSize) {
+                        guard viewportSize.width > 0 else { return }
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
                         var transaction = Transaction()
                         transaction.disablesAnimations = true
                         withTransaction(transaction) { reader.scrollTo(currentWeek, anchor: .center) }
@@ -199,11 +201,6 @@ struct ScheduleInlineWeekSlider: View {
         }
         return .init()
     }
-}
-
-private nonisolated struct WeekSliderViewport: Equatable, Sendable {
-    let width: CGFloat
-    let padding: CGFloat
 }
 
 #endif

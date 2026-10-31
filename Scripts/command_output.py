@@ -10,6 +10,7 @@ import tempfile
 import time
 import signal
 from collections import deque
+from workflow_processes import stop_process_tree
 
 OUTPUT_LINE_LIMIT = 40
 
@@ -155,40 +156,45 @@ def run_command(arguments: list[str]) -> int:
     cache_warning_count = 0
     dependency_example = ""
     temporary_results = set()
-    with report_path.open("w", encoding="utf-8", buffering=1) as report:
-        for line in process.stdout:
-            report.write(line)
-            if build_command:
-                match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
-                if match:
-                    path = Path(match[1])
-                    if path.parent.resolve() == Path(tempfile.gettempdir()).resolve() and path.name.startswith("ResultBundle_"):
-                        temporary_results.add(path)
+    try:
+        with report_path.open("w", encoding="utf-8", buffering=1) as report:
+            for line in process.stdout:
+                report.write(line)
+                if build_command:
+                    match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
+                    if match:
+                        path = Path(match[1])
+                        if path.parent.resolve() == Path(tempfile.gettempdir()).resolve() and path.name.startswith("ResultBundle_"):
+                            temporary_results.add(path)
+                            continue
+                if not line.strip():
+                    continue
+                failures.add(line)
+                if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
+                    report.flush()
+                    if dependency := re.match(r"warning: '(.+)' is missing a dependency on '(.+)' because dependency scan of Swift module", line):
+                        dependency_warning_count += 1
+                        if not dependency_example: dependency_example = f'{dependency[1]} → {dependency[2]}'
                         continue
-            if not line.strip():
-                continue
-            failures.add(line)
-            if "error:" in line or "warning:" in line or useful_line(line) and (line.lstrip().startswith("✘") or "failed" in line.lower()):
-                report.flush()
-                if dependency := re.match(r"warning: '(.+)' is missing a dependency on '(.+)' because dependency scan of Swift module", line):
-                    dependency_warning_count += 1
-                    if not dependency_example: dependency_example = f'{dependency[1]} → {dependency[2]}'
-                    continue
-                elif re.match(r"warning: (?:failed to load CAS object: unknown object|.*llvmcas://.*: No such file or directory)", line):
-                    cache_warning_count += 1
-                    continue
-                elif diagnostics.add(line):
-                    diagnostic_count += 1
-                    if len(streamed) < display_limit // 2 and streamed_characters + len(line) <= diagnostics.character_limit // 2:
-                        print(line, end='', flush=True)
-                        streamed.add(line)
-                        streamed_characters += len(line)
-            if "Test run with" in line:
-                summary, clipped = bounded_text(line.strip(), diagnostics.character_limit)
-                diagnostics.truncated |= clipped
-                summary_count += 1
-                summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
-    exit_code = process.wait()
+                    elif re.match(r"warning: (?:failed to load CAS object: unknown object|.*llvmcas://.*: No such file or directory)", line):
+                        cache_warning_count += 1
+                        continue
+                    elif diagnostics.add(line):
+                        diagnostic_count += 1
+                        if len(streamed) < display_limit // 2 and streamed_characters + len(line) <= diagnostics.character_limit // 2:
+                            print(line, end='', flush=True)
+                            streamed.add(line)
+                            streamed_characters += len(line)
+                if "Test run with" in line:
+                    summary, clipped = bounded_text(line.strip(), diagnostics.character_limit)
+                    diagnostics.truncated |= clipped
+                    summary_count += 1
+                    summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
+        exit_code = process.wait()
+    except BaseException:
+        stop_process_tree(process.pid)
+        process.wait()
+        raise
     for path in temporary_results:
         if exit_code and path.is_dir():
             destination = Path(os.environ['BIT101_COMMAND_DIAGNOSTICS']) / 'test-results.xcresult'

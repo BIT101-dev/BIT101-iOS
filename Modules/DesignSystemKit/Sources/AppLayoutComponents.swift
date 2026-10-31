@@ -12,6 +12,7 @@ public struct AppWindowLayout: Equatable {
     public var safeAreaInsets: UIEdgeInsets
     public var divisionX: CGFloat?
     private var windowUsesTopTabBar: Bool?
+    private var windowUsesSideToolbar: Bool?
     public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
                 availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
                 interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
@@ -41,6 +42,7 @@ public struct AppWindowLayout: Equatable {
     public var singleColumn: AppWindowLayout {
         var value = self
         value.windowUsesTopTabBar = usesTopTabBar
+        value.windowUsesSideToolbar = usesSideToolbar
         value.isRegularWidth = false
         return value
     }
@@ -51,8 +53,9 @@ public struct AppWindowLayout: Equatable {
     }
     public var usesBottomTabBar: Bool { !usesTopTabBar && !hasHorizontalSystemInsets }
     public var usesSideToolbar: Bool {
+        if let windowUsesSideToolbar { return windowUsesSideToolbar }
 #if !targetEnvironment(macCatalyst)
-        if #available(iOS 27.1, *) { return hasHorizontalSystemInsets && !isLandscapeWindow }
+        if #available(iOS 27.1, *) { return hasHorizontalSystemInsets && !isLandscapeWindow && !isRegularWidth }
 #endif
         return false
     }
@@ -131,7 +134,6 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
     @Environment(\.appPageIsVisible) private var isVisible
     @Binding private var selection: Selection?
     @State private var wasLandscapeWindow = false
-    @State private var hasSideActions = false
     private let master: Master
     private let detail: (Selection) -> Detail
     private let defaultDetail: DefaultDetail
@@ -170,6 +172,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
                     .environment(\.appContentColumn, .trailing)
+                    .padding(.top, layout.usesTopTabBar ? AppDesignSystem.Size.Control.touchTarget : AppDesignSystem.Spacing.none)
                     .padding(.top, header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
                 }
             } else {
@@ -181,6 +184,8 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
                                 .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
                         }
                 }
+                .padding(.top, layout.usesTopTabBar && selection != nil
+                    ? AppDesignSystem.Size.Control.touchTarget : AppDesignSystem.Spacing.none)
             }
         }
         .padding(.top, header == nil ? layout.contentTopInset : AppDesignSystem.Spacing.none)
@@ -206,9 +211,7 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
             .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
                 header?.padding(.top, layout.contentTopInset)
             }
-            .toolbar(layout.usesTopTabBar || hasSideActions ? .visible : .hidden, for: .navigationBar)
-            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-            .onPreferenceChange(AppSideToolbarPreferenceKey.self) { hasSideActions = $0 }
+            .appBrowserNavigationBar()
             .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
     }
 
@@ -473,6 +476,7 @@ public struct AppFloatingActionButton: View {
     let badgeText: String?
     let accessibilityLabel: String
     let action: () -> Void
+    let accessibilityIdentifier: String?
     @Environment(\.appUsesNativeToolbarActions) private var usesNativeToolbar
     @State private var feedbackToken = 0
 
@@ -480,12 +484,14 @@ public struct AppFloatingActionButton: View {
         systemImage: String,
         badgeText: String? = nil,
         accessibilityLabel: String,
+        accessibilityIdentifier: String? = nil,
         action: @escaping () -> Void
     ) {
         self.systemImage = systemImage
         self.badgeText = badgeText
         self.accessibilityLabel = accessibilityLabel
         self.action = action
+        self.accessibilityIdentifier = accessibilityIdentifier
     }
 
     public var body: some View {
@@ -496,7 +502,7 @@ public struct AppFloatingActionButton: View {
                     .badge(badgeText.map { Text($0) })
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                    .accessibilityIdentifier("ui.app-floating-action-button.toolbar-action")
+                    .accessibilityIdentifier(accessibilityIdentifier ?? "ui.app-floating-action-button.toolbar-action")
             } else {
                 Button(action: performAction) {
                     ZStack(alignment: .topTrailing) {
@@ -519,7 +525,7 @@ public struct AppFloatingActionButton: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(accessibilityLabel)
                 .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                .accessibilityIdentifier("ui.app-floating-action-button.action")
+                .accessibilityIdentifier(accessibilityIdentifier ?? "ui.app-floating-action-button.action")
             }
         }
         .appImpactFeedback(trigger: feedbackToken)
@@ -599,38 +605,61 @@ public struct AppFloatingActionStack<Content: View>: View {
 }
 
 extension View {
-    public func appBrowserActions<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
-        modifier(AppBrowserActionsModifier(actions: actions()))
+    public func appBrowserActions<Actions: View>(floatingBottomInset: CGFloat = 0,
+        @ViewBuilder actions: () -> Actions) -> some View {
+        appBrowserFloatingActions(bottomInset: floatingBottomInset, actions: actions)
+            .appSideToolbarActions(actions: actions)
+    }
+
+    public func appBrowserFloatingActions<Actions: View>(bottomInset: CGFloat = 0,
+        @ViewBuilder actions: () -> Actions) -> some View {
+        modifier(AppBrowserFloatingActionsModifier(actions: actions(), bottomInset: bottomInset))
+    }
+
+    public func appSideToolbarActions<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
+        modifier(AppSideToolbarActionsModifier(actions: actions()))
+    }
+
+    public func appBrowserNavigationBar() -> some View { modifier(AppBrowserNavigationBarModifier()) }
+}
+
+private struct AppBrowserNavigationBarModifier: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    func body(content: Content) -> some View {
+        content.toolbar(layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden, for: .navigationBar)
+            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
     }
 }
 
-private struct AppSideToolbarPreferenceKey: PreferenceKey {
-    static let defaultValue = false
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
-}
-
-private struct AppBrowserActionsModifier<Actions: View>: ViewModifier {
+private struct AppBrowserFloatingActionsModifier<Actions: View>: ViewModifier {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.appPageIsVisible) private var isVisible
     let actions: Actions
-    private var usesSideToolbar: Bool { layout.usesSideToolbar && isVisible }
-
+    let bottomInset: CGFloat
     func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .bottomTrailing) {
-                if !usesSideToolbar { AppFloatingActionStack { actions } }
+        content.overlay(alignment: .bottomTrailing) {
+            if isVisible && !layout.usesSideToolbar {
+                AppFloatingActionStack { actions }.padding(.bottom, bottomInset)
             }
-            .toolbar {
+        }
+    }
+}
+
+private struct AppSideToolbarActionsModifier<Actions: View>: ViewModifier {
+    @Environment(\.appWindowLayout) private var layout
+    @Environment(\.appPageIsVisible) private var isVisible
+    let actions: Actions
+    func body(content: Content) -> some View {
+        content.toolbar {
 #if !targetEnvironment(macCatalyst)
-                if #available(iOS 27.1, *), usesSideToolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        actions.environment(\.appUsesNativeToolbarActions, true)
-                    }
-                    .axisBehavior(.verticalPreferred)
+            if #available(iOS 27.1, *), layout.usesSideToolbar && isVisible {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    actions.environment(\.appUsesNativeToolbarActions, true)
                 }
-#endif
+                .axisBehavior(.verticalPreferred)
             }
-            .preference(key: AppSideToolbarPreferenceKey.self, value: usesSideToolbar)
+#endif
+        }
     }
 }
 
@@ -686,6 +715,7 @@ private struct AppGroupedListStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         let inset = insetViewport || (layout.hasHorizontalSystemInsets && column != .leading)
         content.listStyle(.insetGrouped)
+            .environment(\.defaultMinListRowHeight, AppDesignSystem.Size.Control.refreshStatusRowHeight)
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(.horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,

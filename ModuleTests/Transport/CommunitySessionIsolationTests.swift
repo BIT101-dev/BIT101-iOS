@@ -165,7 +165,7 @@ struct CommunitySessionIsolationTests {
                 }
             })
         do {
-            let _: Receipt = try await client.request(path: path, method: "POST")
+            let _: Receipt = try await client.request(path: path, method: "POST", mutation: .creation)
             Issue.record("Creation fixture must fail")
         } catch {
             #expect((error is CommunityCreateOutcomeUnknown) == !["unsent", "rejected", "refresh-http-failure"].contains(scenario))

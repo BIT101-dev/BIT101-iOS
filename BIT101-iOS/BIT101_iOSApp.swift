@@ -513,6 +513,8 @@ final class UITestSceneState: ObservableObject {
                                 reply(Data("queued".utf8))
                             } else if command == "fail-request" {
                                 AppUITestBootstrap.failingRequests[key] = query
+                                if environment["persistent"] == "1" { AppUITestBootstrap.persistentFailures.insert(key) }
+                                else { AppUITestBootstrap.persistentFailures.remove(key) }
                                 reply(Data("queued".utf8))
                             } else if command == "release-request" {
                                 AppUITestBootstrap.releaseRequest(key)

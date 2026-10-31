@@ -541,25 +541,6 @@ struct CourseScheduleCalendarView: View {
     }
 }
 
-/// 课表页悬浮圆形按钮的统一外观。
-///
-/// `Button` 和 `Menu` 共用同一套视觉样式，保持“添加”按钮的尺寸和命中区域一致。
-struct CourseScheduleFABLabel: View {
-    let systemImage: String
-
-    init(systemImage: String) {
-        self.systemImage = systemImage
-    }
-
-    var body: some View {
-        AppFloatingActionButtonSurface {
-            Image(systemName: systemImage)
-                .font(AppDesignSystem.Typography.bodyEmphasis)
-                .foregroundStyle(AppDesignSystem.Foreground.primary)
-        }
-    }
-}
-
 /// 课程长按分享使用的系统分享面板。
 struct CourseActivityShareSheet: UIViewControllerRepresentable {
     let url: URL

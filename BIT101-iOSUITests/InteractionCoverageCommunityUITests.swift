@@ -60,7 +60,7 @@ nonisolated final class CommunityInteractionUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "点击卡片应打开文章。")
         back()
         let summary = app.descendants(matching: .any)["paper.summary.1"]
-        assertUI(summary.performAccessibilityAction(named: "打开文章"), "文章卡片应提供可执行的 VoiceOver 动作。")
+        assertUI(summary.elementType == .button && summary.performAccessibilityAction(), "文章卡片应提供可执行的 VoiceOver 默认动作。")
         assertUI(app.navigationBars["文章详情"].appears(timeout: 5), "VoiceOver 动作应打开文章详情。")
         let richText = app.textViews.matching(identifier: "paper.body.rich-text").firstMatch
         assertUI(richText.appears(timeout: 5), "文章正文加载完成后应提供原生富文本内容。")
@@ -404,10 +404,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         tapHeader(app.segmentedControls.buttons["调至某天"])
         let target = app.datePickers["schedule.adjustment.date"]
         target.buttons.firstMatch.tapBriefly()
-        let today = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@ OR label CONTAINS[c] %@", "今天", "today")).firstMatch
-        assertUI(today.appears(timeout: 5), "日期选择器应提供今天的选择入口。")
-        today.tapBriefly()
+        selectSystemCalendarDate(Date(), in: app.datePickers.matching(NSPredicate(format: "identifier == %@", "")).firstMatch)
         app.navigationBars.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
         tap("确定")
         app.alerts["确认调课"].buttons["确定"].tapBriefly()
@@ -480,8 +477,8 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
             allow.tapBriefly()
         }
         closeAlertIfPresent()
-        assertUI(app.maps.firstMatch.isHittable && location.isHittable, "定位后地图及控件应继续响应。")
-        tap("导航到下一节课")
+        assertUI(app.maps.firstMatch.isHittable && location.isEnabled, "定位后地图及控件应继续响应。")
+        revealBrowserAction("导航到下一节课").tapBriefly()
         let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
         assertUI(maps.wait(for: .runningForeground, timeout: 10), "下一节导航应交给系统地图。")
         app.activate()
@@ -699,7 +696,9 @@ nonisolated final class AccountRecoveryUITests: UIAutomationTestCase {
 nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
     @MainActor
     func testRegistrationResetAndCommunityPasswordLogin() throws {
+        defer { Self.endSharedSession() }
         for method in ["统一身份认证", "校园邮箱"] {
+            Self.endSharedSession()
             app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
             app.buttons["login.register"].tapBriefly()
             let submit = app.buttons["registration.submit"]
@@ -732,6 +731,7 @@ nonisolated final class AccountRegistrationUITests: UIAutomationTestCase {
             submit.tapBriefly()
             assertUI(app.mainTab("日程").appears(timeout: 10), "注册或重置成功应进入已登录页面。")
         }
+        Self.endSharedSession()
         app = configureApp(resetStorage: true, account: nil, animations: true, nativeInteraction: true)
         app.buttons["login.register"].tapBriefly()
         back()

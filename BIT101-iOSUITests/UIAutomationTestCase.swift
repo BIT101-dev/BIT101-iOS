@@ -9,8 +9,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private static var sessionProcess: String?
     @MainActor private static var sessionScene: String?
     @MainActor private static let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-    @MainActor static func endSharedSession() {
-        captureControlInventory()
+    @MainActor static func endSharedSession(capturingInventory: Bool = true) {
+        if capturingInventory { captureControlInventory() }
         sessionApplication?.terminate()
         sessionApplication = nil
         sessionProcess = nil
@@ -26,6 +26,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private var capturedFailure = false
     private let runIdentifier = "ui"
     @MainActor
+    override func setUp() async throws {
+        try await super.setUp()
+        XCUIDevice.shared.orientation = .portrait
+    }
+    @MainActor
     override func tearDown() async throws {
         if testRun?.totalFailureCount == 0 { checkScrollContainers() }
         if let testRun, testRun.totalFailureCount > 0, !capturedFailure {
@@ -38,8 +43,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             add(screenshot)
             capturePreviewDiagnostics()
         }
-        Self.captureControlInventory()
+        if testRun?.totalFailureCount == 0 { Self.captureControlInventory() }
         UITestSnapshotReader.printTimingSummary()
+        Self.endSharedSession(capturingInventory: false)
         try await super.tearDown()
     }
     @MainActor
@@ -62,7 +68,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if button.isSelected { return }
         assertUI(waitUntil(NSPredicate(format: "selected == true"), on: button, timeout: 5), "周次选择应更新为第 \(week) 周。")
     }
-
     @MainActor
     func waitForImagePreview(visible: Bool, timeout: TimeInterval) -> Bool {
         waitUntil(NSPredicate { _, _ in
@@ -71,7 +76,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             return (preview != nil) == visible
         }, on: app, timeout: timeout)
     }
-
     @MainActor
     @discardableResult
     func dismissNotificationBanner() -> XCUIApplication.State {
@@ -91,19 +95,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         return state
     }
-
     @MainActor
     func tapHeader(_ element: UIElement) {
         element.tapBriefly()
     }
-
     @MainActor
     func reveal(_ element: UIElement, description: String = "交互控件", searchFromTop: Bool = false) {
-        let window = app.windows.firstMatch.frame
+        let window = app.native.windows.firstMatch.frame
         func isVisible() -> Bool {
             guard element.exists, element.isHittable else { return false }
-            let target = element.frame
-            let viewport = (interactionScrollContainer(for: element)?.frame ?? window).intersection(window)
+            let target = UIElement.usesNativeInteraction ? element.native.frame : element.frame
+            let viewport = (interactionScrollFrame(for: element) ?? window).intersection(window)
             if target.width <= viewport.width && target.height <= viewport.height { return viewport.contains(target) }
             return viewport.contains(CGPoint(x: target.midX, y: target.midY))
         }
@@ -112,51 +114,28 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             print("UI scroll reveal")
             return
         }
-        let container = interactionScrollContainer(for: element) ?? app
-        guard let frame = app.scrollGestureFrame(in: container.frame) else { return }
+        let containerFrame = interactionScrollFrame(for: element) ?? window
+        guard let frame = app.scrollGestureFrame(in: containerFrame) else { return }
         let origin = app.coordinate(withNormalizedOffset: .zero)
         for attempt in 0..<16 {
-            let target = element.exists ? element.frame : CGRect.null
+            let target = element.exists ? (UIElement.usesNativeInteraction ? element.native.frame : element.frame) : CGRect.null
             let horizontal = !target.isNull && (target.maxX <= window.minX || target.minX >= window.maxX)
-            let upward = target.isNull ? (attempt < 8) != searchFromTop : target.minY >= window.midY
+            let upward = target.isNull ? (attempt < 8) != searchFromTop : target.maxY > frame.maxY
             if horizontal {
                 let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
                 let end = origin.withOffset(CGVector(dx: frame.minX + frame.width * (target.minX >= window.maxX ? 0.1 : 0.9), dy: frame.midY))
                 start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.1)
-            } else if upward { container.swipeUp() }
-            else { container.swipeDown() }
+            } else {
+                let distance = target.isNull ? frame.height * 0.6 : min(abs(target.midY - frame.midY), frame.height * 0.6)
+                let signedDistance = upward ? distance : -distance
+                let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY + signedDistance / 2))
+                let end = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY - signedDistance / 2))
+                start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.01)
+            }
             if isVisible() { return }
         }
         assertUI(false, "滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(element.native.exists ? "\(element.native.frame) · 可触达 \(element.native.isHittable)" : "缺失")，窗口：\(app.windows.firstMatch.frame)，滚动区：\(frame)，容器：\(UITestControlClient.request(["command": "scroll-inventory"]) ?? "缺失")。")
     }
-
-    @MainActor
-    func interactionScrollContainer(for element: UIElement) -> UIElement? {
-        guard let snapshot = try? app.snapshot() else { return nil }
-        let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
-            .filter { !$0.frame.isEmpty && snapshot.frame.intersects($0.frame) }
-        var owning: [any XCUIElementSnapshot] = []
-        if element.exists {
-            let identifier = element.identifier, label = element.label, type = element.elementType
-            owning = containers.filter { container in
-                container.firstSnapshot { target in
-                    target.elementType == type && (identifier.isEmpty ? target.label == label : target.identifier == identifier)
-                } != nil
-            }
-        }
-        guard let selected = owning.last ?? containers.max(by: {
-            let first = $0.frame.intersection(snapshot.frame), second = $1.frame.intersection(snapshot.frame)
-            return first.width * first.height < second.width * second.height
-        }),
-            !selected.identifier.isEmpty else { return nil }
-        return app.descendants(matching: selected.elementType).matching(identifier: selected.identifier)
-            .allElementsBoundByIndex.first {
-                let actual = $0.native.frame, expected = selected.frame
-                return abs(actual.minX - expected.minX) <= 0.5 && abs(actual.minY - expected.minY) <= 0.5
-                    && abs(actual.width - expected.width) <= 0.5 && abs(actual.height - expected.height) <= 0.5
-            }
-    }
-
     @MainActor
     func waitUntil(_ predicate: NSPredicate, on element: UIElement, timeout: TimeInterval = 5) -> Bool {
         if predicate.evaluate(with: element) { return true }
@@ -254,9 +233,15 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func fillVerificationCode(_ text: String, in field: UIElement) {
-        assertUI(field.appears(timeout: 5), "验证码输入应等待字段出现。")
-        assertUI(app.buttons["keyboard.dismiss"].appears(timeout: 5)
-            && UITestControlClient.request(["command": "keyboard-state"]) == "active", "验证码输入应取得键盘焦点。")
+        guard prepareInput(field) != nil else { return }
+        if UIElement.usesNativeInteraction {
+            UIElement.beforeNativeTap?()
+            field.native.tap()
+            UITestSnapshotReader.invalidate()
+            assertUI(waitUntil(NSPredicate { _, _ in
+                UITestControlClient.request(["command": "keyboard-state"]) == "active"
+            }, on: app), "验证码输入应取得键盘焦点。")
+        }
         enterText(text, in: field)
     }
 
@@ -323,7 +308,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 return bounds.contains(done.native.frame)
             }
             assertUI(waitUntil(positioned, on: done, timeout: 5), "完成按钮应完整显示在窗口内：按钮 \(done.native.frame)，窗口 \(app.native.windows.firstMatch.frame)，键盘 \(keyboard.exists ? keyboard.frame : .null)。")
-            done.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tapBriefly()
+            done.native.tap()
+            UITestSnapshotReader.invalidate()
             assertUI(waitUntil(NSPredicate { _, _ in UITestControlClient.request(["command": "keyboard-state"]) == "hidden" },
                 on: app, timeout: 5), "原生完成按钮应关闭当前键盘。")
             return
@@ -352,12 +338,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
 
     @MainActor
     func closeAlertIfPresent() {
-        guard app.alerts.firstMatch.exists else { return }
-        let alert = app.alerts.firstMatch
+        let alert = app.native.alerts.firstMatch
+        guard alert.exists else { return }
         let close = alert.buttons["知道了"]
-        assertUI(close.appears(timeout: 5), "提示应展示明确的“知道了”关闭动作。")
-        close.tapBriefly()
-        assertUI(alert.disappears(timeout: 5), "关闭提示应恢复页面交互。")
+        assertUI(close.waitForExistence(timeout: 5), "提示应展示明确的“知道了”关闭动作。")
+        close.tap()
+        UITestSnapshotReader.invalidate()
+        assertUI(waitUntil(NSPredicate { _, _ in !alert.exists }, on: app), "关闭提示应恢复页面交互。")
     }
 
     @MainActor
@@ -748,10 +735,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         publicationOutcomeUnknownOnce: Bool = false,
         paperEditConflictOnce: Bool = false,
         paginationFailureOnce: Bool = false,
-        courseLookupFailureOnce: Bool = false,
         resourceRoutes: Bool = false,
         failureOnce: Bool = false,
-        posterFailureOnce: Bool = false,
+        persistentFailurePaths: [String] = [],
         claimsFailureOnce: Bool = false,
         reportFailureOnce: Bool = false,
         feedbackResponseLostOnce: Bool = false,
@@ -785,8 +771,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         UIElement.usesNativeInteraction = nativeInteraction
         let previousProcess = Self.sessionProcess
         let previousTextSize = Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"]
-        let requiresFontRestart = previousTextSize != nil && previousTextSize != (accessibilityTextSize ? "1" : "0")
-        if restartProcess || requiresFontRestart {
+        let requiresConfigurationRestart = previousTextSize != nil && (previousTextSize != (accessibilityTextSize ? "1" : "0")
+            || Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_STYLE"] != userInterfaceStyle)
+        if restartProcess || requiresConfigurationRestart {
             guard (!restartProcess || !resetStorage), let previousApplication = Self.sessionApplication, previousProcess != nil else {
                 assertUI(false, "冷启动验收需要已运行的 App 及已保存的隔离数据。")
                 return app
@@ -827,6 +814,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] = transcriptFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MINE_PAGING_FAILURE_ONCE"] = minePagingFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_ANIMATIONS"] = animations ? "1" : "0"
+        application.launchEnvironment["BIT101_UI_TEST_PERSISTENT_FAILURES"] = persistentFailurePaths.joined(separator: ",")
         application.launchEnvironment["BIT101_UI_TEST_SCHOOL"] = school ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_MEDIA"] = media ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PORTRAIT_MEDIA"] = portraitMedia ? "1" : "0"
@@ -841,10 +829,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         application.launchEnvironment["BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] = publicationOutcomeUnknownOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"] = paperEditConflictOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] = paginationFailureOnce ? "1" : "0"
-        application.launchEnvironment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] = courseLookupFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_RESOURCE_ROUTES"] = resourceRoutes ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FAILURE_ONCE"] = failureOnce ? "1" : "0"
-        application.launchEnvironment["BIT101_UI_TEST_POSTER_FAILURE_ONCE"] = posterFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] = claimsFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] = reportFailureOnce ? "1" : "0"
         application.launchEnvironment["BIT101_UI_TEST_FEEDBACK_RESPONSE_LOST_ONCE"] = feedbackResponseLostOnce ? "1" : "0"
@@ -977,7 +963,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if Self.sessionProcess == nil {
             let process = String(identity.prefix(while: { $0 != ":" }))
             assertUI(!process.isEmpty, "场景身份应包含 App 进程。")
-            if restartProcess || requiresFontRestart {
+            if restartProcess || requiresConfigurationRestart {
                 assertUI(process != previousProcess, "冷启动应由新的 App 进程恢复会话与持久化数据。")
                 print("UI persistence App restart: \(previousProcess ?? "") -> \(process)")
             }

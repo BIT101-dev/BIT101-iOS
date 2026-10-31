@@ -106,47 +106,35 @@ struct CourseScheduleTabView: View {
         activeSchedule.isPrimary && viewModel.isCacheWritable
     }
 
-    private var addContentMenu: some View {
-        AppFloatingActionStack {
-            if supportsEditingDisplayedSchedule {
-                Button {
-                    isShowingAddContentMenu = true
-                } label: {
-                    CourseScheduleFABLabel(systemImage: "plus")
+    @ViewBuilder private var addContentAction: some View {
+        if supportsEditingDisplayedSchedule {
+            AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加课表内容",
+                accessibilityIdentifier: "schedule.add-content") { isShowingAddContentMenu = true }
+            .confirmationDialog(
+                "添加课表内容",
+                isPresented: $isShowingAddContentMenu,
+                titleVisibility: .hidden
+            ) {
+                Button("添加日程") {
+                    editingCustomScheduleID = nil
+                    customScheduleDraft = viewModel.customScheduleDraft(for: nil)
+                    isShowingEditSchedule = true
                 }
-                .buttonStyle(.plain)
-                .contentShape(Circle())
-                .accessibilityLabel("添加课表内容")
-                .accessibilityIdentifier("schedule.add-content")
-                .accessibilityAddTraits(.isButton)
-                .appInteractiveListRow()
-                .confirmationDialog(
-                    "添加课表内容",
-                    isPresented: $isShowingAddContentMenu,
-                    titleVisibility: .hidden
-                ) {
-                    Button("添加日程") {
-                        editingCustomScheduleID = nil
-                        customScheduleDraft = viewModel.customScheduleDraft(for: nil)
-                        isShowingEditSchedule = true
-                    }
-                    .accessibilityIdentifier("schedule.add-custom")
+                .accessibilityIdentifier("schedule.add-custom")
 
-                    Button("添加课程") {
-                        courseEditorMode = .add
-                        courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
-                        isShowingCourseEditor = true
-                    }
+                Button("添加课程") {
+                    courseEditorMode = .add
+                    courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
+                    isShowingCourseEditor = true
                 }
             }
         }
-        .padding(.bottom, layout.usesBottomTabBar ? AppDesignSystem.Spacing.none : layout.safeAreaInsets.bottom)
     }
 
     @ViewBuilder
     private func calendarSurface(height: CGFloat) -> some View {
-        if let firstDay = activeSchedule.firstDay {
-            ZStack(alignment: .bottomTrailing) {
+        Group {
+            if let firstDay = activeSchedule.firstDay {
                 CourseScheduleCalendarView(
                     entries: scheduleEntries,
                     week: viewModel.selectedWeek,
@@ -195,11 +183,7 @@ struct CourseScheduleTabView: View {
                 )
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("schedule.calendar")
-                addContentMenu
-            }
-            .frame(height: height)
-        } else {
-            ZStack(alignment: .bottomTrailing) {
+            } else {
                 AppEmptyState(
                     title: activeSchedule.isPrimary ? "暂无课表" : "分享课表缺少起始日期",
                     systemImage: "calendar",
@@ -209,9 +193,11 @@ struct CourseScheduleTabView: View {
                 )
                 .padding(.horizontal, AppDesignSystem.Spacing.content)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                addContentMenu
             }
-            .frame(height: height)
+        }
+        .frame(height: height)
+        .appBrowserFloatingActions(bottomInset: layout.usesBottomTabBar ? 0 : layout.safeAreaInsets.bottom) {
+            addContentAction
         }
     }
 
@@ -292,6 +278,7 @@ struct CourseScheduleTabView: View {
             }
 #endif
         }
+        .appSideToolbarActions { addContentAction }
         .simultaneousGesture(scheduleSwitchGesture)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")

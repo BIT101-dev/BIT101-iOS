@@ -68,8 +68,8 @@ final class UITestSceneConfiguration {
 
     func replace(with environment: [String: String]) {
         AppUITestBootstrap.releaseRequests()
-        AppUITestBootstrap.failingRequests.removeAll()
         values = environment
+        AppUITestBootstrap.configureFailures(environment)
         UIView.setAnimationsEnabled(environment["BIT101_UI_TEST_ANIMATIONS"] == "1")
         revision += 1
     }
@@ -82,23 +82,32 @@ enum AppUITestBootstrap {
     private static var injectedScheduleConflictScene: Int?
     static var pendingRequests: [String: [CheckedContinuation<Void, Never>]] = [:]
     static var failingRequests: [String: [String: String]] = [:]
+    static var persistentFailures: Set<String> = []
     static var holdingRequests: [String: [String: String]] = [:]
     static var completedRequests: Set<String> = []
     static var recoveredSuggestionID: UUID?
+
+    static func configureFailures(_ environment: [String: String]) {
+        let paths = (environment["BIT101_UI_TEST_PERSISTENT_FAILURES"] ?? "").split(separator: ",").map(String.init)
+        failingRequests = Dictionary(uniqueKeysWithValues: paths.map { ($0, [:]) })
+        persistentFailures = Set(paths)
+    }
 
     static func holdRequest(_ key: String) async {
         await withCheckedContinuation { pendingRequests[key, default: []].append($0) }
     }
 
-    static func takeRequest(_ path: String, query: [URLQueryItem], from requests: inout [String: [String: String]]) -> Bool {
+    static func takeRequest(_ path: String, query: [URLQueryItem], from requests: inout [String: [String: String]], consuming: Bool = true) -> Bool {
         guard let conditions = requests[path], conditions.allSatisfy({ name, value in
             query.contains(where: { $0.name == name && $0.value == value })
         }) else { return false }
-        requests[path] = nil
+        if consuming { requests[path] = nil }
         return true
     }
 
     static func releaseRequest(_ key: String) {
+        failingRequests.removeValue(forKey: key)
+        persistentFailures.remove(key)
         holdingRequests.removeValue(forKey: key)
         pendingRequests.removeValue(forKey: key)?.forEach { $0.resume() }
     }
@@ -198,6 +207,7 @@ enum AppUITestBootstrap {
 
     static func prepareForLaunch() {
         let environment = Self.environment
+        configureFailures(environment)
         guard AppFileDirectories.isRunningUITest else {
             preconditionFailure("The UI automation App requires its isolated launch configuration")
         }
@@ -349,7 +359,8 @@ final class UITestHTTPTransport: HTTPTransport {
         }
         let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        if AppUITestBootstrap.takeRequest(path, query: query, from: &AppUITestBootstrap.failingRequests) { throw URLError(.networkConnectionLost) }
+        if AppUITestBootstrap.takeRequest(path, query: query, from: &AppUITestBootstrap.failingRequests,
+            consuming: !AppUITestBootstrap.persistentFailures.contains(path)) { throw URLError(.networkConnectionLost) }
         if AppUITestBootstrap.takeRequest(path, query: query, from: &AppUITestBootstrap.holdingRequests) { await AppUITestBootstrap.holdRequest(path) }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_REPORT_FAILURE_ONCE"] == "1",
            path == "manage/report_types", failedPaths.insert(path).inserted {
@@ -359,9 +370,6 @@ final class UITestHTTPTransport: HTTPTransport {
            ["posters", "papers", "courses"].contains(path), failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
         }
-        if AppUITestBootstrap.environment["BIT101_UI_TEST_POSTER_FAILURE_ONCE"] == "1",
-           path.hasPrefix("posters/"), Int(path.dropFirst("posters/".count)) != nil,
-           failedPaths.insert(path).inserted { throw URLError(.networkConnectionLost) }
         if AppUITestBootstrap.environment["BIT101_UI_TEST_CLAIMS_FAILURE_ONCE"] == "1",
            path == "posters/claims", failedPaths.insert(path).inserted {
             throw URLError(.networkConnectionLost)
@@ -392,11 +400,6 @@ final class UITestHTTPTransport: HTTPTransport {
         if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION_FAILURE_ONCE"] == "1", page == "1",
            method == "GET", ["posters", "papers", "courses"].contains(path),
            failedPaths.insert("page-" + path + (query.first { $0.name == "order" }?.value ?? "")).inserted {
-            throw URLError(.networkConnectionLost)
-        }
-        if AppUITestBootstrap.environment["BIT101_UI_TEST_COURSE_LOOKUP_FAILURE_ONCE"] == "1", path == "courses",
-           let search = query.first(where: { $0.name == "search" })?.value, !search.isEmpty,
-           failedPaths.insert("lookup-" + search).inserted {
             throw URLError(.networkConnectionLost)
         }
         let payload: Any

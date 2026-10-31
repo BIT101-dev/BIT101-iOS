@@ -33,18 +33,15 @@ struct DDLScheduleTabView: View {
                 .ignoresSafeArea(edges: .bottom)
 
             eventList
-
-
-            AppFloatingActionStack {
-                AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
-                    selectedEvent = nil
-                    editingEventID = nil
-                    draft = DDLDraft()
-                    isShowingSheet = true
-                }
-                .disabled(!viewModel.isCacheWritable)
-
+        }
+        .appBrowserActions {
+            AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加待办") {
+                selectedEvent = nil
+                editingEventID = nil
+                draft = DDLDraft()
+                isShowingSheet = true
             }
+            .disabled(!viewModel.isCacheWritable)
         }
         .sheet(isPresented: $isShowingSheet) {
             if let event = selectedEvent {
@@ -358,6 +355,7 @@ private struct DDLEditSheet: View {
             }
             .navigationTitle(isEditing ? "编辑 DDL" : "添加 DDL")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     AppCancelEditingButton(confirmDiscard: hasChanges || isImporting || !selectedPhotos.isEmpty, onCancel: onDismiss)

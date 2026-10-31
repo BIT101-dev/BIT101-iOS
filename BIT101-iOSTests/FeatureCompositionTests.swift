@@ -68,6 +68,9 @@ struct FeatureCompositionTests {
         if #available(iOS 27.1, *) { #expect(closed.usesSideToolbar && closed.singleColumn.usesSideToolbar) }
 #endif
         #expect(!duo.usesSideToolbar && !wide.usesSideToolbar)
+        let expandedPortrait = AppWindowLayout(size: CGSize(width: 744, height: 1_046), isRegularWidth: true,
+            safeAreaInsets: UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 84))
+        #expect(!expandedPortrait.usesSideToolbar && !expandedPortrait.singleColumn.usesSideToolbar)
         #expect(AppWindowLayout(size: CGSize(width: 402, height: 874), interfaceIdiom: .phone,
             safeAreaInsets: UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)).usesBottomTabBar)
         #expect(AppWindowLayout(size: duo.size, isRegularWidth: true,
@@ -402,6 +405,7 @@ struct FeatureCompositionTests {
 
     @Test(.timeLimit(.minutes(1)))
     func galleryRootRoutesToItsExplicitPaperConsumer() async throws {
+        var requestedPaperID: Int? = 42
         let galleryTransport = TraceTransport()
         let paperTransport = TraceTransport()
         let surroundingTransport = TraceTransport()
@@ -415,7 +419,7 @@ struct FeatureCompositionTests {
         let view = GalleryRootView(dependencies: gallery(galleryTransport), media: selectedMedia,
             profiles: CommunityProfileDestination { AnyView(Text("profile \($0)")) }, papers: paperRoute,
             courses: CommunityCourseDestination { AnyView(Text("course \($0)")) },
-            requestedPaperID: .constant(42))
+            requestedPaperID: Binding(get: { requestedPaperID }, set: { requestedPaperID = $0 }))
             .environment(gallery(surroundingTransport)).environment(media())
         try await host(view) { try await paperTransport.waitForRequest() }
         #expect(routedIDs.contains(42))
@@ -424,6 +428,7 @@ struct FeatureCompositionTests {
 
     @Test(.timeLimit(.minutes(1)))
     func galleryWebPreferenceTakesEffectAfterNativePaperRoute() async throws {
+        var requestedPaperID: Int? = 42
         let dependencies = gallery(TraceTransport())
         var paperAppearances = 0
         let papers = CommunityPaperDestination(papers: { _, _ in
@@ -431,7 +436,8 @@ struct FeatureCompositionTests {
         }, detail: { _ in AnyView(Text("paper")) })
         let view = GalleryRootView(dependencies: dependencies, media: media(),
             profiles: CommunityProfileDestination { _ in AnyView(Text("profile")) }, papers: papers,
-            courses: CommunityCourseDestination { _ in AnyView(Text("course")) }, requestedPaperID: .constant(42))
+            courses: CommunityCourseDestination { _ in AnyView(Text("course")) },
+            requestedPaperID: Binding(get: { requestedPaperID }, set: { requestedPaperID = $0 }))
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: NavigationStack { view })
         window.rootViewController = controller
@@ -441,6 +447,7 @@ struct FeatureCompositionTests {
             (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap { webViews(in: $0) }
         }
         try await waitForTestEvent { paperAppearances > 0 }
+        requestedPaperID = nil
         #expect(webViews(in: controller.view).isEmpty)
         var snapshot = dependencies.preferences.snapshot
         snapshot.galleryUseWebView = true

@@ -16,11 +16,13 @@ enum NetworkSmokeProductionSession {
         let started = Date()
         var configuration: NetworkSmokeCommunityConfiguration?
         var failures: [String] = []
+        var stage: NetworkSmokeProbe = .myProfile
         do {
             let owner = dependencies.communityIdentity()
             let mine = dependencies.makeMine()
             let account = try await mine.fetchMyInfo()
             guard account.own, account.user.id > 0 else { throw URLError(.userAuthenticationRequired) }
+            stage = .myFollowing
             let following = try await mine.fetchFollowings(page: 0)
             guard let target = following.first(where: { $0.id > 0 && $0.id != account.user.id })
             else { throw configurationError("关注验收需要一个已关注的用户") }
@@ -28,11 +30,13 @@ enum NetworkSmokeProductionSession {
             var selectedPoster: CommunityPoster?
             var checkedPosters = Set<Int>()
             for kind in [GalleryFeedKind.hot, .newest] where selectedPoster == nil {
+                stage = kind == .hot ? .galleryHot : .galleryNewest
                 let feed = try await gallery.fetchFeed(kind: kind, page: nil)
                 for candidate in feed.items.sorted(by: { $0.commentNum > $1.commentNum })
                     where candidate.id > 0 && candidate.commentNum > 1 && checkedPosters.insert(candidate.id).inserted
                         && !NetworkSmokePaging.imageURLs(in: candidate.images).isEmpty {
                     do {
+                        stage = .galleryComments
                         for order in CommunityCommentOrder.allCases {
                             _ = try await NetworkSmokePaging.commentBatch(for: "poster\(candidate.id)", order: order,
                                 currentIdentity: dependencies.communityIdentity) {
@@ -46,18 +50,22 @@ enum NetworkSmokeProductionSession {
             }
             guard let poster = selectedPoster else { throw configurationError("帖子验收需要带图片和评论排序差异的对象") }
             let courses = dependencies.makeCourses()
+            stage = .courseList
             let courseRows = try await courses.fetchCourses(search: "", page: 0)
             var selectedCourse: (id: Int, number: String)?
             for row in courseRows.sorted(by: { $0.commentNum > $1.commentNum }) where row.id > 0 && !row.number.isEmpty {
+                stage = .courseHistory
                 if try await courses.fetchCourseHistories(number: row.number).isEmpty { continue }
                 selectedCourse = (row.id, row.number)
                 break
             }
             guard let course = selectedCourse else { throw configurationError("课程验收需要带历史成绩的对象") }
             let papers = dependencies.makePapers()
+            stage = .paperList
             let paperRows = try await papers.fetchPapers(search: nil, order: .newest, page: 0)
             var selectedPaper: Int?
             for row in paperRows where row.id > 0 {
+                stage = .paperDetail
                 let detail = try await papers.fetchPaper(id: row.id)
                 if (try? NetworkSmokePaging.checkPaperContent(detail.content)) != nil {
                     selectedPaper = row.id
@@ -68,7 +76,7 @@ enum NetworkSmokeProductionSession {
             guard dependencies.communityIdentity() == owner else { throw CancellationError() }
             configuration = .init(accountID: account.user.id, followTarget: target.id,
                 fixtures: .init(posterID: poster.id, courseID: course.id, courseNumber: course.number, paperID: paper))
-        } catch { failures.append(error.localizedDescription) }
+        } catch { failures.append("\(stage.rawValue)：\(error.localizedDescription)") }
         let report = ReleaseNetworkSmokeReport(runID: runID, scope: .bit101, startedAt: started, finishedAt: Date(),
             passed: configuration != nil, failures: failures, authenticationBlockers: [], scheduleCache: nil,
             executedProbes: [], skippedProbes: [], coverageGaps: [], schoolSMSCoverage: "not_run",

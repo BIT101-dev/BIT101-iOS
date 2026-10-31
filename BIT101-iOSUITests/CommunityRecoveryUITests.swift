@@ -32,12 +32,14 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testPosterDeepLinkKeepsItsTargetAfterAnInitialFailure() throws {
         XCUIDevice.shared.orientation = .portrait
-        app = configureApp(resetStorage: true, content: true, animations: true, posterFailureOnce: true, initialTab: "gallery")
+        app = configureApp(resetStorage: true, content: true, animations: true,
+            persistentFailurePaths: ["posters/1"], initialTab: "mine")
         defer { Self.endSharedSession() }
         let application = try XCTUnwrap(app.native as? XCUIApplication)
         application.open(try XCTUnwrap(URL(string: "bit101://gallery/1")))
         UITestSnapshotReader.invalidate()
         assertUI(textElement("无法打开话题").appears(timeout: 5), "目标读取失败应保留原位重试入口。")
+        releaseRequest("posters/1")
         tap("ui.app-failure-state.retry")
         assertUI(app.buttons["评论帖子"].appears(timeout: 5), "重试应恢复原话题的完整详情。")
         assertUI(textElement("自动化测试话题正文").exists, "恢复结果应属于原链接目标。")
@@ -164,9 +166,11 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, content: true, messagePagingFailureOnce: true, initialTab: "gallery")
         tap("消息")
         assertUI(app.alerts["加载更多失败"].appears(timeout: 10), "后续消息读取故障应展示原因。")
+        _ = UITestControlClient.request(["command": "fail-request", "key": "messages", "query.last_id": "3", "persistent": "1"])
         closeAlertIfPresent()
         let retry = app.buttons["community.pagination.retry"]
         reveal(retry, description: "消息页尾重试")
+        releaseRequest("messages")
         retry.tapBriefly()
         assertUI(textElement("重试后的消息").appears(timeout: 5), "原位重试应追加后续消息。")
         assertUI(textElement("分页首屏消息").exists, "重试应保留已加载消息。")
@@ -245,7 +249,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "mine")
             if !search {
                 let path = tab == "home" ? "courses" : section == "文章" ? "papers" : "posters"
-                var failure = ["command": "fail-request", "key": path, "query.page": "1"]
+                var failure = ["command": "fail-request", "key": path, "query.page": "1", "persistent": "1"]
                 if path == "posters" { failure["query.order"] = "new" }
                 _ = UITestControlClient.request(failure)
             }
@@ -253,7 +257,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             tapHeader(app.segmentedControls.buttons[section])
             if search {
                 tap("搜索文章")
-                _ = UITestControlClient.request(["command": "fail-request", "key": "papers", "query.page": "1", "query.search": "分页文章"])
+                _ = UITestControlClient.request(["command": "fail-request", "key": "papers", "query.page": "1", "query.search": "分页文章", "persistent": "1"])
                 replaceText("分页文章\n", in: app.textFields.firstMatch)
             }
             let retry = app.buttons["community.pagination.retry"]
@@ -266,6 +270,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             closeAlertIfPresent()
             reveal(retry, description: "分页原位重试")
             assertUI(retry.appears(timeout: 5), "分页故障应保留当前位置的重试入口。")
+            releaseRequest(tab == "home" ? "courses" : section == "文章" ? "papers" : "posters")
             retry.tapBriefly()
             let nextPage = textElement("\(title) 9")
             reveal(nextPage, description: "重试后第二页")
@@ -275,11 +280,13 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCourseLookupFailureKeepsTheSearchIdentity() {
-        app = configureApp(resetStorage: true, content: true, school: true, courseLookupFailureOnce: true)
+        app = configureApp(resetStorage: true, content: true, animations: true, school: true,
+            persistentFailurePaths: ["courses"])
         tap("学校测试课程")
         tap("查看课程评价")
         assertUI(app.alerts["课程评价加载失败"].appears(timeout: 5), "两路检索故障应展示恢复原因。")
         closeAlertIfPresent()
+        releaseRequest("courses")
         app.buttons["course.evaluation.search"].tapBriefly()
         assertUI(app.segmentedControls.buttons["课程"].appears(timeout: 5), "恢复入口应进入原生课程搜索。")
         assertUI(app.textFields["在这里搜索课程哦"].value as? String == "学校测试课程", "搜索应保留原课程名称。")

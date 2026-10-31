@@ -55,7 +55,7 @@ def signal_groups(groups: set[int], signum: int, *, workers_only: bool = False) 
             if pid in active_members(groups): raise
 
 
-def descendant_groups(root: int) -> set[int]:
+def descendant_processes(root: int) -> dict[int, int]:
     snapshot = subprocess.check_output(['ps', '-axo', 'uid=,pid=,ppid=,pgid='], text=True)
     rows = [tuple(map(int, line.split())) for line in snapshot.splitlines() if line.strip()]
     descendants = {root}
@@ -63,7 +63,28 @@ def descendant_groups(root: int) -> set[int]:
         expanded = descendants | {pid for _, pid, parent, _ in rows if parent in descendants}
         if expanded == descendants: break
         descendants = expanded
-    return {group for owner, pid, _, group in rows if owner == os.getuid() and pid in descendants}
+    return {pid: group for owner, pid, _, group in rows if owner == os.getuid() and pid in descendants}
+
+
+def descendant_groups(root: int) -> set[int]:
+    return set(descendant_processes(root).values())
+
+
+def stop_process_tree(root: int, *, grace_seconds: float = 5) -> None:
+    members = descendant_processes(root)
+    groups = set(members.values())
+    remaining = active_members(groups) & members.keys()
+    deadline = time.monotonic() + grace_seconds
+    forced = False
+    while remaining:
+        if not forced or time.monotonic() >= deadline:
+            for pid in remaining:
+                try: os.kill(pid, signal.SIGKILL if forced else signal.SIGTERM)
+                except ProcessLookupError: pass
+            if forced: deadline = math.inf
+            forced = True
+        time.sleep(0.1)
+        remaining = active_members(groups) & members.keys()
 
 
 def stop_groups(groups: set[int], *, grace_seconds: float = 5, workers_only: bool = False,

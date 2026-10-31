@@ -8,8 +8,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testSideToolbarUsesTheSpaceAboveMainNavigation() throws {
         app = configureApp(resetStorage: true, content: true, school: true, initialTab: "map")
-        let traits = windowTraits(), window = app.native.windows.firstMatch.frame
-        try XCTSkipIf(window.width > window.height || (traits["safeTrailing"] ?? 0) == 0,
+        try XCTSkipIf(!windowUsesSideToolbar,
             "侧栏工具验收使用带侧方系统安全区的竖屏窗口。")
         checkSideToolbar(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
         if app.native.buttons["导航到下一节课"].exists { checkSideToolbar(["导航到下一节课"]) }
@@ -20,6 +19,12 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app.native.segmentedControls.buttons["文章"].press(forDuration: 0.01)
         checkSideToolbar(["发布文章", "搜索文章"])
         captureBrowserScreenshot("文章侧栏工具")
+        app.mainTab("日程").tapBriefly()
+        checkSideToolbar(["添加课表内容"])
+        checkScheduleGeometry()
+        tapHeader(app.sectionTab("DDL"))
+        checkSideToolbar(["添加待办"])
+        captureBrowserScreenshot("日程侧栏工具")
     }
     @MainActor
     func testWeeklyHeaderKeepsItsCompactDateRow() {
@@ -167,16 +172,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true)
         let calendar = app.native.cells.containing(.button, identifier: "schedule.add-content").firstMatch
         assertUI(calendar.appears(timeout: 5), "课表应完成布局。")
-        let status = app.native.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
-        let segmented = app.native.segmentedControls.firstMatch
-        let tabBar = app.native.tabBars.firstMatch
-        let settled = NSPredicate { _, _ in
-            abs((tabBar.frame.minY - calendar.frame.maxY) - (status.frame.minY - segmented.frame.maxY)) <= 1
-        }
-        let layoutSettled = waitUntil(settled, on: app, timeout: 5)
-        let topGap = status.frame.minY - segmented.frame.maxY
-        let bottomGap = app.native.tabBars.firstMatch.frame.minY - calendar.frame.maxY
-        assertUI(layoutSettled, "课表上下间隙应保持一致：顶部 \(topGap)，底部 \(bottomGap)，更新时间行 \(status.frame)，课表 \(calendar.frame)，顶部栏 \(segmented.frame)，底部栏 \(tabBar.frame)。")
+        checkScheduleGeometry()
         tap("下一周")
         tap("下一周")
         assertSelectedWeek(3)
@@ -490,7 +486,6 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, initialTab: "map")
         let layer = app.buttons["切换地图图层"]
         assertUI(layer.appears(timeout: 5), "地图应提供图层入口。")
-        checkBrowserActionBounds(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
         func camera() throws -> [String: Any] {
             let snapshot = try XCTUnwrap(UITestControlClient.request(["command": "map-camera"]))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(snapshot.utf8)) as? [String: Any])
@@ -499,6 +494,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         layer.tapBriefly()
         let changed = try XCTUnwrap(try camera()["configuration"] as? String)
         assertUI(changed != original, "切换图层应改变原生地图配置。")
+        checkBrowserActionBounds(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
         var longitude = try XCTUnwrap(try camera()["longitude"] as? Double)
         for campus in ["中关村校区", "良乡校区", "珠海校区"] {
             revealBrowserAction("切换到\(campus)").tapBriefly()
@@ -520,7 +516,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let zoomedCamera = try camera()
         XCTAssertLessThan(try XCTUnwrap(zoomedCamera["distance"] as? Double),
             try XCTUnwrap(pannedCamera["distance"] as? Double), "双指展开应拉近地图相机距离。")
-        assertUI(layer.isHittable, "平移和缩放后地图操作仍可触达。")
+        layer.tapBriefly()
+        XCTAssertEqual(try camera()["configuration"] as? String, original, "平移和缩放后图层操作应继续生效。")
+        layer.tapBriefly()
+        XCTAssertEqual(try camera()["configuration"] as? String, changed, "图层操作应恢复已选择的配置。")
         app = configureApp(resetStorage: false, initialTab: "map")
         let restored = try camera()
         assertUI(restored["configuration"] as? String == changed, "重新装载应保留图层设置。")

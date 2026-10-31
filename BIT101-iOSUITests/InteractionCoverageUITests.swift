@@ -370,7 +370,6 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
         fillVerificationCode("００٠٠００", in: app.textFields["verification.code"])
         assertUI(app.staticTexts["测试验证码错误。"].appears(timeout: 5), "完整错误验证码自动验证后应允许修改。")
         let manualRetry = app.buttons["验证并查询成绩"]
-        reveal(manualRetry, description: "短信验证重试")
         assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: manualRetry),
                  "自动验证错误后应恢复手动重试。")
         fillVerificationCode("１２٣٤５６", in: app.textFields["verification.code"])
@@ -501,10 +500,10 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
         tap("申请可信成绩单")
         fillVerificationCode("123456", in: app.textFields["verification.code"])
         assertUI(app.staticTexts["部分成绩单待恢复"].appears(timeout: 5), "补页提示应保留当前报告的有效页。")
-        assertUI(app.buttons["可信成绩单第1页"].exists, "当前成绩单应保持可读。")
+        assertUI(app.buttons["可信成绩单第1页"].appears(timeout: 5), "当前成绩单应保持可读。")
         tap("ui.trusted-transcript-page.reapply")
         assertUI(app.staticTexts["部分成绩单待恢复"].disappears(timeout: 5), "重新申请应取得完整报告。")
-        assertUI(app.buttons["可信成绩单第1页"].exists && app.buttons["可信成绩单第2页"].exists,
+        assertUI(app.buttons["可信成绩单第1页"].appears(timeout: 5) && app.buttons["可信成绩单第2页"].appears(timeout: 5),
             "新报告应完整展示两页内容。")
     }
 

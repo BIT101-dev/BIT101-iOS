@@ -14,6 +14,16 @@ import TransportCore
 
 @MainActor
 struct GalleryStateContractTests {
+    @Test func posterDetailsRetainTheOriginalBeyondTheDisplayBudget() throws {
+        let original = String(repeating: "正文", count: CommunityTextLimits.maximumDisplayBytes) + "原文末尾"
+        let data = try JSONSerialization.data(withJSONObject: ["id": 1, "anonymous": true,
+            "text": original, "like": false, "own": false])
+        let preview = try JSONDecoder().decode(CommunityPoster.self, from: data)
+        let detail = try JSONDecoder().decode(GalleryPosterDetail.self, from: data)
+        #expect(preview.text.utf8.count <= CommunityTextLimits.maximumPreviewBytes)
+        #expect(detail.text == original && CommunityTextLimits.requiresFullReading(detail.text))
+    }
+
     @Test func resourceReadsPublishOneBatchAndReleaseCompletedConfirmationHistory() {
         var owner = 1
         let updates = CommunityResourceUpdates(currentOwner: { owner })
@@ -763,6 +773,7 @@ struct GalleryStateContractTests {
         for _ in 1..<200 {
             if search { await model.loadMoreSearchResultsIfNeeded(currentPoster: model.searchState.posters.last) }
             else { await model.loadMoreIfNeeded(for: .newest, currentPoster: model.state(for: .newest).posters.last) }
+            await Task.yield()
         }
         let state = search ? model.searchState : model.state(for: .newest)
         #expect(state.posters.map(\.id) == Array(1...20_000))

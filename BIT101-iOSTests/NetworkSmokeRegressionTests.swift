@@ -141,8 +141,12 @@ struct NetworkSmokeRegressionContractTests {
         try await waitForAsyncTestEvent { (try? await webView.evaluateJavaScript("window.initialCredential")) as? String == "fixture" }
         let link = "<a id='target' href='\(address)' target='_blank'>open</a>"
         let encoded = String(decoding: try JSONEncoder().encode(link), as: UTF8.self)
-        _ = try await webView.evaluateJavaScript("document.body.innerHTML=\(encoded); document.getElementById('target').click()")
         let target = AppURL.required(address)
+        if target.scheme == "tel" {
+            #expect(await coordinator.webView(webView, decidePolicyFor: UserLinkAction(target)) == .cancel)
+        } else {
+            _ = try await webView.evaluateJavaScript("document.body.innerHTML=\(encoded); document.getElementById('target').click()")
+        }
         if GalleryWebRequestFactory.isTrustedPage(target) {
             try await waitForTestEvent { webView.request?.url == target }
             #expect(external.isEmpty)
@@ -158,6 +162,14 @@ struct NetworkSmokeRegressionContractTests {
             self.request = request
             return loadHTMLString("<script>window.initialCredential = JSON.parse(localStorage.getItem('store') || '{}').fake_cookie || '';</script><body>fixture</body>", baseURL: request.url)
         }
+    }
+
+    private final class UserLinkAction: WKNavigationAction {
+        private let selectedRequest: URLRequest
+        override var request: URLRequest { selectedRequest }
+        override var navigationType: WKNavigationType { .linkActivated }
+        override var targetFrame: WKFrameInfo? { nil }
+        init(_ url: URL) { selectedRequest = URLRequest(url: url); super.init() }
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["navigation", "credentials"])
@@ -189,9 +201,13 @@ struct NetworkSmokeRegressionContractTests {
             coordinator.webView(webView, didFailProvisionalNavigation: nil,
                 withError: URLError(.notConnectedToInternet, userInfo: [NSURLErrorFailingURLErrorKey: failed]))
         }
-        try await waitForTestEvent { presenter.presentedViewController is UIAlertController }
+        try await waitForTestEvent {
+            guard let alert = presenter.presentedViewController as? UIAlertController else { return false }
+            return !alert.isBeingPresented && alert.viewIfLoaded?.window != nil
+        }
         #expect(try await webView.evaluateJavaScript("document.getElementById('editor')?.value") as? String == "保留内容")
-        #expect(try await webView.evaluateJavaScript("window.scrollY") as? Double == offset, "path=\(path), initial scroll=\(String(describing: offset))")
+        let actualOffset = try await webView.evaluateJavaScript("window.scrollY") as? Double
+        #expect(actualOffset == offset, "path=\(path), initial scroll=\(String(describing: offset)), actual scroll=\(String(describing: actualOffset))")
         if path == "navigation" {
             coordinator.retryLastFailure(in: webView)
             #expect(webView.request?.url == failed)

@@ -67,7 +67,8 @@ struct NetworkEvidenceProjectionTests {
         let identities = NetworkSmokeProbe.allCases.map(\.rawValue)
         #expect(Set(identities).count == identities.count)
         #expect(identities.allSatisfy { $0.utf8.allSatisfy { $0 < 128 } })
-        #expect(Set(identities) == Set(NetworkSmokeScope.all.requiredProbes + NetworkSmokeScope.communityWrites.requiredProbes))
+        #expect(Set(identities) == Set(NetworkSmokeScope.all.requiredProbes
+            + NetworkSmokeScope.communityWrites.requiredProbes + NetworkSmokeScope.all.exemptedProbes.keys))
         #expect(NetworkSmokeProbe.galleryNewest.rawValue == "gallery.newest")
         #expect(NetworkSmokeProbe.galleryNewest.displayName == "话廊最新列表")
         #expect(GalleryMessageType.allCases.map(NetworkSmokeProbe.message).map(\.rawValue) ==

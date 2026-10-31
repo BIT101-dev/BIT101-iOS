@@ -359,16 +359,18 @@ enum UITestAccessibilityActions {
         }
         if parameters["command"] == "query-accessibility-action" {
             guard let element = elements.first, element.attributes["enabled"] as? Bool == true,
-                  let name = parameters["name"],
-                  let action = element.object.accessibilityCustomActions?.first(where: { $0.name == name }) else {
+                  let name = parameters["name"] else {
                 return Data("action missing".utf8)
             }
             let attributes = element.attributes
             let performed: Bool
-            if let handler = action.actionHandler {
-                performed = handler(action)
-            } else if let target = action.target {
-                performed = UIApplication.shared.sendAction(action.selector, to: target, from: action, for: nil)
+            if name == "activate" {
+                performed = element.object.accessibilityActivate()
+            } else if let action = element.object.accessibilityCustomActions?.first(where: { $0.name == name }) {
+                if let handler = action.actionHandler { performed = handler(action) }
+                else if let target = action.target {
+                    performed = UIApplication.shared.sendAction(action.selector, to: target, from: action, for: nil)
+                } else { performed = false }
             } else {
                 performed = false
             }

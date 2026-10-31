@@ -7,6 +7,7 @@ import Testing
 
 @MainActor
 struct AppExternalDisplayTests {
+#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
     @Test(arguments: [false, true])
     func localSchoolSessionsKeepExtensionsAvailableDuringCommunityAuthenticationRecovery(communityExpired: Bool) throws {
         let storage = AppAccountSession.storage
@@ -29,6 +30,7 @@ struct AppExternalDisplayTests {
         #expect(AppRestoreReadiness.sessionIsReady(.signedOut, storage: storage))
         #expect(!AppRestoreReadiness.sessionIsReady(.signedIn(studentID: "external-school"), storage: storage))
     }
+#endif
 
     private final class Context {
         var session = AppStorageSession(accountIdentifier: "selected-display")

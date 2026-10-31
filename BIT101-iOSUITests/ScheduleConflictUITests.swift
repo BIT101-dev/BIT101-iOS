@@ -161,6 +161,8 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     }
     @MainActor
     @objc func testWindowChangesKeepBrowsersWithinSystemInsets() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         try XCTSkipIf((windowTraits()["divisionX"] ?? -1) < 0, "连续切换验收使用系统提供分隔区域的窗口。")
         assertUI(waitUntil(NSPredicate { _, _ in

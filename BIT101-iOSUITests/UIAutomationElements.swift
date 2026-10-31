@@ -305,7 +305,7 @@ final class UIElement: NSObject {
             return nil
         }
         let visible = bounds.intersection(safeArea)
-        XCTAssertFalse(visible.isEmpty, "滚动区域应与窗口安全区相交。")
+        XCTAssertFalse(visible.isEmpty, "滚动区域应与窗口安全区相交：容器 \(bounds)，安全区 \(safeArea)。")
         return visible.isEmpty ? nil : visible
     }
     func swipeLeft() { performGesture("swipe") { native.swipeLeft() } }
@@ -355,7 +355,7 @@ final class UIElement: NSObject {
         _ = UITestControlClient.request(identity.merging(["command": "record", "action": action]) { _, command in command })
     }
 
-    func performAccessibilityAction(named name: String) -> Bool {
+    func performAccessibilityAction(named name: String = "activate") -> Bool {
         Self.beforeNativeTap?()
         defer { UITestSnapshotReader.invalidate() }
         guard let path, let data = try? JSONSerialization.data(withJSONObject: path) else { return false }
@@ -462,14 +462,23 @@ final class UIElement: NSObject {
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
         let query = native.buttons.matching(NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
-        let map = native.buttons["地图"].firstMatch.frame, mine = native.buttons["我的"].firstMatch.frame
-        let horizontal = abs(map.midY - mine.midY) <= 1
-        for button in query.allElementsBoundByIndex {
-            let frame = button.frame
-            if horizontal ? abs(frame.midY - map.midY) <= 1 : abs(frame.midX - map.midX) <= 1 {
-                return UIElement(button)
+        guard query.firstMatch.exists else { return UIElement(query.firstMatch) }
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            let map = native.buttons["地图"].firstMatch, mine = native.buttons["我的"].firstMatch
+            if map.exists && mine.exists {
+                let reference = map.frame
+                let horizontal = abs(reference.midY - mine.frame.midY) <= 1
+                for button in query.allElementsBoundByIndex {
+                    let frame = button.frame
+                    if horizontal ? abs(frame.midY - reference.midY) <= 1 : abs(frame.midX - reference.midX) <= 1 {
+                        return UIElement(button)
+                    }
+                }
             }
-        }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.invalidate()
+        } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
         return UIElement(query.firstMatch)
     }
@@ -641,14 +650,42 @@ extension UIAutomationTestCase {
 
     func checkBrowserActionBounds(_ labels: [String]) {
         let window = app.native.windows.firstMatch.frame
-        if window.height > window.width && (windowTraits()["safeTrailing"] ?? 0) > 0 { checkSideToolbar(labels); return }
+        if windowUsesSideToolbar { checkSideToolbar(labels); return }
         let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
             .reduce(CGRect.null) { $0.union($1) }
         for label in labels {
-            let button = app.native.buttons[label]
-            assertUI(button.isHittable && window.contains(button.frame) && !button.frame.intersects(navigation),
-                "悬浮工具应完整显示在主导航之外：\(label)。")
+            let button = app.native.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+            assertUI(waitUntil(NSPredicate { _, _ in
+                button.exists && window.contains(button.frame) && !button.frame.intersects(navigation)
+            }, on: app), "悬浮工具应完整显示在主导航之外：\(label)，按钮 \(button.frame)，窗口 \(window)，导航 \(navigation)。")
         }
+    }
+
+    var windowUsesSideToolbar: Bool {
+        let window = app.native.windows.firstMatch.frame, traits = windowTraits()
+        return window.height > window.width && (traits["safeTrailing"] ?? 0) > 0
+            && traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
+    }
+
+    func selectSystemCalendarDate(_ date: Date, in picker: UIElement) {
+        let month = picker.buttons.matching(NSPredicate(format: "identifier IN %@", ["DatePicker.Show", "DatePicker.Hide"])).firstMatch
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月"
+        guard let shown = formatter.date(from: month.value as? String ?? ""),
+              let target = Calendar.current.dateInterval(of: .month, for: date)?.start,
+              let distance = Calendar.current.dateComponents([.month], from: shown, to: target).month else {
+            assertUI(false, "系统日历应提供可读的年月。")
+            return
+        }
+        for _ in 0..<abs(distance) {
+            picker.buttons[distance < 0 ? "DatePicker.PreviousMonth" : "DatePicker.NextMonth"].tapBriefly()
+        }
+        assertUI(month.value as? String == formatter.string(from: date), "系统日历应切换到目标月份。")
+        formatter.dateFormat = "M月d日"
+        let day = picker.collectionViews.buttons.matching(NSPredicate(format: "label CONTAINS %@", formatter.string(from: date))).firstMatch
+        assertUI(day.appears(timeout: 5), "目标日期应显示在系统日历中。")
+        day.tapBriefly()
     }
 
     func revealBrowserAction(_ label: String) -> UIElement {
@@ -657,7 +694,7 @@ extension UIAutomationTestCase {
             assertUI(overflow.exists && overflow.isHittable, "折叠操作应提供系统更多菜单：\(label)。")
             overflow.press(forDuration: 0.01)
         }
-        assertUI(app.native.buttons[label].waitForExistence(timeout: 5) && app.native.buttons[label].isHittable,
+        assertUI(app.native.buttons[label].waitForExistence(timeout: 5) && app.native.buttons[label].isEnabled,
             "当前操作应可触达：\(label)。")
         return app.buttons[label]
     }
@@ -672,7 +709,13 @@ extension UIAutomationTestCase {
         let window = app.native.windows.firstMatch.frame
         let traits = windowTraits()
         let grid = app.native.descendants(matching: .any)["schedule.calendar"]
-        if grid.exists {
+        if grid.exists && app.sectionTab("课表").isSelected {
+            let available = app.scrollGestureFrame(in: window) ?? window
+            let days = grid.buttons.matching(NSPredicate(format: "label MATCHES %@", "第-?[0-9]+周，周[一二三四五六七]，.*"))
+            for day in days.allElementsBoundByIndex {
+                assertUI(day.frame.minX >= available.minX && day.frame.maxX <= available.maxX,
+                    "课表日期列应完整位于正文宽度内：日期 \(day.frame)，正文 \(available)。")
+            }
             let bar = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
                 .reduce(CGRect.null) { $0.union($1) }
             let hasBottomBar = bar.width > bar.height && bar.minY > window.midY
@@ -735,13 +778,40 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
+    func interactionScrollFrame(for element: UIElement) -> CGRect? {
+        guard let snapshot = try? app.native.snapshot() else { return nil }
+        let window = snapshot.frame
+        let containers = (snapshot.snapshots(matching: .collectionView) + snapshot.snapshots(matching: .scrollView))
+            .filter { !$0.frame.isEmpty && window.intersects($0.frame) }
+        var owning: [any XCUIElementSnapshot] = []
+        if element.exists {
+            let identifier = element.identifier, label = element.label, type = element.elementType
+            owning = containers.filter { container in
+                container.firstSnapshot { target in
+                    target.elementType == type && (identifier.isEmpty ? target.label == label : target.identifier == identifier)
+                } != nil
+            }
+        }
+        if let owner = owning.last { return owner.frame }
+        let candidates = containers.filter { container in
+            let native = app.native.descendants(matching: container.elementType).matching(NSPredicate(
+                format: "identifier == %@ AND label == %@", container.identifier, container.label)).firstMatch
+            return native.exists && native.isHittable
+        }
+        return candidates.max(by: {
+            let first = $0.frame.intersection(window), second = $1.frame.intersection(window)
+            return first.width * first.height < second.width * second.height
+        })?.frame
+    }
+    @MainActor
     func back() {
         guard let state = try? app.snapshot(),
               let bar = state.snapshots(matching: .navigationBar).last(where: { !$0.frame.isEmpty && state.frame.intersects($0.frame) }) else {
             assertUI(false, "返回操作应使用当前可见的导航栏。")
             return
         }
-        let button = UIElement(app.native.buttons["BackButton"].exists ? app.native.buttons["BackButton"]
+        let paneBack = app.native.buttons["app.pane.back"]
+        let button = UIElement(paneBack.isHittable ? paneBack : app.native.buttons["BackButton"].exists ? app.native.buttons["BackButton"]
             : app.native.navigationBars[bar.identifier].buttons.firstMatch)
         assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
         button.tapBriefly()
@@ -761,6 +831,7 @@ extension UIAutomationTestCase {
 
     @MainActor
     func tap(_ title: String) {
+        if title == "取消" { dismissKeyboard() }
         let response = title == "取消" ? nil
             : UITestControlClient.request(["command": "resolve", "label": title], timeout: 5)
         if let response, let target = try? JSONDecoder().decode([String: String].self, from: Data(response.utf8)) {

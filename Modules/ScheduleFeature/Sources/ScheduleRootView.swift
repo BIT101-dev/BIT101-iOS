@@ -63,15 +63,14 @@ public struct ScheduleRootView: View {
                 else {
                     NavigationStack {
                         content
-                            .toolbar(layout.usesTopTabBar ? .visible : .hidden, for: .navigationBar)
+                            .padding(.top, expandedNavigation ? layout.contentTopInset : AppDesignSystem.Spacing.none)
+                            .appBrowserNavigationBar()
                             .navigationBarTitleDisplayMode(.inline)
-                            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                     }
                 }
             }
             .environment(\.scheduleCurrentDate, context.date)
         }
-        .padding(.top, displayedSection == .classroom ? AppDesignSystem.Spacing.none : layout.contentTopInset)
         .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
@@ -109,7 +108,7 @@ public struct ScheduleRootView: View {
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation && displayedSection != .classroom { sectionTabs }
+            if !expandedNavigation && displayedSection != .classroom { sectionTabs.padding(.top, layout.contentTopInset) }
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。

@@ -201,7 +201,7 @@ def run_cache(arguments: list[str]) -> None:
                 pass
             else:
                 try:
-                    if result.returncode == 0 and cache_maintenance_needed(root):
+                    if cache_maintenance_needed(root):
                         before_cas, after_cas = prune_compilation_cache(shared)
                         compact_build_databases(derived_roots)
                         report = record_cache_space(root)

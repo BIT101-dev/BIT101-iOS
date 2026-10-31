@@ -217,7 +217,8 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         likeNum = (try? fields.decode(Int.self, forKey: .likeNum)) ?? 0
         self.public = (try? fields.decode(Bool.self, forKey: .public)) ?? false
         tags = (try? fields.decode([String].self, forKey: .tags)) ?? []
-        text = CommunityTextLimits.displayText((try? fields.decode(String.self, forKey: .text)) ?? "", preview: preview)
+        let originalText = (try? fields.decode(String.self, forKey: .text)) ?? ""
+        text = preview ? CommunityTextLimits.displayText(originalText, preview: true) : originalText
         title = (try? fields.decode(String.self, forKey: .title)) ?? ""
         updateTime = (try? fields.decode(String.self, forKey: .updateTime)) ?? ""
         if anonymous {

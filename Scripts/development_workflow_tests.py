@@ -462,7 +462,7 @@ def cache_maintenance_self_test(fixture: Path) -> None:
     with patch.object(subprocess, 'check_output', return_value=str((saved['space']['casBytes'] + artifacts.CACHE_GROWTH_INTERVAL) // 1024)), \
             patch.object(shutil, 'disk_usage', return_value=type('Disk', (), {'free': free})()):
         assert artifacts.cache_maintenance_needed(fixture)
-    for exit_code, needed, crashed in ((0, False, False), (7, True, False), (0, True, True)):
+    for exit_code, needed, crashed in ((0, False, False), (7, True, True), (0, True, True)):
         with patch.object(subprocess, 'run', return_value=subprocess.CompletedProcess([], exit_code)), \
                 patch.object(artifacts, 'cache_maintenance_needed', return_value=needed), \
                 patch.object(artifacts, 'prune_compilation_cache', side_effect=RuntimeError('native signal 11')) as prune, \

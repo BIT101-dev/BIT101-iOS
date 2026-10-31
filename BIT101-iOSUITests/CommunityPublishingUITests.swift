@@ -278,7 +278,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         edge.press(forDuration: 0.01, thenDragTo: app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
         assertUI(editor.exists && app.textFields["标题"].value as? String == "取消的文章修改", "边缘返回应保留待确认的文章修改。")
         tap("取消")
-        tap("取消")
+        dismissSystemPopover(UIElement(app.native.sheets.firstMatch))
         assertUI(app.textFields["标题"].value as? String == "取消的文章修改", "继续编辑应保留当前输入。")
         tap("取消")
         tap("放弃修改")

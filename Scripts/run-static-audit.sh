@@ -144,7 +144,7 @@ worker_parse() {
     | xargs -0 -n 1 node --check
 }
 dependency_audit() {
-  (cd "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker" && npm audit --audit-level=high)
+  (cd "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker" && npm audit --audit-level=high --fetch-retries=0 --fetch-timeout=30000)
 }
 git_check() {
   git -C "$ROOT_DIR" diff --check || return 1

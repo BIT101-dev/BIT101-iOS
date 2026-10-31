@@ -207,6 +207,7 @@ private struct CourseEvaluationLinkScene: View {
                     let name = request.lookupCourseName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     onResolved(.search(query: name.isEmpty ? (request.lookupCourseNumber ?? "") : name))
                 }
+                .buttonStyle(.plain)
                 .appInteractiveListRow()
                 .accessibilityIdentifier("course.evaluation.search")
             }

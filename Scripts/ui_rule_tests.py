@@ -92,7 +92,7 @@ func sample() {
         unused = template.replace(f'.interactiveDismissDisabled({guard})', '')[:-1] + f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled({guard}) }} }}'
         assert findings(unused)
         if not identifier: assert not findings(template.replace('AppCommentComposerContentSection', 'OtherSection').replace(f'.interactiveDismissDisabled({guard})', ''))
-    for symbol in ('AppCard', 'AppFloatingActionStack'):
+    for symbol in ('AppCard', 'AppFloatingActionStack', 'appBrowserActions', 'appBrowserFloatingActions'):
         source = f'struct Example: View {{ var body: some View {{ Text("visible") }}; func unused() -> some View {{ {symbol} {{ Text("unused") }} }} }}'
         facts = swift_syntax_index_sources({'ui-self-test.swift': source})
         assert not rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]

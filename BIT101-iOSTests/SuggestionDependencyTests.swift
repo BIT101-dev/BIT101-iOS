@@ -355,24 +355,24 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
             .name: "cleanup-fixture", .value: "fixture", .expires: Date().addingTimeInterval(3_600)]))
         await cookies.setCookie(cookie)
         let seededCookies = await cookies.allCookies()
-        XCTAssertTrue(seededCookies.contains { $0.name == cookie.name })
+        XCTAssertTrue(seededCookies.contains { $0.name == cookie.name }, "网页 Cookie 夹具应完成写入。")
         try await waitForTestEvent { cache.cachedResponse(for: request)?.data == Data([1, 2, 3]) }
         if storagePolicy == .allowed { XCTAssertGreaterThan(cache.currentDiskUsage, 0) }
-        XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true)
-        XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty)
+        XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true, "共享日程夹具应已登录。")
+        XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty, "账号夹具应持有社区会话。")
         var loggedOut = false
         let reset = await service.resetAllLocalData { loggedOut = true }
         XCTAssertTrue(reset, service.resetFailureMessage ?? "Local data reset completed")
-        XCTAssertTrue(loggedOut && !service.isCleaning)
-        for file in [support, report, mediaCache] { XCTAssertTrue(files.fileExists(at: file) == false) }
-        XCTAssertTrue(snapshotStore.load() == nil)
-        XCTAssertTrue(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty)
-        XCTAssertTrue(try AppAccountSession.storage.loadCredentials() == nil)
-        XCTAssertTrue(defaults.object(forKey: "cleanup-fixture") == nil)
-        XCTAssertTrue(URLCache.shared === cache)
+        XCTAssertTrue(loggedOut && !service.isCleaning, "本地清理应完成退出并释放操作状态。")
+        for file in [support, report, mediaCache] { XCTAssertTrue(files.fileExists(at: file) == false, "所属文件应完成清理：\(file.path)。") }
+        XCTAssertTrue(snapshotStore.load() == nil, "共享日程快照应完成清理。")
+        XCTAssertTrue(AppAccountSession.storage.fakeCookie.isEmpty && AppAccountSession.storage.currentStudentID.isEmpty, "账号内存会话应完成清理。")
+        XCTAssertTrue(try AppAccountSession.storage.loadCredentials() == nil, "学校凭据应完成清理。")
+        XCTAssertTrue(defaults.object(forKey: "cleanup-fixture") == nil, "所属偏好应完成清理。")
+        XCTAssertTrue(URLCache.shared === cache, "缓存实例应保持所属测试选择。")
         try await waitForTestEvent { cache.cachedResponse(for: request) == nil }
         let remainingCookies = await cookies.allCookies()
-        XCTAssertTrue(remainingCookies.isEmpty)
+        XCTAssertTrue(remainingCookies.isEmpty, "网页 Cookie 应完成清理。")
     }
 }
 

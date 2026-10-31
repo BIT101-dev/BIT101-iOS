@@ -71,7 +71,8 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         facts = syntax[str(path)]
         components = rendered_component_counts(facts, syntax)
         app_card_uses += components['AppCard']
-        floating_stack_uses += components['AppFloatingActionStack']
+        floating_stack_uses += sum(components[symbol] for symbol in
+            ('AppFloatingActionStack', 'appBrowserActions', 'appBrowserFloatingActions'))
         for invocation in facts.get("invocations", []):
             name = call_name(invocation["calledExpression"])
             if name != "ZStack":
