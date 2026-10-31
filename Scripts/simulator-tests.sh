@@ -161,7 +161,7 @@ owned = json.loads(path.read_text()) if path.is_file() else None
 device = next((row for rows in data['devices'].values() for row in rows
     if owned and row['udid'] == owned['identifier']), None)
 if (hosted or requested_type) and device and (device.get('deviceTypeIdentifier') != phone['identifier'] or owned.get('runtime') != runtime['identifier']):
-    if not hosted and device.get('name') == 'BIT101' and device.get('state') == 'Booted':
+    if not hosted and device.get('state') == 'Booted':
         subprocess.run(['xcrun', 'simctl', 'shutdown', device['udid']], check=True, stdout=sys.stderr, stderr=sys.stderr)
     device = None
 if device and device.get('isAvailable'):

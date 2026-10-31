@@ -123,7 +123,7 @@ def simulator_requested_type_boundary_findings(program: str) -> list[str]:
     runtime = {'identifier': 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', 'version': '27.0',
         'isAvailable': True, 'supportedDeviceTypes': [phone]}
     compatible = dict(runtime, identifier='com.apple.CoreSimulator.SimRuntime.iOS-27-1', version='27.1', supportedDeviceTypes=[duo])
-    old = dict(udid='old', name='BIT101', state='Booted', isAvailable=True, deviceTypeIdentifier='phone-type')
+    old = dict(udid='old', name='iPhone 17', state='Booted', isAvailable=True, deviceTypeIdentifier='phone-type')
     ready = dict(old, udid='duo', name='BIT101', state='Shutdown', deviceTypeIdentifier='duo-type')
     external = dict(ready, udid='aaa', name='Existing Duo', state='Booted')
     for requested, present, owned_duo, reuse in [('iPhone Duo', True, False, True), ('duo-type', True, True, True),
@@ -159,6 +159,7 @@ def simulator_requested_type_boundary_findings(program: str) -> list[str]:
         assert saved == ([] if owned_duo else [{'identifier': expected, 'runtime': compatible['identifier']}])
         assert (['xcodebuild', '-downloadPlatform', 'iOS'] in commands) == (not present)
         assert ['xcrun', 'simctl', 'delete', 'old'] not in commands
+        assert ['xcrun', 'simctl', 'shutdown', 'aaa'] not in commands
         assert (['xcrun', 'simctl', 'shutdown', 'old'] in commands) == (not owned_duo)
     return []
 
