@@ -138,6 +138,19 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(event.structuredLocation?.geoLocation?.coordinate.longitude == 116.321642)
     }
 
+    @Test(arguments: ["文萃楼F404", "文萃F404", "良乡校区文萃楼F404"])
+    func calendarLocationKeepsWencuiRoomAndCampusCoordinates(classroom: String) throws {
+        let schedule = CustomScheduleRecord(id: "wencui", title: "课程", subtitle: classroom,
+            description: "", dateString: "2026-09-07", beginTime: "08:00", endTime: "09:35")
+        let draft = try #require(ScheduleSystemCalendarEventBuilder.makeDraft(for: schedule))
+        let event = EKEvent(eventStore: EKEventStore())
+        event.structuredLocation = draft.calendarLocation
+        #expect(event.location == classroom)
+        #expect(draft.structuredLocation?.title == "北京理工大学 · 良乡校区 · 文萃楼F")
+        #expect(event.structuredLocation?.geoLocation?.coordinate.latitude == 39.73206)
+        #expect(event.structuredLocation?.geoLocation?.coordinate.longitude == 116.173821)
+    }
+
     @Test func calendarLocationKeepsUnmappedTextWithoutAssigningCoordinates() {
         let draft = ScheduleSystemCalendarEventDraft(markerID: "custom", title: "组会", location: "体育馆",
             structuredLocation: nil, notes: "", startDate: Date(), endDate: Date().addingTimeInterval(3_600))

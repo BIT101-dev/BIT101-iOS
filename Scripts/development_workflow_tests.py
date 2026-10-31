@@ -314,6 +314,7 @@ sleep() {{ SECONDS=$(( SECONDS + 60 )); }}
                 assert expected in result.stderr and str(log) in result.stderr, (platform, failure, result.stderr)
 
 
+@patch.object(shutil, 'disk_usage', new=lambda _: Mock(free=4 * 1024 ** 3))
 def cache_and_ui_products(fixture: Path) -> None:
     import ctypes
     from ci_evidence import native_cache_available
@@ -444,6 +445,29 @@ def cache_and_ui_products(fixture: Path) -> None:
     try: ui_host_product_paths(products)
     except ValueError: pass
     else: raise AssertionError('运行文件需要位于当前产品目录')
+    from compiler_cache import discard_corrupt_compilation_cache
+    log = fixture / 'build.log'
+    retained = cache / 'Index.noindex/DataStore/active'
+    retained.write_text('retained module metadata')
+    log.write_text('error: unrelated compiler failure\n')
+    assert not discard_corrupt_compilation_cache(cache, log)
+    assert data.read_bytes() == b'active compilation records'
+    log.write_text('LLVM ERROR: OnDiskCAS: corrupt internal reference\n')
+    with redirect_stdout(StringIO()): assert discard_corrupt_compilation_cache(cache, log)
+    assert native.is_dir() and list(native.iterdir()) == []
+    assert retained.read_text() == 'retained module metadata'
+    def successful_build(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0) if command[0] == 'zsh' else original_run(command, **kwargs)
+    for free, requested, expected in ((4 * 1024 ** 3, [], 'YES'), (4 * 1024 ** 3 - 1, [], 'NO'),
+            (0, ['COMPILATION_CACHE_ENABLE_CACHING=YES'], 'YES')):
+        with patch.object(shutil, 'disk_usage', return_value=Mock(free=free)), \
+                patch.object(subprocess, 'run', side_effect=successful_build) as build, \
+                patch('validation_artifacts.cache_maintenance_needed', return_value=False), \
+                patch('validation_artifacts.prune_compilation_cache', return_value=(0, 0)), redirect_stdout(StringIO()):
+            try: run_cache([str(fixture), 'build.log', 'build', 'xcodebuild', 'build', *requested])
+            except SystemExit as status: assert status.code == 0
+        commands = [call.args[0] for call in build.call_args_list if call.args[0][0] == 'zsh']
+        assert len(commands) == 1 and f'COMPILATION_CACHE_ENABLE_CACHING={expected}' in commands[0]
 
 
 def cache_maintenance_self_test(fixture: Path) -> None:

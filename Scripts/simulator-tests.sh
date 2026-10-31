@@ -44,7 +44,10 @@ SIMULATOR_WORKERS="${BIT101_SIMULATOR_WORKERS:-1}"
 [[ "$SIMULATOR_WORKERS" == <1-> ]] || { echo "模拟器工作进程数需要为正整数。" >&2; exit 64; }
 TEST_SCOPE=selected
 if (( $# == 0 )); then TEST_SCOPE=full; fi
-if [[ "$operation" == ui ]]; then bit101_set_workflow_budget ui; fi
+if [[ "$operation" == ui ]]; then
+  bit101_limit_ui_workflow "$0" "$operation" "$@"
+  bit101_set_workflow_budget ui
+fi
 bit101_acquire_workflow_lock "$0" "$operation" "$@"
 DERIVED_ROOT="$ROOT_DIR/.build/extended-automation"
 mkdir -p "$DERIVED_ROOT"

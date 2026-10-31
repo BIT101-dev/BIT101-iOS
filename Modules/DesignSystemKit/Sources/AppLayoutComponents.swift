@@ -626,7 +626,8 @@ extension View {
 private struct AppBrowserNavigationBarModifier: ViewModifier {
     @Environment(\.appWindowLayout) private var layout
     func body(content: Content) -> some View {
-        content.toolbar(layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden, for: .navigationBar)
+        content.background(AppDesignSystem.Palette.Background.grouped)
+            .toolbar(layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden, for: .navigationBar)
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
     }
 }

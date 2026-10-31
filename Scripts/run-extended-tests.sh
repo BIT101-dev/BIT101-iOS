@@ -106,7 +106,10 @@ if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   esac
 fi
 
-if [[ "$MODE" == ui ]]; then bit101_set_workflow_budget ui; fi
+if [[ "$MODE" == ui ]]; then
+  bit101_limit_ui_workflow "$0" "${SCRIPT_ARGS[@]}"
+  bit101_set_workflow_budget ui
+fi
 export BIT101_VALIDATION_INPUT_IDENTITY
 
 if [[ "$MODE" == "verify" ]]; then

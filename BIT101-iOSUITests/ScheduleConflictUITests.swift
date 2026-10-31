@@ -309,86 +309,97 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
         if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
         defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
-        app = configureApp(resetStorage: true, ddlFixture: "sources", content: true, animations: true, school: true)
-        let isPhone = windowTraits()["idiom"] == UIUserInterfaceIdiom.phone.rawValue
-        for orientation: UIDeviceOrientation in rotates ? [.landscapeLeft, .landscapeRight] : [.unknown] {
-            if rotates { XCUIDevice.shared.orientation = orientation }
-            assertUI(waitUntil(NSPredicate { _, _ in
-                let frame = self.app.windows.firstMatch.frame
-                return frame.width > frame.height
-            }, on: app, timeout: 10), "边界验收应处于横屏窗口。")
-            navigationWidth = nil; sidebarWidth = nil; navigationBackground = nil
-            let window = app.windows.firstMatch
-            guard let safeArea = window.scrollGestureFrame(in: window.frame) else { return }
-            let expectedDivider = isPhone ? window.frame.midX : safeArea.minX + safeArea.height * 9 / 16
-            func assertDivider(_ identifier: String, trailingInset: CGFloat = 0) {
-                let pane = self.app.descendants(matching: .any)[identifier]
+        for style in ["Light", "Dark"] {
+            app = configureApp(resetStorage: true, userInterfaceStyle: style, ddlFixture: "sources", content: true, animations: true, school: true)
+            let isPhone = windowTraits()["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+            for orientation: UIDeviceOrientation in rotates ? [.landscapeLeft, .landscapeRight] : [.unknown] {
+                if rotates { XCUIDevice.shared.orientation = orientation }
                 assertUI(waitUntil(NSPredicate { _, _ in
-                    pane.exists && abs(pane.frame.maxX + trailingInset - expectedDivider) <= 1
-                }, on: app, timeout: 5), "分栏应沿当前设备的统一边界排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)，内缩 \(trailingInset)。")
-            }
-            func assertBottom(_ button: UIElement) {
-                assertUI(waitUntil(NSPredicate { _, _ in
-                    button.exists && abs(safeArea.maxY - button.frame.maxY) <= 8
-                }, on: app, timeout: 5), "横屏悬浮按钮应贴近底部安全区：\(button.frame)，安全区 \(safeArea)，键盘 \(UITestControlClient.request(["command": "keyboard-state"]) ?? "未知")。")
-            }
-            app.mainTab("日程").tapBriefly()
-            let grid = app.descendants(matching: .any)["schedule.calendar"]
-            assertUI(grid.exists, "横屏应展示学校课表网格。")
-            print("Landscape geometry: traits=\(windowTraits()), window=\(window.frame), safe=\(safeArea), grid=\(grid.frame), button=\(app.buttons["schedule.add-content"].frame)")
-            let refresh = app.native.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
-            let fill = backgroundColor(at: CGPoint(x: refresh.frame.minX + 4, y: refresh.frame.midY))
-            let calendarWidth = isPhone ? window.frame.width / 2 : safeArea.width / 2
-            let edge = backgroundColor(at: CGPoint(x: safeArea.minX + calendarWidth * 0.75,
-                y: window.frame.maxY - 2))
-            assertUI(zip(fill, edge).allSatisfy { abs($0 - $1) <= 2 },
-                "课表网格应铺满模块底部安全区：底边 \(edge)，网格底色 \(fill)，安全区 \(safeArea)。")
-            let courseBackground = backgroundColor(at: CGPoint(x: safeArea.minX + 2, y: safeArea.maxY - 2))
-            let ddlBackground = backgroundColor(at: CGPoint(x: safeArea.maxX - 2, y: safeArea.maxY - 2))
-            assertUI(zip(courseBackground, ddlBackground).allSatisfy { abs($0 - $1) <= 2 },
-                "课表与 DDL 模块周围应沿同一页面底色呈现：\(courseBackground)，\(ddlBackground)。")
-            recordLayoutScreenshot("课表与DDL")
-            if isPhone {
-                assertDivider("interaction.CourseScheduleTabView.refresh")
-                let refreshList = app.descendants(matching: .any)["interaction.CourseScheduleTabView.refresh"]
-                assertUI(refreshList.frame.minY >= safeArea.minY + 16 - 0.5,
-                    "Duo 课表顶部应保留标准安全间距：\(refreshList.frame)，安全区 \(safeArea)。")
-                let ddl = app.native.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
-                let row = ddl.cells.firstMatch
-                assertUI(row.exists && abs(row.frame.maxX - (safeArea.maxX - 8)) <= 1,
-                    "DDL 分组行应完整位于所属分栏：\(row.frame)，安全区 \(safeArea)。")
-                let corner = backgroundColor(at: CGPoint(x: row.frame.minX + 1, y: row.frame.minY + 1))
-                let surrounding = backgroundColor(at: CGPoint(x: safeArea.maxX - 2, y: row.frame.minY + 1))
-                assertUI(zip(corner, surrounding).allSatisfy { abs($0 - $1) <= 2 },
-                    "DDL 刷新分组应保留系统圆角：边角 \(corner)，周围底色 \(surrounding)。")
-                assertUI(abs(app.buttons["添加待办"].frame.maxX - (safeArea.maxX - 8)) <= 1,
-                    "DDL 悬浮操作应沿右栏的标准水平间距排列。")
-            }
-            assertBottom(app.buttons["schedule.add-content"])
-            assertBottom(app.buttons["添加待办"])
-            for (tab, identifier) in [("空教室", "browser.master"), ("话廊", "browser.master"),
-                ("文章", "browser.master"), ("成绩", "browser.master"), ("课程", "browser.master"), ("我的", "browser.master")] {
-                app.mainTab(tab).tapBriefly()
-                assertDivider(identifier)
-                assertPaneContentWidth("browser.master", left: safeArea.minX, right: expectedDivider)
-                if tab == "空教室" && isPhone {
-                    let row = app.native.descendants(matching: .any)[identifier].cells.firstMatch
-                    assertUI(row.exists && abs(row.frame.minX - (safeArea.minX + 8)) <= 1
-                        && abs(row.frame.maxX - (expectedDivider - 8)) <= 1,
-                        "空教室筛选分组行应完整位于左栏：\(row.frame)，中线 \(expectedDivider)。")
-                    let results = app.native.descendants(matching: .any)["interaction.FreeClassroomTabView.list"].cells.firstMatch
-                    assertUI(results.exists && abs(results.frame.maxX - (safeArea.maxX - 8)) <= 1,
-                        "空教室结果行应利用右栏可用宽度：\(results.frame)，安全区 \(safeArea)。")
-                    recordLayoutScreenshot("空教室")
+                    let frame = self.app.windows.firstMatch.frame
+                    return frame.width > frame.height
+                }, on: app, timeout: 10), "边界验收应处于横屏窗口。")
+                navigationWidth = nil; sidebarWidth = nil; navigationBackground = nil
+                let window = app.windows.firstMatch
+                guard let safeArea = window.scrollGestureFrame(in: window.frame) else { return }
+                let expectedDivider = isPhone ? window.frame.midX : safeArea.minX + safeArea.height * 9 / 16
+                func assertDivider(_ identifier: String, trailingInset: CGFloat = 0) {
+                    let pane = self.app.descendants(matching: .any)[identifier]
+                    assertUI(waitUntil(NSPredicate { _, _ in
+                        pane.exists && abs(pane.frame.maxX + trailingInset - expectedDivider) <= 1
+                    }, on: app, timeout: 5), "分栏应沿当前设备的统一边界排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)，内缩 \(trailingInset)。")
                 }
-                if tab == "话廊" || tab == "文章" {
-                    assertBottom(app.buttons[tab == "话廊" ? "搜索话廊" : "搜索文章"])
-                    if isPhone {
-                        let header = app.native.segmentedControls.firstMatch
-                        assertUI(header.exists && header.frame.minY >= safeArea.minY + 16 - 0.5,
-                            "Duo 顶部控件应保留标准安全间距：\(header.frame)，安全区 \(safeArea)。")
+                func assertBottom(_ button: UIElement) {
+                    assertUI(waitUntil(NSPredicate { _, _ in
+                        button.exists && abs(safeArea.maxY - button.frame.maxY) <= 8
+                    }, on: app, timeout: 5), "横屏悬浮按钮应贴近底部安全区：\(button.frame)，安全区 \(safeArea)，键盘 \(UITestControlClient.request(["command": "keyboard-state"]) ?? "未知")。")
+                }
+                app.mainTab("日程").tapBriefly()
+                let grid = app.descendants(matching: .any)["schedule.calendar"]
+                assertUI(grid.exists, "横屏应展示学校课表网格。")
+                print("Landscape geometry: traits=\(windowTraits()), window=\(window.frame), safe=\(safeArea), grid=\(grid.frame), button=\(app.buttons["schedule.add-content"].frame)")
+                var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+                let background = UIColor.systemBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: style == "Dark" ? .dark : .light))
+                assertUI(background.getRed(&red, green: &green, blue: &blue, alpha: &alpha), "网格底色应采用标准色空间。")
+                let fill = [red, green, blue].map { Int(($0 * 255).rounded()) }
+                let calendarWidth = isPhone ? window.frame.width / 2 : safeArea.width / 2
+                let edge = backgroundColor(at: CGPoint(x: safeArea.minX + calendarWidth * 0.75,
+                    y: window.frame.maxY - 2))
+                assertUI(zip(fill, edge).allSatisfy { abs($0 - $1) <= 2 },
+                    "课表网格应铺满模块底部安全区：底边 \(edge)，网格底色 \(fill)，安全区 \(safeArea)。")
+                let courseBackground = backgroundColor(at: CGPoint(x: safeArea.minX + 2, y: safeArea.maxY - 2))
+                let ddlBackground = backgroundColor(at: CGPoint(x: safeArea.maxX - 2, y: safeArea.maxY - 2))
+                assertUI(zip(courseBackground, ddlBackground).allSatisfy { abs($0 - $1) <= 2 },
+                    "课表与 DDL 模块周围应沿同一页面底色呈现：\(courseBackground)，\(ddlBackground)。")
+                func assertTopBackground() {
+                    let top = backgroundColor(at: CGPoint(x: safeArea.minX + safeArea.width / 4, y: safeArea.minY + 2))
+                    assertUI(zip(top, courseBackground).allSatisfy { abs($0 - $1) <= 2 },
+                        "顶部安全间距应沿用页面分组底色：\(top)，页面 \(courseBackground)。")
+                }
+                assertTopBackground()
+                recordLayoutScreenshot("课表与DDL")
+                if isPhone {
+                    assertDivider("interaction.CourseScheduleTabView.refresh")
+                    let refreshList = app.descendants(matching: .any)["interaction.CourseScheduleTabView.refresh"]
+                    assertUI(refreshList.frame.minY >= safeArea.minY + 16 - 0.5,
+                        "Duo 课表顶部应保留标准安全间距：\(refreshList.frame)，安全区 \(safeArea)。")
+                    let ddl = app.native.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
+                    let row = ddl.cells.firstMatch
+                    assertUI(row.exists && abs(row.frame.maxX - (safeArea.maxX - 8)) <= 1,
+                        "DDL 分组行应完整位于所属分栏：\(row.frame)，安全区 \(safeArea)。")
+                    let corner = backgroundColor(at: CGPoint(x: row.frame.minX + 1, y: row.frame.minY + 1))
+                    let surrounding = backgroundColor(at: CGPoint(x: safeArea.maxX - 2, y: row.frame.minY + 1))
+                    assertUI(zip(corner, surrounding).allSatisfy { abs($0 - $1) <= 2 },
+                        "DDL 刷新分组应保留系统圆角：边角 \(corner)，周围底色 \(surrounding)。")
+                    assertUI(abs(app.buttons["添加待办"].frame.maxX - (safeArea.maxX - 8)) <= 1,
+                        "DDL 悬浮操作应沿右栏的标准水平间距排列。")
+                }
+                assertBottom(app.buttons["schedule.add-content"])
+                assertBottom(app.buttons["添加待办"])
+                for (tab, identifier) in [("空教室", "browser.master"), ("话廊", "browser.master"),
+                    ("文章", "browser.master"), ("成绩", "browser.master"), ("课程", "browser.master"), ("我的", "browser.master")] {
+                    app.mainTab(tab).tapBriefly()
+                    assertDivider(identifier)
+                    assertTopBackground()
+                    assertPaneContentWidth("browser.master", left: safeArea.minX, right: expectedDivider)
+                    if tab == "空教室" && isPhone {
+                        let row = app.native.descendants(matching: .any)[identifier].cells.firstMatch
+                        assertUI(row.exists && abs(row.frame.minX - (safeArea.minX + 8)) <= 1
+                            && abs(row.frame.maxX - (expectedDivider - 8)) <= 1,
+                            "空教室筛选分组行应完整位于左栏：\(row.frame)，中线 \(expectedDivider)。")
+                        let results = app.native.descendants(matching: .any)["interaction.FreeClassroomTabView.list"].cells.firstMatch
+                        assertUI(results.exists && abs(results.frame.maxX - (safeArea.maxX - 8)) <= 1,
+                            "空教室结果行应利用右栏可用宽度：\(results.frame)，安全区 \(safeArea)。")
+                        recordLayoutScreenshot("空教室")
                     }
-                    recordLayoutScreenshot(tab == "话廊" ? "话题列表" : "文章列表")
+                    if tab == "话廊" || tab == "文章" {
+                        assertBottom(app.buttons[tab == "话廊" ? "搜索话廊" : "搜索文章"])
+                        if isPhone {
+                            let header = app.native.segmentedControls.firstMatch
+                            assertUI(header.exists && header.frame.minY >= safeArea.minY + 16 - 0.5,
+                                "Duo 顶部控件应保留标准安全间距：\(header.frame)，安全区 \(safeArea)。")
+                        }
+                        recordLayoutScreenshot(tab == "话廊" ? "话题列表" : "文章列表")
+                    }
                 }
             }
         }

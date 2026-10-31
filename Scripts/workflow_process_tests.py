@@ -20,6 +20,17 @@ ROOT = SCRIPT_ROOT.parent
 def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
     import workflow_processes as subject
+    for overrides, expected in (({'BIT101_WORKFLOW_TIMEOUT_SECONDS': '99999'}, 3700),
+            ({'BIT101_WORKFLOW_TIMEOUT_SECONDS': '17'}, 117),
+            ({'BIT101_WORKFLOW_DEADLINE': '150', 'BIT101_EXTENDED_TESTS_LOCK_HELD': '1',
+              'BIT101_DEVICE_WORKFLOW_LOCK_HELD': '1'}, 150)):
+        with patch.dict(os.environ, overrides, clear=True), patch.object(subject.time, 'monotonic', return_value=100), \
+                patch.object(subject, 'supervise', return_value=124) as supervised:
+            assert subject.limit_ui_workflow(str(SCRIPT_ROOT / 'run-extended-tests.sh'), ['ui']) == 124
+            call = supervised.call_args
+            assert call.kwargs == dict(owns_process_group=True, deadline=expected, grace_seconds=0)
+            assert call.args[1]['BIT101_UI_WORKFLOW_LIMIT_HELD'] == '1'
+            assert float(call.args[1]['BIT101_WORKFLOW_DEADLINE']) == expected
     with patch.object(subject.os, 'getuid', return_value=501), patch.object(subject.subprocess, 'check_output',
             return_value='501 10 1 10\n501 11 10 11\n501 12 11 11\n0 13 11 13\n501 14 13 14\n501 20 1 20\n'):
         assert subject.descendant_groups(10) == {10, 11, 14}

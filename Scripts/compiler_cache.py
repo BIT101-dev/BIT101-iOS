@@ -35,12 +35,28 @@ def report_cache_space(root: Path, report: dict) -> None:
     print(' · '.join(f'{title} {report[name] / 1024 ** 3:.2f} GiB' for name, title in names.items()))
 
 
+def clear_compilation_history(shared: Path) -> None:
+    cache = shared / 'CompilationCache.noindex'
+    shutil.rmtree(cache)
+    cache.mkdir()
+
+
+def discard_corrupt_compilation_cache(shared: Path, log: Path) -> bool:
+    if not log.is_file(): return False
+    with log.open(errors='replace') as report:
+        corrupted = any(line.startswith('LLVM ERROR: OnDiskCAS: corrupt internal reference') for line in report)
+    if not corrupted: return False
+    clear_compilation_history(shared)
+    print('已回收编译器报告损坏的历史缓存；增量产物、SDK 与模块缓存继续复用。')
+    return True
+
+
 def run_cache(arguments: list[str]) -> None:
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
     root = Path(arguments[0])
     sys.path.insert(0, str(root / "Scripts"))
     from validation_artifacts import (clear_diagnostic_exports, prune_native_storage, prune_compilation_cache,
-        cache_space_report, record_cache_space, cache_maintenance_needed, compact_build_databases, DERIVED_ROOT_NAMES)
+        cache_space_report, record_cache_space, cache_maintenance_needed, compact_build_databases, DERIVED_ROOT_NAMES, CAS_STORE_LIMIT)
     arguments = arguments[1:]
     maintenance = arguments == ["--maintenance"]
     shared = root / ".build/compiler-cache"
@@ -101,11 +117,16 @@ def run_cache(arguments: list[str]) -> None:
         if not maintenance and not cache_layout_ready(shared, derived_roots, arguments[2:]):
             fcntl.flock(lock, fcntl.LOCK_EX)
             owns_structure = True
+        space_constrained = not maintenance and shutil.disk_usage(root).free < CAS_STORE_LIMIT
+        if space_constrained:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            owns_structure = True
         before = occupied_kib() if maintenance else 0
         if not maintenance:
             command = arguments[2:]
             if command[0] == "xcodebuild" and any(action in command for action in ("build", "build-for-testing", "test", "archive")):
-                defaults = ["SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES", "COMPILATION_CACHE_ENABLE_CACHING=YES",
+                caching = 'YES' if shutil.disk_usage(root).free >= 2 * CAS_STORE_LIMIT else 'NO'
+                defaults = ["SWIFT_TREAT_WARNINGS_AS_ERRORS=YES", "GCC_TREAT_WARNINGS_AS_ERRORS=YES", f"COMPILATION_CACHE_ENABLE_CACHING={caching}",
                             "SWIFT_ENABLE_PREFIX_MAPPING=YES", "SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES",
                             "CLANG_ENABLE_PREFIX_MAPPING=YES", "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES"]
                 for setting in defaults:
@@ -136,6 +157,9 @@ def run_cache(arguments: list[str]) -> None:
                         share_cache(derived / name, shared / name)
             for name in ("testPhoneUpload.log", "testPhoneVerifyAndCleanup.log"):
                 (root / ".build/icloud-cross-device-smoke" / name).unlink(missing_ok=True)
+        if space_constrained:
+            clear_compilation_history(shared)
+            print('磁盘余量低于编译缓存容量目标，已回收历史缓存；增量产物与模块缓存继续复用。')
         if maintenance:
             shutil.rmtree(root / ".build/static-audit/package-build", ignore_errors=True)
             shutil.rmtree(root / ".build/ui-authorization.logarchive", ignore_errors=True)
@@ -201,7 +225,8 @@ def run_cache(arguments: list[str]) -> None:
                 pass
             else:
                 try:
-                    if cache_maintenance_needed(root):
+                    discarded = result.returncode != 0 and discard_corrupt_compilation_cache(shared, Path(arguments[0]))
+                    if space_constrained or discarded or cache_maintenance_needed(root):
                         before_cas, after_cas = prune_compilation_cache(shared)
                         compact_build_databases(derived_roots)
                         report = record_cache_space(root)

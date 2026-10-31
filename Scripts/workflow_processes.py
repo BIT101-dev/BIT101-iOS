@@ -177,7 +177,27 @@ def capture_command(command: list[str], *, cwd=None, timeout=60) -> subprocess.C
             process.wait()
 
 
+def limit_ui_workflow(script_path: str, parameters: list[str]) -> int:
+    from validation_policy import UI_WORKFLOW_TIMEOUT_SECONDS
+    timeout = float(os.environ.get('BIT101_WORKFLOW_TIMEOUT_SECONDS', UI_WORKFLOW_TIMEOUT_SECONDS))
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError('工作流预算需要有限正数。')
+    timeout = min(timeout, UI_WORKFLOW_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + timeout
+    inherited = float(os.environ.get('BIT101_WORKFLOW_DEADLINE', deadline))
+    if not math.isfinite(inherited) or inherited <= 0:
+        raise ValueError('工作流截止时间需要有限正数。')
+    deadline = min(deadline, inherited)
+    environment = dict(os.environ, BIT101_UI_WORKFLOW_LIMIT_HELD='1',
+        BIT101_WORKFLOW_TIMEOUT_SECONDS=str(timeout), BIT101_WORKFLOW_DEADLINE=str(deadline))
+    script = Path(script_path)
+    return supervise(['zsh', '-c', script.read_text(), str(script), *parameters], environment,
+        owns_process_group=True, deadline=deadline, grace_seconds=0)
+
+
 def main(arguments: list[str]) -> int:
+    if arguments[:1] == ['limit-ui']:
+        return limit_ui_workflow(arguments[1], arguments[2:])
     if arguments[:1] == ['capture']:
         result = capture_command(arguments[1:])
         sys.stdout.write(result.stdout); sys.stderr.write(result.stderr)

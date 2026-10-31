@@ -23,6 +23,12 @@ PYBUDGET
   fi
 }
 
+bit101_limit_ui_workflow() {
+  if [[ "${BIT101_UI_WORKFLOW_LIMIT_HELD:-0}" != 1 ]]; then
+    exec python3 "$BIT101_SCRIPTS_DIR/workflow_processes.py" limit-ui "$@"
+  fi
+}
+
 bit101_acquire_workflow_lock() {
   bit101_acquire_artifact_lock "$@"
   bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/device-workflow.lock" BIT101_DEVICE_WORKFLOW_LOCK_HELD "$@"

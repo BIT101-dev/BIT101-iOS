@@ -519,6 +519,7 @@ bit101_require_device() {
 }
 bit101_build_cache() { print CACHE; }
 bit101_set_workflow_budget() { :; }
+bit101_limit_ui_workflow() { :; }
 bit101_acquire_workflow_lock() { print WORKFLOW_LOCK; print DEVICE_LOCK; }
 bit101_acquire_artifact_lock() { print WORKFLOW_LOCK; print ARTIFACT_LOCK; }
 bit101_acquire_script_lock() { :; }

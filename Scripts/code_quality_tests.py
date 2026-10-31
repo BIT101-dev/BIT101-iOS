@@ -686,7 +686,8 @@ def build_cache_boundary_findings() -> list[str]:
         ):
             command = ["xcrun", "swift", action.removeprefix("swift-")] if expected is None else ["xcodebuild", action]
             arguments = ["cache", str(fixture), "build.log", "build", *command, *settings]
-            with patch.object(sys, "argv", arguments), patch.object(subprocess, "run", inspect_module):
+            with patch.object(sys, "argv", arguments), patch.object(subprocess, "run", inspect_module), \
+                    patch.object(shutil, 'disk_usage', return_value=Mock(free=4 * 1024 ** 3)):
                 try:
                     run_cache(sys.argv[1:])
                 except SystemExit as result:

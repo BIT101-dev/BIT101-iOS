@@ -7,6 +7,7 @@ if sys.version_info < (3, 11):
 SWIFT_SYNTAX_SOURCE_NAMES = ("SwiftSyntaxIndexer.swift", "SwiftSyntaxFacts.swift")
 SIMULATOR_SHARDS = {'all': 1, 'ui': 3, 'release-runtime': 1}
 SIMULATOR_WORKERS = {'app': 1, 'ui': 1, 'release-runtime': 1}
+UI_WORKFLOW_TIMEOUT_SECONDS = 60 * 60
 
 MAXIMUM_ATTACHMENT_BYTES = 32 * 1024 * 1024
 MAXIMUM_DECODED_MEDIA_BYTES = 48 * 1024 * 1024
@@ -37,7 +38,8 @@ REVIEW_JOB_NAMES = {'Static audit (Apple toolchain)', 'Release app and extension
 def workflow_timeout_seconds(groups: tuple[str, ...]) -> int:
     if not groups or any(group not in VERIFY_GROUPS for group in groups):
         raise ValueError('聚合工作流需要有效的验证组。')
-    return sum(90 if group == 'ui' else 45 for group in set(groups)) * 60 + 5 * 60
+    if set(groups) == {'ui'}: return UI_WORKFLOW_TIMEOUT_SECONDS
+    return sum(UI_WORKFLOW_TIMEOUT_SECONDS if group == 'ui' else 45 * 60 for group in set(groups)) + 5 * 60
 
 
 def workflow_budget_self_test() -> None:
@@ -47,8 +49,8 @@ def workflow_budget_self_test() -> None:
     import subprocess
 
     root = Path(__file__).resolve().parent.parent
-    for groups, expected in ((('ui',), 95 * 60), (('ui', 'ui'), 95 * 60),
-            (('all', 'release-runtime', 'ui'), 185 * 60)):
+    for groups, expected in ((('ui',), 60 * 60), (('ui', 'ui'), 60 * 60),
+            (('all', 'release-runtime', 'ui'), 155 * 60)):
         environment = dict(os.environ)
         environment.pop('BIT101_WORKFLOW_TIMEOUT_SECONDS', None)
         command = f'ROOT_DIR={shlex.quote(str(root))}; source "$ROOT_DIR/Scripts/script-support.sh"; '
