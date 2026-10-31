@@ -783,7 +783,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tap("重试")
         assertUI(app.alerts["加载资料失败"].appears(timeout: 5), "原位重试应重新执行资料读取。")
         closeAlertIfPresent()
-        app = configureApp(resetStorage: true, content: true, initialTab: "mine")
+        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "mine")
         assertUI(textElement("自动化测试用户").appears(timeout: 5), "个人主页应先完成资料加载。")
         openSettings("account")
         let student = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "学号")).firstMatch
