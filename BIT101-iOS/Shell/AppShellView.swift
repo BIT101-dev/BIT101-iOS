@@ -182,7 +182,7 @@ struct AppShellView: View {
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
     优化课表与空教室布局，改善横竖屏及分栏适配。
-    完善学校认证与成绩查询，提升异常恢复体验。
+    修复学校短信验证中断后的恢复问题，优化成绩查询。
     扩大帖子点击范围，优化图片预览与评论操作。
     改进页面状态保留、缓存恢复和网络切换体验。
     """

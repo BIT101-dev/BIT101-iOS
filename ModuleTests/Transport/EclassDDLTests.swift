@@ -11,6 +11,103 @@ import TransportCore
 
 @MainActor
 struct EclassDDLTests {
+    @Test(.timeLimit(.minutes(1)), arguments: ["timeout", "cancel", "restart"])
+    func schoolSMSCooldownResumesTheExistingCodeAfterInterruptedVerification(interruption: String) async throws {
+        var sends = 0, verifications = 0, prompts = 0, logins = 0
+        let transport = EclassTransport { request in
+            let path = try #require(request.url?.path)
+            if path.hasSuffix("getPhoneNumberByUserId") {
+                return (200, #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#, nil)
+            }
+            if path.hasSuffix("sendSmsCode") {
+                sends += 1
+                return (200, sends == 1 ? #"{"code":200}"#
+                    : #"{"message":"Precondition Failed","code":412,"data":{"errorCode":8000068,"errorMessage":"{\"interval\":120,\"remaining\":62}"}}"#, nil)
+            }
+            if path.hasSuffix("checkToken") {
+                verifications += 1
+                if interruption == "timeout", verifications == 1 { throw URLError(.timedOut) }
+            } else { logins += 1 }
+            return (200, #"{"code":200}"#, nil)
+        }
+        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"), userObjectID: "user")
+        let handler: SchoolSMSCodeHandler = { request in
+            prompts += 1
+            #expect(request.maskedPhone == "138****0000")
+            if interruption == "cancel", prompts == 1 { throw CancellationError() }
+            return "123456"
+        }
+        if interruption == "restart" {
+            sends = 1
+        } else {
+            do {
+                try await service(transport, state: state).completeSchoolAuthentication(context, handler: handler)
+                Issue.record("首轮认证应保留模拟的中断原因。")
+            } catch {
+                if interruption == "timeout" { #expect((error as? URLError)?.code == .timedOut) }
+                else { #expect(TaskCancellation.matches(error)) }
+            }
+        }
+        try await service(transport, state: state).completeSchoolAuthentication(context, handler: handler)
+        #expect(sends == 2 && logins == 1)
+        #expect(prompts == (interruption == "restart" ? 1 : 2))
+        let verification = try #require(transport.requests.first { $0.url?.path.hasSuffix("checkToken") == true })
+        let verificationData = try #require(verification.httpBody)
+        let body = try #require(JSONSerialization.jsonObject(with: verificationData) as? [String: Any])
+        #expect(body["token"] as? String == "123456" && body["delete"] as? Bool == false)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [
+        (200, 8000068, 62, true), (412, 8000068, 62, true),
+        (200, 8000069, 62, false), (200, 8000068, 0, false), (200, 8000068, 121, false),
+        (200, 8000068, -1, false), (503, 8000068, 62, false)])
+    func schoolSMSCooldownRequiresTheSchoolsSpecificActiveCodeResponse(fixture: (Int, Int, Int, Bool)) async throws {
+        let (status, errorCode, remaining, reusable) = fixture
+        let cooldown = String(decoding: try JSONSerialization.data(withJSONObject: ["interval": 120, "remaining": remaining]), as: UTF8.self)
+        let failure = String(decoding: try JSONSerialization.data(withJSONObject: ["message": "Precondition Failed", "code": 412,
+            "data": ["errorCode": errorCode, "errorMessage": cooldown]]), as: UTF8.self)
+        let transport = EclassTransport { request in
+            if request.url?.path.hasSuffix("getPhoneNumberByUserId") == true {
+                return (200, #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#, nil)
+            }
+            if request.url?.path.hasSuffix("sendSmsCode") == true { return (status, failure, nil) }
+            return (200, #"{"code":200}"#, nil)
+        }
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"), userObjectID: "user")
+        var prompts = 0
+        do {
+            try await service(transport).completeSchoolAuthentication(context) { _ in prompts += 1; return "123456" }
+            #expect(reusable)
+        } catch {
+            #expect(!reusable)
+            #expect(error.localizedDescription == (status == 503 ? "短信验证码发送失败。" : "短信发送暂时受限，请稍后重试。"))
+        }
+        #expect(prompts == (reusable ? 1 : 0))
+        #expect(transport.requests.contains { $0.url?.path.hasSuffix("checkToken") == true } == reusable)
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 412])
+    func reusedSchoolSMSCodeStillRequiresSuccessfulVerification(status: Int) async throws {
+        let transport = EclassTransport { request in
+            if request.url?.path.hasSuffix("getPhoneNumberByUserId") == true {
+                return (200, #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#, nil)
+            }
+            if request.url?.path.hasSuffix("sendSmsCode") == true {
+                return (200, #"{"code":412,"data":{"errorCode":8000068,"errorMessage":"{\"interval\":120,\"remaining\":62}"}}"#, nil)
+            }
+            return (status, #"{"code":412,"message":"Precondition Failed"}"#, nil)
+        }
+        let context = SchoolSecondFactorContext(execution: "flow", formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"), userObjectID: "user")
+        do {
+            try await service(transport).completeSchoolAuthentication(context) { _ in "123456" }
+            Issue.record("短信校验应由学校确认成功后继续登录。")
+        } catch {
+            #expect(error.localizedDescription == "短信验证码错误或已失效，请重新发起验证。")
+        }
+        #expect(transport.requests.count == 3)
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [
         ("phone", 403), ("phone", 503), ("send", 403), ("send", 503),
         ("verify", 403), ("verify", 503), ("login", 403), ("login", 503), ("login", 200)])

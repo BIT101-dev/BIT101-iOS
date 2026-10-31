@@ -488,17 +488,39 @@ extension ScheduleService {
             "businessNo": "0008",
         ])
         let (data, response) = try await sendRequest(request, owner: owner)
-        guard (200 ..< 300).contains(response.statusCode) else {
-            throw schoolSMSRequestFailure(.schoolSMSUnavailable("短信验证码发送失败。"), status: response.statusCode)
+        let reusableCode = hasReusableSecondFactorCode(data)
+        guard (200 ..< 300).contains(response.statusCode) || response.statusCode == 412 && reusableCode else {
+            throw schoolSMSRequestFailure(.schoolSMSUnavailable(response.statusCode == 412
+                ? "短信发送暂时受限，请稍后重试。" : "短信验证码发送失败。"), status: response.statusCode)
         }
         let code = responseCode(from: data)
         let message = responseMessage(from: data)
         let codeRemainsValid = message?.contains("验证码") == true
             && message?.contains("有效期内") == true
             && message?.contains("重复发送") == true
-        guard code == 200 || codeRemainsValid else {
-            throw ScheduleServiceError.schoolSMSUnavailable(message ?? "短信验证码发送失败。")
+        guard code == 200 || codeRemainsValid || reusableCode else {
+            throw ScheduleServiceError.schoolSMSUnavailable(code == 412
+                ? "短信发送暂时受限，请稍后重试。" : message ?? "短信验证码发送失败。")
         }
+    }
+
+    private func hasReusableSecondFactorCode(_ data: Data) -> Bool {
+        struct Response: Decodable {
+            struct Failure: Decodable {
+                let errorCode: Int
+                let errorMessage: String
+            }
+            let code: Int
+            let data: Failure
+        }
+        struct Cooldown: Decodable {
+            let interval: Int
+            let remaining: Int
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data),
+              response.code == 412, response.data.errorCode == 8000068,
+              let cooldown = try? JSONDecoder().decode(Cooldown.self, from: Data(response.data.errorMessage.utf8)) else { return false }
+        return cooldown.interval > 0 && cooldown.remaining > 0 && cooldown.remaining <= cooldown.interval
     }
 
     private func verifySecondFactorCode(_ code: String, phone: String, owner: SchoolSessionIdentity) async throws {
@@ -517,12 +539,14 @@ extension ScheduleService {
             "trustDevice": false,
         ])
         let (data, response) = try await sendRequest(request, owner: owner)
+        let failureMessage = response.statusCode == 412 || responseCode(from: data) == 412
+            ? "短信验证码错误或已失效，请重新发起验证。"
+            : responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。"
         guard (200 ..< 300).contains(response.statusCode) else {
-            throw schoolSMSRequestFailure(.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。"),
-                status: response.statusCode)
+            throw schoolSMSRequestFailure(.schoolSMSCodeInvalid(failureMessage), status: response.statusCode)
         }
         guard responseCode(from: data) == 200 else {
-            throw ScheduleServiceError.schoolSMSCodeInvalid(responseMessage(from: data) ?? "短信验证码错误或已失效，请重新发起验证。")
+            throw ScheduleServiceError.schoolSMSCodeInvalid(failureMessage)
         }
     }
 
