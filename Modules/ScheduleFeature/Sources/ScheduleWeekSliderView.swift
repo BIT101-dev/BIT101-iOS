@@ -6,7 +6,7 @@ import SwiftUI
 struct ScheduleInlineWeekSlider: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .caption) private var itemWidth = AppDesignSystem.Schedule.WeekSlider.itemWidth
-    @ScaledMetric(relativeTo: .caption) private var itemHeight = AppDesignSystem.Schedule.WeekSlider.itemHeight
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule.WeekSlider.captionLineHeight
     let weeks: [Int]
     let currentWeek: Int
     let highlightedWeek: Int
@@ -53,6 +53,7 @@ struct ScheduleInlineWeekSlider: View {
                                         Text(isMajorWeek(week) ? "\(week)" : "")
                                             .font(AppDesignSystem.Typography.captionEmphasis)
                                             .foregroundStyle(week == highlightedWeek ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
+                                            .frame(height: captionLineHeight)
                                         Capsule()
                                             .fill(week == highlightedWeek
                                                 ? AppDesignSystem.Palette.Accent.primary
@@ -68,9 +69,10 @@ struct ScheduleInlineWeekSlider: View {
                                     }
                                     .frame(
                                         width: itemWidth,
-                                        height: itemHeight,
+                                        height: ScheduleCalendarHeaderMetrics(captionLineHeight: captionLineHeight).weekItemHeight,
                                         alignment: .top
                                     )
+                                    .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                                 }
                                 .buttonStyle(.plain)
                                 .contentShape(Rectangle())
@@ -81,7 +83,7 @@ struct ScheduleInlineWeekSlider: View {
                             }
                         }
                         .scrollTargetLayout()
-                        .frame(minHeight: itemHeight)
+                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                     }
                     .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
                     .scrollIndicators(.hidden)

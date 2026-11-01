@@ -393,6 +393,7 @@ public final class ScoreViewModel: ObservableObject {
         }
         guard isCurrent(session, generation: generation) else { return }
         let cachedRows = cachedSnapshot?.rows
+        let comparisonRows = cachedRows ?? (hasContent ? rows : nil)
         let previousRows = rows.isEmpty ? cachedRows ?? [] : rows
         let briefTask = Task { @MainActor [service = self.service] in
             try await service.fetchScores(detail: false, authenticatedBy: challenge)
@@ -413,7 +414,7 @@ public final class ScoreViewModel: ObservableObject {
         do {
             let detailedRows = try await awaitTrackedRequest(detailedRowsTask)
             guard isCurrent(session, generation: generation) else { return }
-            let scoresAreIdentical = cachedRows.map { ScoreRowComparison.rowsMatch(detailedRows, $0) } ?? false
+            let scoresAreIdentical = comparisonRows.map { ScoreRowComparison.rowsMatch(detailedRows, $0) } ?? false
             applyRows(detailedRows)
             let updatedAt = try await saveCurrentRows(detailedRows, detail: true, session: session, generation: generation)
             guard isCurrent(session, generation: generation) else { return }

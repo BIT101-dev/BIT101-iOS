@@ -2,23 +2,79 @@
 import Foundation
 import Testing
 import UIKit
+import SwiftUI
+import DesignSystemKit
+import StorageCore
+import TransportCore
 import ScheduleDomain
 @testable import BIT101_iOS
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
-    @Test("Tab bars reserve the intersecting bottom edge across window sizes")
-    func tabBarsReserveTheBottomEdge() {
-        for content in [CGRect(x: 0, y: 90, width: 390, height: 690),
-                        CGRect(x: 80, y: 40, width: 700, height: 450)] {
-            let bottom = CGRect(x: content.minX + 20, y: content.maxY - 70, width: content.width - 40, height: 50)
-            #expect(ScheduleTabBarGeometry.bottomOverlap(content: content, tabBar: bottom) == 70)
-            for bar in [CGRect(x: content.minX - 20, y: content.minY + 20, width: 60, height: content.height - 40),
-                        CGRect(x: content.maxX - 40, y: content.minY + 20, width: 60, height: content.height - 40),
-                        bottom.offsetBy(dx: content.width, dy: 0), bottom.offsetBy(dx: -content.width, dy: 0),
-                        bottom.offsetBy(dx: 0, dy: 70), bottom.offsetBy(dx: 0, dy: -content.height)] {
-                #expect(ScheduleTabBarGeometry.bottomOverlap(content: content, tabBar: bar) == 0)
+    @Test("Calendar entries keep the same rendered height across display frames", .serialized, .timeLimit(.minutes(1)), arguments: [
+        (false, DynamicTypeSize.large), (false, .xxxLarge), (false, .accessibility3), (true, .large)])
+    @MainActor func calendarEntryUsesOneSafeAreaProposal(fixture: (Bool, DynamicTypeSize)) async throws {
+        let (linear, textSize) = fixture
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        var cache = ScheduleCache()
+        cache.currentTerm = "frame-fixture"
+        cache.courseData.store(.init(term: cache.currentTerm, firstDayString: "2026-09-07", courses: [], exams: [], updatedAt: .now))
+        let repository = ScheduleRepository(session: { .init(accountIdentifier: "calendar-frame-fixture") },
+            load: { _ in .loaded(cache) }, save: { _, _, _ in })
+        let service = SemesterStartDateService()
+        let model = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service,
+            platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { .init() })
+        await model.loadIfNeeded()
+        let destinations = ScheduleDestinations(appStoreURL: AppURL.required("https://example.invalid"),
+            academicCourse: { _, _ in AnyView(EmptyView()) }, openCourseLocation: { _ in false }, resolveCourseShare: { _ in nil })
+        let layout = AppWindowLayout(size: CGSize(width: 390, height: 844), interfaceIdiom: .phone)
+        let previousMode = UserDefaults.standard.object(forKey: "schedule.calendar.axisMode")
+        defer {
+            if let previousMode { UserDefaults.standard.set(previousMode, forKey: "schedule.calendar.axisMode") }
+            else { UserDefaults.standard.removeObject(forKey: "schedule.calendar.axisMode") }
+        }
+        let schedule = CourseScheduleTabView(viewModel: model, resetSignal: 0, destinations: destinations)
+        schedule.storedCalendarAxisMode = (linear ? ScheduleCalendarAxisMode.linear : .quantized).rawValue
+        let host = UIHostingController(rootView: NavigationStack { schedule.frame(width: 390, height: 600) }
+            .environment(\.appWindowLayout, layout).environment(\.dynamicTypeSize, textSize))
+        let tabs = UITabBarController()
+        tabs.viewControllers = [host, UIViewController()]
+        tabs.selectedIndex = 1
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        func collection(in view: UIView) -> UICollectionView? {
+            if let list = view as? UICollectionView, list.numberOfSections > 1 { return list }
+            return view.subviews.lazy.compactMap { collection(in: $0) }.first
+        }
+        for _ in 0..<2 {
+            tabs.selectedIndex = 0
+            let sampler = ScheduleRenderedFrameSampler {
+                guard let list = collection(in: host.view), list.numberOfItems(inSection: 1) > 0,
+                      let cell = list.cellForItem(at: IndexPath(item: 0, section: 1)),
+                      let layer = cell.layer.presentation(), layer.bounds.height > 0 else { return nil }
+                return layer.bounds.size.height
             }
+            let heights = await sampler.sample()
+            print("Calendar entry rendered heights: \(heights)")
+            #expect(heights.count >= 2, "逐帧验收需要真实渲染的课表行。")
+            if let minimum = heights.min(), let maximum = heights.max() {
+                #expect(maximum - minimum <= 1, "课表进入期间的渲染高度：\(heights)")
+            }
+            tabs.selectedIndex = 1
+            await Task.yield()
+        }
+    }
+
+    @Test("Calendar headers scale their text while preserving compact control geometry")
+    func calendarHeadersFollowTextMetrics() {
+        for lineHeight: CGFloat in [14, 18, 24, 40, 60] {
+            let metrics = ScheduleCalendarHeaderMetrics(captionLineHeight: lineHeight)
+            #expect(metrics.weekItemHeight == lineHeight + 21)
+            #expect(metrics.weekSliderHeight == max(44, lineHeight + 29))
+            #expect(metrics.dateHeaderHeight == max(26, lineHeight + 8))
+            #expect(metrics.compactHeaderHeight == max(44, metrics.dateHeaderHeight))
         }
     }
 
@@ -128,6 +184,31 @@ struct ScheduleTimelineViewportTests {
             let currentRatio = (viewport.offsetY + update.anchorY) / viewport.contentHeight
             #expect(abs(currentRatio - anchoredRatio) < 0.001)
             #expect(viewport.offsetY > 0)
+        }
+    }
+}
+
+@MainActor
+private final class ScheduleRenderedFrameSampler: NSObject {
+    private let height: () -> CGFloat?
+    private var samples: [CGFloat] = []
+    private var remaining = 12
+    private var continuation: CheckedContinuation<[CGFloat], Never>?
+    init(height: @escaping () -> CGFloat?) { self.height = height }
+    func sample() async -> [CGFloat] {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+            link.add(to: .main, forMode: .common)
+        }
+    }
+    @objc private func frame(_ link: CADisplayLink) {
+        if let value = height() { samples.append(value) }
+        remaining -= 1
+        if remaining == 0 {
+            link.invalidate()
+            continuation?.resume(returning: samples)
+            continuation = nil
         }
     }
 }

@@ -103,15 +103,19 @@ public nonisolated enum ScheduleCalendarAxisMode: String, CaseIterable, Identifi
 }
 
 #if os(iOS)
-enum ScheduleTabBarGeometry {
-    static func bottomOverlap(content: CGRect, tabBar: CGRect) -> CGFloat {
-        guard tabBar.width > tabBar.height,
-              tabBar.minY >= content.minY,
-              tabBar.minY < content.maxY,
-              tabBar.maxX > content.minX,
-              tabBar.minX < content.maxX
-        else { return 0 }
-        return max(content.maxY - tabBar.minY, 0)
+struct ScheduleCalendarHeaderMetrics {
+    let captionLineHeight: CGFloat
+    var weekItemHeight: CGFloat {
+        captionLineHeight + AppDesignSystem.Schedule.WeekSlider.barHeight + AppDesignSystem.Schedule.Grid.cellSpacing
+    }
+    var weekSliderHeight: CGFloat {
+        max(AppDesignSystem.Schedule.WeekSlider.sliderHeight, weekItemHeight + AppDesignSystem.Spacing.small)
+    }
+    var dateHeaderHeight: CGFloat {
+        max(AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight, captionLineHeight + AppDesignSystem.Spacing.small)
+    }
+    var compactHeaderHeight: CGFloat {
+        max(AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight, dateHeaderHeight)
     }
 }
 

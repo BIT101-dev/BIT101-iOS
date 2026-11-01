@@ -283,7 +283,8 @@ struct ScoreFeatureTests {
 
     private func makeViewModel(
         service: any ScoreListServicing,
-        session: @escaping @MainActor () -> AppStorageSession = { AppStorageSession(accountIdentifier: "module-score") }
+        session: @escaping @MainActor () -> AppStorageSession = { AppStorageSession(accountIdentifier: "module-score") },
+        cacheOverride: (any ScoreCaching)? = nil
     ) throws -> (ScoreViewModel, ScoreCacheStore) {
         clearPreferences()
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.score"))
@@ -293,7 +294,7 @@ struct ScoreFeatureTests {
         )
         let preferences = ScoreFilterPreferenceStore(defaults: defaults, session: session)
         let viewModel = ScoreViewModel(
-            service: service, cacheStore: cache, preferenceStore: preferences, currentScoreCacheSession: session,
+            service: service, cacheStore: cacheOverride ?? cache, preferenceStore: preferences, currentScoreCacheSession: session,
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] }
         )
         return (viewModel, cache)
@@ -945,17 +946,16 @@ struct ScoreFeatureTests {
         #expect(!viewModel.isSyncing)
     }
 
-    @Test("Unchanged score refresh presents the latest-state notice", .timeLimit(.minutes(1)))
-    @MainActor
-    func unchangedScoreRefreshPresentsNotice() async throws {
-        let rows = [ScoreRow(
-            index: 0,
+    @Test("Unchanged score refresh presents the latest-state notice", .timeLimit(.minutes(1)), arguments: [false, true])
+    @MainActor func unchangedScoreRefreshPresentsNotice(memoryOnly: Bool) async throws {
+        let rows = [ScoreRow(index: 0,
             headers: ["课程编号", "课程名称", "成绩", "平均分", "学分", "开课学期", "课程性质"],
-            values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"]
-        )]
-        let service = ScoreServiceSpy(detailedRows: rows)
-        let (viewModel, cache) = try makeViewModel(service: service)
-        await cache.saveDetailed(rows: rows)
+            values: ["MATH-1", "高等数学", "90", "82.5", "4", "2025-2026-1", "必修"])]
+        let service = ScoreServiceSpy(detailedRows: rows), memory = SuspendedSnapshotCache(rows: rows)
+        let (viewModel, cache) = try makeViewModel(service: service, cacheOverride: memoryOnly ? memory : nil)
+        if memoryOnly {
+            await viewModel.restoreCachedDataIfNeeded(); memory.snapshot.rows = nil
+        } else { await cache.saveDetailed(rows: rows) }
         defer { clearPreferences() }
         await viewModel.refresh()
 

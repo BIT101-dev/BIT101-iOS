@@ -6,9 +6,7 @@ import UIKit
 
 /// 线性时间轴视图。
 struct LinearScheduleCalendarView: View {
-    @ScaledMetric(relativeTo: .caption) private var scaledSliderHeight = AppDesignSystem.Schedule.WeekSlider.sliderHeight
-    @ScaledMetric(relativeTo: .caption) private var scaledDateHeaderHeight = AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight
-    @ScaledMetric(relativeTo: .caption) private var scaledCompactHeaderHeight = AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule.WeekSlider.captionLineHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
     let entries: [ScheduleCalendarEntry]
     let week: Int
@@ -31,15 +29,17 @@ struct LinearScheduleCalendarView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let weekSliderHeight = scaledSliderHeight
-            let dateHeaderHeight = scaledDateHeaderHeight
+            let metrics = ScheduleCalendarHeaderMetrics(captionLineHeight: captionLineHeight)
+            let weekSliderHeight = metrics.weekSliderHeight
+            let dateHeaderHeight = metrics.dateHeaderHeight
             let headerHeight = displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
-                : scaledCompactHeaderHeight
+                : metrics.compactHeaderHeight
 
             VStack(spacing: AppDesignSystem.Spacing.none) {
                 LinearScheduleHeader(
                     weekSliderHeight: weekSliderHeight, dateHeaderHeight: dateHeaderHeight,
+                    compactHeaderHeight: metrics.compactHeaderHeight,
                     week: week,
                     availableWeeks: availableWeeks,
                     displayMode: displayMode,
@@ -80,6 +80,7 @@ struct LinearScheduleCalendarView: View {
 private struct LinearScheduleHeader: View {
     let weekSliderHeight: CGFloat
     let dateHeaderHeight: CGFloat
+    let compactHeaderHeight: CGFloat
     let week: Int
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
@@ -142,20 +143,20 @@ private struct LinearScheduleHeader: View {
                     let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
                     HStack(spacing: AppDesignSystem.Spacing.none) {
                         Color.clear
-                            .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
+                            .frame(width: dayWidth, height: compactHeaderHeight)
                             .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         ForEach(visibleWeekdays, id: \.self) { weekday in
                             Text(weekdayTitle(weekday))
                                 .font(AppDesignSystem.Typography.caption)
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .frame(width: dayWidth, height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
+                                .frame(width: dayWidth, height: compactHeaderHeight)
                                 .background(AppDesignSystem.Palette.Background.secondaryGrouped)
                                 .accessibilityLabel(weekdayTitle(weekday))
                         }
                     }
                 }
-                .frame(height: AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight)
+                .frame(height: compactHeaderHeight)
             }
         }
     }

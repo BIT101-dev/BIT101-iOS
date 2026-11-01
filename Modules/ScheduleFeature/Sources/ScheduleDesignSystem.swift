@@ -1,6 +1,7 @@
 #if os(iOS)
 import DesignSystemKit
 import SwiftUI
+import UIKit
 
 extension AppDesignSystem {
     public enum Schedule {
@@ -42,7 +43,10 @@ extension AppDesignSystem {
         enum WeekSlider {
             static let itemSpacing: CGFloat = 5
             static let itemWidth: CGFloat = AppDesignSystem.Size.Control.touchTarget
-            static let itemHeight: CGFloat = AppDesignSystem.Size.Control.touchTarget
+            static var captionLineHeight: CGFloat {
+                UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption,
+                    compatibleWith: UITraitCollection { $0.preferredContentSizeCategory = .large }).lineHeight
+            }
             static let barHeight: CGFloat = 20
             static let minorBarHeight: CGFloat = 16
             static let selectedBarWidth: CGFloat = 4

@@ -260,9 +260,14 @@ struct FeatureCompositionTests {
         let viewModel = ScoreViewModel(service: service, cacheStore: selected, preferenceStore: ScorePreferences(),
             currentScoreCacheSession: { AppStorageSession(accountIdentifier: "composition-score") },
             scheduleCoursesChanges: Empty().eraseToAnyPublisher(), loadScheduleCourses: { _ in [:] })
-        try await host(ScoreListPage(viewModel: viewModel, transcriptService: service, onSearchCourse: { _ in })) {
+        var notice: String?
+        try await host(ScoreListPage(viewModel: viewModel, transcriptService: service, onSearchCourse: { _ in })
+            .environment(\.appDiagnosticAlert, { notice = $0.message })) {
             try await waitForTestEvent { !(viewModel.filteredRows.isEmpty) }
             #expect(viewModel.filteredRows.first?.courseName == "composition-score")
+            viewModel.alert = .informational(title: "成绩已是最新", message: "本次获取结果与本地成绩完全一致。")
+            try await waitForTestEvent { notice != nil }
+            #expect(notice == "本次获取结果与本地成绩完全一致。")
         }
         #expect(selected.loads == 1)
         #expect(service.schoolRequests == 0)

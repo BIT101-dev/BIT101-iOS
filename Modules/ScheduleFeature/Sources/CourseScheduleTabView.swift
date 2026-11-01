@@ -7,9 +7,6 @@ import DesignSystemKit
 //
 
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
@@ -89,7 +86,6 @@ struct CourseScheduleTabView: View {
     @State var courseShareGeneration = 0
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleCourseShare?
-    @State var bottomTabBarOverlap: CGFloat?
     @State var refreshStatusContentHeight = AppDesignSystem.Size.Control.touchTarget
     @AppStorage("schedule.calendar.axisMode") var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
     @State var calendarAxisZoomScale: CGFloat = AppDesignSystem.Schedule.timelineDefaultScale
@@ -206,11 +202,7 @@ struct CourseScheduleTabView: View {
     /// 更新时间沿模块分组行展示，横屏表格按所属分栏的可用高度铺开。
     var body: some View {
         GeometryReader { proxy in
-            let listHeight = max(
-                proxy.size.height
-                    - (bottomTabBarOverlap ?? 0),
-                1
-            )
+            let listHeight = max(proxy.size.height, 1)
             let scheduleSectionGap = AppDesignSystem.Spacing.content
             let usesLandscapeCalendar = layout.isLandscapeWindow && !layout.usesAccessibilityText
             let refreshStatusHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
@@ -268,15 +260,6 @@ struct CourseScheduleTabView: View {
 
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-#if canImport(UIKit)
-            .background {
-                ScheduleTabBarOverlapReader { overlap in
-                    guard bottomTabBarOverlap != overlap else { return }
-                    bottomTabBarOverlap = overlap
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-#endif
         }
         .appSideToolbarActions { addContentAction }
         .simultaneousGesture(scheduleSwitchGesture)
@@ -502,91 +485,5 @@ struct CourseScheduleTabView: View {
 
 
 }
-
-#if canImport(UIKit)
-/// 读取当前 TabView 的真实底部栏重叠区域。
-///
-/// iOS 26 的 TabView 在 iPhone 上使用悬浮栏，系统 safe area 覆盖范围大于可见胶囊；
-/// 课表高度使用系统栏实际 frame 计算，以保持不同平台的内容空间一致。
-/// iPad / Mac 上底栏位于当前内容底部之外时返回 0，容器使用自身的自适应尺寸。
-private struct ScheduleTabBarOverlapReader: UIViewRepresentable {
-    let onChange: (CGFloat) -> Void
-
-    func makeUIView(context: Context) -> ProbeView {
-        ProbeView(onChange: onChange)
-    }
-
-    func updateUIView(_ uiView: ProbeView, context: Context) {
-        uiView.onChange = onChange
-        uiView.measure()
-    }
-
-    final class ProbeView: UIView {
-        var onChange: (CGFloat) -> Void
-        private var lastOverlap: CGFloat?
-
-        init(onChange: @escaping (CGFloat) -> Void) {
-            self.onChange = onChange
-            super.init(frame: .zero)
-            isUserInteractionEnabled = false
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            measure()
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            measure()
-        }
-
-        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); measure() }
-
-        func measure() {
-            guard let window else { return }
-            let overlap = bottomOverlap(with: window)
-            guard lastOverlap.map({ abs($0 - overlap) < 0.5 }) != true else { return }
-            lastOverlap = overlap
-            Task { @MainActor [weak self] in
-                guard let self, lastOverlap == overlap else { return }
-                onChange(overlap)
-            }
-        }
-
-        private func bottomOverlap(with window: UIWindow) -> CGFloat {
-            guard let tabBar = findTabBarController(in: window.rootViewController)?.tabBar,
-                  !tabBar.isHidden,
-                  tabBar.window === window
-            else { return 0 }
-
-            let contentFrame = convert(bounds, to: window)
-            let tabBarFrame = tabBar.convert(tabBar.bounds, to: window)
-            return ScheduleTabBarGeometry.bottomOverlap(content: contentFrame, tabBar: tabBarFrame)
-        }
-
-        private func findTabBarController(in controller: UIViewController?) -> UITabBarController? {
-            guard let controller else { return nil }
-            if let tabBarController = controller as? UITabBarController {
-                return tabBarController
-            }
-            if let presented = controller.presentedViewController,
-               let tabBarController = findTabBarController(in: presented) {
-                return tabBarController
-            }
-            for child in controller.children {
-                if let tabBarController = findTabBarController(in: child) {
-                    return tabBarController
-                }
-            }
-            return nil
-        }
-    }
-}
-#endif
 
 #endif
