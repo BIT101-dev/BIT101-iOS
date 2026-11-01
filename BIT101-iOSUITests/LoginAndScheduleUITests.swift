@@ -28,12 +28,17 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     }
     @MainActor
     func testWeeklyHeaderKeepsItsCompactDateRow() {
-        app = configureApp(resetStorage: true, school: true)
+        app = configureApp(resetStorage: true, animations: true, school: true)
         let date = app.native.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")).firstMatch
         assertUI(waitUntil(NSPredicate { _, _ in date.exists && abs(date.frame.height - 26) <= 0.5 }, on: app),
             "周次日期行应保留原来的 26 点高度：\(date.frame)。")
         let week = app.native.buttons["第1周"]
-        assertUI(week.exists && week.frame.height >= 44 && week.isHittable, "周次滑动条应保留可触达的刻度。")
+        assertUI(week.exists && abs(week.frame.height - 44) <= 0.5 && week.isHittable,
+            "默认字号的周次刻度应保留紧凑的 44 点点击区域：\(week.frame)。")
+        checkScheduleGeometry()
+        app.mainTab("地图").tapBriefly()
+        app.mainTab("日程").tapBriefly()
+        checkScheduleGeometry()
     }
 
     @MainActor
@@ -131,13 +136,12 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                     app.native.segmentedControls.buttons[page].tap()
                 }
                 UITestSnapshotReader.invalidate()
-                let containerID = switch page {
-                case "课表": "interaction.CourseScheduleTabView.list"
-                case "DDL": "interaction.DDLScheduleTabView.list"
-                case "空教室": "schedule.section-surface"
-                default: "browser.master"
+                let container = switch page {
+                case "课表": UIElement(app.native.collectionViews.containing(.other, identifier: "schedule.refresh-status").firstMatch)
+                case "DDL": app.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
+                case "空教室": app.descendants(matching: .any)["schedule.section-surface"]
+                default: app.descendants(matching: .any)["browser.master"]
                 }
-                let container = app.descendants(matching: .any)[containerID]
                 let actionID = page == "成绩" ? "score.query" : "app.refresh-status.action"
                 let action = container.native.buttons[actionID]
                 let timestamp = container.native.staticTexts["app.refresh-status.timestamp"].firstMatch

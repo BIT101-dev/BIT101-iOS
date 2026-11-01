@@ -109,10 +109,10 @@ struct ScheduleCalendarHeaderMetrics {
         captionLineHeight + AppDesignSystem.Schedule.WeekSlider.barHeight + AppDesignSystem.Schedule.Grid.cellSpacing
     }
     var weekSliderHeight: CGFloat {
-        max(AppDesignSystem.Schedule.WeekSlider.sliderHeight, weekItemHeight + AppDesignSystem.Spacing.small)
+        max(AppDesignSystem.Schedule.WeekSlider.sliderHeight, weekItemHeight + AppDesignSystem.Spacing.regular)
     }
     var dateHeaderHeight: CGFloat {
-        max(AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight, captionLineHeight + AppDesignSystem.Spacing.small)
+        max(AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight, captionLineHeight + AppDesignSystem.Spacing.regular)
     }
     var compactHeaderHeight: CGFloat {
         max(AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight, dateHeaderHeight)
