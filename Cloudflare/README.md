@@ -19,7 +19,7 @@
 - App 的 `bit101://` 路由支持 `schedule/courses`、`gallery/<id>`、`course/<id>` 与 `paper/<id>`，由 `AppDeepLinkCoordinator` 解析，App 壳层在登录恢复后分发。
 - 文章分享使用 `https://open.aihelpme.dev/paper/<id>`。OpenWorker 的网页路由覆盖 `gallery`、`course` 与 `paper`。
 - 分享图标使用固定 `/share-icon.jpg` 路径，Worker 随部署导入主 App 的 PNG 图标资源；部署摘要同时绑定该资源。
-- AASA 对应 `Y2T72736G3.BIT101-dev.BIT101-iOS`，关联 `gallery/*`、`course/*` 与 `paper/*`。具体响应与网页内容以 `OpenWorker/worker.js` 为准。
+- AASA 对应 `Y2T72736G3.BIT101-dev.BIT101-iOS`，关联 `gallery/*`、`course/*` 与 `paper/*`。响应与网页实现见 `OpenWorker/worker.js`。
 - `/.well-known/apple-app-site-association` 直接返回 HTTP 200 和 `application/json`。App ID 开启 Associated Domains，签名描述文件包含对应权限。
 - 配置部署后重新安装 App，从信息或备忘录等外部 App 点击链接验证。Apple CDN 的缓存影响配置生效时间。
 - 中转页保留关联域名并提供 Scheme 与网页入口，供内置浏览器等场景选择打开方式。
@@ -43,6 +43,6 @@ python3 Scripts/validation_provenance.py deploy-worker EmergencyUpdateWorker
 python3 Scripts/validation_provenance.py deploy-worker ErrorReportWorker
 ```
 
-Worker 部署入口逐份比较工作树与 Git 提交中的代码、维护资产、Wrangler 配置及依赖锁，并将对应源码提交身份写入版本消息。部署前提交这些输入；资源沿 Git 输入清单收集。说明文档、紧急配置载荷与其发布脚本归各自维护流程，紧急配置沿完整响应内容核对。网络 Smoke 读取活跃部署及全部流量版本，核对当前源码身份，并在采样结束时确认同一部署；部署身份随原始报告和发布摘要保存。
+部署前提交 Worker 代码、资产、Wrangler 配置及依赖锁。部署入口逐份比较工作树与提交内容，将源码提交标识写入版本消息。说明文档与紧急配置分别维护，紧急配置通过完整响应核对。网络 Smoke 核对活跃部署、全部流量版本及源码提交标识，结束时确认部署一致，并将部署信息保存到原始报告和发布摘要。
 
-报告读取脚本复用同一 Wrangler 安装，入口为 `Scripts/fetch-issues-and-reports.sh`。本机默认认证目录 `~/.wrangler/config` 通过符号链接复用 `~/Library/Preferences/.wrangler/config`，凭据保存在同一份文件中；命令使用正常的用户目录与 Wrangler 配置规则。
+报告读取脚本复用同一 Wrangler 安装，入口为 `Scripts/fetch-issues-and-reports.sh`。本机默认认证目录 `~/.wrangler/config` 通过符号链接指向 `~/Library/Preferences/.wrangler/config`，共用一份凭据。

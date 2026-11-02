@@ -34,8 +34,7 @@ extension MineServiceError: CommunityAPIServiceError {
 
 /// “我的”页网络层。
 ///
-/// 这层只负责“我的”和“他人主页”会共用到的资料卡、关注关系和帖子列表请求，
-/// 不承载任何页面状态，也不做分页拼接。
+/// 提供“我的”和“他人主页”共用的资料卡、关注关系和帖子列表请求。
 public struct MineService {
     /// “我的”页请求使用的社区 API 客户端。
     private let api: CommunityAPIClient<MineServiceError>
@@ -98,7 +97,7 @@ public struct MineService {
 
     /// 获取指定用户的帖子列表；普通帖子页面按设置隐藏机器人帖子。
     ///
-    /// 这里复用帖子搜索接口的 `uid` 语义，用户帖子接口保持独立路径。
+    /// 按 `uid` 搜索用户帖子。
     public func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] {
         try await fetchPosters(userID: userID, page: page)
     }

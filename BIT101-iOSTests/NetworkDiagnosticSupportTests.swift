@@ -154,7 +154,7 @@ struct NetworkDiagnosticSupportTests {
         #expect(isHostResolutionError(wrapped))
     }
 
-    @Test("Non-DNS network errors are not reported as host resolution")
+    @Test("Network diagnostics distinguish DNS failures from other errors")
     func nonDNSError() {
         #expect(!isHostResolutionError(URLError(.timedOut)))
         #expect(!isHostResolutionError(URLError(.notConnectedToInternet)))

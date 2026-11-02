@@ -21,7 +21,7 @@ struct ScheduleCacheMigrationTests {
         let updatedAt: Date
     }
 
-    @Test("Legacy single-term caches migrate without losing courses or timestamps")
+    @Test("Single-term cache migration preserves courses and timestamps")
     func legacyCacheMigration() throws {
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
         let course = makeCourse(id: "course-1", term: "2025-2026-1")

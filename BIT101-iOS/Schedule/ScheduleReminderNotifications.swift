@@ -79,7 +79,7 @@ final class ScheduleReminderNotifications {
 
     /// 按与 Live Activity 相同的规则预排本地通知。
     ///
-    /// 本地通知作为 fallback：app 后台未被唤醒或 Activity 未按时出现时，用户仍能在同一提醒窗口收到通知。
+    /// App 后台未被唤醒或 Activity 未按时出现时，通过本地通知发送课前提醒。
     func synchronize(
         for occurrences: [CourseReminderOccurrence],
         leadMinutes: Int,
@@ -167,7 +167,7 @@ final class ScheduleReminderNotifications {
         return content
     }
 
-    /// 删除已排期和已送达的课前提醒 fallback 通知。
+    /// 删除已排期和已送达的课前提醒通知。
     func clear() async {
         let pending = await notificationCenter.pendingRequests().map(\.identifier).filter { $0.hasPrefix(Self.notificationIdentifierPrefix) }
         notificationCenter.removePending(pending)
@@ -181,8 +181,7 @@ final class ScheduleReminderNotifications {
 
     /// 首次开启提醒时申请本地通知权限。
     ///
-    /// 本地通知作为 Activity 未启动时的兜底。授权由用户决定；授权后，app 未被唤醒时
-    /// 仍能按同一规则发送课前通知。
+    /// 获得授权后，Activity 未启动时通过本地通知发送课前提醒。
     func requestAuthorizationIfNeeded() async -> Bool {
         let authorization = await notificationCenter.authorizationStatus()
 

@@ -142,7 +142,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
         if "ContentUnavailableView" in syntax[str(path)]["identifiers"]
         and "AppStateComponents.swift" not in str(path)
     ]
-    errors.extend(f"页面不得直接实现空态/失败态：{item}" for item in direct_states)
+    errors.extend(f"空态与失败态请使用公共组件：{item}" for item in direct_states)
 
 
 def haptic_entry_findings(sources: dict[Path, str], syntax: dict[str, dict]) -> tuple[list[str], set[Path]]:
@@ -219,7 +219,7 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
     )
     for path, source in sources.items():
         if path not in haptic_sources and direct_patterns.search(source):
-            errors.append(f"{path.relative_to(ROOT)}: 页面不得绕过公共触感修饰器")
+            errors.append(f"{path.relative_to(ROOT)}: 触感请使用公共修饰器")
 
         for match in re.finditer(r"\.app[A-Za-z]+Feedback\(", source):
             name = match.group(0)
@@ -351,7 +351,7 @@ def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
 
 
 def check_design_token_boundaries(errors: list[str], syntax: dict[str, dict]) -> None:
-    """透明度数字只允许存在于跨 target 基础刻度层。"""
+    """透明度数字统一定义在跨 target 基础刻度层。"""
     for path in swift_files():
         if path == PRIMITIVE_OPACITY_SOURCE:
             continue
@@ -397,7 +397,7 @@ def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> 
 
 
 def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]) -> None:
-    """复用内容与组件使用页面强调色，避免绕过环境 tint 的固定高亮色。"""
+    """复用内容与组件通过环境 tint 使用页面强调色。"""
     for path in swift_files():
         if path in DESIGN_SYSTEM_SOURCES:
             continue

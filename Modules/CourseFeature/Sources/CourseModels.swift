@@ -375,7 +375,7 @@ enum CourseHistoryMakeupPolicy {
     }
 
     /// 第二遍忽略学期位置，对第一遍剩余的全部数据点统一比较人数。
-    /// 使用高位人数基线识别至少低十倍的离群点，避免某个学期固定为主学期的前提。
+    /// 使用高位人数基线，识别人数至少低十倍的离群学期。
     private static func globalOutlierTerms(in samples: [ComparableGrade]) -> Set<String> {
         let counts = samples.compactMap(\.grade.studentNum).filter { $0 > 0 }.sorted()
         guard counts.count >= 2 else { return [] }
@@ -492,7 +492,7 @@ typealias CourseLoadStatus = CommunityLoadStatus
 
 /// 课程列表分页状态。
 ///
-/// 这里把首屏状态和分页游标放在一起，避免视图层分别维护多组彼此耦合的布尔值。
+/// 集中维护首屏状态和分页游标。
 struct CoursePagedState {
     var failureCause: (any Error)?
     var paginationError: String?

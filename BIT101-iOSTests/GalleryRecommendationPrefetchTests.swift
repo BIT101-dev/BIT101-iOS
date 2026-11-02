@@ -615,7 +615,7 @@ struct GalleryRecommendationPrefetchTests {
         #expect(await service.requestedPages() == [0])
     }
 
-    @Test("Prefetched pages merge stably and never duplicate a source request", .timeLimit(.minutes(1)))
+    @Test("Prefetched pages merge stably with deduplicated source requests", .timeLimit(.minutes(1)))
     func stablePrefetchMerge() async throws {
         let first = try makePoster(id: 1)
         let second = try makePoster(id: 2)

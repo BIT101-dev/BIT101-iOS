@@ -111,7 +111,7 @@ enum ScheduleDDLEditor {
             throw NSError(
                 domain: "BIT101.Schedule",
                 code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "标题不能为空。"]
+                userInfo: [NSLocalizedDescriptionKey: "请输入标题。"]
             )
         }
         try validateText(title)

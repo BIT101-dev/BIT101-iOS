@@ -217,7 +217,7 @@ final class GalleryViewModel: ObservableObject {
         searchState.isLoadingMore = false
     }
 
-    /// 将页面回调创建的非结构化任务收归 ViewModel，避免视图销毁后遗留请求。
+    /// ViewModel 持有页面回调创建的非结构化任务，并在页面结束时取消。
     @discardableResult
     func enqueueRefresh(for feed: GalleryFeedKind) -> Task<Void, Never> {
         return enqueueInteractionTask(key: "refresh:\(feed.rawValue)") { [weak self] in

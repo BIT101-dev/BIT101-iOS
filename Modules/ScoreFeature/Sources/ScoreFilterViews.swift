@@ -19,7 +19,7 @@ struct ScoreFilterPage: View {
     }
 }
 
-/// 只改变列表展示顺序的成绩排序页。
+/// 成绩列表排序页。
 struct ScoreSortPage: View {
     @Binding var sortIndex: ScoreSortIndex
     @Binding var sortOrder: ScoreSortOrder

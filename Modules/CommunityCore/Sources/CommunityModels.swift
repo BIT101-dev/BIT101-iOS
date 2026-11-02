@@ -376,9 +376,7 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
     }
 }
 
-/// 点赞接口返回的点赞状态和数量。
-///
-/// 点赞请求只返回这两个字段，模型保持接口边界。
+/// 点赞响应：点赞总数和当前用户点赞状态。
 public nonisolated struct CommunityLikeResult: Decodable, Sendable {
     public init(like: Bool, likeNum: Int) {
         self.like = like

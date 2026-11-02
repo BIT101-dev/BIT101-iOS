@@ -21,7 +21,7 @@ private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
 extension ScheduleService {
     /// 发送教务/乐学 JSON 请求并自动解码响应。
     ///
-    /// 学校接口大量使用表单 POST + JSON 返回，因此这里统一封装。
+    /// 封装学校接口共用的表单 POST 请求与 JSON 响应。
     func sendJSONRequest<Response: Decodable & Sendable>(
         baseURL: URL? = nil,
         path: String,
@@ -57,8 +57,7 @@ extension ScheduleService {
             case let .businessError(message):
                 throw ScheduleServiceError.schoolResponse(message)
             case let .invalidResponse(error):
-                // 登录页 HTML 已在上方按内容特征识别。其余无法解码的 2xx 响应可能只是学校
-                // 网关故障或接口改版，不能误导用户说“登录失效”。
+                // 登录页已按内容特征识别；其余 2xx 解码失败保留为响应格式错误。
                 throw ScheduleServiceError.invalidResponse.caused(by: error)
             }
         }

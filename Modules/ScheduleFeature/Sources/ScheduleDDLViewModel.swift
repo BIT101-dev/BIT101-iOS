@@ -274,7 +274,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
 
     /// 切换某条 DDL 的完成状态。
     ///
-    /// `done` 是纯本地状态，不会回写乐学网页端。
+    /// `done` 记录 App 内的完成状态。
     func toggleDDLDone(_ event: DDLEventRecord) {
         guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
         cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
@@ -291,7 +291,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
 
     /// 新增一条本地 DDL。
     ///
-    /// 手动 DDL 与乐学同步项并存，但会用 `group` 字段区分来源。
+    /// 手动 DDL 与乐学同步项通过 `group` 字段区分来源。
     func addDDL(_ draft: DDLDraft) throws {
         try repository.requireWritable()
         cache.ddlEvents = try ScheduleDDLEditor.adding(draft, to: cache.ddlEvents)
@@ -359,7 +359,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
 
     /// DDL 颜色语义。
     ///
-    /// 这里返回字符串；View 层根据业务语义选择具体颜色映射。
+    /// 返回颜色名称，由 View 映射为具体颜色。
     func ddlTint(for event: DDLEventRecord, now: Date = .now) -> String {
         if event.done {
             return "gray"

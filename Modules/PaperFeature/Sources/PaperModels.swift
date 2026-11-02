@@ -94,8 +94,7 @@ public nonisolated struct PaperSummary: CommunityResourceItem, Decodable, Identi
 
 /// 文章列表预览所需的作者摘要。
 ///
-/// 文章列表接口本身不返回作者信息。
-/// 列表页按需补拉单篇文章详情，并从详情字段构建作者摘要供视图层展示。
+/// 列表页按需读取单篇文章详情，从中构建作者摘要。
 public nonisolated struct PaperPreviewMetadata: Equatable, Hashable, Sendable {
     public let authorName: String
     public let avatarURL: URL?

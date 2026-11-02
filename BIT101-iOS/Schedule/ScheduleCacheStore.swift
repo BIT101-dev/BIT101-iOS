@@ -34,7 +34,7 @@ enum ScheduleCacheStore {
         await loadResultAsync(for: AppFileDirectories.currentSession)
     }
 
-    /// 读取调用方捕获的账号缓存，避免异步期间账号切换后改读另一账号。
+    /// 按调用方捕获的账号读取缓存。
     static func loadResultAsync(for session: AppStorageSession) async -> ScheduleCacheLoadResult {
         await writeQueue.load(for: session)
     }
@@ -43,7 +43,7 @@ enum ScheduleCacheStore {
         await writeQueue.readFailure(for: AppFileDirectories.currentSession)
     }
 
-    /// 将缓存文件读取与解码移到独立任务，避免页面恢复阶段阻塞 MainActor。
+    /// 在独立任务中读取并解码缓存文件。
     static func loadAsync() async -> ScheduleCache {
         await loadResultAsync().cacheIfReadable ?? ScheduleCache()
     }

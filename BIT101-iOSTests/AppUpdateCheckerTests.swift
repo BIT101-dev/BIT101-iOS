@@ -215,7 +215,7 @@ struct AppUpdateCheckerTests {
         #expect(performed == ["first", "second"])
     }
 
-    @Test("Emergency notices target Build numbers and can only be ignored today", .timeLimit(.minutes(1)))
+    @Test("Emergency notices target Build numbers and reset dismissal each day", .timeLimit(.minutes(1)))
     func emergencyNoticeEligibility() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -451,7 +451,7 @@ struct AppUpdateCheckerTests {
         #expect(requestCount == 2)
     }
 
-    @Test("Ignoring one store version keeps it hidden but does not hide a later version", .timeLimit(.minutes(1)))
+    @Test("Store update dismissal applies to the selected version", .timeLimit(.minutes(1)))
     func ignoredVersionIsScopedToThatRelease() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }
@@ -475,7 +475,7 @@ struct AppUpdateCheckerTests {
         #expect(await checker.releaseToPresentAtLaunch()?.version == "1.7.2")
     }
 
-    @Test("Failed lookups are throttled and never block startup", .timeLimit(.minutes(1)))
+    @Test("Startup continues while failed update lookups are throttled", .timeLimit(.minutes(1)))
     func failedLookupIsThrottled() async throws {
         let context = try TestContext()
         defer { context.cleanUp() }

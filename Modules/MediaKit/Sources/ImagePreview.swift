@@ -127,7 +127,7 @@ public struct ImagePreviewRequest: Identifiable {
 }
 
 extension View {
-    /// 直接从当前页面呈现系统 Quick Look，不增加自定义“正在准备”中间页。
+    /// 从当前页面直接呈现系统 Quick Look。
     public func systemImagePreview(item: Binding<ImagePreviewRequest?>) -> some View {
         background(ImageQuickLookPresenter(viewer: item).frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
     }
@@ -427,8 +427,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
             guard case let .remote(images) = request.source else { return }
             let remainingIndices = images.indices.filter { $0 != initialIndex }
 
-            // 当前高清下载与其它页低清补齐并行，既尽快让当前画面变清晰，也避免用户
-            // 在高清大图下载期间左右滑动时看到透明占位。
+            // 并行下载当前页原图与其他页缩略图，供切页时立即展示。
             let currentUpgrade = originalUpgrade(
                 for: images[initialIndex],
                 at: initialIndex,
@@ -591,7 +590,7 @@ struct ImageQuickLookPresenter: UIViewControllerRepresentable {
         ///
         /// Quick Look 没有公开的渐进式换图接口，直接 `refreshCurrentPreviewItem()` 会由
         /// 系统重建当前预览时偶尔出现明显闪白。系统预览器保持原样；刷新时叠加一层
-        /// 不接收触摸的画面快照，让低清到高清更接近一次轻微交叉渐变。
+        /// 画面快照关闭触摸响应，用于低清到高清的交叉渐变。
         private func refreshCurrentPreviewItemSmoothly() {
             guard let controller = previewController else { return }
             guard AppDesignSystem.Motion.transition(reduceMotion: UIAccessibility.isReduceMotionEnabled) != nil else {

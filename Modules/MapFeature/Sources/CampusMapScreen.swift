@@ -82,7 +82,7 @@ public struct CampusMapScreen: View {
     @State private var centerOnUserRequestID: UUID?
     /// 如果授权弹窗尚未结束，先挂起一次回到当前位置请求。
     @State private var pendingCenterOnUserAfterAuthorization = false
-    /// 防止 `onAppear` 重复覆盖用户当前选中的校区。
+    /// 记录首次定位状态，保留用户随后选中的校区。
     @State private var hasRestoredStoredCampus = false
     /// 课程详情传入的临时地点；只在当前进程内展示。
     @State private var activeRequestedLocation: CampusMapLocationRequest?
@@ -245,7 +245,7 @@ public struct CampusMapScreen: View {
 
 /// 校区快捷切换按钮。
 ///
-/// 这里使用短标签节省按钮空间，完整校区名通过无障碍标签提供。
+/// 按钮显示校区简称，无障碍标签提供完整校区名。
 private struct FloatingMapLabelButton: View {
     let label: String
     let accessibilityLabel: String

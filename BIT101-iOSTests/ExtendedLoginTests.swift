@@ -142,10 +142,10 @@ struct ExtendedLoginTests {
         await viewModel.login()
 
         #expect(service.loginCalls.isEmpty)
-        #expect(viewModel.alert?.title == "学号不能为空")
+        #expect(viewModel.alert?.title == "请输入学号")
     }
 
-    @Test("Logout keeps the saved student identifier but clears the session")
+    @Test("Logout clears the session and preserves the saved student identifier")
     @MainActor
     func logoutKeepsStudentID() {
         let service = ServiceStub()

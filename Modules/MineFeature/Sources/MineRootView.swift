@@ -49,7 +49,7 @@ private struct MineRootViewScene: View {
     private let destinations: CommunitySettingsDestinations
     private let posters: CommunityPosterDestination
     private let media: MediaEnvironment
-    /// 兜底学号，用于传给设置页的账号区域。
+    /// 设置页使用的备用学号。
     let fallbackStudentID: String
     let onLogout: () -> Void
 

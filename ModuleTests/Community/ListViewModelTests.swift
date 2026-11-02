@@ -187,7 +187,7 @@ struct CourseListViewModelTests {
         #expect(service.requests.map { "\($0.search):\($0.page)" } == ["高等数学:1"])
     }
 
-    @Test("Score entry searches directly without rejecting an empty course name", .timeLimit(.minutes(1)))
+    @Test("Score entry searches directly with an empty course name", .timeLimit(.minutes(1)))
     @MainActor
     func searchesDirectlyFromScoreEntry() async {
         let service = ServiceStub(pages: [0: .success([])])

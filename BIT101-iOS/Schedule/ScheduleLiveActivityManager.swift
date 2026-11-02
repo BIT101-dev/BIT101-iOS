@@ -226,7 +226,7 @@ final class ScheduleLiveActivityManager {
     /// - 提醒对象存在且内容变化：更新现有 activity
     /// - activity 不存在：创建新的 activity
     ///
-    /// activity 同时记录 `studentID`，用于切号后避免复用上一账号的提醒。
+    /// activity 记录 `studentID`，按账号匹配提醒。
     private func syncActivity(with occurrence: CourseReminderOccurrence?, session: ScheduleReminderSession) async {
         await performSerializedActivityOperation {
             await self.syncActivitySerially(with: occurrence, session: session)
@@ -571,7 +571,7 @@ final class ScheduleLiveActivityManager {
     /// Catalyst 版将本地通知权限请求视为已完成。
     func requestNotificationAuthorizationIfNeeded() async -> Bool { true }
 
-    /// Mac 预览固定使用允许状态，避免反复弹出“请开启通知”。
+    /// Mac 预览使用固定的通知已授权状态。
     func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState { .allowed }
 
     /// Catalyst 下没有 Activity，保持空操作。

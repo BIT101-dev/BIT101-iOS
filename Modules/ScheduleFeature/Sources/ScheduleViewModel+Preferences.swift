@@ -90,7 +90,7 @@ extension ScheduleViewModel {
     private func validatedScheduleTitle(_ title: String) throws -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw scheduleValidationError("课表名称不能为空。")
+            throw scheduleValidationError("请输入课表名称。")
         }
         guard trimmed.count <= scheduleNameCharacterLimit else {
             throw scheduleValidationError("课表名称最多 8 个字符。")

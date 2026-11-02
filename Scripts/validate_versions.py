@@ -94,7 +94,7 @@ def validate_not_older_than_ref(ref: str, version: str, build: int) -> None:
     if build < old_build:
         raise ValueError(f"Build 从 {old_build} 倒退为 {build}")
     if version != old_version and build <= old_build:
-        raise ValueError(f"版本号已变化，但 Build 未高于基准值 {old_build}")
+        raise ValueError(f"版本号变化后，Build 须高于基准值 {old_build}")
 
 
 def app_store_version() -> str:

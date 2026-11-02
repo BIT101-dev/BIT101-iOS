@@ -17,7 +17,7 @@ enum SchoolSMSDeliveryMode: Equatable {
 }
 
 extension ScheduleService {
-    /// 诊断网络链路时探测乐学 DDL，避免触发短信发送。
+    /// 使用现有会话探测乐学 DDL，遇到短信挑战时返回待验证状态。
     public func syncDDLEventsForPreflight(
         existingEvents: [DDLEventRecord],
         storedURL: String
@@ -98,7 +98,7 @@ extension ScheduleService {
         )
     }
 
-    /// 诊断网络链路时探测学校二次验证页面，避免触发短信发送。
+    /// 探测学校二次验证页面，遇到短信挑战时返回待验证状态。
     public func refreshLexueCalendarURLForPreflight() async throws -> String {
         try await refreshLexueCalendarURL(
             schoolSMSCodeHandler: nil,

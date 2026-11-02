@@ -18,7 +18,7 @@ import SwiftUI
 
 /// 单个帖子卡片。
 ///
-/// 帖子点击进入详情，图片点击进入全屏看图，二者需要显式拆开避免手势冲突。
+/// 帖子区域点击进入详情，图片区域点击进入全屏看图。
 public struct CommunityPosterCard: View {
     let poster: CommunityPoster
     let onOpenPoster: () -> Void

@@ -1,6 +1,6 @@
 # 新电脑开发环境
 
-这份文档说明 macOS 新电脑所需的外部工具、账号配置，以及从拉取代码到构建和装机的流程。命令默认在仓库根目录执行。
+本文介绍新 Mac 的开发工具、账号配置、代码拉取、构建和装机流程。命令默认在仓库根目录执行。
 
 ## 工具清单
 
@@ -101,7 +101,7 @@ Wrangler 与 Miniflare 共用仓库内的安装位置：
 python3 -m pip install --break-system-packages openpyxl
 ```
 
-这里使用 Homebrew Python 的既有环境。地图 fixture 读取教务导出的 Excel，工作表包含“学校校区”和“已排时间地点”列：
+使用 Homebrew Python 的现有环境。地图 fixture 读取教务导出的 Excel，工作表包含“学校校区”和“已排时间地点”列：
 
 ```sh
 python3 Scripts/generate_campus_map_fixture.py /path/to/课程表.xlsx --allow-new

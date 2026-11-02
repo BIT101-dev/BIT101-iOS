@@ -82,7 +82,7 @@ private struct GalleryRootViewScene: View {
     @Environment(\.scenePhase) private var scenePhase
     /// 主 feed 视图模型，负责帖子流、搜索和详情入口状态。
     @StateObject private var viewModel: GalleryViewModel
-    /// 消息中心视图模型，与主 feed 独立，避免互相污染加载状态。
+    /// 消息中心独立维护视图模型和加载状态。
     @StateObject private var messageViewModel: GalleryMessageViewModel
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     private var networkObserver: NetworkPathState { dependencies.networkPath }
@@ -404,7 +404,7 @@ private struct GalleryRootViewScene: View {
 
     /// 右下角消息按钮上的红点文案。
     ///
-    /// 入口处将数量限制为 `99+`，防止长数字撑开按钮布局。
+    /// 入口数量超过 99 时显示 `99+`。
     private var messageBadgeText: String? {
         let count = messageViewModel.totalUnreadCount
         guard count > 0 else { return nil }

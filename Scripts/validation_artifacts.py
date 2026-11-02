@@ -365,7 +365,7 @@ def main(root: Path) -> None:
                 if relative not in allowed_root_files:
                     violations.append(f"{relative}: 根目录产物必须使用固定类别文件名")
             elif relative not in allowed_dirs:
-                violations.append(f"{relative}: 同类产物不得创建第二个平行目录")
+                violations.append(f"{relative}: 同类产物统一写入固定目录")
     shared = root / ".build/compiler-cache"
     for parent in (root / ".build", root / "build"):
         for directory, children, files in os.walk(parent):

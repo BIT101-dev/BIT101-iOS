@@ -232,7 +232,7 @@ DIRECT_VISUAL_RULES = (
     (DIRECT_FLOATING_MATERIAL, "圆形操作按钮背景必须使用 AppFloatingActionButtonSurface"),
     (DIRECT_GROUPED_LIST_STYLE, "分组列表必须使用 appGroupedListStyle"),
     (DIRECT_LIST_SECTION_SPACING, "列表 section 间距必须通过 appGroupedListStyle 统一"),
-    (DIRECT_ANIMATION_DURATION, "优先使用系统动画时长，不要在页面单独指定 duration"),
+    (DIRECT_ANIMATION_DURATION, "动画时长统一使用系统默认值"),
     (DIRECT_INPUT_PLACEHOLDER, "输入提示必须使用 AppInputPrompt"),
     (DIRECT_CUSTOM_SECTION_HEADER, "列表自定义标题必须使用 AppListSectionHeader"),
     (DIRECT_BARE_HSTACK, "HStack 必须显式使用 AppDesignSystem.Spacing 语义间距"),

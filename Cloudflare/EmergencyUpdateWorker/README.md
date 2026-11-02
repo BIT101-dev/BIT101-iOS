@@ -6,7 +6,6 @@
 
 - iOS 项目维护者负责域名 `aihelpme.dev` 的管理。
 - BIT101/101 相关域名（包括 `bit101.cn`）归属 BIT101 服务体系。
-- BIT101 服务端由独立维护团队负责；iOS 项目配置保留 `aihelpme.dev` 资源边界。
 - 本 Worker 及其网页、远程配置和跳转入口使用 `aihelpme.dev` 资源，以及用户明确确认归属的其他资源。
 
 首次部署：
@@ -35,8 +34,7 @@ python3 ../../Scripts/validation_provenance.py deploy-worker EmergencyUpdateWork
 ./Scripts/publish-emergency-update.sh --disable
 ```
 
-配置缺失、格式错误和 KV 读取失败返回 HTTP 503，网络 Smoke 验证该服务状态；App 按既有错误处理继续启动。配置不设过期时间。只要 `enabled` 为真且装机 Build 小于等于
-`maximum_affected_build`，App 每天最多允许用户忽略提醒到当天结束。
+配置缺失、格式错误和 KV 读取失败返回 HTTP 503，网络 Smoke 验证该服务状态；App 按既有错误处理继续启动。配置长期有效。`enabled` 为真且装机 Build 小于等于 `maximum_affected_build` 时，App 显示提醒；用户可忽略至当天结束。
 
 发布入口校验标题及正文的有效内容，并将 Build 限定在 JSON 精确整数范围内。服务端对启用状态的提醒执行同一载荷校验，异常配置返回 503。
 

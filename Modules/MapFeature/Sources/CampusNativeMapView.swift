@@ -53,7 +53,7 @@ struct CampusNativeMapView: UIViewRepresentable {
 
     /// 创建并初始化原生 `MKMapView`。
     ///
-    /// 这里需要独立控制相机和定位回调，因此使用原生 `MapKit`。
+    /// 通过原生 `MapKit` 控制相机和定位回调。
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView(frame: .zero)
         mapView.delegate = context.coordinator

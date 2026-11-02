@@ -545,7 +545,7 @@ struct AppShellView: View {
         promptCoordinator.enqueue(AppPrompt(
             id: "schedule-notification-permission",
             title: "请开启通知",
-            message: "当灵动岛提醒无法自动启动时，应用会使用本地通知，以避免您错过上课。请在系统设置的通知页面中允许 BIT101 发送通知。",
+            message: "灵动岛提醒无法自动启动时，应用会发送本地通知。请在系统设置中允许 BIT101 发送通知。",
             actions: [
                 AppPromptAction(id: "cancel", title: "取消", role: .cancel) {},
                 AppPromptAction(id: "open-settings", title: "转到设置", isDefault: true) {

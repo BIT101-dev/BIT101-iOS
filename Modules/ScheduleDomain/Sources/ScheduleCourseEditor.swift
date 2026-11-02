@@ -156,7 +156,7 @@ public nonisolated enum ScheduleCourseEditor {
             .filter { !$0.isEmpty }
 
         guard !segments.isEmpty else {
-            throw validationError("周次不能为空。")
+            throw validationError("请选择周次。")
         }
 
         var weeks = Set<Int>()
@@ -200,7 +200,7 @@ public nonisolated enum ScheduleCourseEditor {
 
     public static func resolve(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws -> ResolvedDraft {
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { throw validationError("课程名称不能为空。") }
+        guard !title.isEmpty else { throw validationError("请输入课程名称。") }
         let teacher = draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
         let classroom = resolvedClassroom(from: draft)
         for (label, value) in [("课程名称", title), ("教师", teacher), ("教室", classroom)] {

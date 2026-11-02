@@ -193,7 +193,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// 保存登录成功后的本地会话。
     ///
-    /// 这里保存可长期复用的账号密码和当前 fake-cookie。
+    /// 保存账号凭据和当前 fake-cookie。
     /// 应用重启后可以直接进入主界面，并在需要时于后台静默重登学校 SSO。
     func saveLoginState(studentID: String, password: String, fakeCookie: String, communityPasswordDigest: String? = nil) throws {
         let normalizedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)

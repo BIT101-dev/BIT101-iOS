@@ -10,8 +10,7 @@ import UIKit
 
 /// 话廊图片缓存容量偏好。
 ///
-/// 单位为 MB；`0` 表示不主动限制。缓存本身仍位于系统 Caches 目录，iOS 在设备
-/// 空间紧张时仍可以回收。
+/// 单位为 MB；`0` 表示由系统管理容量。文件位于系统 Caches 目录，空间紧张时由 iOS 回收。
 struct GalleryImageCachePreferences {
     let defaults: UserDefaults
     nonisolated static let limitMBKey = "gallery.image-cache.limit-mb"
@@ -311,8 +310,8 @@ private nonisolated final class RemoteImageLease: Sendable {
 
 /// 低清图、高清图和 GIF 共用的持久磁盘缓存。
 ///
-/// 读取时更新文件修改时间，将其作为轻量 LRU 的“最近使用时间”；写入后若超过用户
-/// 设置的上限，会从最久未使用的文件开始清理到上限的 85%，避免反复触发清理。
+/// 读取时以文件修改时间记录最近访问。写入超过用户设置的容量上限时，
+/// 按最近访问顺序回收到上限的 85%。
 actor RemoteImageCache {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
@@ -721,7 +720,7 @@ public nonisolated enum BoundedStillImageDecoder {
     }
 }
 
-/// 串行后台解码话廊缩略图，避免多张图片同时进入屏幕时抢占主线程。
+/// 在后台串行解码话廊缩略图。
 ///
 /// ImageIO 在像素预算内生成显示位图，后台解码和内存缓存沿用同一预算。
 actor GalleryThumbnailDecoder {

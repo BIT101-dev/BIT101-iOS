@@ -81,7 +81,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 悬浮消息按钮使用的总未读数。
     ///
-    /// 这里会把“本地伪未读”和“服务端摘要”统一折算到同一个入口红点。
+    /// 合并本地未读状态与服务端摘要，计算入口红点。
     var totalUnreadCount: Int {
         GalleryMessageType.allCases.reduce(0) { partialResult, type in
             let sum = partialResult.addingReportingOverflow(max(0, unreadCount(for: type)))

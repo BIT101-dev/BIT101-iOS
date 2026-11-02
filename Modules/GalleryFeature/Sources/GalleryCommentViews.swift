@@ -188,7 +188,7 @@ private struct GalleryCommentRow: View {
 
 /// 评论发送弹层。
 ///
-/// 评论输入放在独立 sheet 中，避免与 tab bar、抽屉详情和键盘安全区发生布局冲突。
+/// 评论输入使用独立 sheet，由系统处理键盘安全区。
 struct GalleryCommentComposerSheet: View {
     @Environment(MediaEnvironment.self) private var media
     let target: CommunityCommentComposerTarget

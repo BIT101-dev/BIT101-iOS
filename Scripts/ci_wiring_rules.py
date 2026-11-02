@@ -804,7 +804,7 @@ def audit_wiring_findings(ROOT, scheme_inventory_findings, extension_dependency_
     if "npm audit --audit-level=high" not in audit_source:
         errors.append("Scripts/run-static-audit.sh: 依赖漏洞审计门槛缺失")
     if "release-network-smoke" in audit_source:
-        errors.append("Scripts/run-static-audit.sh: 静态审计不得调用网络 smoke")
+        errors.append("Scripts/run-static-audit.sh: 静态审计负责本地规则检查，网络 smoke 通过独立入口执行")
 
     workflow_path = ROOT / ".github/workflows/ci.yml"
     if not workflow_path.is_file():

@@ -249,7 +249,7 @@ struct ScheduleSystemCalendarEventBuilderTests {
         ).isEmpty)
     }
 
-    @Test("Numeric course numbers are not detected as phone numbers")
+    @Test("Numeric course numbers retain their course identity")
     func preventsCourseNumberPhoneDetection() throws {
         let rawNumber = "10001234567"
         let protectedNumber = ScheduleSystemCalendarEventBuilder.dataDetectorSafeCourseNumber(rawNumber)
@@ -360,7 +360,7 @@ struct SmallTermWeekNormalizerTests {
         #expect(result.courses[1].weeks == Array(7 ... 12))
     }
 
-    @Test("Second semester never applies small-term correction")
+    @Test("Second semester preserves its original week offset")
     func leavesSecondSemesterUnchanged() {
         let course = makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8))
         let result = SmallTermWeekNormalizer.normalize(
@@ -391,7 +391,7 @@ struct SmallTermWeekNormalizerTests {
         #expect(result.courses == courses)
     }
 
-    @Test("Pre-start week outliers do not disable the common offset")
+    @Test("Common week offset survives pre-start outliers")
     func ignoresPreStartOutliers() {
         let courses = [
             makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
@@ -706,7 +706,7 @@ struct ScheduleCourseEditorTests {
         #expect(adjusted?.name == "调整后的课程")
     }
 
-    @Test("Transferring a day clears target occurrences without deleting other weeks")
+    @Test("Day transfer replaces target occurrences and preserves other weeks")
     func transfersOneDay() throws {
         let source = makeCourse(id: "source", weeks: [1, 2], weekday: 1)
         let target = makeCourse(id: "target", weeks: [1, 3], weekday: 2)

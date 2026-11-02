@@ -28,7 +28,7 @@ struct WatchScheduleRootView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("仅清除手表本地缓存，不影响手机端。")
+            Text("清除手表本地缓存。")
         }
     }
 

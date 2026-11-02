@@ -242,8 +242,7 @@ struct GalleryMessagesView: View {
 
 /// 单条消息行。
 ///
-/// 新消息样式使用本地伪未读：客户端根据服务端分类未读数标记最新前 N 条。
-/// 系统通知和服务端逐条 read 字段均不参与这项样式。
+/// 通过视图模型传入的 `isUnread` 显示新消息样式。
 private struct GalleryMessageRow: View {
     let type: GalleryMessageType
     let message: GalleryMessage

@@ -9,7 +9,7 @@ import ClientCore
 
 /// 本地保存的登录凭据。
 ///
-/// 这里保存足以静默重登学校 SSO 的最小信息组合；fake-cookie 等会话态保持在结构外。
+/// 保存学校 SSO 静默重登所需凭据；fake-cookie 由会话存储管理。
 struct StoredCredentials {
     let studentID: String
     let password: String

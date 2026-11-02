@@ -120,12 +120,12 @@ final class LoginViewModel: ObservableObject {
         let trimmedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedStudentID.isEmpty else {
-            alert = AppAlert.userInput(title: "学号不能为空", message: "请输入学校统一身份认证使用的学号。")
+            alert = AppAlert.userInput(title: "请输入学号", message: "请输入学校统一身份认证使用的学号。")
             return
         }
 
         guard !password.isEmpty else {
-            alert = AppAlert.userInput(title: "密码不能为空", message: "请输入 BIT101 密码。")
+            alert = AppAlert.userInput(title: "请输入密码", message: "请输入 BIT101 密码。")
             return
         }
 

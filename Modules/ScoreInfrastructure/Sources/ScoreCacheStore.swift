@@ -240,7 +240,7 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     }
 }
 
-/// 对账号成绩文件的全部操作都在 actor 内同步执行，避免主线程 I/O 与并发读改写丢失。
+/// 账号成绩文件的读改写在独立执行器上的 actor 内串行完成。
 actor ScoreCacheDiskRepository {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }

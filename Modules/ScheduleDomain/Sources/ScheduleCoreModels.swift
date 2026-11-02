@@ -601,7 +601,7 @@ public struct CustomScheduleDraft: Equatable {
 
 /// 空教室查询使用的校区记录。
 ///
-/// 这是服务端返回的元数据模型，仅驱动选择器。
+/// 学校返回的校区元数据，用于填充选择器。
 public nonisolated struct CampusRecord: Codable, Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String
@@ -633,7 +633,7 @@ public nonisolated struct BuildingRecord: Codable, Identifiable, Hashable, Senda
 
 /// 空教室接口原始教室记录。
 ///
-/// 原始记录只包含“哪些时间忙”，具体的中文空闲文案会在视图模型层再加工。
+/// 原始记录保存占用时段，视图模型据此生成空闲时段文案。
 public nonisolated struct ClassroomRecord: Codable, Identifiable, Hashable, Sendable {
     public let id: String
     public let name: String

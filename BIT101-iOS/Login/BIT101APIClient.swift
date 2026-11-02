@@ -217,10 +217,8 @@ struct BIT101APIClient {
                 continue
             }
 
-            // 新版统一认证把登录成功后的浏览器落点改成了前端 gate 路由。
-            // CAS 会话 Cookie 在上一步 302 时写入；普通 URLSession GET 访问该路由
-            // 返回 401，用户名密码认证仍已完成。后续带 service 参数访问 CAS 时，业务系统
-            // 继续完成票据跳转。
+            // CAS 会话 Cookie 在 302 跳转时写入。成功落点 gate 路由对 URLSession GET
+            // 返回 401；该路由按认证完成处理，再带 service 参数获取业务票据。
             if Self.isAcceptedSchoolLoginCompletion(
                 statusCode: response.statusCode,
                 url: nextURL,

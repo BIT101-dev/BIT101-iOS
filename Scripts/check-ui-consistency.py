@@ -147,7 +147,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                             emitted_rule_findings,
                             relative,
                             line_number,
-                            "设计令牌不得通过比例或重复相加/相减二次运算；请直接使用语义令牌",
+                            "请直接使用语义令牌，替换比例或重复加减运算",
                             pattern,
                         )
 
@@ -161,7 +161,7 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                         emitted_rule_findings,
                         relative,
                         line_number,
-                        "plain 列表只允许消息中心使用",
+                        "plain 列表用于消息中心，其余页面使用分组列表",
                         DIRECT_PLAIN_LIST_STYLE,
                     )
 

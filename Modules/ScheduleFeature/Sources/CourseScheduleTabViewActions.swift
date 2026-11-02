@@ -145,7 +145,7 @@ extension CourseScheduleTabView {
 
     func importScheduleCode(_ text: String) async throws {
         try await viewModel.importScheduleCode(text)
-        viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享的课表已导入。考试、DDL 与自定义日程不会随导入覆盖。")
+        viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享的课表已导入。")
     }
 
     @MainActor

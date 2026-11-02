@@ -513,7 +513,7 @@ private struct AppErrorReportSheet: View {
                 case .rawResponse:
                     Alert(
                         title: Text("确认提交原始网络响应？"),
-                        message: Text("你选择了原始网络响应，其中可能包含你的学号、姓名、课程、成绩等个人信息。\n\n密码、Cookie、Token 等认证信息会强制脱敏。\n\n提交后，开发者仅将这些信息用于排查本 App 的故障，不用于其他用途，不会公开传播，并会在排查完成后删除。如需了解信息利用情况，可通过 systemd@linux.do 联系开发者。"),
+                        message: Text("原始网络响应可能包含学号、姓名、课程、成绩等个人信息。密码、Cookie、Token 等认证信息会强制脱敏。\n\n报告由开发者私下用于排查本 App 的故障，排查完成后删除。信息使用咨询：systemd@linux.do。"),
                         primaryButton: .default(Text("确认提交"), action: submitAndClose),
                         secondaryButton: .cancel(Text("取消"))
                     )

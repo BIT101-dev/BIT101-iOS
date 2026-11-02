@@ -116,8 +116,7 @@ function landingPage(url, route, id) {
   </main>
   <script>
     (() => {
-      // 每个浏览器历史记录项只尝试一次：返回或刷新不会重试；用户再次点开同一链接
-      // 会形成新的记录项，因此仍会自动尝试。
+      // 每个浏览器历史记录项自动唤起一次；再次打开链接时建立新记录。
       const previousState = history.state && typeof history.state === "object"
         ? history.state
         : {};

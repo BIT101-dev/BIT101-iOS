@@ -122,7 +122,7 @@ def checker_boundary_findings() -> list[str]:
         syntax = swift_syntax_index_sources({str(escape_path): source})
         with patch('code_quality_rules.swift_files', return_value=[escape_path]), patch.object(Path, 'read_text', return_value=source):
             errors, _ = source_findings(syntax)
-        assert any('并发安全检查' in error for error in errors), conformance
+        assert any('并发访问' in error for error in errors), conformance
     from code_quality_rules import audit_callback_findings
     callbacks = Path(__file__).with_name("run-static-audit.sh").read_text()
     assert audit_callback_findings(callbacks) == []

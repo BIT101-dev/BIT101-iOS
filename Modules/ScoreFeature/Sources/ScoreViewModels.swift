@@ -67,7 +67,7 @@ public final class ScoreViewModel: ObservableObject {
     private let loadScheduleCourses: @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
     private var isRefreshing: Bool { refreshPhase.isSyncing }
     private var hasContent: Bool { !rows.isEmpty || state == .loaded }
-    /// 账号切换后递增，使此前启动的请求失去页面与缓存写入资格。
+    /// 账号切换时递增，页面与缓存写入前核对请求所属代际。
     private(set) var accountGeneration = 0
     private var presentationGeneration = 0
     private var scheduleReadGeneration = 0

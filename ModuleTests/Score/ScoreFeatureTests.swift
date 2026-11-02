@@ -915,7 +915,7 @@ struct ScoreFeatureTests {
         #expect(viewModel.rows.first?.averageScore == "82.5")
     }
 
-    @Test("A delayed score challenge cannot write into the newly selected account", .timeLimit(.minutes(1)))
+    @Test("Delayed score challenges respect account ownership", .timeLimit(.minutes(1)))
     @MainActor
     func delayedScoreChallengeIsDiscardedAfterAccountSwitch() async throws {
         let activeSession = ScoreCacheSessionHolder(

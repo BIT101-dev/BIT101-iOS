@@ -143,7 +143,7 @@ def is_view_source(path: Path, code: str) -> bool:
 
 
 def view_declaration_ranges(code: str) -> list[tuple[int, int]]:
-    """返回真实 View 声明的范围，避免把同文件的缓存/Loader 当成 View。"""
+    """按 View 声明定位源码范围。"""
     ranges: list[tuple[int, int]] = []
     declaration = re.compile(
         r"\b(?:struct|class|enum)\s+[A-Za-z_][A-Za-z0-9_]*\s*:[^{\n]*\bView\b[^{}]*\{"
@@ -413,7 +413,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         if source and not source.endswith("\n"):
             errors.append(f"{name}: 文件末尾缺少换行")
         if "\t" in source:
-            errors.append(f"{name}: Swift 源码不得使用 Tab 缩进")
+            errors.append(f"{name}: Swift 源码请使用空格缩进")
         if any(line.rstrip() != line for line in source.splitlines()):
             errors.append(f"{name}: 存在行尾空白")
         import_branches = [set()]
@@ -432,12 +432,12 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
                     import_branches[-1].add(module)
 
         if re.search(r"^\s*#if\s+false\b", masked_source, re.MULTILINE):
-            errors.append(f"{name}: 不应保留 #if false 死代码块")
+            errors.append(f"{name}: 请删除 #if false 死代码块")
         add_matches(errors, path, mask_literals_and_comments(source, keep_comments=True),
                     re.compile(r"\b(?:TODO|FIXME|HACK)\b"), "请清理遗留 TODO/FIXME/HACK")
 
         errors.extend(cancellation_findings(path, source, syntax_index.get(str(path)) if syntax_index else None, resolver=types))
-        add_matches(errors, path, masked_source, unsafe_concurrency_escape, "禁止绕过 Swift 并发安全检查：请表达真实隔离或使用锁/Actor")
+        add_matches(errors, path, masked_source, unsafe_concurrency_escape, "Swift 并发访问请声明真实隔离或使用锁/Actor")
         facts = syntax_index.get(str(path)) if syntax_index else None
         from validation_test_areas import fixture_resource_findings
         if facts: errors.extend(fixture_resource_findings(path, facts))
@@ -445,19 +445,19 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
         if facts: errors.extend(discarded_file_write_findings(path, source, facts, writes))
         for clause in (facts or {}).get("emptyCatchClauses", []):
             line = source.encode()[:clause["start"]].count(b"\n") + 1
-            errors.append(f"{name}:{line}: 禁止静默吞掉异常；请记录诊断或显式处理错误")
+            errors.append(f"{name}:{line}: 请记录诊断或显式处理错误")
         if facts and ast_has_view_request(facts, type_indexes.get(str(path)), syntax_index, resolver=request_types):
-            errors.append(f"{name}: View 不应直接构造 URLRequest；请求移到 Service")
+            errors.append(f"{name}: 请将 URLRequest 构造移到 Service")
         elif facts is None:
             for match in view_request_matches(masked_source):
                 errors.append(
                     f"{name}:{line_number(source, match.start())}: "
-                    "View 不应直接构造 URLRequest；请求移到 Service"
+                    "请将 URLRequest 构造移到 Service"
                 )
 
         force_count = len(facts["forceUnwraps"]) if facts else 0
         if force_count:
-            errors.append(f"{name}: 禁止强制解包，共 {force_count} 处；请改用 guard/if let/#require")
+            errors.append(f"{name}: 发现 {force_count} 处强制解包，请改用 guard/if let/#require")
         source_line_count = len(source.splitlines())
         if source_line_count > 800:
             large_files.append(name)
@@ -515,13 +515,13 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         path = Path(name)
         for term in forbidden_identifiers:
             if ast_has_identifier(facts, term):
-                errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
+                errors.append(f"{relative(path)}: 学校/WebVPN 请求须由用户操作触发：{term}")
         for term in forbidden_literals:
             if any(term in literal["value"] for literal in facts["stringSegments"]):
-                errors.append(f"{relative(path)}: 不得重新引入学校/WebVPN 自动请求：{term}")
+                errors.append(f"{relative(path)}: 学校/WebVPN 请求须由用户操作触发：{term}")
 
     if owner_has_call(syntax_index, "ScoreListPage", "bootstrapIfNeeded"):
-        errors.append("ScoreListPage: 成绩页不得自动触发学校查询")
+        errors.append("ScoreListPage: 成绩页的学校查询须由用户操作触发")
 
     school_protocols = {"ScheduleCourseServicing", "ScheduleDDLServicing", "ScheduleClassroomServicing",
                         "ScoreListServicing", "TrustedTranscriptServicing"}

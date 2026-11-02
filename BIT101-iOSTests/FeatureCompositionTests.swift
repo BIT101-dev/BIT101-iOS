@@ -841,7 +841,7 @@ struct CourseLookupMatcherTests {
         )?.id == second.id)
     }
 
-    @Test("Records sharing the same course identity can be opened without a teacher")
+    @Test("Records with the same course identity and an empty teacher open successfully")
     func resolvesSameIdentityWithoutTeacher() {
         let first = makeSummary(id: 1, name: "线性代数", number: "MATH-1", teacher: "张老师")
         let second = makeSummary(id: 2, name: "线性代数", number: "MATH-1", teacher: "李老师")

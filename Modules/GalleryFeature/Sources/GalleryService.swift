@@ -240,7 +240,7 @@ public struct GalleryService {
     /// 机器人分栏使用最新帖子流作为源页，向后读取多页并筛出机器人帖子；
     /// 该分栏沿用独立的隐藏设置语义。
     ///
-    /// 机器人帖子在整体帖子流里占比并不高，所以这里采用“多抓几页 + 本地筛”的做法。
+    /// 连续读取帖子分页，在本地筛选机器人帖子。
     /// 每批最多扫描五页，后续查询沿源游标继续。
     public func fetchBotFeed(startPage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
         var sourcePage = startPage
@@ -336,7 +336,7 @@ public struct GalleryService {
 
     /// 发送帖子创建请求。
     ///
-    /// 图片会在发帖前单独上传；这里仅提交已经拿到的 `image_mids`。
+    /// 提交帖子文字与已上传图片的 `image_mids`。
     public func createPoster(
         title: String,
         text: String,
@@ -369,7 +369,7 @@ public struct GalleryService {
 
     /// 拉取单个帖子的详情。
     ///
-    /// 帖子详情会额外包含 `like / own / plugins` 等当前用户态字段，因此不能完全用列表卡片代替。
+    /// 帖子详情请求补充 `like / own / plugins` 等当前用户状态字段。
     public func fetchPoster(id: Int) async throws -> GalleryPosterDetail {
         let identity = session.currentCredentials.identity
         let revision = resourceUpdates.beginRead()
@@ -488,7 +488,7 @@ public struct GalleryService {
 
     /// 对帖子或评论执行点赞操作。
     ///
-    /// 后端使用同一个接口处理帖子和评论的点赞，因此这里只传对象 ID。
+    /// 通过共用点赞接口提交帖子或评论的对象 ID。
     public func like(objectID: String) async throws -> CommunityLikeResult {
         let result: CommunityLikeResult = try await api.request(
             path: "reaction/like",
