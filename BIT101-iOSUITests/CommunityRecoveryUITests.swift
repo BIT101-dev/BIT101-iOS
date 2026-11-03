@@ -2,9 +2,10 @@ import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
-    @objc func testArticleCountersUpdateTheVisibleListFromItsDetail() {
+    @objc func testArticleCountersUpdateVisibleListDetail() {
         XCUIDevice.shared.orientation = .landscapeLeft
-        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "gallery")
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         let summary = app.descendants(matching: .any)["paper.summary.1"]
         summary.tapBriefly()
@@ -18,7 +19,8 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         }
         let isWide = app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
         if !isWide { back() }
-        assertUI(waitUntil(NSPredicate { _, _ in countersAre(["2", "1"]) }, on: app), "文章卡片应接收详情确认的点赞数。")
+        assertUI(
+            waitUntil(NSPredicate { _, _ in countersAre(["2", "1"]) }, on: app), "文章卡片应接收详情确认的点赞数。")
         if !isWide { summary.tapBriefly() }
         tap("评论文章")
         replaceText("计数更新回归", in: app.textFields.firstMatch)
@@ -26,13 +28,16 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         tap("发布")
         assertUI(app.buttons["paper.detail.header-like"].appears(timeout: 5), "评论成功后应回到文章详情。")
         if !isWide { back() }
-        assertUI(waitUntil(NSPredicate { _, _ in countersAre(["2", "2"]) }, on: app), "文章卡片应同步社区返回的评论计数。")
+        assertUI(
+            waitUntil(NSPredicate { _, _ in countersAre(["2", "2"]) }, on: app), "文章卡片应同步社区返回的评论计数。"
+        )
     }
 
     @MainActor
-    @objc func testPosterDeepLinkKeepsItsTargetAfterAnInitialFailure() throws {
+    @objc func testPosterDeepLinkKeepsTarget() throws {
         XCUIDevice.shared.orientation = .portrait
-        app = configureApp(resetStorage: true, content: true, animations: true,
+        app = configureApp(
+            resetStorage: true, content: true, animations: true,
             persistentFailurePaths: ["posters/1"], initialTab: "mine")
         defer { Self.endSharedSession() }
         let application = try XCTUnwrap(app.native as? XCUIApplication)
@@ -46,21 +51,28 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testPaperSearchRefreshKeepsItsQueryAndUsesTheOwnedRequest() {
-        app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "gallery")
+    @objc func testPaperSearchRefreshKeepsQuery() {
+        app = configureApp(
+            resetStorage: true, content: true, pagination: true, initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         tap("搜索文章")
         assertUI(app.navigationBars["搜索"].appears(timeout: 5), "搜索入口应打开原生搜索页面。")
-        _ = UITestControlClient.request(["command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章"])
+        _ = UITestControlClient.request([
+            "command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章",
+        ])
         replaceText("分页文章", in: app.textFields.firstMatch)
         assertUI(textElement("输入关键词后，点击键盘上的搜索。").exists, "提交前应呈现搜索操作提示。")
-        assertUI(UITestControlClient.request(["command": "request-state", "key": "papers"]) == "queued", "输入关键词后应等待用户提交。")
+        assertUI(
+            UITestControlClient.request(["command": "request-state", "key": "papers"]) == "queued",
+            "输入关键词后应等待用户提交。")
         app.textFields.firstMatch.typeText("\n")
         waitForRequest("papers")
         releaseRequest("papers")
         dismissKeyboard()
         assertUI(textElement("分页文章 1").appears(timeout: 5), "搜索应先展示当前查询的结果。")
-        _ = UITestControlClient.request(["command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章"])
+        _ = UITestControlClient.request([
+            "command": "hold-request", "key": "papers", "query.page": "0", "query.search": "分页文章",
+        ])
         pullToRefresh {
             assertUI(app.navigationBars["搜索"].exists, "下拉刷新应保留搜索页面。")
             waitForRequest("papers")
@@ -71,7 +83,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testLongPostAndCommentKeepACompleteNativeReadingPath() {
+    @objc func testLongPost() {
         app = configureApp(resetStorage: true, content: true, longText: true, initialTab: "gallery")
         tap("自动化测试话题")
         let readers = app.buttons.matching(identifier: "ui.community-linked-text.read-full")
@@ -84,7 +96,8 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         content.swipeUp()
         tap("完成")
         reveal(app.buttons["回复"], description: "长评论操作")
-        guard let commentReader = readers.allElementsBoundByIndex.last(where: { $0.isHittable }) else {
+        guard let commentReader = readers.allElementsBoundByIndex.last(where: { $0.isHittable })
+        else {
             assertUI(false, "长评论应提供完整阅读入口。")
             return
         }
@@ -97,23 +110,36 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testIdenticalFeedRefreshKeepsThePaginationPosition() {
-        app = configureApp(resetStorage: true, content: true, media: true, pagination: true, initialTab: "gallery")
+    @objc func testIdenticalFeedRefreshKeepsPosition() {
+        app = configureApp(
+            resetStorage: true, content: true, media: true, pagination: true, initialTab: "gallery")
         tapHeader(app.segmentedControls.buttons["最新"])
         assertUI(textElement("分页话题 1").appears(timeout: 5), "信息流应提供稳定的首屏内容。")
-        assertUI(UITestControlClient.request(["command": "hold-request", "key": "posters"]) == "queued", "刷新请求应进入受控等待。")
+        assertUI(
+            UITestControlClient.request(["command": "hold-request", "key": "posters"]) == "queued",
+            "刷新请求应进入受控等待。")
         defer { _ = UITestControlClient.request(["command": "release-request", "key": "posters"]) }
         pullToRefresh {
             waitForRequest("posters")
             releaseRequest("posters")
         }
-        _ = UITestControlClient.request(["command": "hold-request", "key": "posters", "query.page": "1"])
+        _ = UITestControlClient.request([
+            "command": "hold-request", "key": "posters", "query.page": "1",
+        ])
         for _ in 1...8 {
-            if UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending" { break }
+            if UITestControlClient.request(["command": "request-state", "key": "posters"])
+                == "pending"
+            {
+                break
+            }
             app.swipeUp()
         }
-        assertUI(UITestControlClient.request(["command": "request-state", "key": "posters"]) == "pending", "列表尾部应请求下一页。")
-        let loading = app.descendants(matching: .any).matching(identifier: "community.pagination.loading").firstMatch
+        assertUI(
+            UITestControlClient.request(["command": "request-state", "key": "posters"])
+                == "pending", "列表尾部应请求下一页。")
+        let loading = app.descendants(matching: .any).matching(
+            identifier: "community.pagination.loading"
+        ).firstMatch
         reveal(loading, description: "分页进度")
         _ = UITestControlClient.request(["command": "release-request", "key": "posters"])
         assertUI(loading.disappears(timeout: 5), "下一页完成后应结束分页进度。")
@@ -124,8 +150,9 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testMessageReadStorageRecoveryKeepsMessagesAvailable() {
-        app = configureApp(resetStorage: true, content: true, messageStorageRecovery: true, initialTab: "gallery")
+    @objc func testMessageReadStorageKeepsAvailable() {
+        app = configureApp(
+            resetStorage: true, content: true, messageStorageRecovery: true, initialTab: "gallery")
         tap("消息")
         assertUI(app.alerts["消息状态同步受阻"].appears(timeout: 5), "已读存储受损应保留读取原因。")
         closeAlertIfPresent()
@@ -149,11 +176,18 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testDuplicatePagesKeepTheVisibleTailLoading() {
-        for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章"), ("mine", "", "分页话题")] {
-            app = configureApp(resetStorage: true, content: true, pagination: true, duplicatePages: true, initialTab: tab)
-            if tab == "mine" { tap("帖子") }
-            else { tapHeader(app.segmentedControls.buttons[section]) }
+    @objc func testDuplicatePagesKeepVisibleTailLoading() {
+        for (tab, section, title) in [
+            ("home", "课程", "分页课程"), ("gallery", "文章", "分页文章"), ("mine", "", "分页话题"),
+        ] {
+            app = configureApp(
+                resetStorage: true, content: true, pagination: true, duplicatePages: true,
+                initialTab: tab)
+            if tab == "mine" {
+                tap("帖子")
+            } else {
+                tapHeader(app.segmentedControls.buttons[section])
+            }
             assertUI(textElement("\(title) 1").appears(timeout: 5), "首屏应展示分页夹具。")
             let next = textElement("\(title) 9")
             reveal(next, description: "重复页之后的内容")
@@ -162,11 +196,15 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testMessagePaginationRetriesAtTheVisibleTail() {
-        app = configureApp(resetStorage: true, content: true, messagePagingFailureOnce: true, initialTab: "gallery")
+    @objc func testMessagePaginationRetriesAtVisibleTail() {
+        app = configureApp(
+            resetStorage: true, content: true, messagePagingFailureOnce: true, initialTab: "gallery"
+        )
         tap("消息")
         assertUI(app.alerts["加载更多失败"].appears(timeout: 10), "后续消息读取故障应展示原因。")
-        _ = UITestControlClient.request(["command": "fail-request", "key": "messages", "query.last_id": "3", "persistent": "1"])
+        _ = UITestControlClient.request([
+            "command": "fail-request", "key": "messages", "query.last_id": "3", "persistent": "1",
+        ])
         closeAlertIfPresent()
         let retry = app.buttons["community.pagination.retry"]
         reveal(retry, description: "消息页尾重试")
@@ -178,8 +216,10 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCommentReviewContinuesTheConfirmedSubmission() {
-        app = configureApp(resetStorage: true, content: true, commentOutcomeUnknownOnce: true, initialTab: "gallery")
+    @objc func testCommentReviewContinuesSubmission() {
+        app = configureApp(
+            resetStorage: true, content: true, commentOutcomeUnknownOnce: true,
+            initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         tap("自动化测试文章")
         tap("评论文章")
@@ -200,8 +240,9 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testLaterPreviewPageRecoversThroughTheNativeRetryButton() {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true,
+    @objc func testPreviewPageRecoversNativeRetryButton() {
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, media: true,
             mediaRecovery: true, initialTab: "gallery")
         assertUI(textElement("+1").appears(timeout: 5), "恢复场景应提供两张预览图片。")
         tap("查看第1张图片")
@@ -216,8 +257,10 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         closeAlertIfPresent()
         let retry = UIElement(app.native).buttons["media.preview.retry"]
         assertUI(retry.appears(timeout: 10), "后续页加载失败应提供原生重试按钮。")
-        assertUI(UITestControlClient.request(["command": "release-request", "key": "media-recovery"]) == "released",
-                 "原生重试前应恢复图片传输。")
+        assertUI(
+            UITestControlClient.request(["command": "release-request", "key": "media-recovery"])
+                == "released",
+            "原生重试前应恢复图片传输。")
         retry.tapBriefly()
         assertUI(retry.disappears(timeout: 10), "重试成功后应恢复图片并收起重试按钮。")
         assertUI(waitForImagePreview(visible: true, timeout: 5), "恢复图片应保留系统预览。")
@@ -225,8 +268,9 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testMessagesAndFavoritesOpenNativeResources() {
-        app = configureApp(resetStorage: true, content: true, resourceRoutes: true, initialTab: "gallery")
+    @objc func testMessages() {
+        app = configureApp(
+            resetStorage: true, content: true, resourceRoutes: true, initialTab: "gallery")
         tap("消息")
         tap("课程更新")
         assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "课程消息应打开原生课程详情。")
@@ -243,13 +287,18 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCommunityPaginationRetriesFromTheVisibleTail() {
-        for (tab, section, title, search) in [("home", "课程", "分页课程", false), ("gallery", "文章", "分页文章", false),
-            ("gallery", "最新", "分页话题", false), ("gallery", "文章", "分页文章", true)] {
-            app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: "mine")
+    @objc func testCommunityPaginationRetriesVisibleTail() {
+        for (tab, section, title, search) in [
+            ("home", "课程", "分页课程", false), ("gallery", "文章", "分页文章", false),
+            ("gallery", "最新", "分页话题", false), ("gallery", "文章", "分页文章", true),
+        ] {
+            app = configureApp(
+                resetStorage: true, content: true, pagination: true, initialTab: "mine")
             if !search {
                 let path = tab == "home" ? "courses" : section == "文章" ? "papers" : "posters"
-                var failure = ["command": "fail-request", "key": path, "query.page": "1", "persistent": "1"]
+                var failure = [
+                    "command": "fail-request", "key": path, "query.page": "1", "persistent": "1",
+                ]
                 if path == "posters" { failure["query.order"] = "new" }
                 _ = UITestControlClient.request(failure)
             }
@@ -257,7 +306,10 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             tapHeader(app.segmentedControls.buttons[section])
             if search {
                 tap("搜索文章")
-                _ = UITestControlClient.request(["command": "fail-request", "key": "papers", "query.page": "1", "query.search": "分页文章", "persistent": "1"])
+                _ = UITestControlClient.request([
+                    "command": "fail-request", "key": "papers", "query.page": "1",
+                    "query.search": "分页文章", "persistent": "1",
+                ])
                 replaceText("分页文章\n", in: app.textFields.firstMatch)
             }
             let retry = app.buttons["community.pagination.retry"]
@@ -279,8 +331,9 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCourseLookupFailureKeepsTheSearchIdentity() {
-        app = configureApp(resetStorage: true, content: true, animations: true, school: true,
+    @objc func testCourseLookupFailureKeepsSearchIdentity() {
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, school: true,
             persistentFailurePaths: ["courses"])
         tap("学校测试课程")
         tap("查看课程评价")
@@ -296,7 +349,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 
 extension CommunityInteractionUITests {
     @MainActor
-    @objc func testStableRowsPaginateAgainAfterRefreshingTheSameResults() {
+    @objc func testStableRowsPaginateAgain() {
         XCUIDevice.shared.orientation = .portrait
         for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
             app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
@@ -310,12 +363,16 @@ extension CommunityInteractionUITests {
                 let readingY = secondPage.frame.minY
                 tapHeader(app.segmentedControls.buttons["成绩"])
                 tapHeader(app.segmentedControls.buttons["课程"])
-                assertUI(secondPage.isHittable && abs(secondPage.frame.minY - readingY) < 1, "切换成绩与课程应保留课程阅读位置。")
+                assertUI(
+                    secondPage.isHittable && abs(secondPage.frame.minY - readingY) < 1,
+                    "切换成绩与课程应保留课程阅读位置。")
             }
             let request = tab == "home" ? "courses" : "papers"
             reveal(first, description: "刷新前首屏", searchFromTop: true)
             assertUI(first.isHittable, "刷新前应回到首屏。")
-            _ = UITestControlClient.request(["command": "hold-request", "key": request, "query.page": "0"])
+            _ = UITestControlClient.request([
+                "command": "hold-request", "key": request, "query.page": "0",
+            ])
             pullToRefresh {
                 waitForRequest(request)
                 releaseRequest(request)
@@ -332,7 +389,9 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
     @objc func testMinePublicProfileFollowAndPostDeletion() {
         app = configureApp(resetStorage: true, initialTab: "mine")
         assertUI(textElement("个人信息加载失败").appears(timeout: 5), "离线个人页应完成服务加载并展示恢复入口。")
-        app = configureApp(resetStorage: true, content: true, animations: true, media: true, minePagingFailureOnce: true, initialTab: "mine")
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, media: true,
+            minePagingFailureOnce: true, initialTab: "mine")
         func retryPageInPlace() {
             let failure = textElement("加载更多失败")
             reveal(failure, description: "分页恢复")
@@ -361,13 +420,17 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
         tap("关注")
         let followed = app.buttons["取消关注"]
         assertUI(followed.appears(timeout: 5), "关注成功应展示已关注状态。")
-        followed.tapBriefly(); assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
+        followed.tapBriefly()
+        assertUI(app.buttons["关注"].appears(timeout: 5), "再次点击应恢复关注入口。")
         tap("查看头像")
         _ = imagePreviewCloseButton()
-        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.native.descendants(matching: .any)["QLPreviewControllerView"].coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).tap()
         UITestSnapshotReader.invalidate()
         assertUI(waitForImagePreview(visible: true, timeout: 5), "点击预览画布应保留当前头像预览。")
-        app.native.images.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).tap()
+        app.native.images.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25))
+            .tap()
         UITestSnapshotReader.invalidate()
         closeImagePreview()
         for route in ["粉丝", "关注", "帖子"] {
@@ -402,7 +465,9 @@ nonisolated final class MineInteractionUITests: UIAutomationTestCase {
         tap("删除帖子")
         app.alerts.buttons["删除"].tapBriefly()
         let poster = textElement("自动化测试话题")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "个人列表删除应移除帖子。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5),
+            "个人列表删除应移除帖子。")
         assertUI(textElement("暂无可显示的帖子").appears(timeout: 5), "删除末条帖子应展示空态。")
         pullToRefresh()
         assertUI(textElement("暂无可显示的帖子").exists, "成功空态应继续支持下拉刷新。")

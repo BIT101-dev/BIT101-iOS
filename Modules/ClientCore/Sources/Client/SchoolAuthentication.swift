@@ -1,13 +1,16 @@
-import TransportCore
 import Foundation
+import TransportCore
 
 public nonisolated protocol SchoolServiceFailureProviding: Error {
     var schoolServiceFailure: SchoolServiceFailure? { get }
 }
 
 /// 学校协议适配层保留错误来源，页面文案独立调整。
-public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolServiceFailureProviding {
-    case authenticationChannel, authenticationRestricted, accountLocked, sessionExpired, accessDenied, secureConnection, unavailable
+public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable,
+    SchoolServiceFailureProviding
+{
+    case authenticationChannel, authenticationRestricted, accountLocked, sessionExpired,
+        accessDenied, secureConnection, unavailable
 
     public var schoolServiceFailure: Self? { self }
 
@@ -42,7 +45,8 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable, SchoolS
     private static func accountIsLocked(_ message: String) -> Bool {
         ["账号已被锁定", "账号被锁定", "帐号已被锁定", "帐号被锁定"].contains(where: message.contains)
             || SchoolLoginHTMLParser.loginErrorCode(html: message) == "1030028"
-            || message.range(of: #"\bcode["']?\s*[:=]\s*["']?1030028\b"#,
+            || message.range(
+                of: #"\bcode["']?\s*[:=]\s*["']?1030028\b"#,
                 options: [.regularExpression, .caseInsensitive]) != nil
     }
 
@@ -82,8 +86,10 @@ public nonisolated struct BITLoginAuthenticationChallenge: Identifiable, Equatab
     public var isCaptcha: Bool { status == "waiting_captcha" }
     public var requiresVerification: Bool { isCaptcha || status == "waiting_sms" }
     public var captchaImageData: Data? {
-        guard let captchaImage, captchaImage.hasPrefix("data:image/"), let comma = captchaImage.firstIndex(of: ","),
-              captchaImage[..<comma].hasSuffix(";base64") else { return nil }
+        guard let captchaImage, captchaImage.hasPrefix("data:image/"),
+            let comma = captchaImage.firstIndex(of: ","),
+            captchaImage[..<comma].hasSuffix(";base64")
+        else { return nil }
         return Data(base64Encoded: String(captchaImage[captchaImage.index(after: comma)...]))
     }
 
@@ -172,7 +178,8 @@ public enum BITLoginChallengeSupport {
         }
     }
 
-    public nonisolated static func decodePayload(from data: Data) throws -> BITLoginChallengePayload {
+    public nonisolated static func decodePayload(from data: Data) throws -> BITLoginChallengePayload
+    {
         try JSONDecoder().decode(BITLoginChallengePayload.self, from: data)
     }
 
@@ -242,10 +249,13 @@ public enum BITLoginChallengeSupport {
         )
     }
 
-    public nonisolated static func verificationRequest(code: String, for challenge: BITLoginAuthenticationChallenge,
-        baseURL: URL) throws -> URLRequest {
+    public nonisolated static func verificationRequest(
+        code: String, for challenge: BITLoginAuthenticationChallenge,
+        baseURL: URL
+    ) throws -> URLRequest {
         let step = challenge.isCaptcha ? "captcha" : "sms"
-        var request = URLRequest(url: baseURL.appending(path: "api/auth/\(challenge.challengeID)/\(step)"))
+        var request = URLRequest(
+            url: baseURL.appending(path: "api/auth/\(challenge.challengeID)/\(step)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")

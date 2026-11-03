@@ -1,16 +1,22 @@
+import Combine
+import Foundation
 import ScoreDomain
 import ScorePorts
 import StorageCore
-import Combine
-import Foundation
 
 public final class ScoreFilterPreferenceStore: ScoreFilterPreferencesStoring {
     private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
+    public var changes: AnyPublisher<AppStorageSession, Never> {
+        changeSubject.eraseToAnyPublisher()
+    }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    public var localSaves: AnyPublisher<AppStorageSession, Never> {
+        saveSubject.eraseToAnyPublisher()
+    }
     private let recoverySubject = PassthroughSubject<AppStorageSession, Never>()
-    public var recoveries: AnyPublisher<AppStorageSession, Never> { recoverySubject.eraseToAnyPublisher() }
+    public var recoveries: AnyPublisher<AppStorageSession, Never> {
+        recoverySubject.eraseToAnyPublisher()
+    }
     private let session: () -> AppStorageSession
     private let store: AccountScopedCodableStore<ScoreFilterPreferenceSnapshot>
 

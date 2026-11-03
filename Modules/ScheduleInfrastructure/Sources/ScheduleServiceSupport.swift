@@ -1,7 +1,7 @@
-import SchedulePorts
-import ScheduleDomain
-import TransportCore
 import Foundation
+import ScheduleDomain
+import SchedulePorts
+import TransportCore
 
 private func containsUnderlyingError(
     _ error: Error,
@@ -17,36 +17,39 @@ private func containsUnderlyingError(
 /// `URLSession` 有时会把真正的 `URLError` 包在底层错误里；错误判断需要沿错误链检查。
 func isHostResolutionError(_ error: Error) -> Bool {
     containsUnderlyingError(error) { candidate in
-        candidate.domain == NSURLErrorDomain &&
-        (candidate.code == NSURLErrorCannotFindHost || candidate.code == NSURLErrorDNSLookupFailed)
+        candidate.domain == NSURLErrorDomain
+            && (candidate.code == NSURLErrorCannotFindHost
+                || candidate.code == NSURLErrorDNSLookupFailed)
     }
 }
 
 /// 判断 URLSession 是否因 TLS 证书校验失败而拒绝连接。
-func isCertificateValidationError(_ error: Error) -> Bool {
+func isCertificateError(_ error: Error) -> Bool {
     containsUnderlyingError(error) { candidate in
-        candidate.domain == NSURLErrorDomain && [
-            NSURLErrorServerCertificateHasBadDate,
-            NSURLErrorServerCertificateUntrusted,
-            NSURLErrorServerCertificateHasUnknownRoot,
-            NSURLErrorServerCertificateNotYetValid
-        ].contains(candidate.code)
+        candidate.domain == NSURLErrorDomain
+            && [
+                NSURLErrorServerCertificateHasBadDate,
+                NSURLErrorServerCertificateUntrusted,
+                NSURLErrorServerCertificateHasUnknownRoot,
+                NSURLErrorServerCertificateNotYetValid,
+            ].contains(candidate.code)
     }
 }
 
 /// 判断网络路线是否适合切换后重试。
-func isScheduleTransientNetworkError(_ error: Error) -> Bool {
-    if isHostResolutionError(error) || isCertificateValidationError(error) { return true }
+func isScheduleNetworkError(_ error: Error) -> Bool {
+    if isHostResolutionError(error) || isCertificateError(error) { return true }
     return containsUnderlyingError(error) { candidate in
-        candidate.domain == NSURLErrorDomain && [
-            NSURLErrorCannotFindHost,
-            NSURLErrorDNSLookupFailed,
-            NSURLErrorTimedOut,
-            NSURLErrorCannotConnectToHost,
-            NSURLErrorNetworkConnectionLost,
-            NSURLErrorNotConnectedToInternet,
-            NSURLErrorSecureConnectionFailed,
-        ].contains(candidate.code)
+        candidate.domain == NSURLErrorDomain
+            && [
+                NSURLErrorCannotFindHost,
+                NSURLErrorDNSLookupFailed,
+                NSURLErrorTimedOut,
+                NSURLErrorCannotConnectToHost,
+                NSURLErrorNetworkConnectionLost,
+                NSURLErrorNotConnectedToInternet,
+                NSURLErrorSecureConnectionFailed,
+            ].contains(candidate.code)
     }
 }
 

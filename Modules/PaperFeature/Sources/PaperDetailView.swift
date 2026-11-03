@@ -15,8 +15,13 @@ struct PaperDetailView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void) {
-        scene = PaperDetailViewScene(dependencies: dependencies, media: media, initialPaper: initialPaper, onDeleted: onDeleted, onChanged: onChanged)
+    init(
+        dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary,
+        onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void
+    ) {
+        scene = PaperDetailViewScene(
+            dependencies: dependencies, media: media, initialPaper: initialPaper,
+            onDeleted: onDeleted, onChanged: onChanged)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = initialPaper.id
     }
@@ -44,16 +49,24 @@ private struct PaperDetailViewScene: View {
     @State private var authenticationRevision = 0
     @Environment(\.dismiss) private var dismiss
 
-    init(dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary, onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void) {
+    init(
+        dependencies: PaperDependencies, media: MediaEnvironment, initialPaper: PaperSummary,
+        onDeleted: (() -> Void)? = nil, onChanged: @escaping () -> Void
+    ) {
         self.dependencies = dependencies
         self.media = media
         self.initialPaper = initialPaper
         self.onChanged = onChanged
         self.onDeleted = onDeleted
-        _viewModel = StateObject(wrappedValue: PaperDetailViewModel(initialPaper: initialPaper, service: dependencies.detail))
+        _viewModel = StateObject(
+            wrappedValue: PaperDetailViewModel(
+                initialPaper: initialPaper, service: dependencies.detail))
     }
 
-    var body: some View { content.environment(dependencies).environment(media).appReadableContent(fillsAvailableWidth: true) }
+    var body: some View {
+        content.environment(dependencies).environment(media).appReadableContent(
+            fillsAvailableWidth: true)
+    }
 
     private var content: some View {
         ScrollView {
@@ -86,20 +99,32 @@ private struct PaperDetailViewScene: View {
                             }
 
                             AppDetailCircleButton(
-                                accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章") : viewModel.likeStateMessage
+                                accessibilityLabel: viewModel.hasKnownLikeState
+                                    ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章")
+                                    : viewModel.likeStateMessage
                             ) {
                                 likePaper()
                             } label: {
                                 Group {
-                                    if viewModel.isLikingPaper || (!viewModel.hasKnownLikeState && (viewModel.paperStatus == .idle || viewModel.paperStatus == .loading)) {
+                                    if viewModel.isLikingPaper
+                                        || (!viewModel.hasKnownLikeState
+                                            && (viewModel.paperStatus == .idle
+                                                || viewModel.paperStatus == .loading))
+                                    {
                                         ProgressView()
                                             .controlSize(.small)
                                     } else {
-                                        Image(systemName: viewModel.isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                            .font(AppDesignSystem.Typography.title)
+                                        Image(
+                                            systemName: viewModel.isPaperLiked
+                                                ? "hand.thumbsup.fill" : "hand.thumbsup"
+                                        )
+                                        .font(AppDesignSystem.Typography.title)
                                     }
                                 }
-                                .foregroundStyle(viewModel.isPaperLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.primaryColor)
+                                .foregroundStyle(
+                                    viewModel.isPaperLiked
+                                        ? AppDesignSystem.Palette.Accent.primary
+                                        : AppDesignSystem.Foreground.primaryColor)
                             }
                             .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
                             .accessibilityIdentifier("paper.detail.header-like")
@@ -119,23 +144,38 @@ private struct PaperDetailViewScene: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Image(systemName: isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                                Image(
+                                    systemName: isPaperLiked
+                                        ? "hand.thumbsup.fill" : "hand.thumbsup")
                             }
 
-                            Text(viewModel.hasKnownLikeState ? (isPaperLiked ? "已点赞" : "看完了，点个赞") : viewModel.likeStateMessage)
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
+                            Text(
+                                viewModel.hasKnownLikeState
+                                    ? (isPaperLiked ? "已点赞" : "看完了，点个赞")
+                                    : viewModel.likeStateMessage
+                            )
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
                         }
-                        .foregroundStyle(isPaperLiked ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Palette.Accent.primary)
+                        .foregroundStyle(
+                            isPaperLiked
+                                ? AppDesignSystem.Palette.Highlight.foreground
+                                : AppDesignSystem.Palette.Accent.primary
+                        )
                         .padding(.horizontal, AppDesignSystem.Spacing.section)
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                         .background(
-                            isPaperLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Palette.Accent.surface,
+                            isPaperLiked
+                                ? AppDesignSystem.Palette.Accent.primary
+                                : AppDesignSystem.Palette.Accent.surface,
                             in: Capsule()
                         )
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
-                    .accessibilityLabel(viewModel.hasKnownLikeState ? (isPaperLiked ? "取消点赞" : "点赞文章") : viewModel.likeStateMessage)
+                    .accessibilityLabel(
+                        viewModel.hasKnownLikeState
+                            ? (isPaperLiked ? "取消点赞" : "点赞文章") : viewModel.likeStateMessage
+                    )
                     .accessibilityIdentifier("paper.detail.footer-like")
                     Spacer()
                 }
@@ -159,16 +199,21 @@ private struct PaperDetailViewScene: View {
                     selectedOrder: viewModel.commentOrder,
                     likingCommentIDs: viewModel.likingCommentIDs,
                     onSelectOrder: { order in
-                        viewModel.pendingOperations.enqueue { await viewModel.setCommentOrder(order) }
+                        viewModel.pendingOperations.enqueue {
+                            await viewModel.setCommentOrder(order)
+                        }
                     },
                     onReply: { target in
                         composerTarget = target
                     },
                     onLikeComment: { comment in
-                        viewModel.pendingOperations.enqueue { await viewModel.toggleCommentLike(comment) }
+                        viewModel.pendingOperations.enqueue {
+                            await viewModel.toggleCommentLike(comment)
+                        }
                     },
                     onOpenImage: { index, images in
-                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                        imageViewer = ImagePreviewRequest(
+                            remoteImages: images.map(\.previewImage), initialIndex: index)
                     },
                     onLoadMore: { comment in
                         viewModel.pendingOperations.enqueue {
@@ -188,7 +233,7 @@ private struct PaperDetailViewScene: View {
         .accessibilityIdentifier("interaction.PaperDetailViewScene.scroll")
         .background(AppDesignSystem.Palette.Background.grouped)
         .refreshable {
-                    interactionEvidence?("interaction.PaperDetailViewScene.refreshable", "refresh")
+            interactionEvidence?("interaction.PaperDetailViewScene.refreshable", "refresh")
 
             media.retryFailedImages()
             await viewModel.refreshAll()
@@ -228,9 +273,10 @@ private struct PaperDetailViewScene: View {
                 PaperCommentComposerSheet(
                     target: target,
                     isSubmitting: viewModel.isSubmittingComment,
-                review: viewModel.commentReview
+                    review: viewModel.commentReview
                 ) { text, anonymous in
-                    await viewModel.submitComment(text: text, anonymous: anonymous, target: target)
+                    await viewModel.submitComment(
+                        text: text, anonymous: anonymous, target: target)
                 }
                 .id(target.id)
             }
@@ -240,7 +286,8 @@ private struct PaperDetailViewScene: View {
         .navigationDestination(item: $editingPaper) { paper in
             PaperComposerView(
                 editingPaper: paper,
-                initialContent: PaperEditorContentBuilder.plainText(from: viewModel.contentBlocks),
+                initialContent: PaperEditorContentBuilder.plainText(
+                    from: viewModel.contentBlocks),
                 currentIdentity: dependencies.currentIdentity
             ) {
                 onChanged()
@@ -259,8 +306,8 @@ private struct PaperDetailViewScene: View {
                     }
                 }
             }
-                .accessibilityIdentifier("ui.paper-detail-view-scene.delete")
-                .disabled(viewModel.isDeletingPaper)
+            .accessibilityIdentifier("ui.paper-detail-view-scene.delete")
+            .disabled(viewModel.isDeletingPaper)
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("ui.paper-detail-view-scene.cancel")
         } message: {
@@ -273,9 +320,15 @@ private struct PaperDetailViewScene: View {
             authenticationRevision &+= 1
         }
         .onChange(of: viewModel.hasPublicContent) { _, isPublic in
-            if isPublic, authenticationRevision != 0, dependencies.hasAuthenticationCredentials() { authenticationRevision &+= 1 }
+            if isPublic, authenticationRevision != 0,
+                dependencies.hasAuthenticationCredentials()
+            {
+                authenticationRevision &+= 1
+            }
         }
-        .communityReadRecovery(networkPath: networkObserver, retryRevision: authenticationRevision) { await retryDetailIfNeeded() }
+        .communityReadRecovery(
+            networkPath: networkObserver, retryRevision: authenticationRevision
+        ) { await retryDetailIfNeeded() }
         .onDisappear { viewModel.cancelPendingOperations() }
         .diagnosticAlert(item: $viewModel.alert)
     }
@@ -320,16 +373,28 @@ private struct PaperDetailViewScene: View {
                     PaperContentBlockView(
                         block: block,
                         onOpenImage: { image in
-                            guard let initialIndex = inlineImages.firstIndex(of: image) else { return }
-                            imageViewer = ImagePreviewRequest(remoteImages: inlineImages.map { $0.asCommunityImage.previewImage }, initialIndex: initialIndex
+                            guard let initialIndex = inlineImages.firstIndex(of: image) else {
+                                return
+                            }
+                            imageViewer = ImagePreviewRequest(
+                                remoteImages: inlineImages.map {
+                                    $0.asCommunityImage.previewImage
+                                }, initialIndex: initialIndex
                             )
                         }
                     )
                 }
-                if contentBlocks.contains(where: { if case .requiresOriginal = $0 { return true }; return false }) {
-                    Link("阅读完整原文", destination: AppURL.required("https://bit101.cn/paper/\(initialPaper.id)"))
-                        .font(AppDesignSystem.Typography.body)
-                        .accessibilityIdentifier("ui.paper-content.original")
+                if contentBlocks.contains(where: {
+                    if case .requiresOriginal = $0 { return true }
+                    return false
+                }) {
+                    Link(
+                        "阅读完整原文",
+                        destination: AppURL.required(
+                            "https://bit101.cn/paper/\(initialPaper.id)")
+                    )
+                    .font(AppDesignSystem.Typography.body)
+                    .accessibilityIdentifier("ui.paper-content.original")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -350,7 +415,7 @@ private struct PaperDetailViewScene: View {
 
     private var inlineImages: [PaperInlineImage] {
         contentBlocks.compactMap { block in
-            if case let .image(_, image) = block {
+            if case .image(_, let image) = block {
                 return image
             }
             return nil
@@ -384,8 +449,10 @@ private struct PaperHeaderSummary: View {
     var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             AppAvatarView(
-                imageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.thumbnailURL,
-                fallbackImageURL: paper?.anonymous == true ? nil : paper?.updateUser.avatar.originalURL,
+                imageURL: paper?.anonymous == true
+                    ? nil : paper?.updateUser.avatar.thumbnailURL,
+                fallbackImageURL: paper?.anonymous == true
+                    ? nil : paper?.updateUser.avatar.originalURL,
                 size: AppDesignSystem.Size.Avatar.standard,
                 tint: AppDesignSystem.Palette.Status.neutral,
                 anonymous: paper?.anonymous == true
@@ -413,24 +480,28 @@ private struct PaperContentBlockView: View {
 
     var body: some View {
         switch block {
-        case let .header(_, text, level):
+        case .header(_, let text, let level):
             PaperRichTextView(
                 text: text,
                 textStyle: headerTextStyle(for: level),
                 textColor: .label
             )
             .accessibilityAddTraits(.isHeader)
-        case let .paragraph(_, text):
-            PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
+        case .paragraph(_, let text):
+            PaperRichTextView(
+                text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
         case .requiresOriginal:
             Text("此段内容请通过完整原文阅读。")
                 .font(AppDesignSystem.Typography.body)
                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
-        case let .quote(_, text, caption):
+        case .quote(_, let text, let caption):
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    PaperRichTextView(text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
+                PaperRichTextView(
+                    text: text, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
                 if let caption, containsVisibleText(caption) {
-                    PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption, textColor: .secondaryLabel)
+                    PaperRichTextView(
+                        text: caption, textStyle: AppDesignSystem.Typography.uiCaption,
+                        textColor: .secondaryLabel)
                 }
             }
             .padding(.leading, AppDesignSystem.Spacing.content)
@@ -439,36 +510,42 @@ private struct PaperContentBlockView: View {
                     .fill(AppDesignSystem.Palette.Accent.primary)
                     .frame(width: AppDesignSystem.Spacing.tiny)
             }
-        case let .list(_, items, ordered):
+        case .list(_, let items, let ordered):
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
                         Text(ordered ? "\(index + 1)." : "•")
                             .font(AppDesignSystem.Typography.bodyEmphasis)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        PaperRichTextView(text: item, textStyle: AppDesignSystem.Typography.uiBody, textColor: .label)
+                        PaperRichTextView(
+                            text: item, textStyle: AppDesignSystem.Typography.uiBody,
+                            textColor: .label)
                     }
                 }
             }
-        case let .image(_, image):
+        case .image(_, let image):
             let resource = image.asCommunityImage
             Button {
                 onOpenImage(image)
             } label: {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    RemoteCachedStillImage(url: resource.thumbnailURL, fallbackURL: resource.originalURL)
+                    RemoteCachedStillImage(
+                        url: resource.thumbnailURL, fallbackURL: resource.originalURL
+                    )
                     .frame(maxWidth: .infinity, minHeight: AppDesignSystem.Size.Media.draft)
                     .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
 
                     if let caption = image.caption, containsVisibleText(caption) {
-                        PaperRichTextView(text: caption, textStyle: AppDesignSystem.Typography.uiCaption, textColor: .secondaryLabel)
+                        PaperRichTextView(
+                            text: caption, textStyle: AppDesignSystem.Typography.uiCaption,
+                            textColor: .secondaryLabel)
                     }
                 }
             }
             .buttonStyle(.plain)
             .accessibilityLabel(imageAccessibilityLabel(for: image))
             .accessibilityHint("打开图片预览")
-                .accessibilityIdentifier("ui.paper-content-block-view.image")
+            .accessibilityIdentifier("ui.paper-content-block-view.image")
         }
     }
 
@@ -522,7 +599,9 @@ private struct PaperRichTextView: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
-        textView.linkTextAttributes = [.foregroundColor: UIColor(AppDesignSystem.Palette.Accent.primary)]
+        textView.linkTextAttributes = [
+            .foregroundColor: UIColor(AppDesignSystem.Palette.Accent.primary)
+        ]
         textView.delegate = context.coordinator
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView
@@ -531,19 +610,26 @@ private struct PaperRichTextView: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.openURL = openURL
         context.coordinator.interactionEvidence = interactionEvidence
-        let baseFont = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: uiView.traitCollection)
+        let baseFont = UIFont.preferredFont(
+            forTextStyle: textStyle, compatibleWith: uiView.traitCollection)
         let coordinator = context.coordinator
-        guard coordinator.renderedText != text || coordinator.renderedFont != baseFont || coordinator.renderedColor != textColor else { return }
+        guard
+            coordinator.renderedText != text || coordinator.renderedFont != baseFont
+                || coordinator.renderedColor != textColor
+        else { return }
         coordinator.renderedText = text
         coordinator.renderedFont = baseFont
         coordinator.renderedColor = textColor
         uiView.attributedText = normalizedAttributedText(baseFont: baseFont)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context)
+        -> CGSize?
+    {
         let width = proposal.width ?? uiView.bounds.width
         guard width > 0 else { return nil }
-        let fittingSize = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let fittingSize = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: fittingSize.height)
     }
 
@@ -573,7 +659,8 @@ private struct PaperRichTextView: UIViewRepresentable {
     private func normalizedSystemFont(from existingFont: UIFont, baseFont: UIFont) -> UIFont {
         let traits = existingFont.fontDescriptor.symbolicTraits
         let wantedTraits = traits.intersection([.traitBold, .traitItalic])
-        let descriptor = baseFont.fontDescriptor.withSymbolicTraits(wantedTraits) ?? baseFont.fontDescriptor
+        let descriptor =
+            baseFont.fontDescriptor.withSymbolicTraits(wantedTraits) ?? baseFont.fontDescriptor
         return UIFont(descriptor: descriptor, size: baseFont.pointSize)
     }
 
@@ -594,9 +681,11 @@ private struct PaperRichTextView: UIViewRepresentable {
             primaryActionFor textItem: UITextItem,
             defaultAction: UIAction
         ) -> UIAction? {
-            guard case let .link(url) = textItem.content else { return defaultAction }
-            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
-            return UIAction(title: defaultAction.title, image: defaultAction.image) { [weak self] _ in
+            guard case .link(let url) = textItem.content else { return defaultAction }
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+            else { return nil }
+            return UIAction(title: defaultAction.title, image: defaultAction.image) {
+                [weak self] _ in
                 self?.interactionEvidence?("interaction.PaperRichTextView.link", "tap")
                 self?.openURL(url)
             }

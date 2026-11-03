@@ -1,13 +1,20 @@
-import ScoreInfrastructure
-import ScoreDomain
-import ScorePorts
-import ScheduleFeature
-import SchedulePorts
-import ScheduleDomain
-import ScheduleInfrastructure
-import ScheduleSync
+import BackgroundTasks
 import ClientCore
+import Combine
+import CommunityTransport
 import DesignSystemKit
+import ScheduleDomain
+import ScheduleFeature
+import ScheduleInfrastructure
+import SchedulePorts
+import ScheduleSync
+import ScoreDomain
+import ScoreInfrastructure
+import ScorePorts
+import SwiftUI
+import UIKit
+import os
+
 //
 //  BIT101_iOSApp.swift
 //  BIT101-iOS
@@ -15,41 +22,44 @@ import DesignSystemKit
 //  Created by Harry Bit on 2026-03-24.
 //
 
-import SwiftUI
-import Combine
-import CommunityTransport
-import BackgroundTasks
-import UIKit
-import os
-
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    var restoreLoginSession: @MainActor () -> Void = { AppAccountSession.storage.retrySessionReadIfNeeded() }
+    var restoreLoginSession: @MainActor () -> Void = {
+        AppAccountSession.storage.retrySessionReadIfNeeded()
+    }
 
     func applicationProtectedDataDidBecomeAvailable(_: UIApplication) {
         restoreLoginSession()
     }
 
-    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        AppInterfaceOrientationPolicy.supportedOrientations(for: window?.windowScene?.traitCollection
-            ?? UITraitCollection(userInterfaceIdiom: UIDevice.current.userInterfaceIdiom))
+    func application(
+        _ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        AppInterfaceOrientationPolicy.supportedOrientations(
+            for: window?.windowScene?.traitCollection
+                ?? UITraitCollection(userInterfaceIdiom: UIDevice.current.userInterfaceIdiom))
     }
 
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
+        #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
         application.isIdleTimerDisabled = true
-#endif
-#if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE || (BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
+        #endif
+        #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
         return true
-#else
-#if BIT101_UI_TESTING
-        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return true }
-#endif
+        #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return true
+        #else
+        #if BIT101_UI_TESTING
+        guard
+            AppUITestBootstrap.usesProductionComposition
+                || !AppFileDirectories.isRunningUITest
+        else { return true }
+        #endif
         ScheduleReminderBackgroundRefresh.register()
         return true
-#endif
+        #endif
     }
 
 }
@@ -83,10 +93,20 @@ enum ScheduleReminderBackgroundRefresh {
     ///
     /// 同一 identifier 的新请求会替换先前提交的请求。
     @discardableResult
-    static func schedule(earliestBeginDate: Date?,
-        submit: (BGAppRefreshTaskRequest) throws -> Void = { try BGTaskScheduler.shared.submit($0) },
-        cancel: () -> Void = { BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: ScheduleReminderBackgroundRefresh.identifier) }) -> Bool {
-        guard let earliestBeginDate else { cancel(); return true }
+    static func schedule(
+        earliestBeginDate: Date?,
+        submit: (BGAppRefreshTaskRequest) throws -> Void = {
+            try BGTaskScheduler.shared.submit($0)
+        },
+        cancel: () -> Void = {
+            BGTaskScheduler.shared.cancel(
+                taskRequestWithIdentifier: ScheduleReminderBackgroundRefresh.identifier)
+        }
+    ) -> Bool {
+        guard let earliestBeginDate else {
+            cancel()
+            return true
+        }
 
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = earliestBeginDate
@@ -96,7 +116,13 @@ enum ScheduleReminderBackgroundRefresh {
             return true
         } catch {
             let failure = error as NSError
-            logger.error("Background refresh submission failed domain=\(failure.domain, privacy: .public) code=\(failure.code) description=\(failure.localizedDescription, privacy: .private)")
+            logger.error(
+                """
+                Background refresh submission failed domain=\(failure.domain, privacy: .public)\
+                 code=\(failure.code) description=\
+                \(failure.localizedDescription, privacy: .private)
+                """
+            )
             return false
         }
     }
@@ -117,15 +143,25 @@ enum ScheduleReminderBackgroundRefresh {
             guard AppAccountSession.storage.hasCachedSession else {
                 schedule(earliestBeginDate: nil)
                 await ScheduleLiveActivityManager.shared.endAllActivities()
-                completed = !Task.isCancelled && identity == AppAccountSession.storage.communityCredentials.identity
+                completed =
+                    !Task.isCancelled
+                    && identity == AppAccountSession.storage.communityCredentials.identity
                 return
             }
 
             completed = await refreshIfCurrent(
-                isCurrent: { AppAccountSession.storage.hasResolvedSession && identity == AppAccountSession.storage.communityCredentials.identity },
-                nextBeginDate: { try await ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate() },
+                isCurrent: {
+                    AppAccountSession.storage.hasResolvedSession
+                        && identity == AppAccountSession.storage.communityCredentials.identity
+                },
+                nextBeginDate: {
+                    try await ScheduleLiveActivityManager.shared.backgroundRefreshDate()
+                },
                 schedule: { schedule(earliestBeginDate: $0) },
-                refresh: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: "bg_app_refresh") })
+                refresh: {
+                    await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(
+                        trigger: "bg_app_refresh")
+                })
         }
 
         task.expirationHandler = { @Sendable in
@@ -133,8 +169,10 @@ enum ScheduleReminderBackgroundRefresh {
         }
     }
 
-    static func refreshIfCurrent(isCurrent: () -> Bool, nextBeginDate: () async throws -> Date?,
-        schedule: (Date?) -> Bool, refresh: () async -> Void) async -> Bool {
+    static func refreshIfCurrent(
+        isCurrent: () -> Bool, nextBeginDate: () async throws -> Date?,
+        schedule: (Date?) -> Bool, refresh: () async -> Void
+    ) async -> Bool {
         guard !Task.isCancelled, isCurrent() else { return false }
         let next: Date?
         do { next = try await nextBeginDate() } catch { return false }
@@ -150,70 +188,89 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
-#if RELEASE_NETWORK_SMOKE
+    #if RELEASE_NETWORK_SMOKE
     @StateObject private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
-#endif
+    #endif
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-#if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE && !(BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
-#if BIT101_UI_TESTING
+    #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
+    #if !BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
+    #if BIT101_UI_TESTING
     @StateObject private var uiTestScene: UITestSceneState
     private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
-#else
+    #else
     @StateObject private var lifecycle: AppAccountLifecycle
-#endif
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
-        _uiTestScene = StateObject(wrappedValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
-#else
+        _uiTestScene = StateObject(
+            wrappedValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
+        #else
         _lifecycle = StateObject(wrappedValue: Self.makeLifecycle())
-#endif
+        #endif
     }
 
     private static func makeLifecycle() -> AppAccountLifecycle {
         let settings = AppSettingsStore.shared
         let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         if AppUITestBootstrap.usesProductionComposition {
             preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
         } else {
             let cloud = AutomatedTestPreferenceCloudStore()
-            preferenceCloudSync = ExperimentalPreferenceCloudSync(settings: settings, stores: stores, cloudStore: cloud,
-                scoreEncryption: ScoreCacheSyncEncryption(defaults: AppFileDirectories.defaults, credentials: cloud))
+            preferenceCloudSync = ExperimentalPreferenceCloudSync(
+                settings: settings, stores: stores, cloudStore: cloud,
+                scoreEncryption: ScoreCacheSyncEncryption(
+                    defaults: AppFileDirectories.defaults, credentials: cloud))
         }
-#else
+        #else
         preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
-#endif
+        #endif
         let productionScores = ScoreService()
         let scores: any ScoreListServicing
         let transcripts: any TrustedTranscriptServicing
-#if BIT101_UI_TESTING
-        scores = AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition ? UITestScoreService() : productionScores
-        transcripts = AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition ? UITestScoreService() : productionScores
-#else
+        #if BIT101_UI_TESTING
+        scores =
+            AppFileDirectories.isRunningUITest
+                && !AppUITestBootstrap.usesProductionComposition
+            ? UITestScoreService() : productionScores
+        transcripts =
+            AppFileDirectories.isRunningUITest
+                && !AppUITestBootstrap.usesProductionComposition
+            ? UITestScoreService() : productionScores
+        #else
         scores = productionScores
         transcripts = productionScores
-#endif
+        #endif
         let diagnosisSchool: NetworkDiagnosisSchool = {
-#if BIT101_UI_TESTING
-            if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
+            #if BIT101_UI_TESTING
+            if AppFileDirectories.isRunningUITest
+                && !AppUITestBootstrap.usesProductionComposition
+            {
                 let service = UITestSchoolService()
-                return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
+                return NetworkDiagnosisSchool(
+                    identity: { AppAccountSession.storage.schoolSessionIdentity },
                     currentTerm: service.fetchCurrentTermOnly,
                     syncCourses: { _ = try await service.syncCourses(term: $0) },
-                    ddl: { try await service.syncDDLEvents(existingEvents: [], storedURL: "", schoolSMSCodeHandler: nil) })
+                    ddl: {
+                        try await service.syncDDLEvents(
+                            existingEvents: [], storedURL: "", schoolSMSCodeHandler: nil
+                        )
+                    })
             }
-#endif
+            #endif
             let service = ScheduleServiceFactory.make()
-            return NetworkDiagnosisSchool(identity: { AppAccountSession.storage.schoolSessionIdentity },
+            return NetworkDiagnosisSchool(
+                identity: { AppAccountSession.storage.schoolSessionIdentity },
                 currentTerm: service.fetchCurrentTermOnly,
                 syncCourses: { _ = try await service.syncCourses(term: $0) },
                 ddl: {
-                    let result = try await service.fetchEclassDDLEventsForPreflight()
-                    return DDLSyncPayload(url: "", events: result.events, syncedGroups: ["eclass"],
+                    let result = try await service.probeEclassEvents()
+                    return DDLSyncPayload(
+                        url: "", events: result.events, syncedGroups: ["eclass"],
                         warnings: result.failure.map { [$0.localizedDescription] } ?? [])
                 })
         }()
@@ -221,14 +278,21 @@ struct BIT101_iOSApp: App {
             scheduleViewModel: makeScheduleViewModel(),
             community: .app(settings: settings, stores: stores),
             scoreService: scores, transcriptService: transcripts,
-            diagnosisSchool: diagnosisSchool, settings: settings, stores: stores, preferenceCloudSync: preferenceCloudSync,
+            diagnosisSchool: diagnosisSchool, settings: settings, stores: stores,
+            preferenceCloudSync: preferenceCloudSync,
             accountChanges: AppAccountSession.storage.changes,
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
             scheduleChanges: ScheduleCacheStore.changes, scheduleCloudSync: .shared,
-            refreshScheduleCloud: { await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded() },
-            isNotificationPermissionDenied: { await ScheduleLiveActivityManager.shared.notificationAuthorizationStateForReminderFallback() == .denied },
+            refreshScheduleCloud: {
+                await ScheduleCloudSyncManager.shared.refreshFromCloudIfNeeded()
+            },
+            isNotificationPermissionDenied: {
+                await ScheduleLiveActivityManager.shared.reminderAuthorization() == .denied
+            },
             loadScheduleCourses: AppAccountStores.loadScheduleCourses,
-            media: AppMedia.environment, localData: AppLocalDataComposition.appService(settings: settings, media: AppMedia.environment),
+            media: AppMedia.environment,
+            localData: AppLocalDataComposition.appService(
+                settings: settings, media: AppMedia.environment),
             externalDisplays: AppExternalDisplayCoordinator(
                 currentSession: stores.currentSession,
                 isSessionResolved: { AppAccountSession.storage.hasResolvedSession },
@@ -236,39 +300,59 @@ struct BIT101_iOSApp: App {
                 activateWatch: WatchScheduleSyncManager.shared.activateIfNeeded,
                 resetPresentation: AppErrorPresenter.shared.reset,
                 exportWidget: ScheduleWidgetExporter.syncFromCurrentCache,
-                nextReminderRefresh: ScheduleLiveActivityManager.shared.preferredBackgroundRefreshBeginDate,
-                scheduleBackgroundRefresh: { _ = ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: $0) },
+                nextReminderRefresh: ScheduleLiveActivityManager.shared
+                    .backgroundRefreshDate,
+                scheduleBackgroundRefresh: {
+                    _ = ScheduleReminderBackgroundRefresh.schedule(earliestBeginDate: $0)
+                },
                 endActivities: ScheduleLiveActivityManager.shared.endAllActivities,
-                refreshActivities: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: $0) }
+                refreshActivities: {
+                    await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(
+                        trigger: $0)
+                }
             )
         )
     }
 
     private static func makeScheduleViewModel() -> ScheduleViewModel {
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         if !AppUITestBootstrap.usesProductionComposition {
-            let actions = UITestSchedulePlatformActions(historyNeedsRecovery:
-                AppUITestBootstrap.environment["BIT101_UI_TEST_CALENDAR_HISTORY_RECOVERY"] == "1")
-            return ScheduleServiceFactory.makeViewModel(platformActions: actions, didSave: { _, _, _ in })
+            let actions = UITestSchedulePlatformActions(
+                historyNeedsRecovery:
+                    AppUITestBootstrap.environment[
+                        "BIT101_UI_TEST_CALENDAR_HISTORY_RECOVERY"] == "1")
+            return ScheduleServiceFactory.makeViewModel(
+                platformActions: actions, didSave: { _, _, _ in })
         }
-#endif
+        #endif
         let calendar = ScheduleSystemCalendarManager.shared
         let effects = AppScheduleCacheEffects(
             currentSession: { AppAccountSession.currentSession },
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
-            pushCloud: { await ScheduleCloudSyncManager.shared.pushLatestLocalCacheIfNeeded() },
-            reconcileCloud: { await ScheduleCloudSyncManager.shared.reconcileAfterEnabling() },
-            requestReminderAuthorization: { _ = await ScheduleLiveActivityManager.shared.requestNotificationAuthorizationIfNeeded() },
-            refreshReminder: { await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(trigger: $0) },
+            pushCloud: { await ScheduleCloudSyncManager.shared.pushLatestCache() },
+            reconcileCloud: {
+                await ScheduleCloudSyncManager.shared.reconcileAfterEnabling()
+            },
+            requestReminderAuthorization: {
+                _ = await ScheduleLiveActivityManager.shared.authorizeNotifications()
+            },
+            refreshReminder: {
+                await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(
+                    trigger: $0)
+            },
             importCourses: { try await calendar.importCurrentTerm(from: $0, term: $1) },
             importDrafts: { try await calendar.importDrafts($0, term: $1) },
-            deleteEntries: { try await calendar.deleteImportedEvents(markerIDs: $0, term: $1) },
+            deleteEntries: {
+                try await calendar.deleteImportedEvents(markerIDs: $0, term: $1)
+            },
             deleteAllEntries: { try await calendar.deleteAllImportedEvents() },
             rebuildCalendarHistory: { try await calendar.rebuildImportHistory() }
         )
-        return ScheduleServiceFactory.makeViewModel(platformActions: effects, didSave: effects.didSave)
+        return ScheduleServiceFactory.makeViewModel(
+            platformActions: effects, didSave: effects.didSave)
     }
-#endif
+    #endif
+    #endif
 
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
     /// 入口负责同步 Widget、Watch 和 Live Activity。
@@ -282,7 +366,8 @@ struct BIT101_iOSApp: App {
                 .accessibilityIdentifier("release-network-smoke-host")
                 .task {
                     do {
-                        let smokeRequest = try ReleaseNetworkSmokeLaunchRequest.readPendingFile()
+                        let smokeRequest =
+                            try ReleaseNetworkSmokeLaunchRequest.readPendingFile()
                         _ = await ReleaseNetworkSmokeRunner().run(
                             scope: smokeRequest.scope,
                             runID: smokeRequest.runID,
@@ -290,17 +375,27 @@ struct BIT101_iOSApp: App {
                             term: smokeRequest.term,
                             communityFollowTarget: smokeRequest.communityFollowTarget,
                             communityExpectedAccount: smokeRequest.communityExpectedAccount,
-                            communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
+                            communityRecoveryConfirmation: smokeRequest
+                                .communityRecoveryConfirmation,
                             fixtures: smokeRequest.fixtures,
-                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
+                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true
+                                ? networkSmokeSMS.requestCode : nil
                         )
                     } catch {
                         let failure = error as NSError
-                        FileHandle.standardOutput.write(Data("NETWORK_SMOKE_REQUEST_FAIL domain=\(failure.domain) code=\(failure.code)\n".utf8))
+                        FileHandle.standardOutput.write(
+                            Data(
+                                """
+                                NETWORK_SMOKE_REQUEST_FAIL domain=\(failure.domain) code=\
+                                \(failure.code)\n
+                                """
+                                .utf8))
                     }
                 }
                 .onOpenURL { url in
-                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else { return }
+                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else {
+                        return
+                    }
                     Task {
                         _ = await ReleaseNetworkSmokeRunner().run(
                             scope: smokeRequest.scope,
@@ -309,79 +404,107 @@ struct BIT101_iOSApp: App {
                             term: smokeRequest.term,
                             communityFollowTarget: smokeRequest.communityFollowTarget,
                             communityExpectedAccount: smokeRequest.communityExpectedAccount,
-                            communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
+                            communityRecoveryConfirmation: smokeRequest
+                                .communityRecoveryConfirmation,
                             fixtures: smokeRequest.fixtures,
-                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true ? networkSmokeSMS.requestCode : nil
+                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true
+                                ? networkSmokeSMS.requestCode : nil
                         )
                     }
                 }
                 .sheet(item: $networkSmokeSMS.request) { request in
-                    AppVerificationSheet(maskedPhone: request.maskedPhone, isSubmitting: false, errorMessage: nil,
+                    AppVerificationSheet(
+                        maskedPhone: request.maskedPhone, isSubmitting: false,
+                        errorMessage: nil,
                         submitTitle: "验证并继续", onCancel: networkSmokeSMS.cancel,
-                        onSubmit: { networkSmokeSMS.submit($0) })
-                        .interactiveDismissDisabled()
+                        onSubmit: { networkSmokeSMS.submit($0) }
+                    )
+                    .interactiveDismissDisabled()
                 }
             #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
             Color.clear.accessibilityIdentifier("behavior-test-host")
             #else
-            ContentView(transcriptService: lifecycle.transcriptService, localData: lifecycle.localData)
-#if BIT101_UI_TESTING
-                .uiTestExternalURLs()
-#endif
-                .environment(lifecycle.communityDestinations)
-                .environment(lifecycle.community)
-                .environment(lifecycle.communityDestinations.media)
-                .environmentObject(lifecycle.scheduleViewModel)
-                .environmentObject(lifecycle)
-                .environmentObject(lifecycle.scheduleViewModel.ddl)
-                .environmentObject(lifecycle.scoreViewModel)
-                .environmentObject(lifecycle.settings)
-                .environmentObject(lifecycle.preferenceCloudSync)
-                .environmentObject(lifecycle.prompts)
-                .appKeyboardDismissSupport()
-#if BIT101_UI_TESTING
-                .environment(\.appInteractionEvidence) { identifier, action in
-                    UITestAccessibilityActions.recordCallback(identifier, action: action)
-                }
-#endif
-                .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
-#if BIT101_UI_TESTING
-                .id(uiTestScene.revision)
-                .environment(\.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large)
-                .preferredColorScheme(uiTestScene.colorScheme)
-                .overlay(alignment: .topLeading) {
-                    Color.clear.frame(width: AppDesignSystem.Size.Control.compact, height: AppDesignSystem.Size.Control.compact)
-                        .accessibilityElement()
-                        .accessibilityIdentifier("ui-test.scene")
-                        .accessibilityValue(Text(verbatim: "\(ProcessInfo.processInfo.processIdentifier):\(uiTestScene.revision)"))
-                        .allowsHitTesting(false)
-                }
-#endif
-                .onOpenURL { url in
-                    AppDeepLinkCoordinator.shared.receive(url)
-                }
-                .task {
-                    lifecycle.start()
-                    AppRestoreReadiness.initializedScene()
-                    await AppFileDirectories.preparePersistentBackups()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
-                    AppRestoreReadiness.recordIfReady()
-                }
+            ContentView(
+                transcriptService: lifecycle.transcriptService, localData: lifecycle.localData
+            )
+            #if BIT101_UI_TESTING
+            .uiTestExternalURLs()
+            #endif
+            .environment(lifecycle.communityDestinations)
+            .environment(lifecycle.community)
+            .environment(lifecycle.communityDestinations.media)
+            .environmentObject(lifecycle.scheduleViewModel)
+            .environmentObject(lifecycle)
+            .environmentObject(lifecycle.scheduleViewModel.ddl)
+            .environmentObject(lifecycle.scoreViewModel)
+            .environmentObject(lifecycle.settings)
+            .environmentObject(lifecycle.preferenceCloudSync)
+            .environmentObject(lifecycle.prompts)
+            .appKeyboardDismissSupport()
+            #if BIT101_UI_TESTING
+            .environment(\.appInteractionEvidence) { identifier, action in
+                UITestAccessibilityActions.recordCallback(identifier, action: action)
+            }
+            #endif
+            .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
+            #if BIT101_UI_TESTING
+            .id(uiTestScene.revision)
+            .environment(
+                \.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large
+            )
+            .preferredColorScheme(uiTestScene.colorScheme)
+            .overlay(alignment: .topLeading) {
+                Color.clear.frame(
+                    width: AppDesignSystem.Size.Control.compact,
+                    height: AppDesignSystem.Size.Control.compact
+                )
+                .accessibilityElement()
+                .accessibilityIdentifier("ui-test.scene")
+                .accessibilityValue(
+                    Text(
+                        verbatim:
+                            """
+                            \(ProcessInfo.processInfo.processIdentifier):\
+                            \(uiTestScene.revision)
+                            """
+                    )
+                )
+                .allowsHitTesting(false)
+            }
+            #endif
+            .onOpenURL { url in
+                AppDeepLinkCoordinator.shared.receive(url)
+            }
+            .task {
+                lifecycle.start()
+                AppRestoreReadiness.initializedScene()
+                await AppFileDirectories.preparePersistentBackups()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.didBecomeActiveNotification)
+            ) { _ in
+                AppRestoreReadiness.recordIfReady()
+            }
             #endif
         }
-        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE && !(BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING)
+        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
+        #if !BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-#if BIT101_UI_TESTING
-                guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
-#endif
+                #if BIT101_UI_TESTING
+                guard
+                    AppUITestBootstrap.usesProductionComposition
+                        || !AppFileDirectories.isRunningUITest
+                else { return }
+                #endif
                 // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
                 appDelegate.restoreLoginSession()
                 lifecycle.sceneBecameActive()
                 AppRestoreReadiness.recordIfReady()
             }
         }
+        #endif
         #endif
     }
 }
@@ -400,142 +523,198 @@ final class UITestSceneState: ObservableObject {
         self.makeLifecycle = makeLifecycle
         lifecycle = makeLifecycle()
         largeText = AppUITestBootstrap.environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
-        colorScheme = AppUITestBootstrap.environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        colorScheme = AppUITestBootstrap.environment["BIT101_UI_TEST_STYLE"].flatMap {
+            $0 == "Dark" ? .dark : .light
+        }
         _ = UITestAccessibilityActions.keyboardState()
         do {
             control = try UITestControlServer { [weak self] data, reply in
                 Task { @MainActor in
                     guard let self else { return }
-                    do {
-                        let environment = try JSONDecoder().decode([String: String].self, from: data)
-                        if environment["command"] == "observe" {
-                            reply(Data(UITestAccessibilityActions.observe().utf8))
-                            return
-                        }
-                        if environment["command"] == "coverage" {
-                            reply(try UITestAccessibilityActions.coverage())
-                            return
-                        }
-                        if environment["command"] == "window-layout" {
-                            reply(try UITestAccessibilityActions.windowLayout())
-                            return
-                        }
-                        if environment["command"] == "map-camera" {
-                            reply(try UITestAccessibilityActions.mapCamera())
-                            return
-                        }
-                        if environment["command"] == "preview-page" {
-                            reply(try UITestAccessibilityActions.previewPage(details: environment["details"] == "1"))
-                            return
-                        }
-                        if environment["command"] == "identity" {
-                            reply(Data(UITestAccessibilityActions.identity(environment).utf8))
-                            return
-                        }
-                        if environment["command"] == "native-observe" {
-                            reply(Data(UITestAccessibilityActions.nativeIdentity(environment).utf8))
-                            return
-                        }
-                        if ["scroll-inventory", "scroll-check", "scroll-restore"].contains(environment["command"] ?? "") {
-                            reply(try UITestAccessibilityActions.scroll(environment))
-                            return
-                        }
-                        if environment["command"] == "record" {
-                            UITestAccessibilityActions.invalidate()
-                            let recorded = UITestAccessibilityActions.record(environment["identifier"] ?? "", label: environment["label"] ?? "",
-                                type: Int(environment["type"] ?? "") ?? 0, scope: environment["scope"], instance: environment["instance"], action: environment["action"] ?? "activate")
-                            reply(Data((recorded ? "recorded" : "unobserved").utf8))
-                            return
-                        }
-                        if environment["command"] == "state" {
-                            UITestAccessibilityActions.checkDisabled(environment["identifier"] ?? "", label: environment["label"] ?? "",
-                                type: Int(environment["type"] ?? "") ?? 0, scope: environment["scope"], instance: environment["instance"])
-                            reply(Data("checked".utf8))
-                            return
-                        }
-                        if environment["command"] == "occlusion" {
-                            reply(Data(UITestAccessibilityActions.occlude(environment).utf8))
-                            return
-                        }
-                        if ["query", "query-activate", "query-input", "query-reveal", "query-accessibility-action"].contains(environment["command"] ?? "") {
-                            let response = try UITestAccessibilityActions.read(environment)
-                            if ["activated", "control", "entered", "revealed", "performed"].contains(String(decoding: response, as: UTF8.self)) {
-                                let frameRate = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-                                    .first?.screen.maximumFramesPerSecond ?? 60
-                                try await Task.sleep(for: .seconds(2 / Double(frameRate)))
-                            }
-                            reply(response)
-                            return
-                        }
-                        if environment["command"] == "activate" {
-                            UITestAccessibilityActions.invalidate()
-                            reply(Data(UITestAccessibilityActions.activate(environment).utf8))
-                            return
-                        }
-                        if environment["command"] == "resolve" {
-                            reply(try UITestAccessibilityActions.resolve(environment))
-                            return
-                        }
-                        if environment["command"] == "input" {
-                            UITestAccessibilityActions.invalidate()
-                            reply(Data(UITestAccessibilityActions.input(environment).utf8))
-                            return
-                        }
-                        if environment["command"] == "finish-input" {
-                            UITestAccessibilityActions.invalidate()
-                            reply(Data(UITestAccessibilityActions.finishInput().utf8))
-                            return
-                        }
-                        if environment["command"] == "select-input" {
-                            reply(Data(UITestAccessibilityActions.selectInput().utf8))
-                            return
-                        }
-                        if environment["command"] == "consume-opened-url" {
-                            reply(Data((UITestAccessibilityActions.openedExternalURL ?? "").utf8))
-                            UITestAccessibilityActions.openedExternalURL = nil
-                            return
-                        }
-                        if environment["command"] == "safe-area" {
-                            reply(try UITestAccessibilityActions.safeAreaFrame())
-                            return
-                        }
-                        if environment["command"] == "keyboard-state" {
-                            reply(Data(UITestAccessibilityActions.keyboardState(returnTitle: environment["return-title"]).utf8))
-                            return
-                        }
-                        if let command = environment["command"], ["request-state", "release-request", "fail-request", "hold-request"].contains(command) {
-                            guard let key = environment["key"], !key.isEmpty else { throw CocoaError(.coderInvalidValue) }
-                            let query = Dictionary(uniqueKeysWithValues: environment.filter { $0.key.hasPrefix("query.") }
-                                .map { (String($0.key.dropFirst("query.".count)), $0.value) })
-                            if command == "hold-request" {
-                                AppUITestBootstrap.completedRequests.remove(key)
-                                AppUITestBootstrap.holdingRequests[key] = query
-                                reply(Data("queued".utf8))
-                            } else if command == "fail-request" {
-                                AppUITestBootstrap.failingRequests[key] = query
-                                if environment["persistent"] == "1" { AppUITestBootstrap.persistentFailures.insert(key) }
-                                else { AppUITestBootstrap.persistentFailures.remove(key) }
-                                reply(Data("queued".utf8))
-                            } else if command == "release-request" {
-                                AppUITestBootstrap.releaseRequest(key)
-                                reply(Data("released".utf8))
-                            } else {
-                                let state = AppUITestBootstrap.pendingRequests[key] != nil ? "pending"
-                                    : AppUITestBootstrap.holdingRequests[key] != nil ? "queued"
-                                    : AppUITestBootstrap.completedRequests.contains(key) ? "completed" : "idle"
-                                reply(Data(state.utf8))
-                            }
-                            return
-                        }
-                        self.configure(environment)
-                        reply(Data("\(ProcessInfo.processInfo.processIdentifier):\(self.revision)".utf8))
-                    } catch {
-                        reply(Data("invalid scene configuration: \(error)".utf8))
-                    }
+                    await self.handleControl(data, reply: reply)
                 }
             }
         } catch {
             preconditionFailure("UI test control channel failed: \(error)")
+        }
+    }
+
+    private func handleControl(
+        _ data: Data, reply: @escaping @Sendable (Data) -> Void
+    ) async {
+        do {
+            let environment = try JSONDecoder().decode(
+                [String: String].self, from: data)
+            if environment["command"] == "observe" {
+                reply(Data(UITestAccessibilityActions.observe().utf8))
+                return
+            }
+            if environment["command"] == "coverage" {
+                reply(try UITestAccessibilityActions.coverage())
+                return
+            }
+            if environment["command"] == "window-layout" {
+                reply(try UITestAccessibilityActions.windowLayout())
+                return
+            }
+            if environment["command"] == "map-camera" {
+                reply(try UITestAccessibilityActions.mapCamera())
+                return
+            }
+            if environment["command"] == "preview-page" {
+                reply(
+                    try UITestAccessibilityActions.previewPage(
+                        details: environment["details"] == "1"))
+                return
+            }
+            if environment["command"] == "identity" {
+                reply(Data(UITestAccessibilityActions.identity(environment).utf8))
+                return
+            }
+            if environment["command"] == "native-observe" {
+                reply(
+                    Data(
+                        UITestAccessibilityActions.nativeIdentity(environment).utf8)
+                )
+                return
+            }
+            if ["scroll-inventory", "scroll-check", "scroll-restore"].contains(
+                environment["command"] ?? "")
+            {
+                reply(try UITestAccessibilityActions.scroll(environment))
+                return
+            }
+            if environment["command"] == "record" {
+                UITestAccessibilityActions.invalidate()
+                let recorded = UITestAccessibilityActions.record(
+                    environment["identifier"] ?? "",
+                    label: environment["label"] ?? "",
+                    type: Int(environment["type"] ?? "") ?? 0,
+                    scope: environment["scope"], instance: environment["instance"],
+                    action: environment["action"] ?? "activate")
+                reply(Data((recorded ? "recorded" : "unobserved").utf8))
+                return
+            }
+            if environment["command"] == "state" {
+                UITestAccessibilityActions.checkDisabled(
+                    environment["identifier"] ?? "",
+                    label: environment["label"] ?? "",
+                    type: Int(environment["type"] ?? "") ?? 0,
+                    scope: environment["scope"], instance: environment["instance"])
+                reply(Data("checked".utf8))
+                return
+            }
+            if environment["command"] == "occlusion" {
+                reply(Data(UITestAccessibilityActions.occlude(environment).utf8))
+                return
+            }
+            if [
+                "query", "query-activate", "query-input", "query-reveal",
+                "query-accessibility-action",
+            ].contains(environment["command"] ?? "") {
+                let response = try UITestAccessibilityActions.read(environment)
+                if ["activated", "control", "entered", "revealed", "performed"]
+                    .contains(String(decoding: response, as: UTF8.self))
+                {
+                    let frameRate =
+                        UIApplication.shared.connectedScenes.compactMap {
+                            $0 as? UIWindowScene
+                        }
+                        .first?.screen.maximumFramesPerSecond ?? 60
+                    try await Task.sleep(for: .seconds(2 / Double(frameRate)))
+                }
+                reply(response)
+                return
+            }
+            if environment["command"] == "activate" {
+                UITestAccessibilityActions.invalidate()
+                reply(Data(UITestAccessibilityActions.activate(environment).utf8))
+                return
+            }
+            if environment["command"] == "resolve" {
+                reply(try UITestAccessibilityActions.resolve(environment))
+                return
+            }
+            if environment["command"] == "input" {
+                UITestAccessibilityActions.invalidate()
+                reply(Data(UITestAccessibilityActions.input(environment).utf8))
+                return
+            }
+            if environment["command"] == "finish-input" {
+                UITestAccessibilityActions.invalidate()
+                reply(Data(UITestAccessibilityActions.finishInput().utf8))
+                return
+            }
+            if environment["command"] == "select-input" {
+                reply(Data(UITestAccessibilityActions.selectInput().utf8))
+                return
+            }
+            if environment["command"] == "consume-opened-url" {
+                reply(
+                    Data((UITestAccessibilityActions.openedExternalURL ?? "").utf8))
+                UITestAccessibilityActions.openedExternalURL = nil
+                return
+            }
+            if environment["command"] == "safe-area" {
+                reply(try UITestAccessibilityActions.safeAreaFrame())
+                return
+            }
+            if environment["command"] == "keyboard-state" {
+                reply(
+                    Data(
+                        UITestAccessibilityActions.keyboardState(
+                            returnTitle: environment["return-title"]
+                        ).utf8))
+                return
+            }
+            if let command = environment["command"],
+                [
+                    "request-state", "release-request", "fail-request",
+                    "hold-request",
+                ].contains(command)
+            {
+                guard let key = environment["key"], !key.isEmpty else {
+                    throw CocoaError(.coderInvalidValue)
+                }
+                let query = Dictionary(
+                    uniqueKeysWithValues: environment.filter {
+                        $0.key.hasPrefix("query.")
+                    }
+                    .map { (String($0.key.dropFirst("query.".count)), $0.value) })
+                if command == "hold-request" {
+                    AppUITestBootstrap.completedRequests.remove(key)
+                    AppUITestBootstrap.holdingRequests[key] = query
+                    reply(Data("queued".utf8))
+                } else if command == "fail-request" {
+                    AppUITestBootstrap.failingRequests[key] = query
+                    if environment["persistent"] == "1" {
+                        AppUITestBootstrap.persistentFailures.insert(key)
+                    } else {
+                        AppUITestBootstrap.persistentFailures.remove(key)
+                    }
+                    reply(Data("queued".utf8))
+                } else if command == "release-request" {
+                    AppUITestBootstrap.releaseRequest(key)
+                    reply(Data("released".utf8))
+                } else {
+                    let state =
+                        AppUITestBootstrap.pendingRequests[key] != nil
+                        ? "pending"
+                        : AppUITestBootstrap.holdingRequests[key] != nil
+                            ? "queued"
+                            : AppUITestBootstrap.completedRequests.contains(key)
+                                ? "completed" : "idle"
+                    reply(Data(state.utf8))
+                }
+                return
+            }
+            self.configure(environment)
+            reply(
+                Data(
+                    "\(ProcessInfo.processInfo.processIdentifier):\(self.revision)"
+                        .utf8))
+        } catch {
+            reply(Data("invalid scene configuration: \(error)".utf8))
         }
     }
 
@@ -545,7 +724,9 @@ final class UITestSceneState: ObservableObject {
         AppErrorPresenter.shared.reset()
         UITestSceneConfiguration.shared.replace(with: environment)
         largeText = environment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
-        colorScheme = environment["BIT101_UI_TEST_STYLE"].flatMap { $0 == "Dark" ? .dark : .light }
+        colorScheme = environment["BIT101_UI_TEST_STYLE"].flatMap {
+            $0 == "Dark" ? .dark : .light
+        }
         AppUITestBootstrap.prepareForLaunch()
         AppSettingsStore.shared.reloadForCurrentAccount()
         lifecycle = makeLifecycle()

@@ -1,6 +1,6 @@
-import StorageCore
 import Foundation
 import ScheduleContracts
+import StorageCore
 
 public enum ScheduleExternalSnapshotStoreError: Error, Equatable {
     case sharedContainerUnavailable
@@ -24,10 +24,15 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         let generatedAt: Date
     }
     private enum StoredState {
-        case snapshot(ScheduleExternalSnapshot), cleared(ClearedSnapshot), missing
+        case snapshot(ScheduleExternalSnapshot)
+        case cleared(ClearedSnapshot)
+        case missing
     }
 
-    public init(files: any AppFileService, containerURL: URL?, notificationCenter: NotificationCenter = .default) {
+    public init(
+        files: any AppFileService, containerURL: URL?,
+        notificationCenter: NotificationCenter = .default
+    ) {
         self.files = files
         self.containerURL = containerURL
         self.notificationCenter = notificationCenter
@@ -70,19 +75,24 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     public func writeIfNewer(_ snapshot: ScheduleExternalSnapshot) throws -> Bool {
         synchronization.lock()
         defer { synchronization.unlock() }
-        let snapshot = snapshot.replacingStudentID(with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
+        let snapshot = snapshot.replacingStudentID(
+            with: AccountStorageIdentity.stableToken(for: snapshot.studentID))
         let state: StoredState
-        do { state = try readState() }
-        catch ScheduleExternalSnapshotStoreError.invalidSnapshot { state = .missing }
+        do { state = try readState() } catch ScheduleExternalSnapshotStoreError.invalidSnapshot {
+            state = .missing
+        }
         switch state {
         case .snapshot(let current):
             if snapshot == current { return false }
-            let newer = snapshot.revision == 0 && current.revision == 0
+            let newer =
+                snapshot.revision == 0 && current.revision == 0
                 ? snapshot.generatedAt > current.generatedAt : snapshot.revision > current.revision
             guard newer else { throw ScheduleExternalSnapshotStoreError.staleSnapshot }
         case .cleared(let boundary):
-            let newer = snapshot.revision == 0 && boundary.revision == 0
-                ? snapshot.generatedAt > boundary.generatedAt : snapshot.revision > boundary.revision
+            let newer =
+                snapshot.revision == 0 && boundary.revision == 0
+                ? snapshot.generatedAt > boundary.generatedAt
+                : snapshot.revision > boundary.revision
             guard newer else { throw ScheduleExternalSnapshotStoreError.staleSnapshot }
         case .missing: break
         }
@@ -109,18 +119,26 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
     }
 
     private func readState() throws -> StoredState {
-        guard let fileURL else { throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable }
-        if let size = files.regularFileSize(at: fileURL), size > ScheduleExternalSnapshotCodec.maximumEncodedBytes {
+        guard let fileURL else {
+            throw ScheduleExternalSnapshotStoreError.sharedContainerUnavailable
+        }
+        if let size = files.regularFileSize(at: fileURL),
+            size > ScheduleExternalSnapshotCodec.maximumEncodedBytes
+        {
             throw ScheduleExternalSnapshotStoreError.invalidSnapshot
         }
         let data: Data
-        do { data = try files.readData(at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes) }
-        catch where AppFileSystem.isMissingFile(error) { return .missing }
-        catch let error as CocoaError where error.code == .fileReadTooLarge { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
+        do {
+            data = try files.readData(
+                at: fileURL, maximumBytes: ScheduleExternalSnapshotCodec.maximumEncodedBytes)
+        } catch  where AppFileSystem.isMissingFile(error) { return .missing } catch let error
+            as CocoaError where error.code == .fileReadTooLarge
+        { throw ScheduleExternalSnapshotStoreError.invalidSnapshot }
         let snapshot: ScheduleExternalSnapshot
-        do { snapshot = try ScheduleExternalSnapshotCodec.decode(data) }
-        catch {
-            if let boundary = try? JSONDecoder().decode(ClearedSnapshot.self, from: data) { return .cleared(boundary) }
+        do { snapshot = try ScheduleExternalSnapshotCodec.decode(data) } catch {
+            if let boundary = try? JSONDecoder().decode(ClearedSnapshot.self, from: data) {
+                return .cleared(boundary)
+            }
             throw ScheduleExternalSnapshotStoreError.invalidSnapshot
         }
         let accountToken = AccountStorageIdentity.stableToken(for: snapshot.studentID)
@@ -135,9 +153,14 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         do {
             switch try readState() {
             case .snapshot(let snapshot):
-                let boundary = ClearedSnapshot(kind: .cleared, revision: snapshot.revision, generatedAt: snapshot.generatedAt)
-                try files.writeData(JSONEncoder().encode(boundary), to: fileURL, options: AppFileSystem.protectedDataWritingOptions)
-                Task { @MainActor in notificationCenter.post(name: .scheduleExternalSnapshotDidChange, object: nil) }
+                let boundary = ClearedSnapshot(
+                    kind: .cleared, revision: snapshot.revision, generatedAt: snapshot.generatedAt)
+                try files.writeData(
+                    JSONEncoder().encode(boundary), to: fileURL,
+                    options: AppFileSystem.protectedDataWritingOptions)
+                Task { @MainActor in
+                    notificationCenter.post(name: .scheduleExternalSnapshotDidChange, object: nil)
+                }
                 return true
             case .cleared: return true
             case .missing: return clear()
@@ -169,7 +192,8 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
 
     public var fileURL: URL? {
         guard let containerURL else { return nil }
-        return containerURL
+        return
+            containerURL
             .appending(path: ScheduleSharedContainer.directoryName, directoryHint: .isDirectory)
             .appending(path: ScheduleSharedContainer.snapshotFileName)
     }

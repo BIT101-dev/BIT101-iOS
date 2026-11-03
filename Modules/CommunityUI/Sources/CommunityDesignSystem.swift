@@ -1,16 +1,21 @@
 import CommunityCore
-import TransportCore
 import Foundation
+import TransportCore
 
 #if os(iOS)
 import DesignSystemKit
 import SwiftUI
 
 extension View {
-    public func communityReadRecovery(networkPath: NetworkPathState, isEnabled: Bool = true,
+    public func communityReadRecovery(
+        networkPath: NetworkPathState, isEnabled: Bool = true,
         retryRevision: Int = 0,
-        retry: @escaping @MainActor () async -> Void) -> some View {
-        modifier(CommunityReadRecoveryModifier(networkPath: networkPath, isEnabled: isEnabled, retryRevision: retryRevision, retry: retry))
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
+        modifier(
+            CommunityReadRecoveryModifier(
+                networkPath: networkPath, isEnabled: isEnabled, retryRevision: retryRevision,
+                retry: retry))
     }
 }
 
@@ -30,9 +35,16 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
                 if hasAppeared { recover() }
                 hasAppeared = true
             }
-            .onDisappear { isVisible = false; recoveryTask?.cancel(); recoveryTask = nil }
+            .onDisappear {
+                isVisible = false
+                recoveryTask?.cancel()
+                recoveryTask = nil
+            }
             .onChange(of: networkPath.snapshot.status) {
-                if networkPath.snapshot.status != .connected { recoveryTask?.cancel(); recoveryTask = nil }
+                if networkPath.snapshot.status != .connected {
+                    recoveryTask?.cancel()
+                    recoveryTask = nil
+                }
             }
             .task(id: scenePhase == .active && isEnabled) {
                 guard scenePhase == .active, isEnabled else { return }
@@ -48,7 +60,9 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
     private func recover() {
         recoveryTask?.cancel()
         recoveryTask = nil
-        guard isVisible, isEnabled, scenePhase == .active, networkPath.snapshot.status == .connected else { return }
+        guard isVisible, isEnabled, scenePhase == .active,
+            networkPath.snapshot.status == .connected
+        else { return }
         recoveryTask = Task {
             guard !Task.isCancelled else { return }
             await retry()
@@ -67,7 +81,10 @@ public struct CommunityIdentityBadge: View {
                 .font(AppDesignSystem.Typography.captionEmphasis)
                 .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                 .padding(.vertical, AppDesignSystem.Spacing.micro)
-                .background(color.opacity(AppDesignSystem.Community.identitySurfaceOpacity), in: Capsule())
+                .background(
+                    color.opacity(AppDesignSystem.Community.identitySurfaceOpacity),
+                    in: Capsule()
+                )
                 .foregroundStyle(color)
         }
     }
@@ -89,7 +106,7 @@ public struct CommunityCommentSortPicker: View {
         }
         .appSelectionFeedback(trigger: order)
         .pickerStyle(.menu)
-            .accessibilityIdentifier("ui.community-comment-sort-picker.排序")
+        .accessibilityIdentifier("ui.community-comment-sort-picker.排序")
     }
 }
 
@@ -122,7 +139,9 @@ public struct CommunityCommentBody: View {
     private let comment: CommunityComment
     private let onOpenImage: (Int, [CommunityImage]) -> Void
 
-    public init(comment: CommunityComment, onOpenImage: @escaping (Int, [CommunityImage]) -> Void) {
+    public init(
+        comment: CommunityComment, onOpenImage: @escaping (Int, [CommunityImage]) -> Void
+    ) {
         self.comment = comment
         self.onOpenImage = onOpenImage
     }
@@ -141,9 +160,14 @@ public struct CommunityCommentBody: View {
     }
 
     private var replyPrefix: Text {
-        if !comment.replyObj.isEmpty, comment.replyUser.id > 0, !comment.replyUser.nickname.isEmpty {
-            Text("回复 @\(comment.replyUser.nickname)：").foregroundStyle(AppDesignSystem.Foreground.secondary)
-        } else { Text("") }
+        if !comment.replyObj.isEmpty, comment.replyUser.id > 0,
+            !comment.replyUser.nickname.isEmpty
+        {
+            Text("回复 @\(comment.replyUser.nickname)：").foregroundStyle(
+                AppDesignSystem.Foreground.secondary)
+        } else {
+            Text("")
+        }
     }
 }
 #endif

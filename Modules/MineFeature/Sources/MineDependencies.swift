@@ -1,6 +1,6 @@
 import CommunityCore
-import TransportCore
 import Observation
+import TransportCore
 
 /// 个人主页消费账号概览与用户资料服务。
 @MainActor

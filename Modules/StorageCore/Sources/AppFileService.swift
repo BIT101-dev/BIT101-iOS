@@ -66,7 +66,8 @@ public nonisolated protocol AppFileService: Sendable {
     func removeItem(at url: URL) throws
     func setPrivateFileProtection(at url: URL) throws
     func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws
-    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL]
+    func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws
+        -> [URL]
     func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata]
     func regularFileSize(at url: URL) -> Int?
     /// Identity of immutable bytes replaced through an atomic write.
@@ -80,15 +81,20 @@ public nonisolated protocol AppFileService: Sendable {
 }
 
 extension AppFileService {
-    public nonisolated func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata] {
+    public nonisolated func regularFileMetadata(in directory: URL) throws
+        -> [AppRegularFileMetadata]
+    {
         try contentsOfDirectory(at: directory, options: .skipsHiddenFiles).compactMap { url in
             guard let size = regularFileSize(at: url) else { return nil }
-            return AppRegularFileMetadata(url: canonicalFileURL(url), size: size,
+            return AppRegularFileMetadata(
+                url: canonicalFileURL(url), size: size,
                 modificationDate: modificationDate(at: url) ?? .distantPast)
         }
     }
     public nonisolated func readData(at url: URL, maximumBytes: Int) throws -> Data {
-        if let size = regularFileSize(at: url), size > maximumBytes { throw CocoaError(.fileReadTooLarge) }
+        if let size = regularFileSize(at: url), size > maximumBytes {
+            throw CocoaError(.fileReadTooLarge)
+        }
         let data = try readData(at: url)
         guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         return data
@@ -98,8 +104,9 @@ extension AppFileService {
     }
     public nonisolated func canonicalFileURL(_ url: URL) -> URL { url.standardizedFileURL }
     public nonisolated func removeItemIfPresent(at url: URL) throws {
-        do { try removeItem(at: url) }
-        catch { if !AppFileSystem.isMissingFile(error) { throw error } }
+        do { try removeItem(at: url) } catch {
+            if !AppFileSystem.isMissingFile(error) { throw error }
+        }
     }
 }
 
@@ -124,7 +131,9 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public var temporaryDirectoryURL: URL { manager.temporaryDirectory }
-    public func canonicalFileURL(_ url: URL) -> URL { url.resolvingSymlinksInPath().standardizedFileURL }
+    public func canonicalFileURL(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
+    }
     public func fileExists(at url: URL) -> Bool { manager.fileExists(atPath: url.path) }
     public func readData(at url: URL) throws -> Data {
         guard url.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
@@ -138,7 +147,8 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
         guard let size = regularFileSize(at: url) else { throw CocoaError(.fileReadUnknown) }
         guard size <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         var data = Data()
-        while let chunk = try handle.read(upToCount: maximumBytes + 1 - data.count), !chunk.isEmpty {
+        while let chunk = try handle.read(upToCount: maximumBytes + 1 - data.count), !chunk.isEmpty
+        {
             data.append(chunk)
             guard data.count <= maximumBytes else { throw CocoaError(.fileReadTooLarge) }
         }
@@ -166,11 +176,16 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     public func setBackupExcluded(_ excluded: Bool, at url: URL, recursively: Bool) throws {
         try configureBackup(url, excluded)
         if recursively {
-            guard let entries = manager.enumerator(at: url, includingPropertiesForKeys: [.isSymbolicLinkKey]) else {
+            guard
+                let entries = manager.enumerator(
+                    at: url, includingPropertiesForKeys: [.isSymbolicLinkKey])
+            else {
                 throw CocoaError(.fileReadUnknown)
             }
             for case let entry as URL in entries {
-                if try entry.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true { continue }
+                if try entry.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
+                    continue
+                }
                 try configureBackup(entry, excluded)
             }
         }
@@ -183,18 +198,27 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
         try targetURL.setResourceValues(values)
     }
 
-    public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions) throws -> [URL] {
+    public func contentsOfDirectory(at url: URL, options: FileManager.DirectoryEnumerationOptions)
+        throws -> [URL]
+    {
         try manager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: options)
     }
 
     public func regularFileMetadata(in directory: URL) throws -> [AppRegularFileMetadata] {
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+        ]
         let canonicalDirectory = canonicalFileURL(directory)
-        return try manager.contentsOfDirectory(at: canonicalDirectory, includingPropertiesForKeys: Array(keys),
-            options: .skipsHiddenFiles).compactMap { url in
+        return try manager.contentsOfDirectory(
+            at: canonicalDirectory, includingPropertiesForKeys: Array(keys),
+            options: .skipsHiddenFiles
+        ).compactMap { url in
             guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
-                  let size = values.fileSize else { return nil }
-            return AppRegularFileMetadata(url: canonicalDirectory.appendingPathComponent(url.lastPathComponent, isDirectory: false),
+                let size = values.fileSize
+            else { return nil }
+            return AppRegularFileMetadata(
+                url: canonicalDirectory.appendingPathComponent(
+                    url.lastPathComponent, isDirectory: false),
                 size: size, modificationDate: values.contentModificationDate ?? .distantPast)
         }
     }
@@ -206,9 +230,10 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
     public func atomicFileIdentity(at url: URL) -> String? {
         guard let attributes = try? manager.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              let device = attributes[.systemNumber], let inode = attributes[.systemFileNumber],
-              let size = attributes[.size] else { return nil }
+            attributes[.type] as? FileAttributeType == .typeRegular,
+            let device = attributes[.systemNumber], let inode = attributes[.systemFileNumber],
+            let size = attributes[.size]
+        else { return nil }
         return "\(device):\(inode):\(size)"
     }
 
@@ -226,11 +251,15 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 
     public func removeContents(of directory: URL) -> Bool {
         let children: [URL]
-        do { children = try contentsOfDirectory(at: directory, options: []) }
-        catch {
+        do { children = try contentsOfDirectory(at: directory, options: []) } catch {
             if AppFileSystem.isMissingFile(error) { return true }
             let failure = error as NSError
-            Self.logger.error("Cleanup directory read failed: \(directory.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
+            Self.logger.error(
+                """
+                Cleanup directory read failed: \(directory.path, privacy: .private) domain=\
+                \(failure.domain, privacy: .public) code=\(failure.code)
+                """
+            )
             return false
         }
         var succeeded = true
@@ -240,18 +269,25 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
             } catch {
                 succeeded = false
                 let failure = error as NSError
-                Self.logger.error("Cleanup removal failed: \(child.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
+                Self.logger.error(
+                    """
+                    Cleanup removal failed: \(child.path, privacy: .private) domain=\
+                    \(failure.domain, privacy: .public) code=\(failure.code)
+                    """
+                )
             }
         }
         return succeeded
     }
 
     public func totalRegularFileSize(at directory: URL) -> Int64 {
-        guard let enumerator = manager.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
-            options: []
-        ) else { return 0 }
+        guard
+            let enumerator = manager.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+                options: []
+            )
+        else { return 0 }
         var total: Int64 = 0
         for case let url as URL in enumerator {
             total += Int64(regularFileSize(at: url) ?? 0)
@@ -264,8 +300,11 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
 public nonisolated enum AppFileSystem {
     public static func isMissingFile(_ error: any Error) -> Bool {
         let error = error as NSError
-        return error.domain == NSCocoaErrorDomain && [CocoaError.fileNoSuchFile.rawValue,
-            CocoaError.fileReadNoSuchFile.rawValue].contains(error.code)
+        return error.domain == NSCocoaErrorDomain
+            && [
+                CocoaError.fileNoSuchFile.rawValue,
+                CocoaError.fileReadNoSuchFile.rawValue,
+            ].contains(error.code)
             || error.domain == NSPOSIXErrorDomain && error.code == POSIXErrorCode.ENOENT.rawValue
     }
     public static let files: any AppFileService = LocalAppFileService()

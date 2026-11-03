@@ -1,33 +1,34 @@
-import Combine
-import ScoreDomain
-import ScorePorts
-import ScheduleDomain
-import SchedulePorts
-@testable import ScoreInfrastructure
-import CommunityTransport
-import CommunityCore
-@testable import GalleryFeature
-@testable import CommunityUI
-@testable import ScheduleFeature
-@testable import MediaKit
-@testable import ScoreFeature
-import StorageCore
-import TransportCore
 import ClientCore
-import ScheduleContracts
-import ScheduleActivityContracts
+import Combine
+import CommunityCore
+import CommunityTransport
 import Foundation
 import Network
-import os
+import ScheduleActivityContracts
+import ScheduleContracts
+import ScheduleDomain
+import SchedulePorts
+import ScoreDomain
+import ScorePorts
 import Security
+import StorageCore
 import Testing
+import TransportCore
 import UIKit
 import XCTest
+import os
+
 @testable import BIT101_iOS
+@testable import CommunityUI
+@testable import GalleryFeature
+@testable import MediaKit
+@testable import ScheduleFeature
+@testable import ScoreFeature
+@testable import ScoreInfrastructure
 
 @Suite("Shared infrastructure")
 struct InfrastructureTests {
-    @Test(.timeLimit(.minutes(1))) func eventWaitEnforcesDeadlineCancellationAndActorIsolation() async throws {
+    @Test(.timeLimit(.minutes(1))) func eventWaitEnforcesDeadlineCancel() async throws {
         @MainActor func callerCondition() -> Bool {
             MainActor.assertIsolated()
             return true
@@ -35,12 +36,21 @@ struct InfrastructureTests {
         try await waitForTestEvent { callerCondition() }
         try await waitForAsyncTestEvent { callerCondition() }
         try await waitForTestEvent(timeout: .zero) { true }
-        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .zero) { false } }
-        await #expect(throws: URLError.self) { try await waitForTestEvent(timeout: .milliseconds(5)) { false } }
-        try await waitForAsyncTestEvent(timeout: .zero) { true }
-        await #expect(throws: URLError.self) { try await waitForAsyncTestEvent(timeout: .zero) { false } }
         await #expect(throws: URLError.self) {
-            try await waitForAsyncTestEvent(timeout: .milliseconds(5)) { await Task.yield(); return false }
+            try await waitForTestEvent(timeout: .zero) { false }
+        }
+        await #expect(throws: URLError.self) {
+            try await waitForTestEvent(timeout: .milliseconds(5)) { false }
+        }
+        try await waitForAsyncTestEvent(timeout: .zero) { true }
+        await #expect(throws: URLError.self) {
+            try await waitForAsyncTestEvent(timeout: .zero) { false }
+        }
+        await #expect(throws: URLError.self) {
+            try await waitForAsyncTestEvent(timeout: .milliseconds(5)) {
+                await Task.yield()
+                return false
+            }
         }
         let cancelled = Task {
             withUnsafeCurrentTask { $0?.cancel() }
@@ -61,37 +71,51 @@ struct InfrastructureTests {
     @Test("File backends share directory, recursive cleanup and failure contracts")
     func fileServiceContract() throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
-        try verifyFileServiceContract(files, root: URL(fileURLWithPath: "/file-service-contract"),
+        try verifyFileServiceContract(
+            files, root: URL(fileURLWithPath: "/file-service-contract"),
             setRemovalFailure: { files.setFailures(removal: $0) })
-        try verifyFileServiceContract(LocalAppFileService(),
-            root: FileManager.default.temporaryDirectory.appendingPathComponent("file-service-contract", isDirectory: true))
+        try verifyFileServiceContract(
+            LocalAppFileService(),
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(
+                "file-service-contract", isDirectory: true))
     }
-#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-    @Test("Behavior host uses isolated account resources and blocks external transport", .timeLimit(.minutes(1)))
+    #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+    @Test(
+        "Behavior host uses isolated account resources and blocks external transport",
+        .timeLimit(.minutes(1)))
     @MainActor
     func behaviorHostIsolation() async throws {
         #expect(AppFileDirectories.defaultsDomain == "harrybit.BIT101-iOS.tests")
         #expect(AppFileDirectories.files is ScopedAppFileService)
         #expect(AppAccountSession.storage.currentStudentID.isEmpty)
         #expect(AppAccountSession.storage.fakeCookie.isEmpty)
-        #expect(AppAccountSession.currentSession.accountIdentifier.hasPrefix("__automated_tests__."))
-        let encryption = ScoreCacheSyncEncryption.production(defaults: AppFileDirectories.defaults)
+        #expect(
+            AppAccountSession.currentSession.accountIdentifier.hasPrefix("__automated_tests__.")
+        )
+        let encryption = ScoreCacheSyncEncryption.production(
+            defaults: AppFileDirectories.defaults)
         defer { #expect(encryption.removeActiveKey(account: "host-isolation")) }
         let clear = Data("isolated-score".utf8)
         let sealed = try encryption.seal(clear, account: "host-isolation")
-        let keyID = try #require(AppFileDirectories.defaults.string(forKey: "experimental.preference-cloud-sync.score-key.host-isolation"))
-        #expect(try !AutomatedTestPreferenceCloudStore.shared.read(account: "host-isolation.\(keyID)").isEmpty)
+        let keyID = try #require(
+            AppFileDirectories.defaults.string(
+                forKey: "experimental.preference-cloud-sync.score-key.host-isolation"))
+        #expect(
+            try !AutomatedTestPreferenceCloudStore.shared.read(
+                account: "host-isolation.\(keyID)"
+            ).isEmpty)
         #expect(try encryption.open(sealed, account: "host-isolation") == clear)
         let request = URLRequest(url: try #require(URL(string: "https://example.com")))
         await #expect(throws: URLError(.notConnectedToInternet)) {
             _ = try await NetworkSessionPool.productionCommunity.data(for: request)
         }
     }
-#endif
+    #endif
 
     @Test("Startup notice follows the installed version")
     func startupNoticeVersion() throws {
-        let version = try #require(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        let version = try #require(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
         #expect(AppSettingsStore.currentStartupNoticeVersion == version)
     }
 
@@ -159,7 +183,8 @@ struct InfrastructureTests {
         #expect(guest.accountDirectoryName == "__default__")
 
         let account = AppStorageSession(accountIdentifier: "student/a")
-        let storageIdentifier = "account-f075dae4022cfb12f24efad0580c7d242ff6360fc0287305a8a399231e4a62ae"
+        let storageIdentifier =
+            "account-f075dae4022cfb12f24efad0580c7d242ff6360fc0287305a8a399231e4a62ae"
         #expect(account.key("test.snapshot") == "test.snapshot.\(storageIdentifier)")
         #expect(account.accountStorageIdentifier == storageIdentifier)
         #expect(AccountStorageIdentity.stableToken(for: storageIdentifier) == storageIdentifier)
@@ -170,7 +195,9 @@ struct InfrastructureTests {
 
         let underscoreAccount = AppStorageSession(accountIdentifier: "student_a")
         #expect(underscoreAccount.legacyAccountDirectoryName == "student_a")
-        #expect(underscoreAccount.legacyAccountDirectoryNameForMigration == underscoreAccount.accountDirectoryName)
+        #expect(
+            underscoreAccount.legacyAccountDirectoryNameForMigration
+                == underscoreAccount.accountDirectoryName)
         #expect(account.accountDirectoryName != underscoreAccount.accountDirectoryName)
         #expect(account.accountStorageIdentifier != underscoreAccount.accountStorageIdentifier)
     }

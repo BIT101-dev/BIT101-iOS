@@ -1,15 +1,15 @@
-import TransportCore
 import Foundation
+import TransportCore
 
 private enum EmergencyUpdateURLPolicy {
     nonisolated static let endpointHost = "update.aihelpme.dev"
 
     nonisolated static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
         guard url.scheme?.lowercased() == "https",
-              url.host?.lowercased() == host,
-              url.port == nil || url.port == 443,
-              url.user == nil,
-              url.password == nil
+            url.host?.lowercased() == host,
+            url.port == nil || url.port == 443,
+            url.user == nil,
+            url.password == nil
         else { return false }
         return true
     }
@@ -38,7 +38,7 @@ nonisolated struct EmergencyUpdateNotice: Decodable, Equatable, Identifiable, Se
     /// 应用接受 HTTPS 的 apps.apple.com 地址、默认端口或 443 端口以及 BIT101 App ID；其余地址回退到 BIT101AppStore.url。
     var safeUpdateURL: URL {
         if let updateURL,
-           BIT101AppStore.acceptsUpdateURL(updateURL)
+            BIT101AppStore.acceptsUpdateURL(updateURL)
         {
             return updateURL
         }
@@ -70,16 +70,18 @@ final class EmergencyUpdateChecker {
         },
         endpointURL: @escaping () -> URL? = {
             guard
-                let raw = Bundle.main.object(forInfoDictionaryKey: "BIT101EmergencyUpdateURL") as? String,
+                let raw = Bundle.main.object(forInfoDictionaryKey: "BIT101EmergencyUpdateURL")
+                    as? String,
                 !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else { return nil }
             guard let url = URL(string: raw),
-                  EmergencyUpdateURLPolicy.acceptsHTTPS(url, host: EmergencyUpdateURLPolicy.endpointHost)
+                EmergencyUpdateURLPolicy.acceptsHTTPS(
+                    url, host: EmergencyUpdateURLPolicy.endpointHost)
             else { return nil }
             return url
         },
         loadData: @escaping DataLoader = { request in
-            let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+            let response = try await HTTPClient.shared.send(request, accepting: 100..<600)
             return (response.data, response.response)
         }
     ) {
@@ -105,17 +107,18 @@ final class EmergencyUpdateChecker {
         do {
             let (data, response) = try await loadData(request)
             guard let httpResponse = response as? HTTPURLResponse,
-                  (200 ..< 300).contains(httpResponse.statusCode), AppURL.isSameOrigin(httpResponse.url, as: endpointURL)
+                (200..<300).contains(httpResponse.statusCode),
+                AppURL.isSameOrigin(httpResponse.url, as: endpointURL)
             else { return nil }
 
             let notice = try JSONDecoder().decode(EmergencyUpdateNotice.self, from: data)
             guard notice.schemaVersion == 1,
-                  notice.enabled,
-                  !notice.noticeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !notice.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !notice.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  installedBuild() <= notice.maximumAffectedBuild,
-                  !isIgnoredToday(noticeID: notice.noticeID)
+                notice.enabled,
+                !notice.noticeID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !notice.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                !notice.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                installedBuild() <= notice.maximumAffectedBuild,
+                !isIgnoredToday(noticeID: notice.noticeID)
             else { return nil }
             return notice
         } catch {
@@ -131,7 +134,7 @@ final class EmergencyUpdateChecker {
 
     private func isIgnoredToday(noticeID: String) -> Bool {
         guard defaults.string(forKey: Self.ignoredNoticeKey) == noticeID,
-              let ignoredAt = defaults.object(forKey: Self.ignoredDateKey) as? Date
+            let ignoredAt = defaults.object(forKey: Self.ignoredDateKey) as? Date
         else { return false }
         return calendar.isDate(ignoredAt, inSameDayAs: now())
     }

@@ -1,15 +1,15 @@
-import ScoreDomain
-import ScorePorts
-import CommunityTransport
-import MediaKit
-import ScoreInfrastructure
-import ScheduleDomain
-import CommunityUI
-import ScheduleFeature
-import ScoreFeature
-import StorageCore
 import Combine
+import CommunityTransport
+import CommunityUI
 import Foundation
+import MediaKit
+import ScheduleDomain
+import ScheduleFeature
+import ScoreDomain
+import ScoreFeature
+import ScoreInfrastructure
+import ScorePorts
+import StorageCore
 
 /// 应用生命周期持有场景依赖，集中处理账号切换和外部日程展示。
 @MainActor
@@ -35,12 +35,15 @@ final class AppAccountLifecycle: ObservableObject {
     var accountIdentity: CommunitySessionIdentity { currentIdentity() }
     let currentSession: @MainActor () -> AppStorageSession
 
-    func scheduleNotificationPromptAccount() async -> CommunitySessionIdentity? {
-        await Self.scheduleNotificationPromptAccount(currentIdentity: { self.accountIdentity }, isDenied: isNotificationPermissionDenied)
+    func reminderPromptAccount() async -> CommunitySessionIdentity? {
+        await Self.reminderPromptAccount(
+            currentIdentity: { self.accountIdentity }, isDenied: isNotificationPermissionDenied)
     }
 
-    static func scheduleNotificationPromptAccount(currentIdentity: @MainActor () -> CommunitySessionIdentity,
-        isDenied: @MainActor () async -> Bool) async -> CommunitySessionIdentity? {
+    static func reminderPromptAccount(
+        currentIdentity: @MainActor () -> CommunitySessionIdentity,
+        isDenied: @MainActor () async -> Bool
+    ) async -> CommunitySessionIdentity? {
         let owner = currentIdentity()
         guard await isDenied(), !Task.isCancelled, owner == currentIdentity() else { return nil }
         return owner
@@ -62,7 +65,8 @@ final class AppAccountLifecycle: ObservableObject {
         scheduleCloudSync: ScheduleCloudSyncPresentation,
         refreshScheduleCloud: @escaping @MainActor () async -> Void,
         isNotificationPermissionDenied: @escaping @MainActor () async -> Bool,
-        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
+        loadScheduleCourses:
+            @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]],
         media: MediaEnvironment,
         localData: AppLocalDataService,
         externalDisplays: any AppExternalDisplayCoordinating,
@@ -72,14 +76,19 @@ final class AppAccountLifecycle: ObservableObject {
         if let scoreViewModel {
             self.scoreViewModel = scoreViewModel
         } else {
-            self.scoreViewModel = ScoreViewModel(service: scoreService, stores: stores,
+            self.scoreViewModel = ScoreViewModel(
+                service: scoreService, stores: stores,
                 scheduleCoursesChanges: scheduleChanges, loadScheduleCourses: loadScheduleCourses)
         }
         self.community = community
         self.transcriptService = transcriptService
         let updates = AppUpdatePromptCoordinator(settings: settings)
         self.updates = updates
-        self.communityDestinations = AppCommunityDestinations(dependencies: community, schedule: scheduleViewModel, scheduleCloudSync: scheduleCloudSync, media: media, localData: localData, school: diagnosisSchool, transcript: transcriptService, updates: updates, prompts: prompts)
+        self.communityDestinations = AppCommunityDestinations(
+            dependencies: community, schedule: scheduleViewModel,
+            scheduleCloudSync: scheduleCloudSync, media: media, localData: localData,
+            school: diagnosisSchool, transcript: transcriptService, updates: updates,
+            prompts: prompts)
         self.settings = settings
         self.localData = localData
         self.preferenceCloudSync = preferenceCloudSync
@@ -99,17 +108,23 @@ final class AppAccountLifecycle: ObservableObject {
         scheduleChanges
             .sink { [weak self] session in
                 guard let self, session == self.currentSession() else { return }
-                self.refreshExternalDisplays(trigger: "schedule_cache_changed", syncWidgetSnapshot: true)
+                self.refreshExternalDisplays(
+                    trigger: "schedule_cache_changed", syncWidgetSnapshot: true)
             }
             .store(in: &subscriptions)
     }
 
-    deinit { externalRefreshTask?.cancel(); scheduleCloudRefreshTask?.cancel() }
+    deinit {
+        externalRefreshTask?.cancel()
+        scheduleCloudRefreshTask?.cancel()
+    }
 
     func start() {
-#if BIT101_UI_TESTING
-        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
-#endif
+        #if BIT101_UI_TESTING
+        guard
+            AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
+        else { return }
+        #endif
         externalDisplays.activate()
         preferenceCloudSync.refreshFromCloudIfNeeded()
         refreshScheduleFromCloud()
@@ -135,26 +150,32 @@ final class AppAccountLifecycle: ObservableObject {
     }
 
     private func refreshScheduleFromCloud() {
-#if BIT101_UI_TESTING
-        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
-#endif
+        #if BIT101_UI_TESTING
+        guard
+            AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
+        else { return }
+        #endif
         scheduleCloudRefreshTask?.cancel()
         let session = currentSession()
         let identity = currentIdentity()
         scheduleCloudRefreshTask = Task { [refreshScheduleCloud, currentSession, currentIdentity] in
-            guard !Task.isCancelled, session == currentSession(), identity == currentIdentity() else { return }
+            guard !Task.isCancelled, session == currentSession(), identity == currentIdentity()
+            else { return }
             await refreshScheduleCloud()
         }
     }
 
     private func refreshExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
-#if BIT101_UI_TESTING
-        guard AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest else { return }
-#endif
+        #if BIT101_UI_TESTING
+        guard
+            AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
+        else { return }
+        #endif
         externalRefreshTask?.cancel()
         let session = currentSession()
         externalRefreshTask = Task { [externalDisplays] in
-            await externalDisplays.refresh(trigger: trigger, syncWidgetSnapshot: syncWidgetSnapshot, session: session)
+            await externalDisplays.refresh(
+                trigger: trigger, syncWidgetSnapshot: syncWidgetSnapshot, session: session)
         }
     }
 }

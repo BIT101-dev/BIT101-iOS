@@ -30,7 +30,9 @@ public struct AppCommentSectionHeader<Trailing: View>: View {
 
 /// 评论区使用这个标题行展示昵称和时间。
 public struct AppCommentIdentityHeader: View {
-    public init(nickname: String, isSubComment: Bool, timeText: String, onOpenProfile: (() -> Void)?) {
+    public init(
+        nickname: String, isSubComment: Bool, timeText: String, onOpenProfile: (() -> Void)?
+    ) {
         self.nickname = nickname
         self.isSubComment = isSubComment
         self.timeText = timeText
@@ -47,12 +49,15 @@ public struct AppCommentIdentityHeader: View {
             if let onOpenProfile {
                 Button(action: onOpenProfile) {
                     nicknameText
-                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget,
-                               minHeight: AppDesignSystem.Size.Control.touchTarget, alignment: .leading)
+                        .frame(
+                            minWidth: AppDesignSystem.Size.Control.touchTarget,
+                            minHeight: AppDesignSystem.Size.Control.touchTarget,
+                            alignment: .leading
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                    .accessibilityIdentifier("ui.app-comment-identity-header.profile")
+                .accessibilityIdentifier("ui.app-comment-identity-header.profile")
             } else {
                 nicknameText
             }
@@ -68,16 +73,21 @@ public struct AppCommentIdentityHeader: View {
 
     private var nicknameText: some View {
         Text(nickname)
-            .font(isSubComment
-                ? AppDesignSystem.Typography.subheadlineEmphasis
-                : AppDesignSystem.Typography.title)
+            .font(
+                isSubComment
+                    ? AppDesignSystem.Typography.subheadlineEmphasis
+                    : AppDesignSystem.Typography.title
+            )
             .lineLimit(1)
     }
 }
 
 /// 评论区使用这个操作行展示回复和点赞操作。
 public struct AppCommentActionBar: View {
-    public init(likeCount: Int, isLiked: Bool, isLiking: Bool, isLikeEnabled: Bool = true, onReply: @escaping () -> Void, onLike: @escaping () -> Void) {
+    public init(
+        likeCount: Int, isLiked: Bool, isLiking: Bool, isLikeEnabled: Bool = true,
+        onReply: @escaping () -> Void, onLike: @escaping () -> Void
+    ) {
         self.likeCount = likeCount
         self.isLiked = isLiked
         self.isLiking = isLiking
@@ -99,7 +109,10 @@ public struct AppCommentActionBar: View {
                 Label("回复", systemImage: "arrowshape.turn.up.left")
                     .font(AppDesignSystem.Typography.captionEmphasis)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                    .frame(
+                        minWidth: AppDesignSystem.Size.Control.touchTarget,
+                        minHeight: AppDesignSystem.Size.Control.touchTarget
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -116,15 +129,22 @@ public struct AppCommentActionBar: View {
                         Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
                 }
-                .foregroundStyle(isLiked ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
-                .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                .foregroundStyle(
+                    isLiked
+                        ? AppDesignSystem.Palette.Accent.primary
+                        : AppDesignSystem.Foreground.secondaryColor
+                )
+                .frame(
+                    minWidth: AppDesignSystem.Size.Control.touchTarget,
+                    minHeight: AppDesignSystem.Size.Control.touchTarget
+                )
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isLiking || !isLikeEnabled)
             .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
             .accessibilityValue("\(likeCount)")
-                .accessibilityIdentifier("ui.app-comment-action-bar.like")
+            .accessibilityIdentifier("ui.app-comment-action-bar.like")
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
         }
@@ -196,7 +216,8 @@ public struct AppCommentThread<Comment: Identifiable, Content: View>: View {
 
             if !subcomments.isEmpty {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                    ForEach(Array(subcomments.enumerated()), id: \.element.id) { index, subcomment in
+                    ForEach(Array(subcomments.enumerated()), id: \.element.id) {
+                        index, subcomment in
                         VStack(spacing: AppDesignSystem.Spacing.none) {
                             content(subcomment, true)
 

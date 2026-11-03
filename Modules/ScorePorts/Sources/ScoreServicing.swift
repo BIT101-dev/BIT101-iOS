@@ -1,8 +1,8 @@
-import ScoreDomain
-import StorageCore
 import ClientCore
 import Combine
 import Foundation
+import ScoreDomain
+import StorageCore
 
 public protocol ScoreListServicing {
     func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge
@@ -10,18 +10,22 @@ public protocol ScoreListServicing {
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
     ) async throws -> [ScoreRow]
-    func submitScoreVerificationCode(
+    func submitScoreCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge
 }
 
-public typealias TrustedTranscriptPageDelivery = @MainActor @Sendable (TrustedTranscriptPages) async throws -> Void
+public typealias TrustedTranscriptPageDelivery =
+    @MainActor @Sendable (TrustedTranscriptPages) async throws -> Void
 
 public nonisolated struct PartialScoreResult: LocalizedError, CustomNSError {
     public let rows: [ScoreRow]
     public let failure: any Error
-    public init(rows: [ScoreRow], failure: any Error) { self.rows = rows; self.failure = failure }
+    public init(rows: [ScoreRow], failure: any Error) {
+        self.rows = rows
+        self.failure = failure
+    }
     public var errorDescription: String? { "部分课程详情暂时无法读取，已保留可用成绩。" }
     public var errorUserInfo: [String: Any] {
         [NSUnderlyingErrorKey: failure, NSLocalizedDescriptionKey: errorDescription ?? ""]
@@ -30,20 +34,26 @@ public nonisolated struct PartialScoreResult: LocalizedError, CustomNSError {
 
 public protocol TrustedTranscriptServicing {
     var transcriptServiceIdentity: AnyHashable { get }
-    func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
-    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages
-    func submitTranscriptVerificationCode(
+    func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+        -> TrustedTranscriptPages
+    func fetchTrustedPages(
+        authenticatedBy challenge: BITLoginAuthenticationChallenge,
+        onPage: TrustedTranscriptPageDelivery?
+    ) async throws -> TrustedTranscriptPages
+    func submitTranscriptCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge
 }
 
-public extension TrustedTranscriptServicing {
-    func fetchTrustedTranscriptPages() async throws -> TrustedTranscriptPages {
-        try await fetchTrustedTranscriptPages(onPage: nil)
+extension TrustedTranscriptServicing {
+    public func fetchTrustedPages() async throws -> TrustedTranscriptPages {
+        try await fetchTrustedPages(onPage: nil)
     }
-    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge) async throws -> TrustedTranscriptPages {
-        try await fetchTrustedTranscriptPages(authenticatedBy: challenge, onPage: nil)
+    public func fetchTrustedPages(authenticatedBy challenge: BITLoginAuthenticationChallenge)
+        async throws -> TrustedTranscriptPages
+    {
+        try await fetchTrustedPages(authenticatedBy: challenge, onPage: nil)
     }
 }
 
@@ -52,22 +62,33 @@ public nonisolated struct TrustedTranscriptPages: Sendable {
     public nonisolated struct Page: Sendable {
         public let number: Int
         public let data: Data
-        public init(number: Int, data: Data) { self.number = number; self.data = data }
+        public init(number: Int, data: Data) {
+            self.number = number
+            self.data = data
+        }
     }
     public let pages: [Page]
     public let expectedPageCount: Int
     public let failure: (any Error)?
     public let report: TrustedTranscriptReport?
-    public init(pages: [Page], expectedPageCount: Int, failure: (any Error)? = nil, report: TrustedTranscriptReport? = nil) {
-        self.pages = pages; self.expectedPageCount = expectedPageCount; self.failure = failure; self.report = report
+    public init(
+        pages: [Page], expectedPageCount: Int, failure: (any Error)? = nil,
+        report: TrustedTranscriptReport? = nil
+    ) {
+        self.pages = pages
+        self.expectedPageCount = expectedPageCount
+        self.failure = failure
+        self.report = report
     }
     public init(_ pages: [Data]) {
-        self.init(pages: pages.enumerated().map { Page(number: $0.offset + 1, data: $0.element) }, expectedPageCount: pages.count)
+        self.init(
+            pages: pages.enumerated().map { Page(number: $0.offset + 1, data: $0.element) },
+            expectedPageCount: pages.count)
     }
 }
 
-public extension TrustedTranscriptServicing where Self: AnyObject {
-    var transcriptServiceIdentity: AnyHashable { ObjectIdentifier(self) }
+extension TrustedTranscriptServicing where Self: AnyObject {
+    public var transcriptServiceIdentity: AnyHashable { ObjectIdentifier(self) }
 }
 
 public nonisolated enum ScoreServiceError: LocalizedError, SchoolServiceFailureProviding {
@@ -89,10 +110,13 @@ public nonisolated enum ScoreServiceError: LocalizedError, SchoolServiceFailureP
     /// 页面文案和原始传输、解析原因通过标准错误链共同保留。
     public func caused(by error: any Error) -> NSError {
         let failure = self as NSError
-        return NSError(domain: failure.domain, code: failure.code, userInfo: failure.userInfo.merging([
-            NSUnderlyingErrorKey: error, NSLocalizedDescriptionKey: failure.localizedDescription,
-            NSDebugDescriptionErrorKey: String(describing: error)
-        ]) { _, value in value })
+        return NSError(
+            domain: failure.domain, code: failure.code,
+            userInfo: failure.userInfo.merging([
+                NSUnderlyingErrorKey: error,
+                NSLocalizedDescriptionKey: failure.localizedDescription,
+                NSDebugDescriptionErrorKey: String(describing: error),
+            ]) { _, value in value })
     }
 
     public var errorDescription: String? {
@@ -105,14 +129,13 @@ public nonisolated enum ScoreServiceError: LocalizedError, SchoolServiceFailureP
             return "请求超时，请稍后重试。"
         case .secondFactorRequired:
             return "需要完成学校验证码验证才能继续执行此操作。"
-        case let .challengeInvalid(message):
+        case .challengeInvalid(let message):
             return message
-        case let .queryFailed(message):
+        case .queryFailed(let message):
             return message
         }
     }
 }
-
 
 /// 成绩缓存读取错误保留受保护文件与清理状态的恢复原因。
 public nonisolated enum ScoreCacheReadError: LocalizedError {
@@ -149,7 +172,10 @@ public protocol ScoreCaching: AnyObject {
 public protocol ScoreCacheSynchronizing: ScoreCaching {
     var localSaves: AnyPublisher<AppStorageSession, Never> { get }
     func syncPayload(for session: AppStorageSession?) async throws -> ScoreCacheSyncPayload?
-    func applySynced(_ payload: ScoreCacheSyncPayload, for session: AppStorageSession?, replacing expected: ScoreCacheSyncPayload?) async throws -> Bool
+    func applySynced(
+        _ payload: ScoreCacheSyncPayload, for session: AppStorageSession?,
+        replacing expected: ScoreCacheSyncPayload?
+    ) async throws -> Bool
 }
 
 @MainActor
@@ -160,7 +186,10 @@ public protocol ScoreFilterPreferencesStoring: AnyObject {
     func load() -> ScoreFilterPreferenceSnapshot?
     func reset()
     @discardableResult
-    func save(selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex, sortOrder: ScoreSortOrder) -> Bool
+    func save(
+        selectedTerms: Set<String>, selectedCourseTypes: Set<String>, sortIndex: ScoreSortIndex,
+        sortOrder: ScoreSortOrder
+    ) -> Bool
 }
 
 /// 可信成绩单按页数、传输字节和完整页面集合的位图预算准备。
@@ -170,8 +199,10 @@ public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
     public let maximumDecodedBytes: Int
     public let maximumWait: Duration
 
-    public init(maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
-                maximumDecodedBytes: Int = 48 * 1_024 * 1_024, maximumWait: Duration = .seconds(90)) {
+    public init(
+        maximumPageCount: Int = 64, maximumEncodedBytes: Int = 32 * 1_024 * 1_024,
+        maximumDecodedBytes: Int = 48 * 1_024 * 1_024, maximumWait: Duration = .seconds(90)
+    ) {
         self.maximumPageCount = maximumPageCount
         self.maximumEncodedBytes = maximumEncodedBytes
         self.maximumDecodedBytes = maximumDecodedBytes

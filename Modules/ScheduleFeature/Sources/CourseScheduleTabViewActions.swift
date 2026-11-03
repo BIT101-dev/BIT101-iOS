@@ -1,4 +1,5 @@
 import SchedulePorts
+
 #if os(iOS)
 import DesignSystemKit
 import ScheduleDomain
@@ -35,16 +36,17 @@ extension CourseScheduleTabView {
         let courseWeeks = activeSchedule.courses.flatMap(\.weeks)
         let lowerBound = min(-12, min(viewModel.selectedWeek, courseWeeks.min() ?? -12))
         let upperBound = max(20, max(viewModel.selectedWeek, courseWeeks.max() ?? 20))
-        return Array(lowerBound ... upperBound).filter { $0 != 0 }
+        return Array(lowerBound...upperBound).filter { $0 != 0 }
     }
 
     func presentSaveError(_ error: Error) {
-        viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
+        viewModel.notice = ScheduleNotice.userInput(
+            title: "保存失败", message: error.localizedDescription)
     }
 
     func calendarMutationAlert(_ result: ScheduleSystemCalendarMutationResult) -> AppAlert {
         switch result {
-        case let .changed(count):
+        case .changed(let count):
             return AppAlert.informational(
                 title: "已移除系统日历事件",
                 message: "已移除 \(count) 个日历事件。"
@@ -57,9 +59,12 @@ extension CourseScheduleTabView {
         }
     }
 
-    func calendarCourseContent(courseID: String, week: Int? = nil) -> ScheduleSystemCalendarContent? {
+    func calendarCourseContent(courseID: String, week: Int? = nil)
+        -> ScheduleSystemCalendarContent?
+    {
         guard let course = activeSchedule.courses.first(where: { $0.id == courseID }),
-              let firstDay = activeSchedule.firstDay else { return nil }
+            let firstDay = activeSchedule.firstDay
+        else { return nil }
         let courses: [CourseRecord]
         if week != nil {
             courses = [course]
@@ -68,7 +73,8 @@ extension CourseScheduleTabView {
                 scheduleCourseIdentity($0) == scheduleCourseIdentity(course)
             }
         }
-        return .courses(courses, firstDay: firstDay, timeTable: activeSchedule.timeTable, week: week)
+        return .courses(
+            courses, firstDay: firstDay, timeTable: activeSchedule.timeTable, week: week)
     }
 
     func importCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) {
@@ -77,14 +83,18 @@ extension CourseScheduleTabView {
         calendarMutationTask = Task {
             guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
-                let count = try await viewModel.importSystemCalendarEntries(content, term: term)
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                let count = try await viewModel.importCalendarEntries(content, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = AppAlert.informational(
                     title: "已导入系统日历",
                     message: "已导入 \(count) 个日历事件。"
                 )
             } catch {
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = AppAlert(title: "导入日历失败", error: error)
             }
         }
@@ -96,11 +106,15 @@ extension CourseScheduleTabView {
         calendarMutationTask = Task {
             guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
-                let result = try await viewModel.deleteSystemCalendarEntries(content, term: term)
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                let result = try await viewModel.deleteCalendarEntries(content, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = calendarMutationAlert(result)
             } catch {
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = AppAlert(title: "移除日历失败", error: error)
             }
         }
@@ -112,11 +126,16 @@ extension CourseScheduleTabView {
         calendarMutationTask = Task {
             guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
             do {
-                let result = try await viewModel.deleteSystemCalendarEntries(markerIDs: markerIDs, term: term)
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                let result = try await viewModel.deleteCalendarEntries(
+                    markerIDs: markerIDs, term: term)
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = calendarMutationAlert(result)
             } catch {
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = AppAlert(title: "移除日历失败", error: error)
             }
         }
@@ -135,7 +154,7 @@ extension CourseScheduleTabView {
             do {
                 let code = try await viewModel.exportScheduleCode(courses: courses)
                 exportedSchedule = ScheduleCodePresentation(code: code)
-            } catch where TaskCancellation.matches(error) {
+            } catch  where TaskCancellation.matches(error) {
                 return
             } catch {
                 viewModel.notice = ScheduleNotice(title: "导出失败", error: error)
@@ -152,19 +171,24 @@ extension CourseScheduleTabView {
     func shareCourse(from entry: ScheduleCalendarEntry) {
         guard !isResolvingCourseShare else { return }
         guard let sourceID = entry.resolvedSourceIDs.first,
-              let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+            let course = activeSchedule.courses.first(where: { $0.id == sourceID })
         else {
             courseShareAlert = AppAlert.userInput(title: "没有找到此课程", message: "课表中的课程记录已不存在。")
             return
         }
 
-        let prefetchedResolution = prefetchedCourseID == sourceID ? prefetchedCourseResolution : nil
+        let prefetchedResolution =
+            prefetchedCourseID == sourceID ? prefetchedCourseResolution : nil
         let generation = viewModel.accountGeneration
         courseShareGeneration &+= 1
         let operation = courseShareGeneration
         isResolvingCourseShare = true
         courseShareTask = Task { @MainActor in
-            defer { if viewModel.accountGeneration == generation, courseShareGeneration == operation { isResolvingCourseShare = false } }
+            defer {
+                if viewModel.accountGeneration == generation, courseShareGeneration == operation {
+                    isResolvingCourseShare = false
+                }
+            }
             guard viewModel.accountGeneration == generation else { return }
             do {
                 let resolution: ScheduleCourseShare?
@@ -173,7 +197,9 @@ extension CourseScheduleTabView {
                 } else {
                     resolution = try await destinations.resolveCourseShare(course)
                 }
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 guard let resolution else {
                     courseShareAlert = AppAlert.userInput(
                         title: "没有找到此课程",
@@ -181,9 +207,12 @@ extension CourseScheduleTabView {
                     )
                     return
                 }
-                courseSharePresentation = CourseSharePresentation(url: resolution.url, subject: resolution.subject)
+                courseSharePresentation = CourseSharePresentation(
+                    url: resolution.url, subject: resolution.subject)
             } catch {
-                guard !Task.isCancelled, viewModel.accountGeneration == generation else { return }
+                guard !Task.isCancelled, viewModel.accountGeneration == generation else {
+                    return
+                }
                 courseShareAlert = AppAlert(title: "查找课程失败", error: error)
             }
         }
@@ -192,7 +221,7 @@ extension CourseScheduleTabView {
     @MainActor
     func prepareCourseShare(from entry: ScheduleCalendarEntry) {
         guard let sourceID = entry.resolvedSourceIDs.first,
-              activeSchedule.courses.contains(where: { $0.id == sourceID })
+            activeSchedule.courses.contains(where: { $0.id == sourceID })
         else { return }
         guard prefetchedCourseID != sourceID else { return }
 
@@ -201,14 +230,16 @@ extension CourseScheduleTabView {
     }
 
     @MainActor
-    func resolvePreparedCourseShare() async {
+    func resolveCourseShare() async {
         guard let sourceID = prefetchedCourseID,
-              let course = activeSchedule.courses.first(where: { $0.id == sourceID }) else { return }
+            let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+        else { return }
         let generation = viewModel.accountGeneration
         do {
             let resolution = try await destinations.resolveCourseShare(course)
             guard !Task.isCancelled, viewModel.accountGeneration == generation,
-                  prefetchedCourseID == sourceID else { return }
+                prefetchedCourseID == sourceID
+            else { return }
             if let resolution {
                 prefetchedCourseResolution = resolution
             } else {
@@ -216,7 +247,8 @@ extension CourseScheduleTabView {
             }
         } catch {
             guard !Task.isCancelled, viewModel.accountGeneration == generation,
-                  prefetchedCourseID == sourceID else { return }
+                prefetchedCourseID == sourceID
+            else { return }
             prefetchedCourseID = nil
             prefetchedCourseResolution = nil
         }
@@ -232,7 +264,9 @@ extension CourseScheduleTabView {
                 let vertical = value.translation.height
 
                 guard abs(vertical) > abs(horizontal), abs(vertical) >= 56 else { return }
-                guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else { return }
+                guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else {
+                    return
+                }
                 guard calendarAxisMode == .quantized else { return }
 
                 if vertical < 0 {

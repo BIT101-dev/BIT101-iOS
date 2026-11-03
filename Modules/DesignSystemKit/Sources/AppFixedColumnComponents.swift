@@ -40,8 +40,10 @@ public struct AppFixedColumnRow: View {
 
     public var body: some View {
         let expanded = dynamicTypeSize.isAccessibilitySize
-        let layout = expanded
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny))
+        let layout =
+            expanded
+            ? AnyLayout(
+                VStackLayout(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny))
             : AnyLayout(AppFixedColumnLayout(ratios: items.map(\.ratio)))
         layout {
             ForEach(items.indices, id: \.self) { index in
@@ -67,21 +69,29 @@ private struct AppFixedColumnLayout: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? subviews.reduce(CGFloat.zero) {
-            $0 + $1.sizeThatFits(.unspecified).width
-        }
+        let width =
+            proposal.width
+            ?? subviews.reduce(CGFloat.zero) {
+                $0 + $1.sizeThatFits(.unspecified).width
+            }
         let columns = widths(for: width)
-        let height = subviews.indices.map { index in
-            subviews[index].sizeThatFits(ProposedViewSize(width: columns[index], height: nil)).height
-        }.max() ?? 0
+        let height =
+            subviews.indices.map { index in
+                subviews[index].sizeThatFits(
+                    ProposedViewSize(width: columns[index], height: nil)
+                ).height
+            }.max() ?? 0
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
         let columns = widths(for: bounds.width)
         var x = bounds.minX
         for index in subviews.indices {
-            subviews[index].place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
+            subviews[index].place(
+                at: CGPoint(x: x, y: bounds.midY), anchor: .leading,
                 proposal: ProposedViewSize(width: columns[index], height: bounds.height))
             x += columns[index]
         }

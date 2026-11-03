@@ -13,29 +13,46 @@ public struct CourseBrowserPage: View {
     private let profiles: CommunityProfileDestination
     private let onSurfaceStep: ((Int) -> Void)?
 
-    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, media: MediaEnvironment,
-                profiles: CommunityProfileDestination, selection: Binding<CourseNavigationRequest?>,
-                onSurfaceStep: ((Int) -> Void)? = nil) {
-        self.viewModel = viewModel; self.dependencies = dependencies; self.media = media; self.profiles = profiles
+    public init(
+        viewModel: CourseListViewModel, dependencies: CourseDependencies,
+        media: MediaEnvironment,
+        profiles: CommunityProfileDestination, selection: Binding<CourseNavigationRequest?>,
+        onSurfaceStep: ((Int) -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.dependencies = dependencies
+        self.media = media
+        self.profiles = profiles
         _selection = selection
         self.onSurfaceStep = onSurfaceStep
     }
 
     public var body: some View {
         AppBrowserLayout(selection: $selection, title: "选择一门课程", symbol: "books.vertical") {
-            CoursePageContent(viewModel: viewModel, dependencies: dependencies, selection: Binding(
-                get: { selection?.preparedCourse }, set: { course in
-                    selection = course.map { CourseNavigationRequest(courseID: $0.id, preparedCourse: $0) }
-                }))
-            .simultaneousGesture(makeHorizontalSwitchGesture { onSurfaceStep?($0) })
+            CoursePageContent(
+                viewModel: viewModel, dependencies: dependencies,
+                selection: Binding(
+                    get: { selection?.preparedCourse },
+                    set: { course in
+                        selection = course.map {
+                            CourseNavigationRequest(courseID: $0.id, preparedCourse: $0)
+                        }
+                    })
+            )
+            .simultaneousGesture(horizontalSwitchGesture { onSurfaceStep?($0) })
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("course.browse")
         } detail: { request in
             if let course = request.preparedCourse {
-                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course)
-                    .id(course.id)
+                CourseDetailView(
+                    dependencies: dependencies, media: media, profiles: profiles,
+                    initialCourse: course
+                )
+                .id(course.id)
             } else {
-                CourseEvaluationDestination(dependencies: dependencies, media: media, profiles: profiles, request: request)
+                CourseEvaluationDestination(
+                    dependencies: dependencies, media: media, profiles: profiles,
+                    request: request)
             }
         }
     }
@@ -65,14 +82,17 @@ public struct CoursePageContent: View {
             await viewModel.refresh()
         }
         .task(id: isVisible) {
-            guard isVisible else { viewModel.cancelRefreshOperations(); return }
+            guard isVisible else {
+                viewModel.cancelRefreshOperations()
+                return
+            }
             await viewModel.bootstrapIfNeeded()
         }
         .onChange(of: viewModel.searchText) { oldValue, newValue in
             viewModel.clearSearchIfNeeded(from: oldValue, to: newValue)
         }
         .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: isVisible) {
-            await viewModel.retryAfterConnectivityRecovery()
+            await viewModel.retryAfterReconnect()
         }
         .onDisappear { viewModel.cancelRefreshOperations() }
         .diagnosticAlert(item: $viewModel.alert)
@@ -80,17 +100,20 @@ public struct CoursePageContent: View {
     }
 
     private var searchRow: some View {
-        CourseSearchRow(text: $viewModel.searchText, onSubmit: { Task { await viewModel.submitSearch() } })
+        CourseSearchRow(
+            text: $viewModel.searchText, onSubmit: { Task { await viewModel.submitSearch() } })
     }
 
     @ViewBuilder
     private var courseSection: some View {
         CommunityResultsContext(viewModel.displayedQueryDescription)
         switch viewModel.state.status {
-        case .idle where viewModel.state.items.isEmpty, .loading where viewModel.state.items.isEmpty:
+        case .idle where viewModel.state.items.isEmpty,
+            .loading where viewModel.state.items.isEmpty:
             AppLoadingState(title: viewModel.hasActiveSearch ? "正在搜索课程" : "正在加载课程")
-        case let .failed(message) where viewModel.state.items.isEmpty:
-            AppFailureState(title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
+        case .failed(let message) where viewModel.state.items.isEmpty:
+            AppFailureState(
+                title: viewModel.hasActiveSearch ? "搜索失败" : "加载失败",
                 systemImage: "books.vertical.circle", message: message, retryTitle: "重新加载",
                 underlyingError: viewModel.state.failureCause,
                 onRetry: { Task { await viewModel.refresh() } })
@@ -118,7 +141,9 @@ public struct CoursePageContent: View {
             }
         } else {
             ForEach(viewModel.state.items) { course in
-                AppBrowserListRow(isSelected: selection?.id == course.id, action: { selection = course }) {
+                AppBrowserListRow(
+                    isSelected: selection?.id == course.id, action: { selection = course }
+                ) {
                     CourseListRow(course: course)
                 }
                 .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
@@ -127,13 +152,18 @@ public struct CoursePageContent: View {
                 .accessibilityIdentifier("ui.course-page-content.course")
             }
 
-            CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,
-                errorMessage: viewModel.state.paginationError) {
+            CommunityPaginationFooter(
+                isLoading: viewModel.state.isLoadingMore,
+                errorMessage: viewModel.state.paginationError
+            ) {
                 await viewModel.loadMoreIfNeeded(currentCourse: viewModel.state.items.last)
             }
         }
     }
-    public init(viewModel: CourseListViewModel, dependencies: CourseDependencies, selection: Binding<CourseSummary?>) {
+    public init(
+        viewModel: CourseListViewModel, dependencies: CourseDependencies,
+        selection: Binding<CourseSummary?>
+    ) {
         self.dependencies = dependencies
         self.viewModel = viewModel
         _selection = selection
@@ -148,9 +178,12 @@ public struct CourseEvaluationLink: View {
     private let dependencyID: ObjectIdentifier
     private let requestID: UUID
 
-    public init(dependencies: CourseDependencies, request: CourseNavigationRequest,
-        onResolved: @escaping (CourseNavigationRequest) -> Void) {
-        scene = CourseEvaluationLinkScene(dependencies: dependencies, request: request, onResolved: onResolved)
+    public init(
+        dependencies: CourseDependencies, request: CourseNavigationRequest,
+        onResolved: @escaping (CourseNavigationRequest) -> Void
+    ) {
+        scene = CourseEvaluationLinkScene(
+            dependencies: dependencies, request: request, onResolved: onResolved)
         dependencyID = ObjectIdentifier(dependencies)
         requestID = request.id
     }
@@ -203,9 +236,16 @@ private struct CourseEvaluationLinkScene: View {
             .accessibilityIdentifier("ui.course-evaluation-link.open")
             if canSearch {
                 Button("搜索课程") {
-                    if let searchRecovery { onResolved(searchRecovery); return }
-                    let name = request.lookupCourseName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    onResolved(.search(query: name.isEmpty ? (request.lookupCourseNumber ?? "") : name))
+                    if let searchRecovery {
+                        onResolved(searchRecovery)
+                        return
+                    }
+                    let name =
+                        request.lookupCourseName?.trimmingCharacters(
+                            in: .whitespacesAndNewlines) ?? ""
+                    onResolved(
+                        .search(query: name.isEmpty ? (request.lookupCourseNumber ?? "") : name)
+                    )
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
@@ -219,19 +259,24 @@ private struct CourseEvaluationLinkScene: View {
         searchRecovery = nil
 
         do {
-            let resolved = try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request)
+            let resolved = try await CourseEvaluationRouteResolver(
+                listService: dependencies.list, detailService: dependencies.detail
+            ).resolve(request)
             try Task.checkCancellation()
             onResolved(resolved)
         } catch {
             if Task.isCancelled || TaskCancellation.matches(error) { return }
             canSearch = request.hasLookupIdentity
             if let recovery = error as? CourseEvaluationSearchRecovery {
-                searchRecovery = CourseNavigationRequest(courseID: 0, searchQuery: recovery.query, searchResults: recovery.items)
+                searchRecovery = CourseNavigationRequest(
+                    courseID: 0, searchQuery: recovery.query, searchResults: recovery.items)
             }
             if error is CourseEvaluationError {
-                alert = AppAlert.userInput(title: "无法打开课程评价", message: error.localizedDescription)
+                alert = AppAlert.userInput(
+                    title: "无法打开课程评价", message: error.localizedDescription)
             } else {
-                diagnosticAlert = AppAlert(title: "课程评价加载失败",
+                diagnosticAlert = AppAlert(
+                    title: "课程评价加载失败",
                     error: (error as? CourseEvaluationSearchRecovery)?.underlying ?? error)
             }
         }
@@ -246,8 +291,12 @@ public struct CourseEvaluationDestination: View {
     private let scene: CourseEvaluationScene
     private let identity: [ObjectIdentifier]
     private let requestID: UUID
-    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
-        scene = CourseEvaluationScene(dependencies: dependencies, media: media, profiles: profiles, request: request)
+    public init(
+        dependencies: CourseDependencies, media: MediaEnvironment,
+        profiles: CommunityProfileDestination, request: CourseNavigationRequest
+    ) {
+        scene = CourseEvaluationScene(
+            dependencies: dependencies, media: media, profiles: profiles, request: request)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         requestID = request.id
     }
@@ -268,8 +317,11 @@ private struct CourseEvaluationScene: View {
     var body: some View {
         Group {
             if let course {
-                CourseDetailView(dependencies: dependencies, media: media, profiles: profiles, initialCourse: course, initialDetail: preparedDetail)
-                    .id(course.id)
+                CourseDetailView(
+                    dependencies: dependencies, media: media, profiles: profiles,
+                    initialCourse: course, initialDetail: preparedDetail
+                )
+                .id(course.id)
             } else if let expectedErrorMessage {
                 AppEmptyState(
                     title: "未找到课程",
@@ -315,7 +367,9 @@ private struct CourseEvaluationScene: View {
         expectedAlert = nil
 
         do {
-            let resolvedRequest = try await CourseEvaluationRouteResolver(listService: dependencies.list, detailService: dependencies.detail).resolve(request)
+            let resolvedRequest = try await CourseEvaluationRouteResolver(
+                listService: dependencies.list, detailService: dependencies.detail
+            ).resolve(request)
             try Task.checkCancellation()
             guard let preparedCourse = resolvedRequest.preparedCourse else {
                 throw CourseEvaluationError.notFound
@@ -330,7 +384,10 @@ private struct CourseEvaluationScene: View {
             errorMessage = error.localizedDescription
         }
     }
-    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, request: CourseNavigationRequest) {
+    init(
+        dependencies: CourseDependencies, media: MediaEnvironment,
+        profiles: CommunityProfileDestination, request: CourseNavigationRequest
+    ) {
         self.dependencies = dependencies
         self.media = media
         self.profiles = profiles
@@ -370,7 +427,7 @@ private struct CourseSearchRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("清除搜索")
-                    .accessibilityIdentifier("ui.course-search-row.清除搜索")
+                .accessibilityIdentifier("ui.course-search-row.清除搜索")
             }
         }
     }

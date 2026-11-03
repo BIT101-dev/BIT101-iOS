@@ -17,10 +17,14 @@ public final class ComposerImageUploads: ObservableObject {
     private var importTask: Task<Void, Never>?
     private var uploads: [UUID: Task<Void, Never>] = [:]
 
-    public init(upload: @escaping @MainActor (Data, String) async throws -> CommunityImage,
+    public init(
+        upload: @escaping @MainActor (Data, String) async throws -> CommunityImage,
         prepare: @escaping @MainActor (Data) async throws -> Data,
-        isCurrentSession: @escaping () -> Bool) {
-        self.upload = upload; self.prepare = prepare; self.isCurrentSession = isCurrentSession
+        isCurrentSession: @escaping () -> Bool
+    ) {
+        self.upload = upload
+        self.prepare = prepare
+        self.isCurrentSession = isCurrentSession
     }
 
     deinit {
@@ -34,7 +38,8 @@ public final class ComposerImageUploads: ObservableObject {
 
     public func cancel() {
         generation &+= 1
-        importTask?.cancel(); importTask = nil
+        importTask?.cancel()
+        importTask = nil
         for task in uploads.values { task.cancel() }
         uploads.removeAll()
         for index in drafts.indices where drafts[index].isUploading {
@@ -56,24 +61,40 @@ public final class ComposerImageUploads: ObservableObject {
 
     public func waitForImport() async { await importTask?.value }
 
-    public func addImages(from sources: [@MainActor () async throws -> Data?], existingImageCount: Int = 0) async {
+    public func addImages(
+        from sources: [@MainActor () async throws -> Data?], existingImageCount: Int = 0
+    ) async {
         let operation = generation
         guard importTask == nil, isCurrent(operation) else { return }
         isAddingImages = true
         errorMessage = nil
-        let remaining = max(0, ComposerDraftImagePolicy.maximumImageCount - existingImageCount - drafts.count)
+        let remaining = max(
+            0, ComposerDraftImagePolicy.maximumImageCount - existingImageCount - drafts.count)
         let task = Task { [weak self, prepare] in
-            await ImageDataCompressor.importImages(from: Array(sources.prefix(remaining)), prepare: prepare,
-                isCurrent: { self?.isCurrent(operation) == true }, onPrepared: { prepared in
+            await ImageDataCompressor.importImages(
+                from: Array(sources.prefix(remaining)), prepare: prepare,
+                isCurrent: { self?.isCurrent(operation) == true },
+                onPrepared: { prepared in
                     guard let self else { return }
-                    let draft = ComposerImageDraft(previewData: prepared, filename: "image-\(UUID().uuidString).jpg", uploadData: prepared)
+                    let draft = ComposerImageDraft(
+                        previewData: prepared, filename: "image-\(UUID().uuidString).jpg",
+                        uploadData: prepared)
                     self.drafts.append(draft)
                     self.startUpload(id: draft.id)
                 }, onFailure: { self?.errorMessage = $0.localizedDescription })
         }
         importTask = task
-        defer { if generation == operation { importTask = nil; isAddingImages = false } }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        defer {
+            if generation == operation {
+                importTask = nil
+                isAddingImages = false
+            }
+        }
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         let pending = Array(uploads.values)
         await withTaskCancellationHandler {
             for task in pending { await task.value }
@@ -84,14 +105,20 @@ public final class ComposerImageUploads: ObservableObject {
 
     public func retry(id: UUID) async {
         guard let task = startUpload(id: id) else { return }
-        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     @discardableResult
     private func startUpload(id: UUID) -> Task<Void, Never>? {
         let operation = generation
         guard isCurrent(operation), uploads[id] == nil,
-              let index = drafts.firstIndex(where: { $0.id == id }), drafts[index].uploadedImage == nil else { return nil }
+            let index = drafts.firstIndex(where: { $0.id == id }),
+            drafts[index].uploadedImage == nil
+        else { return nil }
         let draft = drafts[index]
         drafts[index].status = .uploading
         let task = Task { [weak self, upload] in
@@ -99,12 +126,15 @@ public final class ComposerImageUploads: ObservableObject {
             let status: ComposerImageDraft.Status
             do {
                 try Task.checkCancellation()
-                status = .uploaded(try await upload(draft.uploadData ?? draft.previewData, draft.filename))
+                status = .uploaded(
+                    try await upload(draft.uploadData ?? draft.previewData, draft.filename))
             } catch {
-                status = .failed(TaskCancellation.matches(error) ? "上传已暂停，请重试。" : error.localizedDescription)
+                status = .failed(
+                    TaskCancellation.matches(error) ? "上传已暂停，请重试。" : error.localizedDescription)
             }
             guard let self, self.generation == operation, self.isCurrentSession(),
-                  let index = self.drafts.firstIndex(where: { $0.id == id }) else { return }
+                let index = self.drafts.firstIndex(where: { $0.id == id })
+            else { return }
             self.drafts[index].status = status
         }
         uploads[id] = task

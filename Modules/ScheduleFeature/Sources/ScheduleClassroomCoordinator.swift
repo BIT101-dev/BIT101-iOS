@@ -13,8 +13,12 @@ final class ScheduleClassroomCoordinator {
     private let timeoutNanoseconds: UInt64
     private let waitForDeadline: @Sendable (UInt64) async throws -> Void
 
-    init(timeoutNanoseconds: UInt64 = 15 * 1_000_000_000,
-         waitForDeadline: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }) {
+    init(
+        timeoutNanoseconds: UInt64 = 15 * 1_000_000_000,
+        waitForDeadline: @escaping @Sendable (UInt64) async throws -> Void = {
+            try await Task.sleep(nanoseconds: $0)
+        }
+    ) {
         self.timeoutNanoseconds = timeoutNanoseconds
         self.waitForDeadline = waitForDeadline
     }
@@ -71,7 +75,7 @@ final class ScheduleClassroomCoordinator {
         }
     }
 
-    func withAuthenticationThenTimeout<T>(
+    func withAuthTimeout<T>(
         authentication: @escaping @MainActor @Sendable () async throws -> Void,
         operation: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T where T: Sendable {

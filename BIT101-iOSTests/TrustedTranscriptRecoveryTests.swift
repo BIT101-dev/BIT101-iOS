@@ -1,10 +1,11 @@
-@testable import ScoreFeature
-import ScorePorts
 import ClientCore
-import MediaKit
 import Foundation
+import MediaKit
+import ScorePorts
 import Testing
 import UIKit
+
+@testable import ScoreFeature
 
 @MainActor
 struct TrustedTranscriptRecoveryTests {
@@ -14,85 +15,124 @@ struct TrustedTranscriptRecoveryTests {
         var reads: [Int] = []
         var failed = false
         var requiresSMS = false
-        let challenge = BITLoginAuthenticationChallenge(challengeID: "replacement", accessToken: "fixture",
+        let challenge = BITLoginAuthenticationChallenge(
+            challengeID: "replacement", accessToken: "fixture",
             status: "requires_sms", maskedPhone: nil, expiresIn: 60)
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             applications += 1
-            if applications == 1 { return .init(pages: (1...3).map { .init(number: $0, data: data) }, expectedPageCount: 3) }
+            if applications == 1 {
+                return .init(
+                    pages: (1...3).map { .init(number: $0, data: data) }, expectedPageCount: 3)
+            }
             if requiresSMS { throw ScoreServiceError.secondFactorRequired(challenge) }
             return try await replacementPages(onPage: onPage)
         }
-        private func replacementPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        private func replacementPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             let source = TrustedTranscriptReport(pageCount: 3) { [self] number, _ in
                 reads.append(number)
-                if number == 2, !failed { failed = true; throw URLError(.networkConnectionLost) }
+                if number == 2, !failed {
+                    failed = true
+                    throw URLError(.networkConnectionLost)
+                }
                 return data
             }
             return try await source.loadPages(maximumBytes: data.count * 3, onPage: onPage)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
             try await replacementPages(onPage: onPage)
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func replacementRetriesKeepDownloadedProgressWhileTheCompleteReportRemainsVisible(sms: Bool) async throws {
-        let service = ReplacementService(), model = TrustedTranscriptViewModel(service: service)
+    func replacementRetriesKeepDownloadedProgress(sms: Bool) async throws {
+        let service = ReplacementService()
+        let model = TrustedTranscriptViewModel(service: service)
         service.requiresSMS = sms
         await model.applyIfNeeded()
         let original = model.images
-        model.prepareReapplication(); await model.applyIfNeeded()
+        model.prepareReapplication()
+        await model.applyIfNeeded()
         if sms { await model.submitVerificationCode("123456") }
-        #expect(model.images.elementsEqual(original, by: { $0 === $1 }) && model.deliveryWarning != nil)
-        model.prepareRetry(); await model.applyIfNeeded()
+        #expect(
+            model.images.elementsEqual(original, by: { $0 === $1 }) && model.deliveryWarning != nil)
+        model.prepareRetry()
+        await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil)
         #expect(service.applications == 2 && service.reads == [1, 2, 3, 2])
     }
 
     private final class SMSService: TrustedTranscriptServicing {
-        let challenge = BITLoginAuthenticationChallenge(challengeID: "transcript", accessToken: "fixture",
+        let challenge = BITLoginAuthenticationChallenge(
+            challengeID: "transcript", accessToken: "fixture",
             status: "requires_sms", maskedPhone: nil, expiresIn: 60)
         var downloading = false, cancelled = false
         var codeFailure: (any Error)?
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             throw ScoreServiceError.secondFactorRequired(challenge)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
             downloading = true
-            do { try await Task.sleep(for: .seconds(60)) }
-            catch { cancelled = Task.isCancelled; throw error }
+            do { try await Task.sleep(for: .seconds(60)) } catch {
+                cancelled = Task.isCancelled
+                throw error
+            }
             throw URLError(.timedOut)
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        {
             if let codeFailure { throw codeFailure }
             return challenge
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aSchoolAccountLockClosesTranscriptVerificationAndKeepsItsOrigin() async throws {
-        let service = SMSService(), model = TrustedTranscriptViewModel(service: service)
+    func schoolAccountLockClosesTranscriptVerify() async throws {
+        let service = SMSService()
+        let model = TrustedTranscriptViewModel(service: service)
         service.codeFailure = ScoreServiceError.queryFailed("账号已被锁定 (code:1030028)")
-        await model.applyIfNeeded(); await model.submitVerificationCode("123456")
-        #expect(model.verificationChallenge == nil && model.verificationError == nil && !service.downloading)
+        await model.applyIfNeeded()
+        await model.submitVerificationCode("123456")
+        #expect(
+            model.verificationChallenge == nil && model.verificationError == nil
+                && !service.downloading)
         #expect(SchoolServiceFailure.from(model.failureCause) == .accountLocked)
         if case .failed = model.state {} else { Issue.record("学校账号状态应展示在原业务页面。") }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func leavingThePageCancelsTheAuthenticatedDownloadAndKeepsSMSClosed() async throws {
-        let service = SMSService(), model = TrustedTranscriptViewModel(service: service)
+    func leavingPageCancelsAuthedDownload() async throws {
+        let service = SMSService()
+        let model = TrustedTranscriptViewModel(service: service)
         await model.applyIfNeeded()
         #expect(model.verificationChallenge != nil)
         let submission = Task { await model.submitVerificationCode("123456") }
-        defer { submission.cancel(); model.cancelVerificationContinuation() }
+        defer {
+            submission.cancel()
+            model.cancelVerification()
+        }
         try await waitForTestEvent { service.downloading }
         #expect(model.verificationChallenge == nil && model.isLoadingPages)
-        model.cancelVerificationContinuation()
+        model.cancelVerification()
         await submission.value
         #expect(service.cancelled && model.verificationChallenge == nil)
-        #expect(!model.isLoadingPages && !model.isSubmittingVerificationCode && model.state == .idle)
+        #expect(
+            !model.isLoadingPages && !model.isSubmittingVerificationCode && model.state == .idle)
     }
 
     private final class StreamingService: TrustedTranscriptServicing {
@@ -103,17 +143,28 @@ struct TrustedTranscriptRecoveryTests {
         var hold = true
         var holdPage = 2
         var pending: CheckedContinuation<Void, Never>?
-        init(data: Data, damage: String) { self.data = data; self.damage = damage }
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        init(data: Data, damage: String) {
+            self.data = data
+            self.damage = damage
+        }
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             applications += 1
             let application = applications
             let report = TrustedTranscriptReport(pageCount: 3) { [self] number, _ in
                 reads.append((application, number))
-                if number == holdPage, hold { hold = false; await withCheckedContinuation { pending = $0 } }
+                if number == holdPage, hold {
+                    hold = false
+                    await withCheckedContinuation { pending = $0 }
+                }
                 if number == 2 {
                     try Task.checkCancellation()
                     if application == 1, damage != "none" {
-                        if damage == "source" { throw TrustedTranscriptReport.Failure.invalidSource(URLError(.badServerResponse)) }
+                        if damage == "source" {
+                            throw TrustedTranscriptReport.Failure.invalidSource(
+                                URLError(.badServerResponse))
+                        }
                         return Data("damaged".utf8)
                     }
                 }
@@ -121,99 +172,155 @@ struct TrustedTranscriptRecoveryTests {
             }
             return try await report.loadPages(maximumBytes: data.count * 3, onPage: onPage)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            try await fetchTrustedTranscriptPages(onPage: onPage)
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
+            try await fetchTrustedPages(onPage: onPage)
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func replacementReportsShareOneDecodedImageBudget() async throws {
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
-        let data = UIGraphicsImageRenderer(size: CGSize(width: 1_024, height: 1_024), format: format).pngData { _ in }
+    func replacementReportsShareOneBudget() async throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let data = UIGraphicsImageRenderer(
+            size: CGSize(width: 1_024, height: 1_024), format: format
+        ).pngData { _ in }
         let service = StreamingService(data: data, damage: "decode")
         service.hold = false
         let budget = 3 * 256 * 256 * 4
-        let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumDecodedBytes: budget))
+        let model = TrustedTranscriptViewModel(
+            service: service, limits: .init(maximumDecodedBytes: budget))
         await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 3])
         let displayed = model.images
-        service.hold = true; service.holdPage = 3
+        service.hold = true
+        service.holdPage = 3
         model.prepareReapplication()
         let loading = Task { await model.applyIfNeeded() }
-        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        defer {
+            loading.cancel()
+            service.pending?.resume()
+            service.pending = nil
+        }
         try await waitForTestEvent { service.pending != nil }
         #expect(model.decodedImageBytes <= budget)
-        #expect(model.pageNumbers == [1, 3] && model.images.elementsEqual(displayed, by: { $0 === $1 }))
+        #expect(
+            model.pageNumbers == [1, 3] && model.images.elementsEqual(displayed, by: { $0 === $1 }))
         #expect(model.state == .loaded)
-        service.pending?.resume(); service.pending = nil
+        service.pending?.resume()
+        service.pending = nil
         await loading.value
         #expect(model.decodedImageBytes <= budget && model.pageNumbers == [1, 2, 3])
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancellingReplacementKeepsTheCompleteDisplayedReportWithinBudget() async throws {
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
-        let data = UIGraphicsImageRenderer(size: CGSize(width: 1_024, height: 1_024), format: format).pngData { _ in }
-        let service = StreamingService(data: data, damage: "none"); service.hold = false
+    func cancellingReplacementKeepsCompleteBudget() async throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        let data = UIGraphicsImageRenderer(
+            size: CGSize(width: 1_024, height: 1_024), format: format
+        ).pngData { _ in }
+        let service = StreamingService(data: data, damage: "none")
+        service.hold = false
         let budget = 3 * 256 * 256 * 4
-        let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumDecodedBytes: budget))
+        let model = TrustedTranscriptViewModel(
+            service: service, limits: .init(maximumDecodedBytes: budget))
         await model.applyIfNeeded()
         let displayed = model.images
         #expect(model.pageNumbers == [1, 2, 3])
         service.hold = true
         model.prepareReapplication()
         let loading = Task { await model.applyIfNeeded() }
-        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        defer {
+            loading.cancel()
+            service.pending?.resume()
+            service.pending = nil
+        }
         try await waitForTestEvent { service.pending != nil }
-        #expect(model.images.elementsEqual(displayed, by: { $0 === $1 }) && model.decodedImageBytes <= budget)
-        loading.cancel(); service.pending?.resume(); service.pending = nil
+        #expect(
+            model.images.elementsEqual(displayed, by: { $0 === $1 })
+                && model.decodedImageBytes <= budget)
+        loading.cancel()
+        service.pending?.resume()
+        service.pending = nil
         await loading.value
         #expect(model.state == .loaded && model.pageNumbers == [1, 2, 3])
-        #expect(model.images.elementsEqual(displayed, by: { $0 === $1 }) && model.decodedImageBytes <= budget)
+        #expect(
+            model.images.elementsEqual(displayed, by: { $0 === $1 })
+                && model.decodedImageBytes <= budget)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["source", "decode"])
-    func pagesAppearBeforeTheBatchFinishesAndFreshReportsRecoverDamage(damage: String) async throws {
+    func pagesAppearReportsRecoverDamage(damage: String) async throws {
         let data = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in }
         let service = StreamingService(data: data, damage: damage)
         let model = TrustedTranscriptViewModel(service: service)
         let loading = Task { await model.applyIfNeeded() }
-        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        defer {
+            loading.cancel()
+            service.pending?.resume()
+            service.pending = nil
+        }
         try await waitForTestEvent { service.pending != nil }
-        #expect(model.state == .loaded && model.pageNumbers == [1] && model.isLoadingPages && model.deliveryWarning == nil)
-        service.pending?.resume(); service.pending = nil
+        #expect(
+            model.state == .loaded && model.pageNumbers == [1] && model.isLoadingPages
+                && model.deliveryWarning == nil)
+        service.pending?.resume()
+        service.pending = nil
         await loading.value
-        #expect(model.pageNumbers == (damage == "source" ? [1] : [1, 3]) && model.deliveryWarning != nil)
+        #expect(
+            model.pageNumbers == (damage == "source" ? [1] : [1, 3]) && model.deliveryWarning != nil
+        )
         let retained = model.images
         if damage == "decode" {
             model.prepareRetry()
             await model.applyIfNeeded()
-            #expect(service.applications == 1 && model.images.elementsEqual(retained, by: { $0 === $1 }))
+            #expect(
+                service.applications == 1 && model.images.elementsEqual(retained, by: { $0 === $1 })
+            )
         }
         service.hold = true
-        if damage == "source" { model.prepareRetry() }
-        else { model.prepareReapplication() }
+        if damage == "source" { model.prepareRetry() } else { model.prepareReapplication() }
         let replacement = Task { await model.applyIfNeeded() }
         defer { replacement.cancel() }
         try await waitForTestEvent { service.pending != nil }
-        #expect(service.applications == 2 && model.images.elementsEqual(retained, by: { $0 === $1 }))
-        service.pending?.resume(); service.pending = nil
+        #expect(
+            service.applications == 2 && model.images.elementsEqual(retained, by: { $0 === $1 }))
+        service.pending?.resume()
+        service.pending = nil
         await replacement.value
-        #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil && model.state == .loaded)
+        #expect(
+            model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil && model.state == .loaded
+        )
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancellingTheRemainingPagesKeepsTheFirstPublishedPage() async throws {
-        let service = StreamingService(data: UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in }, damage: "decode")
+    func cancellingRemainingPagesKeepsFirstPage() async throws {
+        let service = StreamingService(
+            data: UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in },
+            damage: "decode")
         let model = TrustedTranscriptViewModel(service: service)
         let loading = Task { await model.applyIfNeeded() }
-        defer { loading.cancel(); service.pending?.resume(); service.pending = nil }
+        defer {
+            loading.cancel()
+            service.pending?.resume()
+            service.pending = nil
+        }
         try await waitForTestEvent { service.pending != nil }
         loading.cancel()
-        service.pending?.resume(); service.pending = nil
+        service.pending?.resume()
+        service.pending = nil
         await loading.value
-        #expect(model.pageNumbers == [1] && model.state == .loaded && !model.isLoadingPages && model.deliveryWarning != nil)
+        #expect(
+            model.pageNumbers == [1] && model.state == .loaded && !model.isLoadingPages
+                && model.deliveryWarning != nil)
         #expect(service.reads.map(\.1) == [1, 2])
     }
 
@@ -227,42 +334,65 @@ struct TrustedTranscriptRecoveryTests {
         lazy var report = TrustedTranscriptReport(pageCount: 3) { [unowned self] number, budget in
             reads.append((number, budget))
             if number == 2 {
-                if holdRetry { holdRetry = false; await withCheckedContinuation { pending = $0 } }
-                if failures > 0 { failures -= 1; throw URLError(.networkConnectionLost) }
+                if holdRetry {
+                    holdRetry = false
+                    await withCheckedContinuation { pending = $0 }
+                }
+                if failures > 0 {
+                    failures -= 1
+                    throw URLError(.networkConnectionLost)
+                }
             }
             return data
         }
         init(data: Data) { self.data = data }
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             applications += 1
             return try await report.loadPages(maximumBytes: data.count * 3, onPage: onPage)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            try await fetchTrustedTranscriptPages(onPage: onPage)
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
+            try await fetchTrustedPages(onPage: onPage)
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func retriesKeepVisiblePagesAndLoadTheMissingPageFromTheSameReport() async throws {
+    func retriesKeepVisiblePages() async throws {
         let data = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in }
         let service = Service(data: data)
-        let model = TrustedTranscriptViewModel(service: service, limits: .init(maximumEncodedBytes: data.count * 3))
+        let model = TrustedTranscriptViewModel(
+            service: service, limits: .init(maximumEncodedBytes: data.count * 3))
         await model.applyIfNeeded()
-        #expect(model.state == .loaded && model.pageNumbers == [1, 3] && model.deliveryWarning != nil)
+        #expect(
+            model.state == .loaded && model.pageNumbers == [1, 3] && model.deliveryWarning != nil)
         let retained = model.images
         service.holdRetry = true
         model.prepareRetry()
         let retry = Task { await model.applyIfNeeded() }
-        defer { retry.cancel(); service.pending?.resume(); service.pending = nil }
+        defer {
+            retry.cancel()
+            service.pending?.resume()
+            service.pending = nil
+        }
         try await waitForTestEvent { service.pending != nil }
         #expect(model.state == .loaded && model.images.count == 2 && model.isLoadingPages)
-        service.pending?.resume(); service.pending = nil
+        service.pending?.resume()
+        service.pending = nil
         await retry.value
-        #expect(model.images.elementsEqual(retained, by: { $0 === $1 }) && model.deliveryWarning != nil)
+        #expect(
+            model.images.elementsEqual(retained, by: { $0 === $1 }) && model.deliveryWarning != nil)
         model.prepareRetry()
         await model.applyIfNeeded()
-        #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil && model.state == .loaded)
+        #expect(
+            model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil && model.state == .loaded
+        )
         #expect(service.applications == 1 && service.reads.map(\.0) == [1, 2, 3, 2, 2])
         #expect(service.reads.last?.1 == data.count)
     }
@@ -271,27 +401,37 @@ struct TrustedTranscriptRecoveryTests {
         let data: Data
         var requests = 0
         init(data: Data) { self.data = data }
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             requests += 1
             let numbers = requests == 1 ? [1, 3] : requests == 2 ? [1] : [1, 2, 3]
-            return .init(pages: numbers.map { .init(number: $0, data: data) }, expectedPageCount: 3,
+            return .init(
+                pages: numbers.map { .init(number: $0, data: data) }, expectedPageCount: 3,
                 failure: requests < 3 ? URLError(.networkConnectionLost) : nil)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            try await fetchTrustedTranscriptPages()
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
+            try await fetchTrustedPages()
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { challenge }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aPartialReplacementKeepsTheFullerCoherentReport() async throws {
-        let service = Reports(data: UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in })
+    func partialReplacementKeepsReport() async throws {
+        let service = Reports(
+            data: UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).pngData { _ in })
         let model = TrustedTranscriptViewModel(service: service)
         await model.applyIfNeeded()
         let retained = model.images
         model.prepareRetry()
         await model.applyIfNeeded()
-        #expect(model.pageNumbers == [1, 3] && model.images.elementsEqual(retained, by: { $0 === $1 }))
+        #expect(
+            model.pageNumbers == [1, 3] && model.images.elementsEqual(retained, by: { $0 === $1 }))
         model.prepareRetry()
         await model.applyIfNeeded()
         #expect(model.pageNumbers == [1, 2, 3] && model.deliveryWarning == nil)

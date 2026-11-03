@@ -25,7 +25,7 @@ public struct AppCommentComposerContentSection<Content: View>: View {
             content
             Toggle(anonymousLabel, isOn: $anonymous)
                 .appSelectionFeedback(trigger: anonymous)
-            .appInteractiveListRow()
+                .appInteractiveListRow()
                 .accessibilityIdentifier("ui.app-comment-composer-content-section.anonymous")
         }
     }
@@ -44,8 +44,7 @@ public struct AppCancelEditingButton: View {
 
     public var body: some View {
         Button("取消") {
-            if confirmDiscard { showsDiscardConfirmation = true }
-            else { onCancel() }
+            if confirmDiscard { showsDiscardConfirmation = true } else { onCancel() }
         }
         .accessibilityIdentifier("ui.app-cancel-editing-button.cancel")
         .alert("放弃当前输入？", isPresented: $showsDiscardConfirmation) {
@@ -112,8 +111,14 @@ public struct AppComposerImageRemoveButton: View {
         Button(action: onRemove) {
             Image(systemName: "xmark.circle.fill")
                 .font(AppDesignSystem.Typography.title)
-                .foregroundStyle(AppDesignSystem.Palette.Media.foreground, AppDesignSystem.Palette.Media.controlOverlay)
-                .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                .foregroundStyle(
+                    AppDesignSystem.Palette.Media.foreground,
+                    AppDesignSystem.Palette.Media.controlOverlay
+                )
+                .frame(
+                    minWidth: AppDesignSystem.Size.Control.touchTarget,
+                    minHeight: AppDesignSystem.Size.Control.touchTarget
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

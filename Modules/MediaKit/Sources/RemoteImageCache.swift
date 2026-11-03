@@ -36,17 +36,22 @@ struct GalleryImageCachePreferences {
 
 nonisolated enum ImageCacheDirectories {
     static func gallery(using files: any AppFileService) -> URL {
-        files.directoryURL(.cachesDirectory)?.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
-            ?? files.temporaryDirectoryURL.appending(path: "BIT101GalleryImages", directoryHint: .isDirectory)
+        files.directoryURL(.cachesDirectory)?.appending(
+            path: "BIT101GalleryImages", directoryHint: .isDirectory)
+            ?? files.temporaryDirectoryURL.appending(
+                path: "BIT101GalleryImages", directoryHint: .isDirectory)
     }
 
     static func avatars(using files: any AppFileService) -> URL {
-        files.directoryURL(.cachesDirectory)?.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
-            ?? files.temporaryDirectoryURL.appending(path: "BIT101ImageCache", directoryHint: .isDirectory)
+        files.directoryURL(.cachesDirectory)?.appending(
+            path: "BIT101ImageCache", directoryHint: .isDirectory)
+            ?? files.temporaryDirectoryURL.appending(
+                path: "BIT101ImageCache", directoryHint: .isDirectory)
     }
 
     static func previews(using files: any AppFileService) -> URL {
-        files.temporaryDirectoryURL.appending(path: "BIT101Previews", directoryHint: .isDirectory)
+        files.temporaryDirectoryURL.appending(
+            path: "BIT101Previews", directoryHint: .isDirectory)
     }
 }
 
@@ -61,7 +66,9 @@ nonisolated final class PreviewFileOwnership: Sendable {
     private let fileOperations = OSAllocatedUnfairLock()
     func begin(_ owner: UUID) { state.withLock { $0.sessions[owner] = [] } }
     @discardableResult
-    func end(_ owner: UUID, onRelease: @escaping @Sendable (Set<URL>) async -> Void = { _ in }) -> Task<Void, Never> {
+    func end(_ owner: UUID, onRelease: @escaping @Sendable (Set<URL>) async -> Void = { _ in })
+        -> Task<Void, Never>
+    {
         let paths = state.withLock { $0.sessions.removeValue(forKey: owner) ?? [] }
         return Task.detached {
             self.fileOperations.withLock { self.removeReleasedFiles() }
@@ -77,8 +84,7 @@ nonisolated final class PreviewFileOwnership: Sendable {
             do {
                 try files.removeItemIfPresent(at: file)
                 state.withLock { $0.deferredRemoval[path] = nil }
-            }
-            catch { continue }
+            } catch { continue }
         }
     }
     func contains(_ owner: UUID) -> Bool { state.withLock { $0.sessions[owner] != nil } }
@@ -93,7 +99,10 @@ nonisolated final class PreviewFileOwnership: Sendable {
             }
         }
     }
-    func materializeAndPin(_ file: URL, using files: any AppFileService, owner: UUID, create: @Sendable () throws -> Void) throws {
+    func materializeAndPin(
+        _ file: URL, using files: any AppFileService, owner: UUID,
+        create: @Sendable () throws -> Void
+    ) throws {
         try fileOperations.withLock {
             guard contains(owner) else { throw CancellationError() }
             try create()
@@ -106,7 +115,10 @@ nonisolated final class PreviewFileOwnership: Sendable {
                 state.sessions[owner]?.insert(path)
                 return true
             }
-            guard registered else { removeReleasedFiles(); throw CancellationError() }
+            guard registered else {
+                removeReleasedFiles()
+                throw CancellationError()
+            }
         }
     }
     func withPaths<T: Sendable>(_ operation: @Sendable (Set<String>) -> T) -> T {
@@ -115,15 +127,19 @@ nonisolated final class PreviewFileOwnership: Sendable {
     func clearDirectory(_ directory: URL, using files: any AppFileService) -> Bool {
         fileOperations.withLock {
             guard files.fileExists(at: directory) else { return true }
-            guard let children = try? files.contentsOfDirectory(at: directory, options: []) else { return false }
+            guard let children = try? files.contentsOfDirectory(at: directory, options: [])
+            else { return false }
             let paths = state.withLock { $0.paths }
             var succeeded = true
             for file in children {
                 let path = files.canonicalFileURL(file).path
-                if paths.contains(path) { state.withLock { $0.deferredRemoval[path] = (file, files) } }
-                else {
-                    do { try files.removeItem(at: file); state.withLock { $0.deferredRemoval[path] = nil } }
-                    catch { succeeded = false }
+                if paths.contains(path) {
+                    state.withLock { $0.deferredRemoval[path] = (file, files) }
+                } else {
+                    do {
+                        try files.removeItem(at: file)
+                        state.withLock { $0.deferredRemoval[path] = nil }
+                    } catch { succeeded = false }
                 }
             }
             removeReleasedFiles()
@@ -135,7 +151,9 @@ nonisolated final class PreviewFileOwnership: Sendable {
 /// Enforces the image-cache setting across gallery media and avatar files as one LRU pool.
 actor ImageCacheDiskQuota {
     private nonisolated let executor = StorageFileExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
     private let files: any AppFileService
     private let configuredDirectories: [URL]?
     private let cacheLimitMB: @MainActor @Sendable () async -> Int
@@ -161,12 +179,16 @@ actor ImageCacheDiskQuota {
 
     func usedBytes() -> Int64 {
         directories.reduce(Int64(0)) { total, directory in
-            guard let children = try? files.contentsOfDirectory(at: directory, options: [.skipsHiddenFiles]) else {
+            guard
+                let children = try? files.contentsOfDirectory(
+                    at: directory, options: [.skipsHiddenFiles])
+            else {
                 return total
             }
-            return total + children.reduce(Int64(0)) { subtotal, url in
-                subtotal + Int64(files.regularFileSize(at: url) ?? 0)
-            }
+            return total
+                + children.reduce(Int64(0)) { subtotal, url in
+                    subtotal + Int64(files.regularFileSize(at: url) ?? 0)
+                }
         }
     }
 
@@ -178,10 +200,17 @@ actor ImageCacheDiskQuota {
         return cleared
     }
 
-    nonisolated func beginFileUse(_ file: URL, owner: UUID, prepare: @Sendable () throws -> Void) throws {
+    nonisolated func beginFileUse(
+        _ file: URL, owner: UUID, prepare: @Sendable () throws -> Void
+    ) throws {
         previewOwnership.begin(owner)
-        do { try previewOwnership.materializeAndPin(file, using: files, owner: owner, create: prepare) }
-        catch { previewOwnership.end(owner); throw error }
+        do {
+            try previewOwnership.materializeAndPin(
+                file, using: files, owner: owner, create: prepare)
+        } catch {
+            previewOwnership.end(owner)
+            throw error
+        }
     }
 
     nonisolated func endFileUse(_ owner: UUID) {
@@ -204,7 +233,9 @@ actor ImageCacheDiskQuota {
         guard limitMB > 0 else { return }
         for directory in directories {
             guard let entries = try? files.regularFileMetadata(in: directory) else { continue }
-            for entry in entries where entry.url.lastPathComponent != "preview-placeholder.png" { inventory[entry.url] = entry }
+            for entry in entries where entry.url.lastPathComponent != "preview-placeholder.png" {
+                inventory[entry.url] = entry
+            }
         }
         inventoryBytes = inventory.values.reduce(Int64(0)) { $0 + Int64($1.size) }
         prune(limitMB: limitMB, protecting: protectedURLs)
@@ -213,9 +244,14 @@ actor ImageCacheDiskQuota {
     func didReleaseFiles(_ urls: Set<URL>) async {
         for url in urls {
             let key = files.canonicalFileURL(url)
-            if !files.fileExists(at: key) { inventoryBytes -= Int64(inventory.removeValue(forKey: key)?.size ?? 0) }
+            if !files.fileExists(at: key) {
+                inventoryBytes -= Int64(inventory.removeValue(forKey: key)?.size ?? 0)
+            }
         }
-        if Date().timeIntervalSince(lastPruneDate) >= pruneInterval { await enforce(); return }
+        if Date().timeIntervalSince(lastPruneDate) >= pruneInterval {
+            await enforce()
+            return
+        }
         let limitMB = await cacheLimitMB()
         guard limitMB > 0 else { return }
         prune(limitMB: limitMB, protecting: [])
@@ -232,7 +268,9 @@ actor ImageCacheDiskQuota {
         }
         inventoryBytes -= Int64(inventory.removeValue(forKey: key)?.size ?? 0)
         if let size = files.regularFileSize(at: key) {
-            inventory[key] = .init(url: key, size: size, modificationDate: files.modificationDate(at: key) ?? Date())
+            inventory[key] = .init(
+                url: key, size: size,
+                modificationDate: files.modificationDate(at: key) ?? Date())
             inventoryBytes += Int64(size)
         }
         prune(limitMB: limitMB, protecting: [key])
@@ -242,20 +280,26 @@ actor ImageCacheDiskQuota {
         let limit = Int64(limitMB) * 1_024 * 1_024
         let protectedPaths = Set(protectedURLs.map { files.canonicalFileURL($0).path })
             .union(previewOwnership.withPaths { $0 })
-        var total = inventoryBytes + protectedPaths.reduce(Int64(0)) { total, path in
-            let url = URL(fileURLWithPath: path)
-            return total + (inventory[url] == nil ? Int64(files.regularFileSize(at: url) ?? 0) : 0)
-        }
+        var total =
+            inventoryBytes
+            + protectedPaths.reduce(Int64(0)) { total, path in
+                let url = URL(fileURLWithPath: path)
+                return total
+                    + (inventory[url] == nil ? Int64(files.regularFileSize(at: url) ?? 0) : 0)
+            }
         guard total > limit else { return }
 
         let target = Int64(Double(limit) * 0.85)
-        for entry in inventory.values.sorted(by: { $0.modificationDate < $1.modificationDate }) where total > target {
+        for entry in inventory.values.sorted(by: { $0.modificationDate < $1.modificationDate })
+        where total > target {
             let url = entry.url
             guard !protectedPaths.contains(url.path) else { continue }
             let removed = previewOwnership.withPaths { currentPaths in
                 guard !currentPaths.contains(url.path) else { return false }
-                do { try files.removeItem(at: url); return true }
-                catch { return false }
+                do {
+                    try files.removeItem(at: url)
+                    return true
+                } catch { return false }
             }
             if removed {
                 total -= Int64(entry.size)
@@ -284,7 +328,10 @@ private nonisolated final class MemoryImageEntry: NSObject {
     let data: Data
     let target: URL
     let identity = UUID()
-    init(data: Data, target: URL) { self.data = data; self.target = target }
+    init(data: Data, target: URL) {
+        self.data = data
+        self.target = target
+    }
 }
 
 private nonisolated final class RemoteImageLease: Sendable {
@@ -314,7 +361,9 @@ private nonisolated final class RemoteImageLease: Sendable {
 /// 按最近访问顺序回收到上限的 85%。
 actor RemoteImageCache {
     private nonisolated let executor = StorageFileExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
     private let transientImages: NSCache<NSURL, MemoryImageEntry> = {
         let cache = NSCache<NSURL, MemoryImageEntry>()
         cache.totalCostLimit = RemoteImageResourceLimits.maximumEncodedBytes
@@ -346,19 +395,30 @@ actor RemoteImageCache {
         return cache
     }()
     var waitingConsumerCount: Int { downloads.values.reduce(0) { $0 + $1.waiters.count } }
-    private let supportedExtensions = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin"]
-    init(files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient,
-         download: (@Sendable (URL) async throws -> HTTPResponse)? = nil) {
+    private let supportedExtensions = [
+        "jpg", "jpeg", "png", "gif", "heic", "heif", "webp", "bin",
+    ]
+    init(
+        files: any AppFileService, quota: ImageCacheDiskQuota, httpClient: HTTPClient,
+        download: (@Sendable (URL) async throws -> HTTPResponse)? = nil
+    ) {
         self.files = files
         self.quota = quota
-        self.download = download ?? { try await httpClient.send(URLRequest(url: HTTPSURLUpgrade.upgradedURL(from: $0)), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes) }
+        self.download =
+            download ?? {
+                try await httpClient.send(
+                    URLRequest(url: HTTPSURLUpgrade.upgradedURL(from: $0)),
+                    maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)
+            }
         directory = ImageCacheDirectories.gallery(using: files)
         Task { await self.removeLegacyFiles() }
     }
 
     private func removeLegacyFiles() async {
         for file in (try? files.contentsOfDirectory(at: directory, options: [])) ?? []
-            where file.lastPathComponent.hasPrefix("low-") || file.lastPathComponent.hasPrefix("high-") {
+        where file.lastPathComponent.hasPrefix("low-")
+            || file.lastPathComponent.hasPrefix("high-")
+        {
             try? files.removeItem(at: file)
         }
         let avatars = ImageCacheDirectories.avatars(using: files)
@@ -379,13 +439,17 @@ actor RemoteImageCache {
                 try? files.removeItem(at: file)
                 continue
             }
-            guard validatedFiles.object(forKey: file as NSURL) as String? == identity || isDecodableImage(at: file) else {
+            guard
+                validatedFiles.object(forKey: file as NSURL) as String? == identity
+                    || isDecodableImage(at: file)
+            else {
                 try? files.removeItem(at: file)
                 continue
             }
             validatedFiles.setObject(identity as NSString, forKey: file as NSURL)
             touch(file)
-            guard let lease = try? RemoteImageLease(url: file, files: files, quota: quota) else { continue }
+            guard let lease = try? RemoteImageLease(url: file, files: files, quota: quota)
+            else { continue }
             activeFileUses.insert(lease.owner)
             defer { activeFileUses.remove(lease.owner) }
             await quota.enforce(protecting: Set([file]))
@@ -395,29 +459,37 @@ actor RemoteImageCache {
         return nil
     }
 
-    func withFile<Value: Sendable>(for remoteURL: URL, operation: @Sendable (URL) async throws -> Value) async throws -> Value {
+    func withFile<Value: Sendable>(
+        for remoteURL: URL, operation: @Sendable (URL) async throws -> Value
+    ) async throws -> Value {
         let lease = try await acquireFile(for: remoteURL)
         defer { withExtendedLifetime(lease) {} }
         try Task.checkCancellation()
         return try await operation(lease.url)
     }
 
-    func withCachedFile<Value: Sendable>(for remoteURL: URL, operation: @Sendable (URL) async throws -> Value) async throws -> Value? {
+    func withCachedFile<Value: Sendable>(
+        for remoteURL: URL, operation: @Sendable (URL) async throws -> Value
+    ) async throws -> Value? {
         guard let lease = await acquireCachedFile(for: remoteURL) else { return nil }
         defer { withExtendedLifetime(lease) {} }
         try Task.checkCancellation()
         return try await operation(lease.url)
     }
 
-    func withSource<Value: Sendable>(for remoteURL: URL, download: (@Sendable (URL) async throws -> HTTPResponse)? = nil,
-        operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value {
+    func withSource<Value: Sendable>(
+        for remoteURL: URL, download: (@Sendable (URL) async throws -> HTTPResponse)? = nil,
+        operation: @Sendable (RemoteImageSource) async throws -> Value
+    ) async throws -> Value {
         let lease = try await acquireResource(for: remoteURL, downloader: download)
         defer { withExtendedLifetime(lease) {} }
         try Task.checkCancellation()
         return try await operation(lease.source)
     }
 
-    func withCachedSource<Value: Sendable>(for remoteURL: URL, operation: @Sendable (RemoteImageSource) async throws -> Value) async throws -> Value? {
+    func withCachedSource<Value: Sendable>(
+        for remoteURL: URL, operation: @Sendable (RemoteImageSource) async throws -> Value
+    ) async throws -> Value? {
         guard let lease = await acquireCachedResource(for: remoteURL) else { return nil }
         defer { withExtendedLifetime(lease) {} }
         try Task.checkCancellation()
@@ -446,16 +518,25 @@ actor RemoteImageCache {
         let generation = self.generation
         let lease = try await acquireResource(for: remoteURL)
         if case .file = lease.source { return lease }
-        guard case let .memory(data, _) = lease.source else { throw CocoaError(.fileReadUnknown) }
+        guard case .memory(let data, _) = lease.source else {
+            throw CocoaError(.fileReadUnknown)
+        }
         let owner = UUID()
-        defer { activeFileUses.remove(owner); quota.endFileUse(owner) }
+        defer {
+            activeFileUses.remove(owner)
+            quota.endFileUse(owner)
+        }
         try await write(data, to: lease.url, owner: owner)
-        guard generation == self.generation, !Task.isCancelled else { throw CancellationError() }
+        guard generation == self.generation, !Task.isCancelled else {
+            throw CancellationError()
+        }
         transientImages.removeObject(forKey: remoteURL as NSURL)
         return try RemoteImageLease(url: lease.url, files: files, quota: quota)
     }
 
-    private func acquireResource(for requestURL: URL, downloader: (@Sendable (URL) async throws -> HTTPResponse)? = nil) async throws -> RemoteImageLease {
+    private func acquireResource(
+        for requestURL: URL, downloader: (@Sendable (URL) async throws -> HTTPResponse)? = nil
+    ) async throws -> RemoteImageLease {
         let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
         try Task.checkCancellation()
         let owner = generation
@@ -469,7 +550,10 @@ actor RemoteImageCache {
         let waiter = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 if var running = downloads[requestKey] {
                     running.waiters[waiter] = continuation
                     downloads[requestKey] = running
@@ -481,44 +565,63 @@ actor RemoteImageCache {
                     let result: Result<DownloadResult, any Error>
                     do {
                         let response = try await selectedDownload(remoteURL)
-                        result = .success(DownloadResult(data: response.data, mimeType: response.response.mimeType))
+                        result = .success(
+                            DownloadResult(
+                                data: response.data, mimeType: response.response.mimeType))
                     } catch { result = .failure(error) }
                     await finishDownload(result, key: requestKey, id: id, remoteURL: remoteURL)
                 }
-                downloads[requestKey] = DownloadOperation(id: id, task: task, waiters: [waiter: continuation])
+                downloads[requestKey] = DownloadOperation(
+                    id: id, task: task, waiters: [waiter: continuation])
             }
         } onCancel: {
             Task { await self.cancelWaiter(waiter, key: requestKey) }
         }
     }
 
-    private func finishDownload(_ result: Result<DownloadResult, any Error>, key: String, id: UUID,
-                                remoteURL: URL) async {
+    private func finishDownload(
+        _ result: Result<DownloadResult, any Error>, key: String, id: UUID,
+        remoteURL: URL
+    ) async {
         guard downloads[key]?.id == id else { return }
-        defer { activeFileUses.remove(id); quota.endFileUse(id) }
+        defer {
+            activeFileUses.remove(id)
+            quota.endFileUse(id)
+        }
         let completed: Result<RemoteImageLease, any Error>
         do {
             let result = try result.get()
-            completed = .success(try await persist(result, for: remoteURL, owner: id,
-                isCurrent: { self.downloads[key]?.id == id }))
+            completed = .success(
+                try await persist(
+                    result, for: remoteURL, owner: id,
+                    isCurrent: { self.downloads[key]?.id == id }))
         } catch { completed = .failure(error) }
-        guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key) else { return }
+        guard downloads[key]?.id == id, let operation = downloads.removeValue(forKey: key)
+        else { return }
         for continuation in operation.waiters.values { continuation.resume(with: completed) }
     }
 
     func store(_ data: Data, for requestURL: URL) async {
         let remoteURL = HTTPSURLUpgrade.upgradedURL(from: requestURL)
-        let version = generation, owner = UUID()
-        defer { activeFileUses.remove(owner); quota.endFileUse(owner) }
-        _ = try? await persist(.init(data: data, mimeType: nil), for: remoteURL, owner: owner,
+        let version = generation
+        let owner = UUID()
+        defer {
+            activeFileUses.remove(owner)
+            quota.endFileUse(owner)
+        }
+        _ = try? await persist(
+            .init(data: data, mimeType: nil), for: remoteURL, owner: owner,
             isCurrent: { self.generation == version && !Task.isCancelled })
     }
 
-    private func persist(_ result: DownloadResult, for remoteURL: URL, owner: UUID,
-        isCurrent: () -> Bool) async throws -> RemoteImageLease {
+    private func persist(
+        _ result: DownloadResult, for remoteURL: URL, owner: UUID,
+        isCurrent: () -> Bool
+    ) async throws -> RemoteImageLease {
         guard isCurrent() else { throw CancellationError() }
         guard result.data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
-              isDecodableImage(data: result.data) else { throw CocoaError(.fileReadCorruptFile) }
+            isDecodableImage(data: result.data)
+        else { throw CocoaError(.fileReadCorruptFile) }
         let ext = preferredExtension(for: remoteURL, mimeType: result.mimeType)
         let target = directory.appendingPathComponent("\(filePrefix(for: remoteURL)).\(ext)")
         do {
@@ -526,21 +629,28 @@ actor RemoteImageCache {
             guard isCurrent() else { throw CancellationError() }
             return try RemoteImageLease(url: target, files: files, quota: quota)
         } catch {
-            guard isCurrent(), !TaskCancellation.matches(error) else { throw CancellationError() }
+            guard isCurrent(), !TaskCancellation.matches(error) else {
+                throw CancellationError()
+            }
             let memory = MemoryImageEntry(data: result.data, target: target)
-            transientImages.setObject(memory, forKey: remoteURL as NSURL, cost: result.data.count)
+            transientImages.setObject(
+                memory, forKey: remoteURL as NSURL, cost: result.data.count)
             return RemoteImageLease(memory: memory)
         }
     }
 
     private func cancelWaiter(_ waiter: UUID, key: String) {
-        guard var operation = downloads[key], let continuation = operation.waiters.removeValue(forKey: waiter) else { return }
+        guard var operation = downloads[key],
+            let continuation = operation.waiters.removeValue(forKey: waiter)
+        else { return }
         if operation.waiters.isEmpty {
             downloads[key] = nil
             operation.task.cancel()
             activeFileUses.remove(operation.id)
             quota.endFileUse(operation.id)
-        } else { downloads[key] = operation }
+        } else {
+            downloads[key] = operation
+        }
         continuation.resume(throwing: CancellationError())
     }
 
@@ -554,18 +664,27 @@ actor RemoteImageCache {
         downloads.removeAll()
         for operation in pending {
             operation.task.cancel()
-            for continuation in operation.waiters.values { continuation.resume(throwing: CancellationError()) }
+            for continuation in operation.waiters.values {
+                continuation.resume(throwing: CancellationError())
+            }
         }
         let imagesCleared = await quota.clearDirectory(directory)
-        let legacyAvatarsCleared = await quota.clearDirectory(ImageCacheDirectories.avatars(using: files))
+        let legacyAvatarsCleared = await quota.clearDirectory(
+            ImageCacheDirectories.avatars(using: files))
         return imagesCleared && legacyAvatarsCleared
     }
 
-    func previewFile(at cachedURL: URL, using previewFiles: any AppFileService, sharesStorage: Bool,
-        ownership: PreviewFileOwnership, owner: UUID?) throws -> URL {
+    func previewFile(
+        at cachedURL: URL, using previewFiles: any AppFileService, sharesStorage: Bool,
+        ownership: PreviewFileOwnership, owner: UUID?
+    ) throws -> URL {
         if sharesStorage {
-            guard files.isRegularFile(at: cachedURL) else { throw CocoaError(.fileReadNoSuchFile) }
-            if let owner, !ownership.pin(cachedURL, using: previewFiles, owner: owner) { throw CancellationError() }
+            guard files.isRegularFile(at: cachedURL) else {
+                throw CocoaError(.fileReadNoSuchFile)
+            }
+            if let owner, !ownership.pin(cachedURL, using: previewFiles, owner: owner) {
+                throw CancellationError()
+            }
             return cachedURL
         }
         let data = try files.readData(at: cachedURL)
@@ -575,12 +694,17 @@ actor RemoteImageCache {
         let materialize: @Sendable () throws -> Void = {
             try previewFiles.createDirectory(at: target.deletingLastPathComponent())
             if (try? previewFiles.readData(at: target)) != data {
-                try previewFiles.writeData(data, to: target, options: [.atomic, .completeFileProtection])
+                try previewFiles.writeData(
+                    data, to: target, options: [.atomic, .completeFileProtection])
             }
             if target != cachedURL { try previewFiles.setModificationDate(Date(), at: target) }
         }
-        if let owner { try ownership.materializeAndPin(target, using: previewFiles, owner: owner, create: materialize) }
-        else { try materialize() }
+        if let owner {
+            try ownership.materializeAndPin(
+                target, using: previewFiles, owner: owner, create: materialize)
+        } else {
+            try materialize()
+        }
         return target
     }
 
@@ -588,8 +712,14 @@ actor RemoteImageCache {
     func placeholderFile() throws -> URL {
         let target = directory.appendingPathComponent("preview-placeholder.png")
         // 1 × 1 透明 PNG；固定字节同时修复已缓存的损坏占位文件。
-        let encoded = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="
-        guard let data = Data(base64Encoded: encoded) else { throw CocoaError(.fileWriteUnknown) }
+        let encoded =
+            """
+            iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAA\
+            ASUVORK5CYII=
+            """
+        guard let data = Data(base64Encoded: encoded) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         if (try? files.readData(at: target)) != data {
             try files.createDirectory(at: directory)
             try files.writeData(data, to: target, options: [.atomic])
@@ -618,9 +748,10 @@ actor RemoteImageCache {
         let existing = url.pathExtension.lowercased()
         if supportedExtensions.dropLast().contains(existing) { return existing }
         if let mimeType,
-           let type = UTType(mimeType: mimeType.lowercased()),
-           let preferred = type.preferredFilenameExtension,
-           supportedExtensions.contains(preferred.lowercased()) {
+            let type = UTType(mimeType: mimeType.lowercased()),
+            let preferred = type.preferredFilenameExtension,
+            supportedExtensions.contains(preferred.lowercased())
+        {
             return preferred.lowercased()
         }
         return "jpg"
@@ -636,12 +767,16 @@ actor RemoteImageCache {
     }
 
     private func isDecodableImage(at url: URL) -> Bool {
-        guard let data = RemoteImageResourceLimits.cachedData(at: url, using: files) else { return false }
+        guard let data = RemoteImageResourceLimits.cachedData(at: url, using: files) else {
+            return false
+        }
         return isDecodableImage(data: data)
     }
 
     private func isDecodableImage(data: Data) -> Bool {
-        guard let source = RemoteImageResourceLimits.completeImageSource(from: data) else { return false }
+        guard let source = RemoteImageResourceLimits.completeImageSource(from: data) else {
+            return false
+        }
         return containsDecodableImage(source)
     }
 
@@ -661,7 +796,9 @@ actor RemoteImageCache {
 }
 
 public nonisolated enum BoundedStillImageDecoder {
-    @concurrent static func thumbnail(_ data: Data, size: CGFloat, scale: CGFloat) async -> UIImage? {
+    @concurrent static func thumbnail(_ data: Data, size: CGFloat, scale: CGFloat) async
+        -> UIImage?
+    {
         image(from: data, pointSize: size, displayScale: scale)
     }
 
@@ -673,22 +810,30 @@ public nonisolated enum BoundedStillImageDecoder {
         var seen = Set<ObjectIdentifier>()
         return images.reduce(0) { bytes, image in
             (image.images ?? [image]).reduce(bytes) { total, frame in
-                guard let pixels = frame.cgImage, seen.insert(ObjectIdentifier(pixels)).inserted else { return total }
+                guard let pixels = frame.cgImage, seen.insert(ObjectIdentifier(pixels)).inserted
+                else { return total }
                 return total + pixels.bytesPerRow * pixels.height
             }
         }
     }
 
-    public static func image(from data: Data, pointSize: CGFloat, displayScale: CGFloat) -> UIImage? {
+    public static func image(from data: Data, pointSize: CGFloat, displayScale: CGFloat)
+        -> UIImage?
+    {
         let pixels = pointSize * displayScale
-        guard pointSize > 0, displayScale > 0, pixels >= 1, pixels < CGFloat(Int.max) else { return nil }
+        guard pointSize > 0, displayScale > 0, pixels >= 1, pixels < CGFloat(Int.max) else {
+            return nil
+        }
         return image(from: data, maximumPixelSize: Int(pixels))
     }
 
-    public static func image(from data: Data, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes,
-                             maximumPixelSize: Int? = nil) -> UIImage? {
+    public static func image(
+        from data: Data,
+        maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes,
+        maximumPixelSize: Int? = nil
+    ) -> UIImage? {
         guard maximumDecodedBytes >= 4, !Task.isCancelled,
-              let source = RemoteImageResourceLimits.completeImageSource(from: data)
+            let source = RemoteImageResourceLimits.completeImageSource(from: data)
         else { return nil }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         let depth = (properties?[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8
@@ -697,20 +842,32 @@ public nonisolated enum BoundedStillImageDecoder {
         let budgetSide = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
         let side = min(budgetSide, maximumPixelSize ?? budgetSide)
         guard side > 0 else { return nil }
-        guard let image = thumbnail(from: source, at: 0, maximumPixelSize: side,
-                                    maximumDecodedBytes: maximumDecodedBytes) else { return nil }
+        guard
+            let image = thumbnail(
+                from: source, at: 0, maximumPixelSize: side,
+                maximumDecodedBytes: maximumDecodedBytes)
+        else { return nil }
         return UIImage(cgImage: image)
     }
 
     /// 按实际行跨度收敛缩略图尺寸，将 ImageIO 的行对齐开销计入解码预算。
-    static func thumbnail(from source: CGImageSource, at index: Int, maximumPixelSize: Int,
-                          maximumDecodedBytes: Int) -> CGImage? {
+    static func thumbnail(
+        from source: CGImageSource, at index: Int, maximumPixelSize: Int,
+        maximumDecodedBytes: Int
+    ) -> CGImage? {
         var side = maximumPixelSize
         while side > 0, !Task.isCancelled {
-            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: side,
-                kCGImageSourceShouldCacheImmediately: true, kCGImageSourceShouldAllowFloat: false]
-            guard let image = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: side,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceShouldAllowFloat: false,
+            ]
+            guard
+                let image = CGImageSourceCreateThumbnailAtIndex(
+                    source, index, options as CFDictionary)
+            else { return nil }
             let cost = image.bytesPerRow * image.height
             if cost <= maximumDecodedBytes { return Task.isCancelled ? nil : image }
             let scale = (Double(maximumDecodedBytes) / Double(cost)).squareRoot()
@@ -725,11 +882,16 @@ public nonisolated enum BoundedStillImageDecoder {
 /// ImageIO 在像素预算内生成显示位图，后台解码和内存缓存沿用同一预算。
 actor GalleryThumbnailDecoder {
     private nonisolated let executor = StorageFileExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
     private let files: any AppFileService
     func clear() { images.removeAllObjects() }
 
-    init(files: any AppFileService, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes) {
+    init(
+        files: any AppFileService,
+        maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes
+    ) {
         self.files = files
         images.totalCostLimit = maximumDecodedBytes
     }
@@ -744,11 +906,15 @@ actor GalleryThumbnailDecoder {
     func image(at file: URL, maximumPixelSize: Int? = nil) -> UIImage? {
         guard !Task.isCancelled else { return nil }
         guard let identity = files.atomicFileIdentity(at: file) else { return nil }
-        let key = "\(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)" as NSString
+        let key =
+            "\(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)"
+            as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
-        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else {
+            return nil
+        }
         return decode(data, key: key, maximumPixelSize: maximumPixelSize)
     }
 
@@ -764,9 +930,12 @@ actor GalleryThumbnailDecoder {
     }
 
     private func decode(_ data: Data, key: NSString, maximumPixelSize: Int?) -> UIImage? {
-        guard let decoded = BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: images.totalCostLimit,
-                                                          maximumPixelSize: maximumPixelSize),
-              let pixels = decoded.cgImage else { return nil }
+        guard
+            let decoded = BoundedStillImageDecoder.image(
+                from: data, maximumDecodedBytes: images.totalCostLimit,
+                maximumPixelSize: maximumPixelSize),
+            let pixels = decoded.cgImage
+        else { return nil }
         images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
         return decoded
     }

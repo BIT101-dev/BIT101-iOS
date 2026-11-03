@@ -3,7 +3,9 @@ import Foundation
 /// Shared field encoding for school forms and their query values.
 public nonisolated enum HTTPFormEncoding {
     public static func body(_ fields: [(String, String)]) -> Data {
-        Data(fields.map { "\(percentEncoded($0.0))=\(percentEncoded($0.1))" }.joined(separator: "&").utf8)
+        Data(
+            fields.map { "\(percentEncoded($0.0))=\(percentEncoded($0.1))" }.joined(separator: "&")
+                .utf8)
     }
 
     public static func percentEncoded(_ value: String) -> String {
@@ -23,9 +25,10 @@ public nonisolated enum HTTPFormEncoding {
 public nonisolated enum AppURL {
     public static func isSameOrigin(_ url: URL?, as expected: URL?) -> Bool {
         guard let url, let expected, let scheme = expected.scheme?.lowercased(),
-              ["http", "https"].contains(scheme), url.scheme?.lowercased() == scheme,
-              let host = expected.host?.lowercased(), url.host?.lowercased() == host,
-              url.user == nil, url.password == nil, expected.user == nil, expected.password == nil else { return false }
+            ["http", "https"].contains(scheme), url.scheme?.lowercased() == scheme,
+            let host = expected.host?.lowercased(), url.host?.lowercased() == host,
+            url.user == nil, url.password == nil, expected.user == nil, expected.password == nil
+        else { return false }
         let defaultPort = scheme == "https" ? 443 : 80
         return (url.port ?? defaultPort) == (expected.port ?? defaultPort)
     }

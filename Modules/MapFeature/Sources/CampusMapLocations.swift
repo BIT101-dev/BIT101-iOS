@@ -1,13 +1,13 @@
+import CoreLocation
+import Foundation
 import ScheduleContracts
+
 //
 //  CampusMapLocations.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-08-12.
 //
-
-import CoreLocation
-import Foundation
 
 /// 地图页支持的校区预设。
 ///
@@ -105,47 +105,85 @@ public nonisolated struct CampusMapLocationRequest: Equatable, Identifiable, Sen
 /// 中关村、良乡校园地点目录。
 public nonisolated enum CampusMapPlaceCatalog {
     public static let all: [CampusMapPlace] = [
-        CampusMapPlace(campus: .zhongguancun, name: "1号楼", latitude: 39.960329831, longitude: 116.321710584),
-        CampusMapPlace(campus: .zhongguancun, name: "3号楼", latitude: 39.960124, longitude: 116.318328),
-        CampusMapPlace(campus: .zhongguancun, name: "5号楼", latitude: 39.958916, longitude: 116.321629),
-        CampusMapPlace(campus: .zhongguancun, name: "6号楼", latitude: 39.964369, longitude: 116.309974),
-        CampusMapPlace(campus: .zhongguancun, name: "7号楼", latitude: 39.95852, longitude: 116.31705),
-        CampusMapPlace(campus: .zhongguancun, name: "8号楼", latitude: 39.957801, longitude: 116.31672),
-        CampusMapPlace(campus: .zhongguancun, name: "9号楼", latitude: 39.95728, longitude: 116.315833),
-        CampusMapPlace(campus: .zhongguancun, name: "东操场", latitude: 39.959241, longitude: 116.315708),
-        CampusMapPlace(campus: .zhongguancun, name: "体育馆", latitude: 39.959157, longitude: 116.314487),
-        CampusMapPlace(campus: .zhongguancun, name: "中教", latitude: 39.959307, longitude: 116.317018),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "1号楼", latitude: 39.960329831, longitude: 116.321710584),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "3号楼", latitude: 39.960124, longitude: 116.318328),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "5号楼", latitude: 39.958916, longitude: 116.321629),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "6号楼", latitude: 39.964369, longitude: 116.309974),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "7号楼", latitude: 39.95852, longitude: 116.31705),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "8号楼", latitude: 39.957801, longitude: 116.31672),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "9号楼", latitude: 39.95728, longitude: 116.315833),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "东操场", latitude: 39.959241, longitude: 116.315708),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "体育馆", latitude: 39.959157, longitude: 116.314487),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "中教", latitude: 39.959307, longitude: 116.317018),
         CampusMapPlace(campus: .zhongguancun, name: "主楼", latitude: 39.9597, longitude: 116.321642),
-        CampusMapPlace(campus: .zhongguancun, name: "宇航楼", latitude: 39.961005, longitude: 116.319164),
-        CampusMapPlace(campus: .zhongguancun, name: "求是楼", latitude: 39.959983, longitude: 116.316995),
-        CampusMapPlace(campus: .zhongguancun, name: "研楼", latitude: 39.957561, longitude: 116.317914),
-        CampusMapPlace(campus: .liangxiang, name: "前沿交叉大楼", latitude: 39.727868, longitude: 116.173837812),
-        CampusMapPlace(campus: .liangxiang, name: "化学实验中心", latitude: 39.727976, longitude: 116.170456),
-        CampusMapPlace(campus: .liangxiang, name: "南校区排球场", latitude: 39.727385, longitude: 116.169575401),
-        CampusMapPlace(campus: .liangxiang, name: "南校区篮球场", latitude: 39.728212, longitude: 116.169789),
-        CampusMapPlace(campus: .liangxiang, name: "南校区网球场", latitude: 39.727562760, longitude: 116.168954012),
-        CampusMapPlace(campus: .liangxiang, name: "南校区足球场", latitude: 39.729583, longitude: 116.169174),
-        CampusMapPlace(campus: .liangxiang, name: "工业生态楼", latitude: 39.726106, longitude: 116.170976),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "宇航楼", latitude: 39.961005, longitude: 116.319164),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "求是楼", latitude: 39.959983, longitude: 116.316995),
+        CampusMapPlace(
+            campus: .zhongguancun, name: "研楼", latitude: 39.957561, longitude: 116.317914),
+        CampusMapPlace(
+            campus: .liangxiang, name: "前沿交叉大楼", latitude: 39.727868, longitude: 116.173837812),
+        CampusMapPlace(
+            campus: .liangxiang, name: "化学实验中心", latitude: 39.727976, longitude: 116.170456),
+        CampusMapPlace(
+            campus: .liangxiang, name: "南校区排球场", latitude: 39.727385, longitude: 116.169575401),
+        CampusMapPlace(
+            campus: .liangxiang, name: "南校区篮球场", latitude: 39.728212, longitude: 116.169789),
+        CampusMapPlace(
+            campus: .liangxiang, name: "南校区网球场", latitude: 39.727562760, longitude: 116.168954012),
+        CampusMapPlace(
+            campus: .liangxiang, name: "南校区足球场", latitude: 39.729583, longitude: 116.169174),
+        CampusMapPlace(
+            campus: .liangxiang, name: "工业生态楼", latitude: 39.726106, longitude: 116.170976),
         CampusMapPlace(campus: .liangxiang, name: "工训楼", latitude: 39.726286, longitude: 116.17376),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼A", latitude: 39.732606, longitude: 116.174479),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼B", latitude: 39.732217, longitude: 116.174489),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼C", latitude: 39.731655, longitude: 116.174267),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼E", latitude: 39.731671, longitude: 116.173463),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼F", latitude: 39.73206, longitude: 116.173821),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼G", latitude: 39.732216, longitude: 116.173101),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼H", latitude: 39.732995, longitude: 116.173098),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼I", latitude: 39.733128, longitude: 116.173866),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼J", latitude: 39.733518, longitude: 116.173408),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼K", latitude: 39.733464, longitude: 116.173833),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼L", latitude: 39.733525, longitude: 116.174175),
-        CampusMapPlace(campus: .liangxiang, name: "文萃楼M", latitude: 39.733058, longitude: 116.174525),
-        CampusMapPlace(campus: .liangxiang, name: "体育馆", latitude: 39.732023662, longitude: 116.176777618),
-        CampusMapPlace(campus: .liangxiang, name: "物理实验中心", latitude: 39.729071, longitude: 116.170698),
-        CampusMapPlace(campus: .liangxiang, name: "理学楼", latitude: 39.729255, longitude: 116.171807),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼A", latitude: 39.732606, longitude: 116.174479),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼B", latitude: 39.732217, longitude: 116.174489),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼C", latitude: 39.731655, longitude: 116.174267),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼E", latitude: 39.731671, longitude: 116.173463),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼F", latitude: 39.73206, longitude: 116.173821),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼G", latitude: 39.732216, longitude: 116.173101),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼H", latitude: 39.732995, longitude: 116.173098),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼I", latitude: 39.733128, longitude: 116.173866),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼J", latitude: 39.733518, longitude: 116.173408),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼K", latitude: 39.733464, longitude: 116.173833),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼L", latitude: 39.733525, longitude: 116.174175),
+        CampusMapPlace(
+            campus: .liangxiang, name: "文萃楼M", latitude: 39.733058, longitude: 116.174525),
+        CampusMapPlace(
+            campus: .liangxiang, name: "体育馆", latitude: 39.732023662, longitude: 116.176777618),
+        CampusMapPlace(
+            campus: .liangxiang, name: "物理实验中心", latitude: 39.729071, longitude: 116.170698),
+        CampusMapPlace(
+            campus: .liangxiang, name: "理学楼", latitude: 39.729255, longitude: 116.171807),
         CampusMapPlace(campus: .liangxiang, name: "理教楼", latitude: 39.73028, longitude: 116.171561),
-        CampusMapPlace(campus: .liangxiang, name: "疏桐A地下", latitude: 39.728854, longitude: 116.168183812),
-        CampusMapPlace(campus: .liangxiang, name: "综教A", latitude: 39.733193, longitude: 116.170654),
-        CampusMapPlace(campus: .liangxiang, name: "综教B", latitude: 39.733184, longitude: 116.171878),
+        CampusMapPlace(
+            campus: .liangxiang, name: "疏桐A地下", latitude: 39.728854, longitude: 116.168183812),
+        CampusMapPlace(
+            campus: .liangxiang, name: "综教A", latitude: 39.733193, longitude: 116.170654),
+        CampusMapPlace(
+            campus: .liangxiang, name: "综教B", latitude: 39.733184, longitude: 116.171878),
     ]
 
     /// 将教务课表中的“教室号”归并到建筑级地图地点。
@@ -153,18 +191,20 @@ public nonisolated enum CampusMapPlaceCatalog {
     /// 课表返回 `文萃楼I203`、`3号楼314` 这类带门牌号文本；地图地点以建筑坐标表示。
     /// 匹配同时使用校区，两个校区的“体育馆”保持各自的地点归属。
     public static func place(campusName: String, classroom: String) -> CampusMapPlace? {
-        let normalizedClassroom = classroom
+        let normalizedClassroom =
+            classroom
             .split(whereSeparator: \.isWhitespace)
             .joined()
             .replacingOccurrences(of: "（", with: "(")
             .replacingOccurrences(of: "）", with: ")")
         let compactLocation = ScheduleDisplayNormalizer.compactLocation(for: normalizedClassroom)
         guard let campus = campus(campusName: campusName, classroom: normalizedClassroom),
-              let buildingName = [
-                  normalizedClassroom,
-                  compactLocation.lightText,
-                  compactLocation.lightBuilding,
-              ].lazy.compactMap({ buildingName(campus: campus, classroom: $0) }).first else {
+            let buildingName = [
+                normalizedClassroom,
+                compactLocation.lightText,
+                compactLocation.lightBuilding,
+            ].lazy.compactMap({ buildingName(campus: campus, classroom: $0) }).first
+        else {
             return nil
         }
 
@@ -179,14 +219,18 @@ public nonisolated enum CampusMapPlaceCatalog {
 
         let liangxiangPrefixes = [
             "文萃", "综教", "理教", "理学", "工训", "工业生态", "化学实验",
-            "物理实验", "疏桐", "南校区", "前沿交叉", "交叉大楼", "良乡体育馆"
+            "物理实验", "疏桐", "南校区", "前沿交叉", "交叉大楼", "良乡体育馆",
         ]
-        let locationNames = [classroom, ScheduleDisplayNormalizer.compactLocation(for: classroom).lightBuilding]
-        if locationNames.contains(where: { location in liangxiangPrefixes.contains(where: location.contains) }) {
+        let locationNames = [
+            classroom, ScheduleDisplayNormalizer.compactLocation(for: classroom).lightBuilding,
+        ]
+        if locationNames.contains(where: { location in
+            liangxiangPrefixes.contains(where: location.contains)
+        }) {
             return .liangxiang
         }
 
-        if (1 ... 9).contains(where: { containsNumberedBuilding($0, in: classroom) }) {
+        if (1...9).contains(where: { containsNumberedBuilding($0, in: classroom) }) {
             return .zhongguancun
         }
 

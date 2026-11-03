@@ -1,15 +1,16 @@
-import SchedulePorts
+import ClientCore
+import CommunityTransport
+import Foundation
 import ScheduleDomain
+import SchedulePorts
+import ScoreDomain
+import ScoreInfrastructure
+import Testing
+
+@testable import BIT101_iOS
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
 @testable import TransportCore
-import CommunityTransport
-import ClientCore
-import ScoreDomain
-import ScoreInfrastructure
-import Foundation
-import Testing
-@testable import BIT101_iOS
 
 private final class MockHTTPTransport: HTTPTransport {
     let handler: (URLRequest) throws -> (Data, URLResponse)
@@ -47,16 +48,27 @@ private func makeTestURL(_ value: String) throws -> URL {
 
 @Suite("Network stack")
 struct NetworkClientTests {
-    @Test(.timeLimit(.minutes(1))) @MainActor func schoolResponseDecodingRetainsItsFieldPathAndUserMessage() async throws {
+    @Test(.timeLimit(.minutes(1))) @MainActor func schoolResponseDecodingRetainsFieldPath()
+        async throws
+    {
         let credentials = ScoreCredentials()
         let transport = MockHTTPTransport { request in
             let url = try #require(request.url)
-            return (Data(#"{"required":7}"#.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200,
-                httpVersion: nil, headerFields: nil)))
+            return (
+                Data(#"{"required":7}"#.utf8),
+                try #require(
+                    HTTPURLResponse(
+                        url: url, statusCode: 200,
+                        httpVersion: nil, headerFields: nil))
+            )
         }
-        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { credentials.currentStudentID }),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+        let service = ScheduleService(
+            credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: {
+                credentials.currentStudentID
+            }),
+            teachingCenterState: TeachingCenterSessionState(
+                cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
             transport: transport)
         do {
             let _: [String: String] = try await service.sendJSONRequest(path: "decoding-contract")
@@ -64,9 +76,14 @@ struct NetworkClientTests {
         } catch {
             let failure = error as NSError
             let underlying = try #require(failure.userInfo[NSUnderlyingErrorKey] as? DecodingError)
-            if case .typeMismatch(_, let context) = underlying { #expect(context.codingPath.map(\.stringValue) == ["required"]) }
-            else { Issue.record("诊断应保留实际字段类型差异") }
-            #expect(failure.localizedDescription == ScheduleServiceError.invalidResponse.localizedDescription)
+            if case .typeMismatch(_, let context) = underlying {
+                #expect(context.codingPath.map(\.stringValue) == ["required"])
+            } else {
+                Issue.record("诊断应保留实际字段类型差异")
+            }
+            #expect(
+                failure.localizedDescription
+                    == ScheduleServiceError.invalidResponse.localizedDescription)
         }
     }
 
@@ -75,7 +92,8 @@ struct NetworkClientTests {
     func classroomRetryPreservesQueryDate() async throws {
         let queryDate = try #require(ScheduleDateCodec.parseDate("2001-01-01"))
         let credentials = ScoreCredentials()
-        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let state = TeachingCenterSessionState(
+            cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
         state.markDirectPreferred(for: credentials.currentStudentID)
         var dates: [String] = []
         var restorations = 0
@@ -85,31 +103,44 @@ struct NetworkClientTests {
             var payload = "{}"
             if url.path.hasSuffix("/cxkxjasqk.do") {
                 let body = try #require(request.httpBody)
-                let query = try #require(URLComponents(string: "https://example.invalid?" + String(decoding: body, as: UTF8.self)))
+                let query = try #require(
+                    URLComponents(
+                        string: "https://example.invalid?" + String(decoding: body, as: UTF8.self)))
                 dates.append(try #require(query.queryItems?.first { $0.name == "RQ" }?.value))
                 status = dates.count == 1 ? 401 : 200
                 payload = #"{"datas":{"cxkxjasqk":{"rows":[]}}}"#
             }
-            let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            let response = try #require(
+                HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
             return (Data(payload.utf8), response)
         }
-        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { restorations += 1; return credentials.currentStudentID }),
+        let service = ScheduleService(
+            credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: {
+                restorations += 1
+                return credentials.currentStudentID
+            }),
             teachingCenterState: state, transport: transport)
-        let rows = try await service.fetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)
+        let rows = try await service.fetchClassrooms(
+            buildingID: "fixture", term: "2026-2027-1", date: queryDate)
         #expect(rows.isEmpty)
         #expect(dates == ["2001-01-01", "2001-01-01"])
         #expect(restorations == 1)
-        #expect(try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)?.isEmpty == true)
+        #expect(
+            try await service.prefetchClassrooms(
+                buildingID: "fixture", term: "2026-2027-1", date: queryDate)?.isEmpty == true)
         #expect(dates.count == 3 && restorations == 1)
         dates.removeAll()
         state.invalidate()
-        #expect(try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate) == nil)
+        #expect(
+            try await service.prefetchClassrooms(
+                buildingID: "fixture", term: "2026-2027-1", date: queryDate) == nil)
         #expect(dates.isEmpty)
         state.markDirectPreferred(for: credentials.currentStudentID)
         state.markPrepared(for: credentials.currentStudentID)
         do {
-            _ = try await service.prefetchClassrooms(buildingID: "fixture", term: "2026-2027-1", date: queryDate)
+            _ = try await service.prefetchClassrooms(
+                buildingID: "fixture", term: "2026-2027-1", date: queryDate)
             Issue.record("过期会话预取应交回失败结果")
         } catch ScheduleServiceError.teachingCenterSessionExpired {
             #expect(dates == ["2001-01-01"] && restorations == 1)
@@ -121,35 +152,55 @@ struct NetworkClientTests {
     func eclassDeadlineCancelsTheActiveTransport() async throws {
         let transport = EclassTimeoutTransport()
         let credentials = ScoreCredentials()
-        let service = ScheduleService(credentials: credentials, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { Issue.record("Unexpected authentication restoration"); return nil }),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+        let service = ScheduleService(
+            credentials: credentials, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: {
+                Issue.record("Unexpected authentication restoration")
+                return nil
+            }),
+            teachingCenterState: TeachingCenterSessionState(
+                cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
             transport: transport)
         do {
-            _ = try await service.fetchEclassSnapshot(owner: credentials.schoolSessionIdentity,
-                budget: EclassSnapshotBudget(wait: { _ in try await waitForTestEvent { transport.started } }))
+            _ = try await service.fetchEclassSnapshot(
+                owner: credentials.schoolSessionIdentity,
+                budget: EclassSnapshotBudget(wait: { _ in
+                    try await waitForTestEvent { transport.started }
+                }))
             Issue.record("Expected the complete snapshot deadline")
         } catch { #expect((error as? URLError)?.code == .timedOut) }
         #expect(transport.started && transport.cancelled)
     }
 
-    @Test("Eclass decoding keeps task context and runs away from the main thread", .timeLimit(.minutes(1)))
+    @Test(
+        "Eclass decoding keeps task context and runs away from the main thread",
+        .timeLimit(.minutes(1)))
     @MainActor
     func eclassDecodingRunsInBackground() async throws {
-        let result: EclassDecodingProbe = try await EclassDecodingContext.$token.withValue("snapshot") {
+        let result: EclassDecodingProbe = try await EclassDecodingContext.$token.withValue(
+            "snapshot"
+        ) {
             try await ScheduleService.decodeEclassResponse(Data("{}".utf8))
         }
         #expect(result.token == "snapshot")
         #expect(result.leftMainThread)
     }
 
-    @Test("Large Eclass activity mapping allows the main actor to process work", .timeLimit(.minutes(1)))
+    @Test(
+        "Large Eclass activity mapping allows the main actor to process work",
+        .timeLimit(.minutes(1)))
     @MainActor
     func eclassLargeMappingKeepsMainActorResponsive() async throws {
-        let json = "{\"activities\":[" + (1 ... 16_384).map {
-            "{\"id\":\($0),\"title\":\"作业\",\"submit_times\":1,\"end_time\":\"2030-10-01 23:59:00\"}"
-        }.joined(separator: ",") + "]}"
-        let page: EclassActivityPage = try await ScheduleService.decodeEclassResponse(Data(json.utf8))
+        let json =
+            "{\"activities\":["
+            + (1...16_384).map {
+                """
+                {\"id\":\($0),\"title\":\"作业\",\"submit_times\":1,\"end_time\":\"2030-10-01 23:\
+                59:00\"}
+                """
+            }.joined(separator: ",") + "]}"
+        let page: EclassActivityPage = try await ScheduleService.decodeEclassResponse(
+            Data(json.utf8))
         var started = false
         var finished = false
         let mapping = Task {
@@ -168,26 +219,40 @@ struct NetworkClientTests {
         #expect(heartbeats > 0)
     }
 
-    @Test("Smoke requests bind actual responses to the operation and redact URL credentials", .timeLimit(.minutes(1)))
+    @Test(
+        "Smoke requests bind actual responses to the operation and redact URL credentials",
+        .timeLimit(.minutes(1)))
     @MainActor
-    func smokeEvidenceRequiresTransportAndRestoresTaskScope() async throws {
-        let url = try makeTestURL("https://student:password@example.invalid/probe?token=secret#private")
-        let state = TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+    func smokeEvidenceRequiresTransport() async throws {
+        let url = try makeTestURL(
+            "https://student:password@example.invalid/probe?token=secret#private")
+        let state = TeachingCenterSessionState(
+            cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
         var sends = 0
-        let transport = SchoolCookieTransport(state: state) { _ in MockHTTPTransport { _ in
-            sends += 1
-            return (Data(), try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
-        } }
+        let transport = SchoolCookieTransport(state: state) { _ in
+            MockHTTPTransport { _ in
+                sends += 1
+                return (
+                    Data(),
+                    try #require(
+                        HTTPURLResponse(
+                            url: url, statusCode: 401, httpVersion: nil, headerFields: nil))
+                )
+            }
+        }
         let client = HTTPClient(transport: transport, observer: nil)
         let collector = NetworkSmokeRequestCollector()
         await #expect(throws: NetworkSmokeRequestError.self) {
             try await collector.perform({ 1 }, required: true)
         }
         #expect(collector.requests.isEmpty)
-        _ = try await collector.perform({
-            await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
-            return 1
-        }, required: true)
+        _ = try await collector.perform(
+            {
+                await #expect(throws: HTTPClientError.self) {
+                    try await client.send(URLRequest(url: url))
+                }
+                return 1
+            }, required: true)
         let evidence = try #require(collector.requests.first)
         #expect(evidence.endpoint == "https://example.invalid/probe")
         #expect(evidence.method == "GET" && evidence.statusCode == 401)
@@ -198,54 +263,83 @@ struct NetworkClientTests {
     }
 
     private final class ScoreCredentials: SchoolCredentialsProviding {
-        var schoolSessionIdentity = SchoolSessionIdentity(accountIdentifier: "score-contract", generation: 0)
+        var schoolSessionIdentity = SchoolSessionIdentity(
+            accountIdentifier: "score-contract", generation: 0)
         var currentStudentID: String { schoolSessionIdentity.accountIdentifier }
         var currentPassword: String { "fixture-password" }
     }
 
-    @Test("Score authentication preserves its owner through the host transport contract", .timeLimit(.minutes(1)))
+    @Test(
+        "Score authentication preserves its owner through the host transport contract",
+        .timeLimit(.minutes(1)))
     @MainActor
-    func scoreChallengeAndResultUseTheSameAccountGeneration() async throws {
+    func scoreChallengeAndUseAccountGeneration() async throws {
         let credentials = ScoreCredentials()
         var requests: [URLRequest] = []
-        let client = HTTPClient(transport: MockHTTPTransport { request in
-            requests.append(request)
-            let url = try #require(request.url)
-            #expect(request.httpMethod == "POST")
-            let data: Data
-            if url.path.hasSuffix("/start") {
-                data = Data(#"{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}"#.utf8)
-            } else {
-                #expect(url.path == "/api/jwb/bit101/score")
-                #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token")
-                let body = try #require(request.httpBody)
-                let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-                #expect(payload["challenge_id"] as? String == "fixture")
-                #expect(payload["detail"] as? Bool == false)
-                data = Data(#"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","80","2"]]}"#.utf8)
-            }
-            return (data, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
-        }, observer: nil)
-        let service = ScoreService(credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
+        let client = HTTPClient(
+            transport: MockHTTPTransport { request in
+                requests.append(request)
+                let url = try #require(request.url)
+                #expect(request.httpMethod == "POST")
+                let data: Data
+                if url.path.hasSuffix("/start") {
+                    data = Data(
+                        #"""
+                        {"challenge_id":"fixture","access_token":"token","status":"authenticat\#
+                        ed","expires_in":120}
+                        """#
+                        .utf8)
+                } else {
+                    #expect(url.path == "/api/jwb/bit101/score")
+                    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer token")
+                    let body = try #require(request.httpBody)
+                    let payload = try #require(
+                        JSONSerialization.jsonObject(with: body) as? [String: Any])
+                    #expect(payload["challenge_id"] as? String == "fixture")
+                    #expect(payload["detail"] as? Bool == false)
+                    data = Data(
+                        #"{"msg":"查询成功","data":[["课程名称","课程编号","成绩","学分"],["功能验收","C1","80","2"]]}"#
+                            .utf8)
+                }
+                return (
+                    data,
+                    try #require(
+                        HTTPURLResponse(
+                            url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                )
+            }, observer: nil)
+        let service = ScoreService(
+            credentials: credentials, httpClient: client, sensitiveHTTPClient: client,
             endpointBaseURL: AppURL.required("https://example.invalid"))
         let challenge = try await service.startScoreChallenge()
         #expect(challenge.ownerIdentity == credentials.schoolSessionIdentity)
         let rows = try await service.fetchScores(detail: false, authenticatedBy: challenge)
         #expect(rows.first?.score == "80")
-        credentials.schoolSessionIdentity = .init(accountIdentifier: "score-contract", generation: 1)
-        await #expect(throws: CancellationError.self) { try await service.fetchScores(detail: true, authenticatedBy: challenge) }
+        credentials.schoolSessionIdentity = .init(
+            accountIdentifier: "score-contract", generation: 1)
+        await #expect(throws: CancellationError.self) {
+            try await service.fetchScores(detail: true, authenticatedBy: challenge)
+        }
         #expect(requests.count == 2)
     }
 
-    @Test("Network smoke overrides cache reads and preserves request authentication", .timeLimit(.minutes(1)))
+    @Test(
+        "Network smoke overrides cache reads and preserves request authentication",
+        .timeLimit(.minutes(1)))
     @MainActor
     func smokeTransportReadsRemoteData() async throws {
         let url = try makeTestURL("https://example.invalid/cached")
         var captured: URLRequest?
-        let transport = UncachedHTTPTransport(base: MockHTTPTransport { request in
-            captured = request
-            return (Data("remote".utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
-        })
+        let transport = UncachedHTTPTransport(
+            base: MockHTTPTransport { request in
+                captured = request
+                return (
+                    Data("remote".utf8),
+                    try #require(
+                        HTTPURLResponse(
+                            url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+                )
+            })
         var request = URLRequest(url: url, cachePolicy: .returnCacheDataDontLoad)
         request.httpMethod = "POST"
         request.httpBody = Data("payload".utf8)
@@ -253,7 +347,8 @@ struct NetworkClientTests {
         let (data, _) = try await transport.data(for: request)
         #expect(data == Data("remote".utf8))
         #expect(captured?.cachePolicy == .reloadIgnoringLocalCacheData)
-        #expect(captured?.httpMethod == request.httpMethod && captured?.httpBody == request.httpBody)
+        #expect(
+            captured?.httpMethod == request.httpMethod && captured?.httpBody == request.httpBody)
         #expect(captured?.value(forHTTPHeaderField: "Cookie") == "session=fixture")
         #expect(request.cachePolicy == .returnCacheDataDontLoad)
     }
@@ -286,12 +381,13 @@ struct NetworkClientTests {
         let transport = MockHTTPTransport { request in
             transportStarted = true
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 204,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 204,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(), response)
         }
         let request = URLRequest(url: try #require(URL(string: "https://sso.bit.edu.cn/cas/login")))
@@ -324,17 +420,21 @@ struct NetworkClientTests {
 
     @Test(.timeLimit(.minutes(1)))
     @MainActor
-    func cancelledRequestsKeepOtherRequestsAndTheWarningAvailable() async throws {
-        let provider = StubNetworkPathProvider(snapshot: .init(summary: "virtual", virtualNetworkLikely: true))
+    func cancelledRequestsKeepOtherRequests() async throws {
+        let provider = StubNetworkPathProvider(
+            snapshot: .init(summary: "virtual", virtualNetworkLikely: true))
         let coordinator = AppPromptCoordinator(advanceDelay: .zero)
         coordinator.markHostReady()
-        let center = NetworkMagicWarningCenter(pathProvider: provider, promptCoordinator: coordinator)
+        let center = NetworkMagicWarningCenter(
+            pathProvider: provider, promptCoordinator: coordinator)
         var sends = 0
         let transport = MockHTTPTransport { request in
             sends += 1
             let url = try #require(request.url)
-            let response = try #require(HTTPURLResponse(url: url, statusCode: 204,
-                httpVersion: nil, headerFields: nil))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: url, statusCode: 204,
+                    httpVersion: nil, headerFields: nil))
             return (Data(), response)
         }
         let client = HTTPClient(transport: transport, networkWarningCenter: center)
@@ -343,7 +443,8 @@ struct NetworkClientTests {
         cancelled.cancel()
         let continuing = Task { try await client.send(request) }
         defer {
-            cancelled.cancel(); continuing.cancel()
+            cancelled.cancel()
+            continuing.cancel()
             if let action = coordinator.activePrompt?.actions.first {
                 coordinator.perform(action, promptID: coordinator.activePrompt?.id)
             }
@@ -353,7 +454,9 @@ struct NetworkClientTests {
         _ = try await continuing.value
         #expect(sends == 1)
         #expect(coordinator.activePrompt != nil)
-        coordinator.perform(try #require(coordinator.activePrompt?.actions.first), promptID: coordinator.activePrompt?.id)
+        coordinator.perform(
+            try #require(coordinator.activePrompt?.actions.first),
+            promptID: coordinator.activePrompt?.id)
         _ = try await continuing.value
         #expect(sends == 1)
     }
@@ -362,12 +465,13 @@ struct NetworkClientTests {
     func structuredHTTPError() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 503,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 503,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"message":"稍后重试"}"#.utf8), response)
         }
 
@@ -386,7 +490,9 @@ struct NetworkClientTests {
             let requestURL = try #require(request.url)
             return (
                 Data("response".utf8),
-                URLResponse(url: requestURL, mimeType: "text/plain", expectedContentLength: 8, textEncodingName: nil)
+                URLResponse(
+                    url: requestURL, mimeType: "text/plain", expectedContentLength: 8,
+                    textEncodingName: nil)
             )
         }
         let request = URLRequest(url: try #require(URL(string: "https://example.com")))
@@ -395,7 +501,10 @@ struct NetworkClientTests {
             _ = try await HTTPClient(transport: transport).send(request)
             Issue.record("Expected a non-HTTP response error")
         } catch let error as HTTPClientError {
-            guard case .invalidResponse = error else { Issue.record("Unexpected HTTP client error: \(error)"); return }
+            guard case .invalidResponse = error else {
+                Issue.record("Unexpected HTTP client error: \(error)")
+                return
+            }
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
@@ -405,12 +514,13 @@ struct NetworkClientTests {
     func statusRangeBoundary() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 302,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 302,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(), response)
         }
         let request = URLRequest(url: try #require(URL(string: "https://example.com")))
@@ -422,7 +532,8 @@ struct NetworkClientTests {
             #expect(code == 302)
         }
 
-        let response = try await HTTPClient(transport: transport).send(request, accepting: 100 ..< 400)
+        let response = try await HTTPClient(transport: transport).send(
+            request, accepting: 100..<400)
         #expect(response.statusCode == 302)
     }
 
@@ -443,36 +554,53 @@ struct NetworkClientTests {
 
     @Test("HTTP error messages accept backend keys and plain text")
     func errorMessageVariants() {
-        #expect(HTTPClient.errorMessage(from: Data(#"{"msg":"message from msg"}"#.utf8)) == "message from msg")
-        #expect(HTTPClient.errorMessage(from: Data(#"{"detail":"message from detail"}"#.utf8)) == "message from detail")
-        #expect(HTTPClient.errorMessage(from: Data(#"{"error":"message from error"}"#.utf8)) == "message from error")
+        #expect(
+            HTTPClient.errorMessage(from: Data(#"{"msg":"message from msg"}"#.utf8))
+                == "message from msg")
+        #expect(
+            HTTPClient.errorMessage(from: Data(#"{"detail":"message from detail"}"#.utf8))
+                == "message from detail")
+        #expect(
+            HTTPClient.errorMessage(from: Data(#"{"error":"message from error"}"#.utf8))
+                == "message from error")
         #expect(HTTPClient.errorMessage(from: Data("  plain response  ".utf8)) == "plain response")
         #expect(HTTPClient.errorMessage(from: Data()) == nil)
     }
 
-    @Test("Community decoding errors retain their field diagnostics", .timeLimit(.minutes(1)), arguments: ["not-json", "{}", "{\"display_name\":42}"])
+    @Test(
+        "Community decoding errors retain their field diagnostics", .timeLimit(.minutes(1)),
+        arguments: ["not-json", "{}", "{\"display_name\":42}"])
     func communityMalformedJSON(payload: String) async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(payload.utf8), response)
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "session-token")
+            }
         )
 
-        do { let _: UserPayload = try await api.request(path: "users"); Issue.record("Expected a response decoding failure") }
-        catch let error as NSError {
+        do {
+            let _: UserPayload = try await api.request(path: "users")
+            Issue.record("Expected a response decoding failure")
+        } catch let error as NSError {
             let failure = TestCommunityError.invalidResponse as NSError
-            #expect(error.domain == failure.domain && error.code == failure.code && error.localizedDescription == failure.localizedDescription)
+            #expect(
+                error.domain == failure.domain && error.code == failure.code
+                    && error.localizedDescription == failure.localizedDescription)
             #expect(error.userInfo[NSUnderlyingErrorKey] is DecodingError)
         }
     }
@@ -483,23 +611,30 @@ struct NetworkClientTests {
             #expect(request.httpMethod == "GET")
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == "session-token")
             #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
-            #expect(URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?.queryItems == [
-                URLQueryItem(name: "page", value: "2")
-            ])
+            #expect(
+                URLComponents(url: try #require(request.url), resolvingAgainstBaseURL: false)?
+                    .queryItems == [
+                        URLQueryItem(name: "page", value: "2")
+                    ])
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"display_name":"BIT101"}"#.utf8), response)
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "session-token") }
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "session-token")
+            }
         )
 
         let payload: UserPayload = try await api.request(
@@ -519,7 +654,11 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") }
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "")
+            }
         )
 
         await #expect(throws: TestCommunityError.notLoggedIn) {
@@ -532,19 +671,24 @@ struct NetworkClientTests {
         let transport = MockHTTPTransport { request in
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == nil)
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"display_name":"Guest"}"#.utf8), response)
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") }
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "")
+            }
         )
 
         let payload: UserPayload = try await api.request(
@@ -569,13 +713,15 @@ struct NetworkClientTests {
             if state.requestCount == 2 {
                 #expect(request.value(forHTTPHeaderField: "fake-cookie") == "refreshed-token")
             }
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: statusCode,
-                httpVersion: nil,
-                headerFields: nil
-            ))
-            let body = statusCode == 200
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: statusCode,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+            let body =
+                statusCode == 200
                 ? Data(#"{"display_name":"BIT101"}"#.utf8)
                 : Data(#"{"message":"expired"}"#.utf8)
             return (body, response)
@@ -584,7 +730,11 @@ struct NetworkClientTests {
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: state.cookie) },
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: state.cookie)
+            },
             refreshHandler: { _ in state.cookie = "refreshed-token" }
         )
 
@@ -606,19 +756,24 @@ struct NetworkClientTests {
             state.requestCount += 1
             #expect(request.value(forHTTPHeaderField: "fake-cookie") == state.cookie)
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 401,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 401,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"message":"expired"}"#.utf8), response)
         }
         let api = CommunityAPIClient<TestCommunityError>(
             httpClient: HTTPClient(transport: transport),
             baseURL: try #require(URL(string: "https://example.com")),
             errorDomain: "Test",
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: state.cookie) },
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: state.cookie)
+            },
             refreshHandler: { _ in
                 state.refreshCount += 1
                 state.cookie = "refreshed-token"
@@ -650,16 +805,21 @@ struct NetworkClientTests {
     @Test("School URLs are resolved and upgraded through one policy")
     func secureSchoolURLResolution() throws {
         let insecure = try #require(URL(string: "http://example.com/path?q=1"))
-        #expect(HTTPSURLUpgrade.upgradedURL(from: insecure).absoluteString == "https://example.com/path?q=1")
-        for (source, expected) in [("http://example.com:80/path?q=1", "https://example.com/path?q=1"),
-                ("http://example.com:8080/path", "https://example.com:8080/path"),
-                ("https://example.com:80/path", "https://example.com:80/path")] {
+        #expect(
+            HTTPSURLUpgrade.upgradedURL(from: insecure).absoluteString
+                == "https://example.com/path?q=1")
+        for (source, expected) in [
+            ("http://example.com:80/path?q=1", "https://example.com/path?q=1"),
+            ("http://example.com:8080/path", "https://example.com:8080/path"),
+            ("https://example.com:80/path", "https://example.com:80/path"),
+        ] {
             #expect(HTTPSURLUpgrade.upgradedURLString(from: source) == expected)
         }
 
         let login = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
         #expect(
-            HTTPSURLUpgrade.resolvedURL(from: "/gate/cas-success", relativeTo: login)?.absoluteString
+            HTTPSURLUpgrade.resolvedURL(from: "/gate/cas-success", relativeTo: login)?
+                .absoluteString
                 == "https://sso.bit.edu.cn/gate/cas-success"
         )
     }
@@ -669,17 +829,19 @@ struct NetworkClientTests {
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
         let sourceURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
-        let response = try #require(HTTPURLResponse(
-            url: sourceURL,
-            statusCode: 302,
-            httpVersion: nil,
-            headerFields: nil
-        ))
+        let response = try #require(
+            HTTPURLResponse(
+                url: sourceURL,
+                statusCode: 302,
+                httpVersion: nil,
+                headerFields: nil
+            ))
         let task = session.dataTask(with: sourceURL)
         let delegate = HTTPSUpgradingRedirectDelegate()
 
         var sameOriginResult: URLRequest?
-        var sameOriginRequest = URLRequest(url: try #require(URL(string: "http://sso.bit.edu.cn/cas/continue")))
+        var sameOriginRequest = URLRequest(
+            url: try #require(URL(string: "http://sso.bit.edu.cn/cas/continue")))
         sameOriginRequest.setValue("Bearer token", forHTTPHeaderField: "Authorization")
         sameOriginRequest.setValue("challenge-token", forHTTPHeaderField: "X-Challenge-Token")
         delegate.urlSession(
@@ -691,7 +853,8 @@ struct NetworkClientTests {
         )
         #expect(sameOriginResult?.url?.absoluteString == "https://sso.bit.edu.cn/cas/continue")
         #expect(sameOriginResult?.value(forHTTPHeaderField: "Authorization") == "Bearer token")
-        #expect(sameOriginResult?.value(forHTTPHeaderField: "X-Challenge-Token") == "challenge-token")
+        #expect(
+            sameOriginResult?.value(forHTTPHeaderField: "X-Challenge-Token") == "challenge-token")
 
         var manuallyHandledRedirect: URLRequest? = sameOriginRequest
         NoRedirectURLSessionDelegate().urlSession(
@@ -704,7 +867,8 @@ struct NetworkClientTests {
         #expect(manuallyHandledRedirect == nil)
 
         var crossOriginResult: URLRequest?
-        var crossOriginRequest = URLRequest(url: try #require(URL(string: "http://portal.example/landing")))
+        var crossOriginRequest = URLRequest(
+            url: try #require(URL(string: "http://portal.example/landing")))
         crossOriginRequest.setValue("Bearer token", forHTTPHeaderField: "Authorization")
         crossOriginRequest.setValue("proxy-token", forHTTPHeaderField: "Proxy-Authorization")
         crossOriginRequest.setValue("session", forHTTPHeaderField: "Cookie")
@@ -741,7 +905,11 @@ struct NetworkClientTests {
     @Test("bit-login challenge protocol is shared by school services")
     func sharedBITLoginChallengeProtocol() throws {
         let data = Data(
-            #"{"challenge_id":"challenge-1","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#.utf8
+            #"""
+            {"challenge_id":"challenge-1","access_token":"token","status":"waiting_sms","maske\#
+            d_phone":"138****0000","expires_in":120}
+            """#
+            .utf8
         )
         let payload = try BITLoginChallengeSupport.decodePayload(from: data)
         let challenge = BITLoginChallengeSupport.challenge(from: payload, accessToken: "token")
@@ -761,19 +929,24 @@ struct NetworkClientTests {
         let transport = MockHTTPTransport { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.absoluteString == "https://school.example/api/courses.do")
-            #expect(request.value(forHTTPHeaderField: "Accept") == "application/json, text/javascript, */*; q=0.01")
+            #expect(
+                request.value(forHTTPHeaderField: "Accept")
+                    == "application/json, text/javascript, */*; q=0.01")
             #expect(request.value(forHTTPHeaderField: "X-Requested-With") == "XMLHttpRequest")
-            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/x-www-form-urlencoded; charset=utf-8")
+            #expect(
+                request.value(forHTTPHeaderField: "Content-Type")
+                    == "application/x-www-form-urlencoded; charset=utf-8")
             let body = String(decoding: try #require(request.httpBody), as: UTF8.self)
             #expect(body == "term=2025-2026-1&search=software%20%26%20engineering")
 
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"accepted":true}"#.utf8), response)
         }
         let service = ScheduleServiceFactory.make(transport: transport)
@@ -787,17 +960,22 @@ struct NetworkClientTests {
         #expect(payload.accepted)
     }
 
-    @Test("Schedule service returns school business errors from nested envelopes", .timeLimit(.minutes(1)))
+    @Test(
+        "Schedule service returns school business errors from nested envelopes",
+        .timeLimit(.minutes(1)))
     func scheduleBusinessErrorContract() async throws {
         let transport = MockHTTPTransport { request in
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
-            let data = Data(#"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8)
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
+            let data = Data(
+                #"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#
+                    .utf8)
             return (data, response)
         }
         let service = ScheduleServiceFactory.make(transport: transport)
@@ -815,25 +993,33 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("Schedule SMS continuation sends the challenge contract and preserves its state", .timeLimit(.minutes(1)))
+    @Test(
+        "Schedule SMS continuation sends the challenge contract and preserves its state",
+        .timeLimit(.minutes(1)))
     func scheduleSMSChallengeContract() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.httpMethod == "POST")
             #expect(request.url?.path == "/api/auth/challenge-1/sms")
             #expect(request.value(forHTTPHeaderField: "X-Challenge-Token") == "access-token")
             let body = try #require(request.httpBody)
-            let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+            let payload = try #require(
+                JSONSerialization.jsonObject(with: body) as? [String: String])
             #expect(payload == ["code": "123456"])
 
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             let data = Data(
-                #"{"challenge_id":"challenge-1","access_token":"access-token","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#.utf8
+                #"""
+                {"challenge_id":"challenge-1","access_token":"access-token","status":"waiting_\#
+                sms","masked_phone":"138****0000","expires_in":120}
+                """#
+                .utf8
             )
             return (data, response)
         }
@@ -848,7 +1034,7 @@ struct NetworkClientTests {
         )
 
         do {
-            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
+            try await service.submitTeachingCode("123456", for: challenge)
             Issue.record("Expected the server to keep the challenge in its SMS state")
         } catch ScheduleServiceError.secondFactorRequired(let updatedChallenge) {
             #expect(updatedChallenge.challengeID == challenge.challengeID)
@@ -859,17 +1045,19 @@ struct NetworkClientTests {
         }
     }
 
-    @Test("Expired SMS challenge responses preserve challenge invalidation", .timeLimit(.minutes(1)))
+    @Test(
+        "Expired SMS challenge responses preserve challenge invalidation", .timeLimit(.minutes(1)))
     func scheduleExpiredSMSChallengeContract() async throws {
         let transport = MockHTTPTransport { request in
             #expect(request.url?.path == "/api/auth/challenge-1/sms")
             let requestURL = try #require(request.url)
-            let response = try #require(HTTPURLResponse(
-                url: requestURL,
-                statusCode: 409,
-                httpVersion: nil,
-                headerFields: nil
-            ))
+            let response = try #require(
+                HTTPURLResponse(
+                    url: requestURL,
+                    statusCode: 409,
+                    httpVersion: nil,
+                    headerFields: nil
+                ))
             return (Data(#"{"message":"challenge expired"}"#.utf8), response)
         }
         let service = ScheduleServiceFactory.make(transport: transport)
@@ -883,7 +1071,7 @@ struct NetworkClientTests {
         )
 
         do {
-            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
+            try await service.submitTeachingCode("123456", for: challenge)
             Issue.record("Expected the expired challenge to be rejected")
         } catch ScheduleServiceError.challengeInvalid(let message) {
             #expect(message.contains("challenge expired"))
@@ -903,7 +1091,7 @@ struct NetworkClientTests {
             (.schedule, [.schedule]),
             (.ddl, [.ddl]),
             (.communityWrites, [.authentication, .communityWrites, .communityWriteImages]),
-            (.communityCleanup, [.authentication, .communityWrites])
+            (.communityCleanup, [.authentication, .communityWrites]),
         ]
 
         for (scope, includedAreas) in expectations {
@@ -941,15 +1129,18 @@ struct NetworkClientTests {
         #expect(!partial.coverageComplete)
     }
 
-    @Test("Every smoke scope requires its complete probe inventory", arguments: NetworkSmokeScope.allCases)
+    @Test(
+        "Every smoke scope requires its complete probe inventory",
+        arguments: NetworkSmokeScope.allCases)
     func networkSmokeRequiredProbeInventory(_ scope: NetworkSmokeScope) {
         let required = scope.requiredProbes
-        let firstID = switch scope {
-        case .all, .bit101, .communityWrites, .communityCleanup: "community.login"
-        case .school, .schedule: "schedule.current-term"
-        case .transcript: "score.transcript"
-        case .ddl: "eclass.authentication"
-        }
+        let firstID =
+            switch scope {
+            case .all, .bit101, .communityWrites, .communityCleanup: "community.login"
+            case .school, .schedule: "schedule.current-term"
+            case .transcript: "score.transcript"
+            case .ddl: "eclass.authentication"
+            }
         #expect(required.first == firstID)
         #expect(Set(required).count == required.count)
         let now = Date()
@@ -957,7 +1148,8 @@ struct NetworkClientTests {
             ReleaseNetworkSmokeReport(
                 runID: "inventory-test", scope: scope, startedAt: now, finishedAt: now,
                 passed: true, failures: [], authenticationBlockers: [], scheduleCache: nil,
-                executedProbes: executed, skippedProbes: [], coverageGaps: [], schoolSMSCoverage: "not_run"
+                executedProbes: executed, skippedProbes: [], coverageGaps: [],
+                schoolSMSCoverage: "not_run"
             )
         }
         #expect(report(executed: required).coverageComplete)
@@ -968,7 +1160,6 @@ struct NetworkClientTests {
             #expect(incomplete.missingRequiredProbes == [name])
         }
     }
-
 
 }
 
@@ -982,8 +1173,10 @@ private final class EclassTimeoutTransport: HTTPTransport {
     var cancelled = false
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         started = true
-        do { try await Task.sleep(for: .seconds(60)) }
-        catch is CancellationError { cancelled = true; throw CancellationError() }
+        do { try await Task.sleep(for: .seconds(60)) } catch is CancellationError {
+            cancelled = true
+            throw CancellationError()
+        }
         throw URLError(.networkConnectionLost)
     }
 }

@@ -1,11 +1,11 @@
 import CourseFeature
-import MapFeature
-import ScheduleFeature
-import ScheduleDomain
-import ScheduleContracts
 import Foundation
-import TransportCore
+import MapFeature
+import ScheduleContracts
+import ScheduleDomain
+import ScheduleFeature
 import SwiftUI
+import TransportCore
 
 /// 日程课程操作所需的结果：当前教师对应的社区课程。
 struct ScheduleAcademicCourseResolution {
@@ -24,30 +24,41 @@ extension ScheduleDestinations {
         return ScheduleDestinations(
             appStoreURL: BIT101AppStore.url,
             academicCourse: { course, onDismiss in
-                AnyView(CourseEvaluationLink(dependencies: courses, request: .lookup(
-                    courseName: course.name, courseNumber: course.number, teacher: course.teacher
-                )) { request in
-                    onDismiss()
-                    onOpenAcademicCourse(request)
-                })
+                AnyView(
+                    CourseEvaluationLink(
+                        dependencies: courses,
+                        request: .lookup(
+                            courseName: course.name, courseNumber: course.number,
+                            teacher: course.teacher
+                        )
+                    ) { request in
+                        onDismiss()
+                        onOpenAcademicCourse(request)
+                    })
             },
             openCourseLocation: { courses in
                 var seen = Set<String>()
                 let places = courses.compactMap { course -> CampusMapPlace? in
-                    guard let place = CampusMapPlaceCatalog.place(campusName: course.campus, classroom: course.classroom),
-                          seen.insert(place.id).inserted else { return nil }
+                    guard
+                        let place = CampusMapPlaceCatalog.place(
+                            campusName: course.campus, classroom: course.classroom),
+                        seen.insert(place.id).inserted
+                    else { return nil }
                     return place
                 }
                 guard let first = courses.first, !places.isEmpty else { return false }
-                onOpenCourseLocation(CampusMapLocationRequest(
-                    courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name), places: places
-                ))
+                onOpenCourseLocation(
+                    CampusMapLocationRequest(
+                        courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name),
+                        places: places
+                    ))
                 return true
             },
             resolveCourseShare: { course in
                 guard let resolution = try await resolver.resolve(course) else { return nil }
                 return ScheduleCourseShare(
-                    url: AppURL.required("https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)"),
+                    url: AppURL.required(
+                        "https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)"),
                     subject: resolution.selectedCourse.name
                 )
             }
@@ -76,11 +87,13 @@ struct ScheduleAcademicCourseResolver {
         let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
 
-        guard let lookup = try await resolver.resolve(
-            courseName: name,
-            courseNumber: number,
-            teacher: course.teacher
-        ) else { return nil }
+        guard
+            let lookup = try await resolver.resolve(
+                courseName: name,
+                courseNumber: number,
+                teacher: course.teacher
+            )
+        else { return nil }
 
         return ScheduleAcademicCourseResolution(
             selectedCourse: lookup.selectedCourse,

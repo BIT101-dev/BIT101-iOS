@@ -25,7 +25,8 @@ public nonisolated enum ClassroomAvailabilityCalculator {
         let currentFreeOnly = selected.isEmpty
         let selectedSet = Set(selected)
 
-        return records
+        return
+            records
             .map { availability(for: $0, timeTable: timeTable, nowMinutes: nowMinutes) }
             .filter { item in
                 currentFreeOnly ? item.isFreeNow : !selectedSet.isDisjoint(with: item.freeSections)
@@ -94,9 +95,10 @@ public nonisolated enum ClassroomAvailabilityCalculator {
     }
 
     public static func sectionBlock(at minutes: Int, in timeTable: [TimeSlot]) -> [Int] {
-        let activeID = timeTable.first {
-            $0.startMinutes <= minutes && minutes < $0.endMinutes
-        }?.id ?? timeTable.first(where: { $0.startMinutes > minutes })?.id
+        let activeID =
+            timeTable.first {
+                $0.startMinutes <= minutes && minutes < $0.endMinutes
+            }?.id ?? timeTable.first(where: { $0.startMinutes > minutes })?.id
 
         switch activeID {
         case 1, 2: return [1, 2]
@@ -110,7 +112,8 @@ public nonisolated enum ClassroomAvailabilityCalculator {
     }
 
     public static func normalizedBuildingName(_ value: String) -> String {
-        let scalars = value
+        let scalars =
+            value
             .uppercased()
             .replacingOccurrences(of: "理教楼", with: "理教")
             .replacingOccurrences(of: "文萃楼", with: "文萃")
@@ -118,9 +121,9 @@ public nonisolated enum ClassroomAvailabilityCalculator {
             .replacingOccurrences(of: "楼", with: "")
             .unicodeScalars
             .filter {
-                !CharacterSet.whitespacesAndNewlines.contains($0) &&
-                    !CharacterSet.punctuationCharacters.contains($0) &&
-                    !CharacterSet.symbols.contains($0)
+                !CharacterSet.whitespacesAndNewlines.contains($0)
+                    && !CharacterSet.punctuationCharacters.contains($0)
+                    && !CharacterSet.symbols.contains($0)
             }
         return String(String.UnicodeScalarView(scalars))
     }

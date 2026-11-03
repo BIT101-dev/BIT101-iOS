@@ -1,12 +1,13 @@
 import Foundation
-import SwiftSyntax
-import SwiftParser
 import SwiftOperators
+import SwiftParser
+import SwiftSyntax
 
 func unwrappedExpression(_ value: ExprSyntax?) -> ExprSyntax? {
     var expression = value
     while let tuple = expression?.as(TupleExprSyntax.self), tuple.elements.count == 1,
-          let element = tuple.elements.first, element.label == nil { expression = element.expression }
+        let element = tuple.elements.first, element.label == nil
+    { expression = element.expression }
     return expression
 }
 
@@ -16,29 +17,41 @@ func selectorReference(_ expression: ExprSyntax?) -> String? {
         return macro.arguments.first?.expression.trimmedDescription
     }
     guard let call = value?.as(FunctionCallExprSyntax.self), call.arguments.count == 1,
-          ["Selector", "Foundation.Selector", "NSSelectorFromString", "Foundation.NSSelectorFromString"]
-            .contains(call.calledExpression.trimmedDescription) else { return nil }
-    return unwrappedExpression(call.arguments.first?.expression)?.as(StringLiteralExprSyntax.self)?.representedLiteralValue
+        [
+            "Selector", "Foundation.Selector", "NSSelectorFromString",
+            "Foundation.NSSelectorFromString",
+        ]
+        .contains(call.calledExpression.trimmedDescription)
+    else { return nil }
+    return unwrappedExpression(call.arguments.first?.expression)?.as(StringLiteralExprSyntax.self)?
+        .representedLiteralValue
 }
 
 func collectionElementCount(_ value: ExprSyntax?) -> Int? {
     guard let expression = unwrappedExpression(value) else { return nil }
     if let array = expression.as(ArrayExprSyntax.self) { return array.elements.count }
     guard let call = expression.as(FunctionCallExprSyntax.self), call.trailingClosure == nil,
-          call.additionalTrailingClosures.isEmpty else { return nil }
+        call.additionalTrailingClosures.isEmpty
+    else { return nil }
     let name = call.calledExpression.trimmedDescription
     if call.arguments.isEmpty,
-       name.hasPrefix("[") && name.hasSuffix("]") || name.hasPrefix("Array<") || name.hasPrefix("Swift.Array<") {
+        name.hasPrefix("[") && name.hasSuffix("]") || name.hasPrefix("Array<")
+            || name.hasPrefix("Swift.Array<")
+    {
         return 0
     }
     guard let member = call.calledExpression.as(MemberAccessExprSyntax.self),
-          let count = collectionElementCount(member.base), call.arguments.count <= 1 else { return nil }
+        let count = collectionElementCount(member.base), call.arguments.count <= 1
+    else { return nil }
     let method = member.declName.baseName.text
     let amount: Int
     if let argument = call.arguments.first {
         guard argument.label == nil,
-              let literal = unwrappedExpression(argument.expression)?.as(IntegerLiteralExprSyntax.self),
-              let value = Int(literal.literal.text.replacingOccurrences(of: "_", with: "")), value >= 0 else { return nil }
+            let literal = unwrappedExpression(argument.expression)?.as(
+                IntegerLiteralExprSyntax.self),
+            let value = Int(literal.literal.text.replacingOccurrences(of: "_", with: "")),
+            value >= 0
+        else { return nil }
         amount = value
     } else {
         guard ["dropFirst", "dropLast"].contains(method) else { return nil }
@@ -51,36 +64,54 @@ func collectionElementCount(_ value: ExprSyntax?) -> Int? {
 
 func iterationBounds(_ expression: ExprSyntax) -> [String]? {
     guard let folded = try? OperatorTable.standardOperators.foldAll(expression),
-          let infix = unwrappedExpression(folded.as(ExprSyntax.self))?.as(InfixOperatorExprSyntax.self),
-          ["..<", "..."].contains(infix.operator.trimmedDescription) else { return nil }
-    return [infix.leftOperand.trimmedDescription, infix.operator.trimmedDescription, infix.rightOperand.trimmedDescription]
+        let infix = unwrappedExpression(folded.as(ExprSyntax.self))?.as(
+            InfixOperatorExprSyntax.self),
+        ["..<", "..."].contains(infix.operator.trimmedDescription)
+    else { return nil }
+    return [
+        infix.leftOperand.trimmedDescription, infix.operator.trimmedDescription,
+        infix.rightOperand.trimmedDescription,
+    ]
 }
 
 func enclosingExpression(_ node: Syntax) -> Syntax {
     var expression = node
     while let element = expression.parent?.as(LabeledExprSyntax.self),
-          let tuple = element.parent?.parent?.as(TupleExprSyntax.self), tuple.elements.count == 1,
-          element.label == nil { expression = Syntax(tuple) }
+        let tuple = element.parent?.parent?.as(TupleExprSyntax.self), tuple.elements.count == 1,
+        element.label == nil
+    { expression = Syntax(tuple) }
     return expression
 }
 
 func discardsExpression(_ node: Syntax) -> Bool {
     let expression = enclosingExpression(node)
     return expression.parent?.is(CodeBlockItemSyntax.self) == true
-        || expression.parent?.as(InitializerClauseSyntax.self)?.parent?.as(PatternBindingSyntax.self)?.pattern.is(WildcardPatternSyntax.self) == true
-        || expression.parent?.trimmedDescription.replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression).hasPrefix("_=") == true
+        || expression.parent?.as(InitializerClauseSyntax.self)?.parent?.as(
+            PatternBindingSyntax.self)?.pattern.is(WildcardPatternSyntax.self) == true
+        || expression.parent?.trimmedDescription.replacingOccurrences(
+            of: #"\s+"#, with: "", options: .regularExpression
+        ).hasPrefix("_=") == true
 }
 
 final class DiscardedValueVisitor: SyntaxVisitor {
     let name: String
     let after: AbsolutePosition
     var consumed = false
-    init(name: String, after: AbsolutePosition) { self.name = name; self.after = after; super.init(viewMode: .sourceAccurate) }
+    init(name: String, after: AbsolutePosition) {
+        self.name = name
+        self.after = after
+        super.init(viewMode: .sourceAccurate)
+    }
     override func visit(_ node: DeclReferenceExprSyntax) -> SyntaxVisitorContinueKind {
-        let statements = enclosingExpression(Syntax(node)).parent?.parent?.as(CodeBlockItemListSyntax.self)
-        let implicitReturn = statements?.count == 1 && statements?.parent?.is(ClosureExprSyntax.self) == true
+        let statements = enclosingExpression(Syntax(node)).parent?.parent?.as(
+            CodeBlockItemListSyntax.self)
+        let implicitReturn =
+            statements?.count == 1 && statements?.parent?.is(ClosureExprSyntax.self) == true
         if node.positionAfterSkippingLeadingTrivia >= after && node.baseName.text == name
-            && (!discardsExpression(Syntax(node)) || implicitReturn) { consumed = true }
+            && (!discardsExpression(Syntax(node)) || implicitReturn)
+        {
+            consumed = true
+        }
         return .visitChildren
     }
 }
@@ -88,23 +119,32 @@ final class DiscardedValueVisitor: SyntaxVisitor {
 func discardsOptionalTry(_ node: TryExprSyntax) -> Bool {
     guard node.questionOrExclamationMark?.text == "?" else { return false }
     if discardsExpression(Syntax(node)) { return true }
-    guard let binding = enclosingExpression(Syntax(node)).parent?.as(InitializerClauseSyntax.self)?.parent?.as(PatternBindingSyntax.self),
-          let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
-          let declaration = binding.parent?.parent?.as(VariableDeclSyntax.self),
-          let statements = declaration.parent?.parent?.as(CodeBlockItemListSyntax.self) else { return false }
+    guard
+        let binding = enclosingExpression(Syntax(node)).parent?.as(InitializerClauseSyntax.self)?
+            .parent?.as(PatternBindingSyntax.self),
+        let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+        let declaration = binding.parent?.parent?.as(VariableDeclSyntax.self),
+        let statements = declaration.parent?.parent?.as(CodeBlockItemListSyntax.self)
+    else { return false }
     let visitor = DiscardedValueVisitor(name: name, after: binding.endPositionBeforeTrailingTrivia)
-    for statement in statements where statement.endPositionBeforeTrailingTrivia > binding.endPositionBeforeTrailingTrivia {
+    for statement in statements
+    where statement.endPositionBeforeTrailingTrivia > binding.endPositionBeforeTrailingTrivia {
         visitor.walk(statement)
     }
     return !visitor.consumed
 }
 
 func discardsCaughtError(_ node: CatchClauseSyntax) -> Bool {
-    let names = Set(["error"] + node.catchItems.compactMap { item in
-        (item.pattern?.as(ValueBindingPatternSyntax.self)?.pattern ?? item.pattern)?.as(IdentifierPatternSyntax.self)?.identifier.text
-    })
+    let names = Set(
+        ["error"]
+            + node.catchItems.compactMap { item in
+                (item.pattern?.as(ValueBindingPatternSyntax.self)?.pattern ?? item.pattern)?.as(
+                    IdentifierPatternSyntax.self)?.identifier.text
+            })
     func caughtReference(_ value: ExprSyntax?) -> Bool {
-        unwrappedExpression(value)?.as(DeclReferenceExprSyntax.self).map { names.contains($0.baseName.text) } ?? false
+        unwrappedExpression(value)?.as(DeclReferenceExprSyntax.self).map {
+            names.contains($0.baseName.text)
+        } ?? false
     }
     return node.body.statements.allSatisfy { statement in
         if let sequence = statement.item.as(SequenceExprSyntax.self) {
@@ -113,19 +153,30 @@ func discardsCaughtError(_ node: CatchClauseSyntax) -> Bool {
                 && parts[1].is(AssignmentExprSyntax.self) && caughtReference(parts[2])
         }
         if let declaration = statement.item.as(VariableDeclSyntax.self) {
-            return !declaration.bindings.isEmpty && declaration.bindings.allSatisfy {
-                $0.pattern.is(WildcardPatternSyntax.self) && caughtReference($0.initializer?.value)
-            }
+            return !declaration.bindings.isEmpty
+                && declaration.bindings.allSatisfy {
+                    $0.pattern.is(WildcardPatternSyntax.self)
+                        && caughtReference($0.initializer?.value)
+                }
         }
         return false
     }
 }
 
-struct SourceInput: Decodable { let name: String; let source: String }
-struct Input: Decodable { let paths: [String]; let sources: [SourceInput]?; let interactionNames: [String] }
+struct SourceInput: Decodable {
+    let name: String
+    let source: String
+}
+struct Input: Decodable {
+    let paths: [String]
+    let sources: [SourceInput]?
+    let interactionNames: [String]
+}
 
 struct FileFacts: Encodable {
     let source: String
+    let styleNesting: [StyleFact]
+    let styleLiterals: [LiteralFact]
     let hasParseErrors: Bool
     let imports: [String]
     let identifiers: [String]
@@ -189,16 +240,21 @@ enum FactText: Encodable {
     case sourceRange(Int, Int)
 
     init(_ node: some SyntaxProtocol, source: [UInt8]) {
-        self.init(node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset, source: source)
+        self.init(
+            node.trimmedDescription, start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+            source: source)
     }
 
     init(_ value: String, start: Int, source: [UInt8]) {
         let end = start + value.utf8.count
         let reference = "{\"$source\":[\(start),\(end)]}"
         if reference.utf8.count < value.utf8.count + 2, end <= source.count,
-           source[start..<end].elementsEqual(value.utf8) {
+            source[start..<end].elementsEqual(value.utf8)
+        {
             self = .sourceRange(start, end)
-        } else { self = .literal(value) }
+        } else {
+            self = .literal(value)
+        }
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -361,9 +417,13 @@ struct FunctionRangeFact: Encodable {
     var returnedCall: String? = nil
 }
 
-func deinitializerRange(_ node: DeinitializerDeclSyntax, scope: [String], lexicalScope: [Int]) -> FunctionRangeFact {
-    FunctionRangeFact(name: "deinit", returnType: nil, returnsView: false, scope: scope,
-        start: node.positionAfterSkippingLeadingTrivia.utf8Offset, end: node.endPositionBeforeTrailingTrivia.utf8Offset,
+func deinitializerRange(_ node: DeinitializerDeclSyntax, scope: [String], lexicalScope: [Int])
+    -> FunctionRangeFact
+{
+    FunctionRangeFact(
+        name: "deinit", returnType: nil, returnsView: false, scope: scope,
+        start: node.positionAfterSkippingLeadingTrivia.utf8Offset,
+        end: node.endPositionBeforeTrailingTrivia.utf8Offset,
         lexicalScope: lexicalScope, parameters: [], isDeinitializer: true,
         bodyStart: node.body?.positionAfterSkippingLeadingTrivia.utf8Offset)
 }
@@ -378,11 +438,15 @@ struct FunctionParameterFact: Encodable {
 }
 
 func functionParameterFact(_ node: FunctionParameterSyntax) -> FunctionParameterFact {
-    FunctionParameterFact(label: node.firstName.text == "_" ? "" : node.firstName.text,
+    FunctionParameterFact(
+        label: node.firstName.text == "_" ? "" : node.firstName.text,
         type: node.type.trimmedDescription, hasDefault: node.defaultValue != nil,
         variadic: node.ellipsis != nil, name: (node.secondName ?? node.firstName).text,
         defaultExpressionRange: node.defaultValue.map {
-            [$0.value.positionAfterSkippingLeadingTrivia.utf8Offset, $0.value.endPositionBeforeTrailingTrivia.utf8Offset]
+            [
+                $0.value.positionAfterSkippingLeadingTrivia.utf8Offset,
+                $0.value.endPositionBeforeTrailingTrivia.utf8Offset,
+            ]
         })
 }
 
@@ -421,8 +485,12 @@ final class ExpressionFlowVisitor: SyntaxVisitor {
 func functionType(in type: TypeSyntax?) -> FunctionTypeSyntax? {
     guard let type else { return nil }
     if let function = type.as(FunctionTypeSyntax.self) { return function }
-    if let optional = type.as(OptionalTypeSyntax.self) { return functionType(in: optional.wrappedType) }
-    if let optional = type.as(ImplicitlyUnwrappedOptionalTypeSyntax.self) { return functionType(in: optional.wrappedType) }
+    if let optional = type.as(OptionalTypeSyntax.self) {
+        return functionType(in: optional.wrappedType)
+    }
+    if let optional = type.as(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
+        return functionType(in: optional.wrappedType)
+    }
     if let tuple = type.as(TupleTypeSyntax.self), tuple.elements.count == 1 {
         return functionType(in: tuple.elements.first?.type)
     }

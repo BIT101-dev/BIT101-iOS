@@ -1,6 +1,6 @@
 import Foundation
-import ScheduleDomain
 import ScheduleContracts
+import ScheduleDomain
 
 nonisolated struct CourseReminderOccurrence: Equatable, Sendable {
     let kindText: String
@@ -20,7 +20,9 @@ nonisolated enum ScheduleReminderPlanner {
     /// - 自定义日程
     ///
     /// 结果保留结束时间晚于当前时间的实例。
-    static func resolveOccurrences(from cache: ScheduleCache, now: Date = Date()) -> [CourseReminderOccurrence] {
+    static func resolveOccurrences(from cache: ScheduleCache, now: Date = Date())
+        -> [CourseReminderOccurrence]
+    {
         let slotMap = Dictionary(
             cache.timeTable.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -33,24 +35,33 @@ nonisolated enum ScheduleReminderPlanner {
         if let firstDay = cache.firstDay {
             for course in cache.courses {
                 for week in Set(course.weeks).sorted() {
-                    guard seenOccurrenceKeys.insert("course-\(course.id)-w\(week)").inserted else { continue }
+                    guard seenOccurrenceKeys.insert("course-\(course.id)-w\(week)").inserted else {
+                        continue
+                    }
                     guard ScheduleCourseConstraints.isValidWeek(week),
-                          (1...7).contains(course.weekday),
-                          let startSlot = slotMap[course.startSection],
-                          let endSlot = slotMap[course.endSection],
-                          let start = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: startSlot.start),
-                          let end = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: endSlot.end),
-                          end > start,
-                          end > now else { continue }
+                        (1...7).contains(course.weekday),
+                        let startSlot = slotMap[course.startSection],
+                        let endSlot = slotMap[course.endSection],
+                        let start = ScheduleSharedDateCodec.combine(
+                            firstDay: firstDay, week: week, weekday: course.weekday,
+                            time: startSlot.start),
+                        let end = ScheduleSharedDateCodec.combine(
+                            firstDay: firstDay, week: week, weekday: course.weekday,
+                            time: endSlot.end),
+                        end > start,
+                        end > now
+                    else { continue }
 
-                    results.append(CourseReminderOccurrence(
-                        kindText: "上课",
-                        title: ScheduleDisplayNormalizer.normalizeCourseTitle(course.name),
-                        classroom: ScheduleDisplayNormalizer.normalizeClassroom(course.classroom),
-                        teacher: course.teacher,
-                        startDate: start,
-                        endDate: end
-                    ))
+                    results.append(
+                        CourseReminderOccurrence(
+                            kindText: "上课",
+                            title: ScheduleDisplayNormalizer.normalizeCourseTitle(course.name),
+                            classroom: ScheduleDisplayNormalizer.normalizeClassroom(
+                                course.classroom),
+                            teacher: course.teacher,
+                            startDate: start,
+                            endDate: end
+                        ))
                 }
             }
         }
@@ -58,28 +69,35 @@ nonisolated enum ScheduleReminderPlanner {
         // 处理自定义日程
         for schedule in cache.customSchedules {
             for dateString in schedule.occurrenceDateStrings {
-                guard seenOccurrenceKeys.insert("custom-\(schedule.id)-\(dateString)").inserted else { continue }
+                guard seenOccurrenceKeys.insert("custom-\(schedule.id)-\(dateString)").inserted
+                else { continue }
                 guard let date = ScheduleSharedDateCodec.parseDate(dateString),
-                      let start = ScheduleSharedDateCodec.combine(date: date, time: schedule.beginTime),
-                      let end = ScheduleSharedDateCodec.combine(date: date, time: schedule.endTime),
-                      end > start,
-                      end > now else { continue }
+                    let start = ScheduleSharedDateCodec.combine(
+                        date: date, time: schedule.beginTime),
+                    let end = ScheduleSharedDateCodec.combine(date: date, time: schedule.endTime),
+                    end > start,
+                    end > now
+                else { continue }
 
-                results.append(CourseReminderOccurrence(
-                    kindText: "日程",
-                    title: schedule.title,
-                    classroom: schedule.subtitle.trimmingCharacters(in: .whitespacesAndNewlines),
-                    teacher: "",
-                    startDate: start,
-                    endDate: end
-                ))
+                results.append(
+                    CourseReminderOccurrence(
+                        kindText: "日程",
+                        title: schedule.title,
+                        classroom: schedule.subtitle.trimmingCharacters(
+                            in: .whitespacesAndNewlines),
+                        teacher: "",
+                        startDate: start,
+                        endDate: end
+                    ))
             }
         }
 
         return results.sorted {
             if $0.startDate != $1.startDate { return $0.startDate < $1.startDate }
             if $0.endDate != $1.endDate { return $0.endDate < $1.endDate }
-            return [$0.kindText, $0.title, $0.classroom, $0.teacher].lexicographicallyPrecedes([$1.kindText, $1.title, $1.classroom, $1.teacher])
+            return [$0.kindText, $0.title, $0.classroom, $0.teacher].lexicographicallyPrecedes([
+                $1.kindText, $1.title, $1.classroom, $1.teacher,
+            ])
         }
     }
 
@@ -88,30 +106,38 @@ nonisolated enum ScheduleReminderPlanner {
     /// 默认规则是“开课前 `leadMinutes` 分钟开始提醒”。如果上一条课/日程尚未结束，
     /// 下一条已经落入提醒窗口时，起点后移到上一条结束前 5 分钟。
     /// 重叠日程保留下一条开始前的提醒窗口。
-    static func effectiveDisplayWindowStart(
+    static func displayWindowStart(
         for occurrence: CourseReminderOccurrence,
         among occurrences: [CourseReminderOccurrence],
         leadMinutes: Int
     ) -> Date {
-        let normalizedLeadMinutes = SchedulePresentationPreferences.normalizedLeadMinutes(leadMinutes)
-        let naturalStart = occurrence.startDate.addingTimeInterval(Double(-normalizedLeadMinutes * 60))
+        let normalizedLeadMinutes = SchedulePresentationPreferences.normalizedLeadMinutes(
+            leadMinutes)
+        let naturalStart = occurrence.startDate.addingTimeInterval(
+            Double(-normalizedLeadMinutes * 60))
         let reminderLeadOutFromPrevious: TimeInterval = 5 * 60
 
-        guard let previous = occurrences.filter({ candidate in
-            candidate.startDate < occurrence.startDate && candidate.endDate > naturalStart
-        }).max(by: { left, right in
-            left.startDate == right.startDate ? left.endDate < right.endDate : left.startDate < right.startDate
-        }) else {
+        guard
+            let previous = occurrences.filter({ candidate in
+                candidate.startDate < occurrence.startDate && candidate.endDate > naturalStart
+            }).max(by: { left, right in
+                left.startDate == right.startDate
+                    ? left.endDate < right.endDate : left.startDate < right.startDate
+            })
+        else {
             return naturalStart
         }
 
-        let adjustedStart = min(previous.endDate, occurrence.startDate).addingTimeInterval(-reminderLeadOutFromPrevious)
+        let adjustedStart = min(previous.endDate, occurrence.startDate).addingTimeInterval(
+            -reminderLeadOutFromPrevious)
         return max(naturalStart, adjustedStart)
     }
 
     /// 按 resolveOccurrences 的开始时间顺序批量计算展示窗口。
     /// 相同开始时间共用前序窗口，并以同组最长结束时间影响后续提醒。
-    static func displayWindowStarts(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) -> [Date] {
+    static func displayWindowStarts(for occurrences: [CourseReminderOccurrence], leadMinutes: Int)
+        -> [Date]
+    {
         let lead = Double(SchedulePresentationPreferences.normalizedLeadMinutes(leadMinutes) * 60)
         var previousEnds: [Date] = []
         var starts: [Date] = []
@@ -121,7 +147,9 @@ nonisolated enum ScheduleReminderPlanner {
             let start = occurrences[index].startDate
             let natural = start.addingTimeInterval(-lead)
             while let end = previousEnds.last, end <= natural { previousEnds.removeLast() }
-            let display = previousEnds.last.map { max(natural, min($0, start).addingTimeInterval(-300)) } ?? natural
+            let display =
+                previousEnds.last.map { max(natural, min($0, start).addingTimeInterval(-300)) }
+                ?? natural
             var next = index
             while next < occurrences.count, occurrences[next].startDate == start {
                 starts.append(display)
@@ -150,8 +178,11 @@ nonisolated enum ScheduleReminderPlanner {
     ) -> Date? {
         zip(occurrences, displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
             .reduce(nil as Date?) { next, item in
-                [next, item.0.startDate > now ? item.0.startDate : nil, item.1 > now ? item.1 : nil]
-                    .compactMap { $0 }.min()
+                [
+                    next, item.0.startDate > now ? item.0.startDate : nil,
+                    item.1 > now ? item.1 : nil,
+                ]
+                .compactMap { $0 }.min()
             }
     }
 

@@ -1,50 +1,58 @@
+import ClientCore
 import Foundation
 import StorageCore
-import ClientCore
 
 /// App 选择凭据后端、学校会话清理和账号存储分区。
 enum AppAccountSession {
     static let storage: LoginStorage = {
-#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return LoginStorage(defaults: AppFileDirectories.defaults,
+        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return LoginStorage(
+            defaults: AppFileDirectories.defaults,
             credentials: AutomatedTestPreferenceCloudStore.shared, clearSchoolCookies: { _ in })
-#else
+        #else
         let service: String
         let clearSchoolCookies: (SchoolCookieResetReason) -> Void
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             service = uiTestKeychainService
             clearSchoolCookies = { _ in }
         } else {
             service = "harrybit.BIT101-iOS.login"
-            clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies($0) }
+            clearSchoolCookies = { AppSchoolSession.clearSchoolCookies($0) }
         }
-#else
+        #else
         service = "harrybit.BIT101-iOS.login"
-        clearSchoolCookies = { AppSchoolSession.clearSchoolAuthenticationCookies($0) }
-#endif
-        return LoginStorage(defaults: AppFileDirectories.defaults,
-            credentials: KeychainLoginCredentials(service: service), clearSchoolCookies: clearSchoolCookies,
-            requestSchoolPassword: { try await SchoolPasswordPrompt.shared.requestPassword(studentID: $0) })
-#endif
+        clearSchoolCookies = { AppSchoolSession.clearSchoolCookies($0) }
+        #endif
+        return LoginStorage(
+            defaults: AppFileDirectories.defaults,
+            credentials: KeychainLoginCredentials(service: service),
+            clearSchoolCookies: clearSchoolCookies,
+            requestSchoolPassword: {
+                try await SchoolPasswordPrompt.shared.requestPassword(studentID: $0)
+            })
+        #endif
     }()
 
     static var currentSession: AppStorageSession {
         let studentID = storage.currentStudentID
-#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return AppStorageSession(accountIdentifier: "__automated_tests__.\(studentID.isEmpty ? "guest" : studentID)")
-#else
-#if BIT101_UI_TESTING
+        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return AppStorageSession(
+            accountIdentifier: "__automated_tests__.\(studentID.isEmpty ? "guest" : studentID)")
+        #else
+        #if BIT101_UI_TESTING
         if AppFileDirectories.isRunningUITest {
             let account = studentID.isEmpty ? "guest" : studentID
-            return AppStorageSession(accountIdentifier: "__ui_tests__.\(AppFileDirectories.uiTestRunIdentifier).\(account)")
+            return AppStorageSession(
+                accountIdentifier:
+                    "__ui_tests__.\(AppFileDirectories.uiTestRunIdentifier).\(account)")
         }
-#endif
+        #endif
         return AppStorageSession(accountIdentifier: studentID)
-#endif
+        #endif
     }
 
-#if BIT101_UI_TESTING
+    #if BIT101_UI_TESTING
     private static var uiTestKeychainService: String {
         "harrybit.BIT101-iOS.ui-tests.\(AppFileDirectories.uiTestRunIdentifier)"
     }
@@ -53,7 +61,7 @@ enum AppAccountSession {
     static func resetUITestCredentials() -> Bool {
         storage.clearAllLocalData()
     }
-#endif
+    #endif
 }
 
 #if BIT101_AUTOMATED_TESTING
@@ -63,7 +71,10 @@ final class AutomatedTestPreferenceCloudStore: PreferenceCloudStoring, LoginCred
     private var keys: [String: String] = [:]
     func read(account: String) throws -> String { keys[account] ?? "" }
     func save(_ value: String, account: String) throws { keys[account] = value }
-    func delete(account: String) -> Bool { keys[account] = nil; return true }
+    func delete(account: String) -> Bool {
+        keys[account] = nil
+        return true
+    }
     private(set) var dictionaryRepresentation: [String: Any] = [:]
     func data(forKey key: String) -> Data? { dictionaryRepresentation[key] as? Data }
     func set(_ value: Any?, forKey key: String) { dictionaryRepresentation[key] = value }

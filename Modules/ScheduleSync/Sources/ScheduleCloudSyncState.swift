@@ -1,5 +1,5 @@
-import ScheduleDomain
 import Foundation
+import ScheduleDomain
 
 public nonisolated enum ScheduleCloudSyncStatus: Equatable, Sendable {
     case idle
@@ -10,7 +10,6 @@ public nonisolated enum ScheduleCloudSyncStatus: Equatable, Sendable {
     case conflict
     case failed(String)
 }
-
 
 /// User edits and known server baselines determine cloud reconciliation.
 public nonisolated enum ScheduleCacheReconciliationDecision: Equatable {

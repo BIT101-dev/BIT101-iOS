@@ -1,10 +1,10 @@
-import CommunityUI
-import TransportCore
+import Combine
 import CommunityCore
 import CommunityTransport
+import CommunityUI
 import DesignSystemKit
-import Combine
 import Foundation
+import TransportCore
 
 @MainActor
 final class CourseDetailViewModel: ObservableObject {
@@ -34,7 +34,11 @@ final class CourseDetailViewModel: ObservableObject {
     private var cachedCourseCredits: [CommunityCourseCredit] = []
     private let loadCourseCredits: @MainActor () async -> [CommunityCourseCredit]
 
-    init(initialCourse: CourseSummary, initialDetail: CourseDetail? = nil, service: any CourseDetailServicing, loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]) {
+    init(
+        initialCourse: CourseSummary, initialDetail: CourseDetail? = nil,
+        service: any CourseDetailServicing,
+        loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit]
+    ) {
         self.initialCourse = initialCourse
         self.service = service
         self.loadCourseCredits = loadCourseCredits
@@ -66,16 +70,21 @@ final class CourseDetailViewModel: ObservableObject {
         let courses = cachedCourseCredits
 
         if !number.isEmpty,
-           let course = courses.first(where: { $0.number.trimmingCharacters(in: .whitespacesAndNewlines) == number && $0.credit > 0 }) {
+            let course = courses.first(where: {
+                $0.number.trimmingCharacters(in: .whitespacesAndNewlines) == number && $0.credit > 0
+            })
+        {
             return Double(course.credit)
         }
 
         if !name.isEmpty,
-           let course = courses.first(where: {
-               let candidateNumber = $0.number.trimmingCharacters(in: .whitespacesAndNewlines)
-               return (number.isEmpty || candidateNumber.isEmpty)
-                   && $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name && $0.credit > 0
-           }) {
+            let course = courses.first(where: {
+                let candidateNumber = $0.number.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (number.isEmpty || candidateNumber.isEmpty)
+                    && $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name
+                    && $0.credit > 0
+            })
+        {
             return Double(course.credit)
         }
 
@@ -117,8 +126,7 @@ final class CourseDetailViewModel: ObservableObject {
         await pendingOperations.bootstrapIfNeeded {
             cachedCourseCredits = await loadCourseCredits()
             guard !Task.isCancelled else { return false }
-            if course != nil { await refreshComments() }
-            else { await refresh() }
+            if course != nil { await refreshComments() } else { await refresh() }
             return !Task.isCancelled && status != .idle && commentState.status != .idle
         }
     }
@@ -136,17 +144,22 @@ final class CourseDetailViewModel: ObservableObject {
         if !hadCourse {
             status = .loading
         }
-        resetCommentStateForRefresh()
+        resetCommentsForRefresh()
 
         async let courseRefresh: Void = { @MainActor [self] in
-            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchCourse(id: initialCourse.id) }
+            let result = await CommunityDetailTasks.loadResult { [self] in
+                try await service.fetchCourse(id: initialCourse.id)
+            }
             guard refreshGeneration == generation else { return }
-            handleCourseResult(result, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
+            handleCourseResult(
+                result, previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart)
         }()
         async let commentRefresh: Void = { @MainActor [self] in
-            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchComments(courseID: initialCourse.id, page: nil) }
+            let result = await CommunityDetailTasks.loadResult { [self] in
+                try await service.fetchComments(courseID: initialCourse.id, page: nil)
+            }
             guard commentRefreshGeneration == commentsGeneration else { return }
-            handleCommentRefreshResult(result, previousState: previousCommentState)
+            handleCommentRefresh(result, previousState: previousCommentState)
         }()
         _ = await (courseRefresh, commentRefresh)
     }
@@ -155,21 +168,25 @@ final class CourseDetailViewModel: ObservableObject {
         commentRefreshGeneration &+= 1
         let generation = commentRefreshGeneration
         let previousState = commentState
-        resetCommentStateForRefresh()
+        resetCommentsForRefresh()
         let result = await CommunityDetailTasks.loadResult { [self] in
             try await service.fetchComments(courseID: initialCourse.id, page: nil)
         }
         guard generation == commentRefreshGeneration else { return }
-        handleCommentRefreshResult(result, previousState: previousState)
+        handleCommentRefresh(result, previousState: previousState)
     }
 
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
-        guard let currentComment, commentState.items.suffix(4).contains(where: { $0.id == currentComment.id }) else { return }
+        guard let currentComment,
+            commentState.items.suffix(4).contains(where: { $0.id == currentComment.id })
+        else { return }
         await loadMoreComments()
     }
 
     func retryCommentsIfNeeded() async {
-        await CommunityDetailTasks.recoverComments(commentState, refresh: { await refreshComments() }, loadMore: { await loadMoreComments() })
+        await CommunityDetailTasks.recoverComments(
+            commentState, refresh: { await refreshComments() },
+            loadMore: { await loadMoreComments() })
     }
 
     private func loadMoreComments() async {
@@ -192,23 +209,29 @@ final class CourseDetailViewModel: ObservableObject {
 
         var request = CommunityPageRequest<Int>(sourcePage: commentState.nextPage)
         let result = await CommunityDetailTasks.loadResult { [self] in
-            guard let comments = try await request.next(
-                isCurrent: { self.commentRefreshGeneration == generation },
-                knownIDs: { self.commentState.pagedItems.ids },
-                fetch: { try await self.service.fetchComments(courseID: self.initialCourse.id, page: $0) }
-            ) else { throw CancellationError() }
+            guard
+                let comments = try await request.next(
+                    isCurrent: { self.commentRefreshGeneration == generation },
+                    knownIDs: { self.commentState.pagedItems.ids },
+                    fetch: {
+                        try await self.service.fetchComments(
+                            courseID: self.initialCourse.id, page: $0)
+                    }
+                )
+            else { throw CancellationError() }
             return comments
         }
         guard commentRefreshGeneration == generation else { return }
         commentState.nextPage = request.sourcePage
 
         switch result {
-        case let .success(comments):
+        case .success(let comments):
             commentState.confirmRead(in: comments)
-            commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
+            commentState.appendPage(
+                commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
             commentState.canLoadMore = !comments.isEmpty
             commentState.paginationError = nil
-        case let .failure(error):
+        case .failure(let error):
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多评论失败", error: error)
@@ -248,12 +271,12 @@ final class CourseDetailViewModel: ObservableObject {
 
         guard historyGeneration == generation else { return }
         switch result {
-        case let .success(grades):
+        case .success(let grades):
             historyGrades = grades.sorted { lhs, rhs in
                 lhs.term.localizedStandardCompare(rhs.term) == .orderedDescending
             }
             historyGradeStatus = .loaded
-        case let .failure(error):
+        case .failure(let error):
             if TaskCancellation.matches(error) {
                 historyGradeStatus = historyGrades.isEmpty ? .idle : .loaded
                 return
@@ -283,7 +306,10 @@ final class CourseDetailViewModel: ObservableObject {
             if error is CommunityToggleOutcomeUnknown {
                 likeResultNeedsReview = true
                 await refresh()
-                if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                if likeResultNeedsReview {
+                    alert = AppAlert(
+                        title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+                }
                 return
             }
             if TaskCancellation.matches(error) { return }
@@ -307,7 +333,10 @@ final class CourseDetailViewModel: ObservableObject {
             if error is CommunityToggleOutcomeUnknown {
                 commentState.recordUncertainLike(for: comment.id)
                 await refresh()
-                if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                if commentState.likesNeedingReview.contains(comment.id) {
+                    alert = AppAlert(
+                        title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+                }
                 return
             }
             if TaskCancellation.matches(error) { return }
@@ -316,24 +345,30 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     var commentReview: CommunityCommentReviewActions {
-        .init(needsReview: { self.commentState.needsReview($0) },
-            acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
+        .init(
+            needsReview: { self.commentState.needsReview($0) },
+            acknowledge: { self.commentState.confirmSubmissionReview($0) })
     }
 
-    func submitComment(text: String, anonymous: Bool, rate: Int?, target: CommunityCommentComposerTarget) async -> Bool {
+    func submitComment(
+        text: String, anonymous: Bool, rate: Int?, target: CommunityCommentComposerTarget
+    ) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "请输入评论内容。")
             return false
         }
         guard !isSubmittingComment else { return false }
-        let submission = CommunityCommentSubmission(objectID: target.objectID, text: trimmed,
-            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, rate: rate)
+        let submission = CommunityCommentSubmission(
+            objectID: target.objectID, text: trimmed,
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID,
+            rate: rate)
         guard !commentState.needsReview(submission) else {
-            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
+            alert = AppAlert(
+                title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
-        if case .course = target, !(1 ... 10).contains(rate ?? 0) {
+        if case .course = target, !(1...10).contains(rate ?? 0) {
             alert = AppAlert.userInput(title: "请选择评分", message: "课程评价需要选择 0.5 至 5 星评分。")
             return false
         }
@@ -352,14 +387,19 @@ final class CourseDetailViewModel: ObservableObject {
                 rate: rate
             )
             let parent: CommunityComment?
-            if case let .comment(mainComment, _) = target { parent = mainComment } else { parent = nil }
+            if case .comment(let mainComment, _) = target {
+                parent = mainComment
+            } else {
+                parent = nil
+            }
             commentState.recordCreated(created, replyingTo: parent)
             pendingOperations.enqueue { [weak self] in await self?.refresh() }
             return true
         } catch {
             if error is CommunityCreateOutcomeUnknown {
                 commentState.recordUncertainSubmission(submission)
-                alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
+                alert = AppAlert(
+                    title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
@@ -369,19 +409,23 @@ final class CourseDetailViewModel: ObservableObject {
     }
 
     /// 首屏详情与已确认的点赞结果共同更新当前课程状态。
-    private func handleCourseResult(_ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus, likeRevisionAtStart: Int) {
+    private func handleCourseResult(
+        _ result: Result<CourseDetail, Error>, previousStatus: CourseDetailLoadStatus,
+        likeRevisionAtStart: Int
+    ) {
         switch result {
-        case let .success(course):
+        case .success(let course):
             needsContentRefresh = false
             likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
-                self.course = course.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
+                self.course = course.updatingLike(
+                    latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
                 self.course = course
                 latestLikeResult = nil
             }
             status = .loaded
-        case let .failure(error):
+        case .failure(let error):
             if TaskCancellation.matches(error) {
                 if course == nil {
                     status = previousStatus
@@ -406,25 +450,27 @@ final class CourseDetailViewModel: ObservableObject {
         }
     }
 
-    private func handleCommentRefreshResult(
+    private func handleCommentRefresh(
         _ result: Result<[CommunityComment], Error>,
         previousState: CommunityCommentState
     ) {
         switch result {
-        case let .success(comments):
+        case .success(let comments):
             commentState.confirmRead(in: comments)
-            commentState.applyFirstPage(commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
+            commentState.applyFirstPage(
+                commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
             commentState.canLoadMore = !comments.isEmpty
             commentState.finishRefresh()
-        case let .failure(error):
+        case .failure(let error):
             let cancelled = TaskCancellation.matches(error)
-            commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
+            commentState.restoreFailedRefresh(
+                previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if cancelled { return }
             alert = AppAlert(title: "加载评论失败", error: error)
         }
     }
 
-    private func resetCommentStateForRefresh() {
+    private func resetCommentsForRefresh() {
         commentState.status = .loading
         commentState.isLoadingMore = false
     }
@@ -437,12 +483,14 @@ final class CourseDetailViewModel: ObservableObject {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#[]@!$&'()*+,;=")
 
-        guard let pathComponent = "\(name)-\(number)".addingPercentEncoding(withAllowedCharacters: allowed) else {
+        guard
+            let pathComponent = "\(name)-\(number)".addingPercentEncoding(
+                withAllowedCharacters: allowed)
+        else {
             return nil
         }
 
         return URL(string: "https://onedrive.bit101.cn/zh-CN/course/\(pathComponent)")
     }
-
 
 }

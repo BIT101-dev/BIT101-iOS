@@ -40,8 +40,11 @@ public struct ComposerImageTile: View {
     }
 
     public var body: some View {
-        LocalImageTile(data: draft.previewData, identifier: "composer.image.preview.\(draft.id)",
-            onOpen: onOpen, onRemove: onRemove, previewLabel: previewAccessibilityLabel, removeLabel: removeAccessibilityLabel) {
+        LocalImageTile(
+            data: draft.previewData, identifier: "composer.image.preview.\(draft.id)",
+            onOpen: onOpen, onRemove: onRemove, previewLabel: previewAccessibilityLabel,
+            removeLabel: removeAccessibilityLabel
+        ) {
             overlayContent
         }
     }
@@ -94,7 +97,9 @@ public struct ComposerImageTile: View {
                 .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppDesignSystem.Spacing.tiny)
-                .background(AppDesignSystem.Palette.Status.danger.opacity(AppDesignSystem.Opacity.emphasis))
+                .background(
+                    AppDesignSystem.Palette.Status.danger.opacity(
+                        AppDesignSystem.Opacity.emphasis))
             }
             .buttonStyle(.plain)
         }

@@ -75,7 +75,8 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Hashable, Sendable {
         let pairs = zip(headers, values).map { ScoreField(key: $0, value: $1) }
         self.values = pairs
 
-        let identifier = pairs.first(where: { $0.key == "序号" })?.value
+        let identifier =
+            pairs.first(where: { $0.key == "序号" })?.value
             ?? pairs.first(where: { $0.key == "课程编号" })?.value
             ?? "\(index)"
         // 同一课程可能存在多条记录，追加接口行号保持列表标识唯一。
@@ -111,7 +112,6 @@ public nonisolated struct ScoreRow: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
-
 public nonisolated struct ScoreDetailSelection: Hashable, Sendable {
     public let pendingCourseID: String?
     private let rowID: String?
@@ -120,19 +120,28 @@ public nonisolated struct ScoreDetailSelection: Hashable, Sendable {
     private let name: String
 
     public init(row: ScoreRow) {
-        rowID = row.id; pendingCourseID = nil
-        term = Self.normalized(row.term); number = Self.normalized(row.courseNumber); name = Self.normalized(row.courseName)
+        rowID = row.id
+        pendingCourseID = nil
+        term = Self.normalized(row.term)
+        number = Self.normalized(row.courseNumber)
+        name = Self.normalized(row.courseName)
     }
 
     public init(course: ScoreCourseSummary) {
-        rowID = nil; pendingCourseID = course.id
-        term = Self.normalized(course.term); number = Self.normalized(course.number); name = Self.normalized(course.name)
+        rowID = nil
+        pendingCourseID = course.id
+        term = Self.normalized(course.term)
+        number = Self.normalized(course.number)
+        name = Self.normalized(course.name)
     }
 
     public func row(in rows: [ScoreRow]) -> ScoreRow? {
         let matches = rows.filter { row in
-            let rowTerm = Self.normalized(row.term), rowNumber = Self.normalized(row.courseNumber)
-            guard term == rowTerm || (rowID != nil && (term.isEmpty || rowTerm.isEmpty)) else { return false }
+            let rowTerm = Self.normalized(row.term)
+            let rowNumber = Self.normalized(row.courseNumber)
+            guard term == rowTerm || (rowID != nil && (term.isEmpty || rowTerm.isEmpty)) else {
+                return false
+            }
             if !number.isEmpty, !rowNumber.isEmpty { return number == rowNumber }
             return !name.isEmpty && name == Self.normalized(row.courseName)
         }
@@ -149,26 +158,34 @@ public nonisolated struct ScoreDetailSelection: Hashable, Sendable {
 public nonisolated enum ScoreRowComparison {
     private static let ignoredBriefKeys: Set<String> = ["序号", "操作栏"]
 
-    public static func retainingDetailedFields(_ briefRows: [ScoreRow], from cachedRows: [ScoreRow]) -> [ScoreRow] {
+    public static func retainingDetailedFields(_ briefRows: [ScoreRow], from cachedRows: [ScoreRow])
+        -> [ScoreRow]
+    {
         guard !briefRows.isEmpty else { return briefRows }
         var indexes: [Set<String>: [String: [ScoreRow]]] = [:]
         return briefRows.map { row in
             let keys = comparableKeys(from: [row])
             if indexes[keys] == nil {
-                indexes[keys] = Dictionary(grouping: cachedRows) { signatures(for: [$0], keys: keys)[0] }
+                indexes[keys] = Dictionary(grouping: cachedRows) {
+                    signatures(for: [$0], keys: keys)[0]
+                }
             }
             let signature = signatures(for: [row], keys: keys)[0]
             guard let matches = indexes[keys]?[signature], matches.count == 1 else { return row }
             let present = Set(row.values.map(\.key)).union(ignoredBriefKeys)
-            return ScoreRow(id: row.id, values: row.values + matches[0].values.filter { !present.contains($0.key) })
+            return ScoreRow(
+                id: row.id,
+                values: row.values + matches[0].values.filter { !present.contains($0.key) })
         }
     }
 
-    public static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool {
+    public static func briefRowsMatchCache(_ briefRows: [ScoreRow], cachedRows: [ScoreRow]) -> Bool
+    {
         guard !briefRows.isEmpty, !cachedRows.isEmpty else { return false }
         let briefKeys = comparableKeys(from: briefRows)
         guard !briefKeys.isEmpty else { return false }
-        return signatures(for: briefRows, keys: briefKeys) == signatures(for: cachedRows, keys: briefKeys)
+        return signatures(for: briefRows, keys: briefKeys)
+            == signatures(for: cachedRows, keys: briefKeys)
     }
 
     public static func rowsMatch(_ lhs: [ScoreRow], _ rhs: [ScoreRow]) -> Bool {
@@ -192,7 +209,6 @@ public nonisolated enum ScoreRowComparison {
         }.sorted()
     }
 
-
 }
 
 /// 此结构表示成绩统计摘要。
@@ -213,7 +229,8 @@ public nonisolated struct ScoreSummary: Sendable {
 
         for row in rows {
             guard let grade = statisticalGrade(from: row.score), let credit = row.numericCredit,
-                  credit.isFinite, credit > 0, (grade.score * credit).isFinite else { continue }
+                credit.isFinite, credit > 0, (grade.score * credit).isFinite
+            else { continue }
             let courseNumber = normalizedCourseNumber(row.courseNumber)
             if courseNumber.isEmpty {
                 fallbackRows.append(row)
@@ -236,9 +253,11 @@ public nonisolated struct ScoreSummary: Sendable {
         var selectedCourseCount = 0
 
         for row in selectedRows {
-            guard let credit = row.numericCredit, let grade = statisticalGrade(from: row.score) else { continue }
+            guard let credit = row.numericCredit, let grade = statisticalGrade(from: row.score)
+            else { continue }
             guard (totalCredit + credit).isFinite, (totalScore + grade.score * credit).isFinite,
-                  (totalGPA + grade.gpa * credit).isFinite else { continue }
+                (totalGPA + grade.gpa * credit).isFinite
+            else { continue }
             totalCredit += credit
             totalScore += grade.score * credit
             totalGPA += grade.gpa * credit
@@ -281,13 +300,13 @@ public nonisolated struct ScoreSummary: Sendable {
     private static func statisticalGrade(from raw: String) -> (score: Double, gpa: Double)? {
         if let mapping = gradeMapping(from: raw) { return mapping }
         guard let score = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              score.isFinite, (0...100).contains(score) else { return nil }
+            score.isFinite, (0...100).contains(score)
+        else { return nil }
         if score < 60 { return (score, 0) }
         // 百分制使用学校公布的连续公式；等级制由上方的等级映射处理。
         return (score, 4 - 3 * (100 - score) * (100 - score) / 1600)
     }
 }
-
 
 /// 成绩页本地筛选偏好快照。
 public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Equatable, Sendable {
@@ -305,8 +324,12 @@ public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Equatable, Sen
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if container.contains(.schemaVersion), try container.decode(Int.self, forKey: .schemaVersion) != 1 {
-            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Unsupported score preference format")
+        if container.contains(.schemaVersion),
+            try container.decode(Int.self, forKey: .schemaVersion) != 1
+        {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion, in: container,
+                debugDescription: "Unsupported score preference format")
         }
         selectedTerms = try container.decode([String].self, forKey: .selectedTerms)
         selectedCourseTypes = try container.decode([String].self, forKey: .selectedCourseTypes)
@@ -314,7 +337,10 @@ public nonisolated struct ScoreFilterPreferenceSnapshot: Codable, Equatable, Sen
         sortOrder = try container.decodeIfPresent(String.self, forKey: .sortOrder)
     }
 
-    public init(selectedTerms: [String] = [], selectedCourseTypes: [String] = [], sortIndex: String? = nil, sortOrder: String? = nil) {
+    public init(
+        selectedTerms: [String] = [], selectedCourseTypes: [String] = [], sortIndex: String? = nil,
+        sortOrder: String? = nil
+    ) {
         self.selectedTerms = selectedTerms
         self.selectedCourseTypes = selectedCourseTypes
         self.sortIndex = sortIndex
@@ -359,11 +385,16 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         case .courseName:
             normalizedText(lhs.courseName).localizedStandardCompare(normalizedText(rhs.courseName))
         case .score:
-            compareNumbers(scoreComparableValue(from: lhs.score), scoreComparableValue(from: rhs.score))
+            compareNumbers(
+                scoreComparableValue(from: lhs.score), scoreComparableValue(from: rhs.score))
         case .averageScore:
-            compareNumbers(numericComparableValue(from: lhs.averageScore), numericComparableValue(from: rhs.averageScore))
+            compareNumbers(
+                numericComparableValue(from: lhs.averageScore),
+                numericComparableValue(from: rhs.averageScore))
         case .credit:
-            compareNumbers(numericComparableValue(from: lhs.creditText), numericComparableValue(from: rhs.creditText))
+            compareNumbers(
+                numericComparableValue(from: lhs.creditText),
+                numericComparableValue(from: rhs.creditText))
         case .term:
             normalizedText(lhs.term).localizedStandardCompare(normalizedText(rhs.term))
         case .courseType:
@@ -382,7 +413,8 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
 
     private func scoreComparableValue(from raw: String) -> Double? {
         let trimmed = normalizedText(raw)
-        return ScoreSummary.gradeMapping(from: trimmed)?.score ?? numericComparableValue(from: trimmed)
+        return ScoreSummary.gradeMapping(from: trimmed)?.score
+            ?? numericComparableValue(from: trimmed)
     }
 
     private func compareNumbers(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {

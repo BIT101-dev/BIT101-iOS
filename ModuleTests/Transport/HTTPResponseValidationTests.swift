@@ -1,9 +1,10 @@
-import CommunityTransport
 import BIT101TestSupport
+import CommunityTransport
 import Foundation
 import Network
-import os
 import Testing
+import os
+
 @testable import TransportCore
 
 private nonisolated final class InterruptedResponseProtocol: URLProtocol {
@@ -12,10 +13,15 @@ private nonisolated final class InterruptedResponseProtocol: URLProtocol {
     override func startLoading() {
         var headers = ["X-Response-Evidence": "received"]
         if request.url?.path == "/declared" { headers["Content-Length"] = "100000" }
-        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200,
-            httpVersion: "HTTP/1.1", headerFields: headers) else { return }
+        guard let url = request.url,
+            let response = HTTPURLResponse(
+                url: url, statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: headers)
+        else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(repeating: 1, count: HTTPResponseResourceLimits.maximumErrorBytes + 1))
+        client?.urlProtocol(
+            self,
+            didLoad: Data(repeating: 1, count: HTTPResponseResourceLimits.maximumErrorBytes + 1))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -23,7 +29,8 @@ private nonisolated final class InterruptedResponseProtocol: URLProtocol {
 
 private nonisolated final class InterruptedResponseServer: Sendable {
     private let listener: NWListener
-    private let state = OSAllocatedUnfairLock(initialState: (port: UInt16?.none, error: NWError?.none, connection: NWConnection?.none))
+    private let state = OSAllocatedUnfairLock(
+        initialState: (port: UInt16?.none, error: NWError?.none, connection: NWConnection?.none))
     init() throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -39,12 +46,22 @@ private nonisolated final class InterruptedResponseServer: Sendable {
             connection.start(queue: queue)
             connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
                 if String(decoding: data ?? Data(), as: UTF8.self).contains(" /redirect ") {
-                    let response = "HTTP/1.1 303 See Other\r\nLocation: /partial\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                    connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                    let response =
+                        """
+                        HTTP/1.1 303 See Other\r\nLocation: /partial\r\nContent-Length: 0\r\nCo\
+                        nnection: close\r\n\r\n
+                        """
+                    connection.send(
+                        content: Data(response.utf8),
+                        completion: .contentProcessed { _ in connection.cancel() })
                     return
                 }
                 let limit = HTTPResponseResourceLimits.maximumErrorBytes
-                let header = "HTTP/1.1 200 OK\r\nContent-Length: \(limit * 4)\r\nX-Response-Evidence: received\r\nConnection: close\r\n\r\n"
+                let header =
+                    """
+                    HTTP/1.1 200 OK\r\nContent-Length: \(limit * 4)\r\nX-Response-Evidence: rec\
+                    eived\r\nConnection: close\r\n\r\n
+                    """
                 let response = Data(header.utf8) + Data(repeating: 65, count: limit * 2)
                 state.withLock { $0.connection = connection }
                 connection.send(content: response, completion: .contentProcessed { _ in })
@@ -61,10 +78,16 @@ private nonisolated final class InterruptedResponseServer: Sendable {
         let port = try #require(state.withLock { $0.port })
         return try #require(URL(string: "http://127.0.0.1:\(port)/redirect"))
     }
-    func interrupt() { state.withLock { $0.connection?.cancel(); $0.connection = nil } }
+    func interrupt() {
+        state.withLock {
+            $0.connection?.cancel()
+            $0.connection = nil
+        }
+    }
     func stop() {
         interrupt()
-        listener.stateUpdateHandler = nil; listener.newConnectionHandler = nil
+        listener.stateUpdateHandler = nil
+        listener.newConnectionHandler = nil
         listener.cancel()
     }
 }
@@ -73,25 +96,36 @@ private nonisolated final class InterruptedResponseServer: Sendable {
 struct HTTPResponseValidationTests {
     @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "vpn", "wifi"])
     func usableRouteChangesPublishRecoveryEvents(kind: String) async throws {
-        let path = NetworkPathState(snapshot: .init(status: kind == "connection" ? .disconnected : .connected, interfaces: [.wifi]))
+        let path = NetworkPathState(
+            snapshot: .init(
+                status: kind == "connection" ? .disconnected : .connected, interfaces: [.wifi]))
         let recoveries = path.connectionRecoveries()
         var received = 0
         let consumer = Task { for await _ in recoveries { received += 1 } }
         defer { consumer.cancel() }
-        path.update(snapshot: .init(status: .connected, interfaces: kind == "interface" ? [.cellular] : [.wifi],
-            virtualNetworkLikely: kind == "vpn"))
+        path.update(
+            snapshot: .init(
+                status: .connected, interfaces: kind == "interface" ? [.cellular] : [.wifi],
+                virtualNetworkLikely: kind == "vpn"))
         try await waitForTestEvent { received == 1 }
     }
 
     private struct Transport: HTTPTransport {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
-            return (Data(#"{"required":7}"#.utf8), try #require(HTTPURLResponse(url: url,
-                statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                Data(#"{"required":7}"#.utf8),
+                try #require(
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            if let maximumBytes, result.0.count > maximumBytes {
+                throw HTTPClientError.responseTooLarge
+            }
             return result
         }
     }
@@ -101,37 +135,54 @@ struct HTTPResponseValidationTests {
         var response: URLResponse?
         var finalRequest: URLRequest?
         func willSend(_ request: URLRequest) async throws {}
-        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: (any Error)?, elapsed: TimeInterval) async {
+        func didFinish(
+            request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?,
+            error: (any Error)?, elapsed: TimeInterval
+        ) async {
             errors.append(error)
-            self.data = data; self.response = response; self.finalRequest = finalRequest
+            self.data = data
+            self.response = response
+            self.finalRequest = finalRequest
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["partial", "declared", "overflow"])
-    func failedTransfersRetainBoundedEvidenceAndTheirOriginalError(kind: String) async throws {
+    func failedTransfersRetainBoundedEvidence(kind: String) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = kind == "partial" ? [] : [InterruptedResponseProtocol.self]
         let server = kind == "partial" ? try InterruptedResponseServer() : nil
         defer { server?.stop() }
-        let url = try await server?.url() ?? #require(URL(string: "https://example.invalid/" + kind))
+        let url =
+            try await server?.url() ?? #require(URL(string: "https://example.invalid/" + kind))
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let observer = Observer()
         let client = HTTPClient(transport: session, observer: observer)
         var request = URLRequest(url: url)
-        if kind == "partial" { request.httpMethod = "POST"; request.httpBody = Data("input".utf8) }
+        if kind == "partial" {
+            request.httpMethod = "POST"
+            request.httpBody = Data("input".utf8)
+        }
         var finished = false
         let requestTask = Task {
             defer { finished = true }
-            return try await client.send(request, maximumBytes: kind == "partial"
-                ? HTTPResponseResourceLimits.maximumStructuredBytes : HTTPResponseResourceLimits.maximumErrorBytes)
+            return try await client.send(
+                request,
+                maximumBytes: kind == "partial"
+                    ? HTTPResponseResourceLimits.maximumStructuredBytes
+                    : HTTPResponseResourceLimits.maximumErrorBytes)
         }
         defer { requestTask.cancel() }
         if let server {
             try await waitForAsyncTestEvent {
-                if finished { _ = try await requestTask.value; return true }
+                if finished {
+                    _ = try await requestTask.value
+                    return true
+                }
                 return await session.allTasks.contains {
-                    $0.response != nil && $0.countOfBytesReceived >= HTTPResponseResourceLimits.maximumErrorBytes * 2
+                    $0.response != nil
+                        && $0.countOfBytesReceived >= HTTPResponseResourceLimits.maximumErrorBytes
+                            * 2
                 }
             }
             server.interrupt()
@@ -141,20 +192,29 @@ struct HTTPResponseValidationTests {
             Issue.record("Expected transport failure")
         } catch {
             if kind == "partial" {
-                #expect((error as NSError).code == NSURLErrorNetworkConnectionLost, "\(error as NSError)")
-            } else { #expect(error is HTTPClientError) }
+                #expect(
+                    (error as NSError).code == NSURLErrorNetworkConnectionLost,
+                    "\(error as NSError)")
+            } else {
+                #expect(error is HTTPClientError)
+            }
         }
         let response = try #require(observer.response as? HTTPURLResponse)
-        let expectedURL = kind == "partial" ? url.deletingLastPathComponent().appending(path: "partial") : url
+        let expectedURL =
+            kind == "partial" ? url.deletingLastPathComponent().appending(path: "partial") : url
         #expect(response.statusCode == 200 && response.url == expectedURL)
         #expect(response.value(forHTTPHeaderField: "X-Response-Evidence") == "received")
         #expect(observer.finalRequest?.url == expectedURL && observer.errors.count == 1)
         #expect((observer.data?.count ?? 0) <= HTTPResponseResourceLimits.maximumErrorBytes)
         if kind == "partial" {
-            #expect(observer.data == Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes))
+            #expect(
+                observer.data
+                    == Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes))
             #expect(observer.finalRequest?.httpMethod == "GET")
         }
-        if kind == "overflow" { #expect(observer.data?.count == HTTPResponseResourceLimits.maximumErrorBytes) }
+        if kind == "overflow" {
+            #expect(observer.data?.count == HTTPResponseResourceLimits.maximumErrorBytes)
+        }
     }
     private enum Failure: CommunityAPIServiceError {
         case signedOut, invalid
@@ -163,10 +223,11 @@ struct HTTPResponseValidationTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func validationReportsTheFirstFailureAndPreservesTheDecodingCause() async throws {
+    func validationReportsFirstFailure() async throws {
         let observer = Observer()
         let url = try #require(URL(string: "https://example.invalid/fields"))
-        let response = try await HTTPClient(transport: Transport(), observer: observer).send(URLRequest(url: url))
+        let response = try await HTTPClient(transport: Transport(), observer: observer).send(
+            URLRequest(url: url))
         await response.reportValidationFailure(CancellationError())
         #expect(observer.errors.count == 1 && observer.errors[0] == nil)
         do {
@@ -183,13 +244,17 @@ struct HTTPResponseValidationTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func communityParsingFailureReachesTheRequestObserver() async throws {
+    func communityParsingFailureObserver() async throws {
         let observer = Observer()
-        let client = CommunityAPIClient<Failure>(httpClient: HTTPClient(transport: Transport(), observer: observer),
+        let client = CommunityAPIClient<Failure>(
+            httpClient: HTTPClient(transport: Transport(), observer: observer),
             baseURL: try #require(URL(string: "https://example.invalid")), errorDomain: "fixture",
-            credentials: { .init(identity: .init(accountIdentifier: "fixture", generation: 0), cookie: "") })
+            credentials: {
+                .init(identity: .init(accountIdentifier: "fixture", generation: 0), cookie: "")
+            })
         do {
-            let _: [String: String] = try await client.request(path: "fields", authentication: .none)
+            let _: [String: String] = try await client.request(
+                path: "fields", authentication: .none)
             Issue.record("社区解析应传播类型错误")
         } catch {
             #expect((error as NSError).userInfo[NSUnderlyingErrorKey] is DecodingError)

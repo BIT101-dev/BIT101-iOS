@@ -5,9 +5,9 @@
 //  Created by Codex on 2026-03-24.
 //
 
-import StorageCore
 import Combine
 import Foundation
+import StorageCore
 
 /// 持久化到 `UserDefaults` 的设置快照。
 ///
@@ -46,16 +46,27 @@ struct AppSettingsSnapshot: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        if container.contains(.schemaVersion), try container.decode(Int.self, forKey: .schemaVersion) != 1 {
-            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Unsupported settings format")
+        if container.contains(.schemaVersion),
+            try container.decode(Int.self, forKey: .schemaVersion) != 1
+        {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion, in: container,
+                debugDescription: "Unsupported settings format")
         }
-        galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
-        galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
-        galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
-        galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
-        hasSeenSharedScheduleImportGuide = try container.decodeIfPresent(Bool.self, forKey: .hasSeenSharedScheduleImportGuide) ?? false
+        galleryHideBotPosterInSearch =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
+        galleryHiddenUserIDs =
+            try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
+        galleryHideAnonymousContent =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
+        galleryUseWebView =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
+        hasSeenSharedScheduleImportGuide =
+            try container.decodeIfPresent(Bool.self, forKey: .hasSeenSharedScheduleImportGuide)
+            ?? false
         firstOpenDate = try container.decodeIfPresent(Date.self, forKey: .firstOpenDate)
-        hasShownLinuxDoThanksNotice = try container.decodeIfPresent(Bool.self, forKey: .hasShownLinuxDoThanksNotice) ?? false
+        hasShownLinuxDoThanksNotice =
+            try container.decodeIfPresent(Bool.self, forKey: .hasShownLinuxDoThanksNotice) ?? false
     }
 }
 
@@ -82,10 +93,14 @@ nonisolated struct AppSettingsSyncPayload: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        galleryHideBotPosterInSearch = try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
-        galleryHiddenUserIDs = try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
-        galleryHideAnonymousContent = try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
-        galleryUseWebView = try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
+        galleryHideBotPosterInSearch =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryHideBotPosterInSearch) ?? true
+        galleryHiddenUserIDs =
+            try container.decodeIfPresent([Int].self, forKey: .galleryHiddenUserIDs) ?? []
+        galleryHideAnonymousContent =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryHideAnonymousContent) ?? false
+        galleryUseWebView =
+            try container.decodeIfPresent(Bool.self, forKey: .galleryUseWebView) ?? false
     }
 }
 
@@ -107,7 +122,10 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let defaultAccountIdentifier = "__default__"
     /// 当前安装版本的更新内容版本号；每个版本展示一次。
     nonisolated static let currentStartupNoticeVersion: String = {
-        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
+        guard
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+                as? String
+        else {
             preconditionFailure("Startup notice requires the installed app version")
         }
         return version
@@ -115,11 +133,14 @@ final class AppSettingsStore: ObservableObject {
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"
     /// 历史成绩疑似补考学期筛选按账号保存。
-    nonisolated static let courseHistoryHidesMakeupOutliersKey = "app.settings.courseHistory.hidesMakeupOutliers"
+    nonisolated static let courseHistoryHidesMakeupOutliersKey =
+        "app.settings.courseHistory.hidesMakeupOutliers"
     /// App Store 自动更新检查使用全局 key，账号切换后继续复用该状态。
-    nonisolated static let automaticUpdateChecksEnabledKey = "app.settings.automatic-update-checks.enabled"
+    nonisolated static let automaticUpdateChecksEnabledKey =
+        "app.settings.automatic-update-checks.enabled"
     /// 机器人帖子隐藏默认值按账号完成一次迁移。
-    nonisolated static let galleryBotFilterDefaultMigrationKeyPrefix = "app.settings.gallery-hide-bot-default"
+    nonisolated static let galleryBotFilterDefaultMigrationKeyPrefix =
+        "app.settings.gallery-hide-bot-default"
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
 
@@ -141,7 +162,8 @@ final class AppSettingsStore: ObservableObject {
         self.session = session
         snapshotStore = AccountScopedCodableStore(
             keyPrefix: Self.storageKeyPrefix, defaults: defaults, sessionProvider: session,
-            guestIdentifier: Self.defaultAccountIdentifier, snapshotKeys: AppSettingsSnapshot.storageKeys
+            guestIdentifier: Self.defaultAccountIdentifier,
+            snapshotKeys: AppSettingsSnapshot.storageKeys
         )
         load()
     }
@@ -166,11 +188,12 @@ final class AppSettingsStore: ObservableObject {
             return false
         }
 
-        let dueDate = Calendar.current.date(
-            byAdding: .day,
-            value: Self.linuxDoThanksNoticeDelayDays(for: currentAccountIdentifier),
-            to: firstOpenDate
-        ) ?? firstOpenDate
+        let dueDate =
+            Calendar.current.date(
+                byAdding: .day,
+                value: Self.thanksNoticeDelayDays(for: currentAccountIdentifier),
+                to: firstOpenDate
+            ) ?? firstOpenDate
         return Date() >= dueDate
     }
 
@@ -186,7 +209,7 @@ final class AppSettingsStore: ObservableObject {
             updated.galleryHideBotPosterInSearch = hideBotPosterInSearch
         }
         if let hiddenUserIDs {
-            updated.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(hiddenUserIDs)
+            updated.galleryHiddenUserIDs = Self.normalizedHiddenUserIDs(hiddenUserIDs)
         }
         if let hideAnonymousContent {
             updated.galleryHideAnonymousContent = hideAnonymousContent
@@ -198,25 +221,25 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 修改历史成绩中的疑似补考学期隐藏开关。
-    func setHidesCourseHistoryMakeupOutliers(_ enabled: Bool) {
+    func setHideMakeupOutliers(_ enabled: Bool) {
         hidesCourseHistoryMakeupOutliers = enabled
         defaults.set(enabled, forKey: currentCourseHistoryHidesMakeupOutliersKey)
     }
 
     /// 修改启动时的 App Store 自动检查开关。
-    func setAutomaticUpdateChecksEnabled(_ enabled: Bool) {
+    func setUpdateChecks(_ enabled: Bool) {
         automaticUpdateChecksEnabled = enabled
         defaults.set(enabled, forKey: Self.automaticUpdateChecksEnabledKey)
     }
 
     /// 标记当前安装版本的更新内容已经展示。
-    func markCurrentStartupNoticeSeen() {
+    func markStartupNoticeSeen() {
         defaults.set(Self.currentStartupNoticeVersion, forKey: Self.startupNoticeSeenKey)
     }
 
     /// 标记“鸣谢 LINUX DO”提示已经弹出过。
     @discardableResult
-    func markLinuxDoThanksNoticeShown(for expectedSession: AppStorageSession) -> Bool {
+    func markThanksNoticeShown(for expectedSession: AppStorageSession) -> Bool {
         guard session() == expectedSession else { return false }
         var updated = snapshot
         updated.hasShownLinuxDoThanksNotice = true
@@ -224,7 +247,7 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 标记“导入分享课表”提示已读。
-    func markSharedScheduleImportGuideSeen() {
+    func markImportGuideSeen() {
         var updated = snapshot
         updated.hasSeenSharedScheduleImportGuide = true
         save(updated)
@@ -233,8 +256,8 @@ final class AppSettingsStore: ObservableObject {
     /// 把设置恢复到默认值。
     func resetToDefaults() {
         restoreAccountPreferences()
-        setHidesCourseHistoryMakeupOutliers(true)
-        setAutomaticUpdateChecksEnabled(true)
+        setHideMakeupOutliers(true)
+        setUpdateChecks(true)
     }
 
     /// 恢复当前账号的设置快照，保留其他业务数据与设备偏好。
@@ -249,7 +272,7 @@ final class AppSettingsStore: ObservableObject {
     @discardableResult func applySyncedPreferences(_ payload: AppSettingsSyncPayload) -> Bool {
         var updated = snapshot
         updated.galleryHideBotPosterInSearch = payload.galleryHideBotPosterInSearch
-        updated.galleryHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(payload.galleryHiddenUserIDs)
+        updated.galleryHiddenUserIDs = Self.normalizedHiddenUserIDs(payload.galleryHiddenUserIDs)
         updated.galleryHideAnonymousContent = payload.galleryHideAnonymousContent
         updated.galleryUseWebView = payload.galleryUseWebView
         return save(updated)
@@ -259,14 +282,14 @@ final class AppSettingsStore: ObservableObject {
     ///
     /// 账号切换时重新读取；缺值补齐默认值，损坏值保留源数据并暂停持久化。
     private func load() {
-        migrateLegacyScopedDefaults()
-        loadCourseHistoryPreference()
-        loadAutomaticUpdatePreference()
+        migrateScopedDefaults()
+        loadHistoryPreference()
+        loadUpdatePreference()
         storageIssue = nil
         let accountID = currentAccountIdentifier
         var stored = snapshotStore.read()
         if case .missing = stored {
-            stored = Self.migrateLegacySnapshotIfNeeded(for: accountID, defaults: defaults)
+            stored = Self.migrateSnapshot(for: accountID, defaults: defaults)
         }
         snapshotReadBlocked = false
         if case .unreadable = stored {
@@ -283,7 +306,8 @@ final class AppSettingsStore: ObservableObject {
             return
         }
         self.snapshot = snapshot
-        let normalizedHiddenUserIDs = Self.normalizedGalleryHiddenUserIDs(self.snapshot.galleryHiddenUserIDs)
+        let normalizedHiddenUserIDs = Self.normalizedHiddenUserIDs(
+            self.snapshot.galleryHiddenUserIDs)
         if self.snapshot.galleryHiddenUserIDs != normalizedHiddenUserIDs {
             self.snapshot.galleryHiddenUserIDs = normalizedHiddenUserIDs
             save(syncPreferences: true)
@@ -300,11 +324,13 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 读取当前账号的历史成绩筛选偏好；首次使用时默认开启并立即持久化。
-    private func loadCourseHistoryPreference() {
+    private func loadHistoryPreference() {
         let accountKey = currentCourseHistoryHidesMakeupOutliersKey
         if let storedValue = defaults.object(forKey: accountKey) as? Bool {
             hidesCourseHistoryMakeupOutliers = storedValue
-        } else if let legacyValue = defaults.object(forKey: Self.courseHistoryHidesMakeupOutliersKey) as? Bool {
+        } else if let legacyValue = defaults.object(
+            forKey: Self.courseHistoryHidesMakeupOutliersKey) as? Bool
+        {
             hidesCourseHistoryMakeupOutliers = legacyValue
             defaults.set(legacyValue, forKey: accountKey)
             defaults.removeObject(forKey: Self.courseHistoryHidesMakeupOutliersKey)
@@ -315,8 +341,9 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 读取启动时的 App Store 自动检查开关；首次使用时默认开启并立即持久化。
-    private func loadAutomaticUpdatePreference() {
-        if let storedValue = defaults.object(forKey: Self.automaticUpdateChecksEnabledKey) as? Bool {
+    private func loadUpdatePreference() {
+        if let storedValue = defaults.object(forKey: Self.automaticUpdateChecksEnabledKey) as? Bool
+        {
             automaticUpdateChecksEnabled = storedValue
         } else {
             automaticUpdateChecksEnabled = true
@@ -325,7 +352,9 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 通过公共账号仓库保存快照，并发布本地保存事件。
-    @discardableResult private func save(_ updated: AppSettingsSnapshot? = nil, syncPreferences: Bool = false) -> Bool {
+    @discardableResult private func save(
+        _ updated: AppSettingsSnapshot? = nil, syncPreferences: Bool = false
+    ) -> Bool {
         let candidate = updated ?? snapshot
         guard !snapshotReadBlocked, snapshotStore.save(candidate) else {
             storageIssue = "账号设置保存受阻，原始数据已保留。请先恢复数据，再保存设置。"
@@ -345,8 +374,11 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 读取指定账号对应的设置快照。
-    static func loadSnapshotFromDefaults(for accountID: String, defaults: UserDefaults = AppFileDirectories.defaults) -> AppSettingsSnapshot? {
-        let session = AppStorageSession(accountIdentifier: accountID == defaultAccountIdentifier ? "" : accountID)
+    static func loadSnapshotFromDefaults(
+        for accountID: String, defaults: UserDefaults = AppFileDirectories.defaults
+    ) -> AppSettingsSnapshot? {
+        let session = AppStorageSession(
+            accountIdentifier: accountID == defaultAccountIdentifier ? "" : accountID)
         return AccountScopedCodableStore<AppSettingsSnapshot>(
             keyPrefix: storageKeyPrefix, defaults: defaults, sessionProvider: { session },
             guestIdentifier: defaultAccountIdentifier
@@ -354,11 +386,15 @@ final class AppSettingsStore: ObservableObject {
     }
 
     /// 把账号隔离前的快照迁移到当前账号分区。
-    private static func migrateLegacySnapshotIfNeeded(for accountID: String, defaults: UserDefaults) -> AccountScopedValueRead<AppSettingsSnapshot> {
+    private static func migrateSnapshot(for accountID: String, defaults: UserDefaults)
+        -> AccountScopedValueRead<AppSettingsSnapshot>
+    {
         guard accountID != defaultAccountIdentifier,
-              let stored = defaults.object(forKey: legacyStorageKey) else { return .missing }
+            let stored = defaults.object(forKey: legacyStorageKey)
+        else { return .missing }
         guard let data = stored as? Data,
-              let snapshot = try? JSONDecoder().decode(AppSettingsSnapshot.self, from: data) else { return .unreadable }
+            let snapshot = try? JSONDecoder().decode(AppSettingsSnapshot.self, from: data)
+        else { return .unreadable }
 
         defaults.set(data, forKey: storageKey(for: accountID))
         defaults.removeObject(forKey: legacyStorageKey)
@@ -387,24 +423,25 @@ final class AppSettingsStore: ObservableObject {
         )
     }
 
-    private func migrateLegacyScopedDefaults() {
+    private func migrateScopedDefaults() {
         let session = session()
         for prefix in [
             Self.galleryBotFilterDefaultMigrationKeyPrefix,
             Self.courseHistoryHidesMakeupOutliersKey,
         ] {
             let currentKey = session.key(prefix, guestIdentifier: Self.defaultAccountIdentifier)
-            let legacyKey = session.legacyKey(prefix, guestIdentifier: Self.defaultAccountIdentifier)
+            let legacyKey = session.legacyKey(
+                prefix, guestIdentifier: Self.defaultAccountIdentifier)
             guard currentKey != legacyKey,
-                  defaults.object(forKey: currentKey) == nil,
-                  let value = defaults.object(forKey: legacyKey)
+                defaults.object(forKey: currentKey) == nil,
+                let value = defaults.object(forKey: legacyKey)
             else { continue }
             defaults.set(value, forKey: currentKey)
             defaults.removeObject(forKey: legacyKey)
         }
     }
 
-    private static func normalizedGalleryHiddenUserIDs(_ values: [Int]) -> [Int] {
+    private static func normalizedHiddenUserIDs(_ values: [Int]) -> [Int] {
         Array(Set(values.filter { $0 > 0 })).sorted()
     }
 
@@ -417,13 +454,13 @@ final class AppSettingsStore: ObservableObject {
     /// 按账号稳定地映射到首周内的某一天。
     ///
     /// 哈希结果让首次打开当天有机会弹出，并把提示时间分散到 7 天。
-    private static func linuxDoThanksNoticeDelayDays(for accountID: String) -> Int {
+    private static func thanksNoticeDelayDays(for accountID: String) -> Int {
         guard linuxDoThanksNoticeSpreadDays > 0 else { return 0 }
 
-        var hash: UInt64 = 1469598103934665603
+        var hash: UInt64 = 1_469_598_103_934_665_603
         for byte in accountID.utf8 {
             hash ^= UInt64(byte)
-            hash &*= 1099511628211
+            hash &*= 1_099_511_628_211
         }
         return Int(hash % UInt64(linuxDoThanksNoticeSpreadDays))
     }

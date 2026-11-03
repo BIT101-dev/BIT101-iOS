@@ -1,35 +1,43 @@
-@testable import BIT101_iOS
-import Foundation
-import CommunityUI
 import CommunityCore
+import CommunityUI
+import Foundation
 import ImageIO
-@testable import MediaKit
 import StorageCore
 import Testing
 import TransportCore
 import UIKit
 import UniformTypeIdentifiers
 
+@testable import BIT101_iOS
+@testable import MediaKit
+
 @MainActor
 struct MediaDependencyTests {
     @Test(arguments: [CGFloat(1), 2, 3])
-    func thumbnailDecodeConvertsPointSizeUsingTheDisplayScale(scale: CGFloat) throws {
+    func thumbnailDecodeConvertsScale(scale: CGFloat) throws {
         let bytes = try png(width: 512)
-        let decoded = try #require(BoundedStillImageDecoder.image(from: bytes, pointSize: 24, displayScale: scale)?.cgImage)
+        let decoded = try #require(
+            BoundedStillImageDecoder.image(from: bytes, pointSize: 24, displayScale: scale)?.cgImage
+        )
         #expect(max(decoded.width, decoded.height) == Int(24 * scale))
         for invalid in [CGFloat.zero, -1, .infinity, .nan] {
-            #expect(BoundedStillImageDecoder.image(from: bytes, pointSize: invalid, displayScale: scale) == nil)
-            #expect(BoundedStillImageDecoder.image(from: bytes, pointSize: 24, displayScale: invalid) == nil)
+            #expect(
+                BoundedStillImageDecoder.image(from: bytes, pointSize: invalid, displayScale: scale)
+                    == nil)
+            #expect(
+                BoundedStillImageDecoder.image(from: bytes, pointSize: 24, displayScale: invalid)
+                    == nil)
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["success", "gallery", "cache"])
-    func productionImageProbeReusesTheSharedResourceForBothDecoders(stage: String) async throws {
+    func productionImageProbeReusesResourceDecoders(stage: String) async throws {
         let files = PreferenceMemoryFiles()
         let bytes = try png(width: 2)
         let gallery = Images(bytes: stage == "gallery" ? Data("damaged".utf8) : bytes)
         let avatar = Images(bytes: stage == "avatar" ? Data("damaged".utf8) : bytes)
-        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+        let media = AppMedia.makeEnvironment(
+            files: files, previewStorage: MediaPreviewStorage(files: files),
             imageHTTPClient: HTTPClient(transport: gallery, observer: nil),
             avatarHTTPClient: HTTPClient(transport: avatar, observer: nil))
         files.setFailures(writing: stage == "cache")
@@ -39,7 +47,10 @@ struct MediaDependencyTests {
             #expect(gallery.requests == 1 && avatar.requests == 0)
             #expect(try await media.verifyRemoteImage(at: url) == bytes.count * 2)
             #expect(gallery.requests == 1 && avatar.requests == 0)
-            #expect(try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: []).count == 1)
+            #expect(
+                try files.contentsOfDirectory(
+                    at: ImageCacheDirectories.gallery(using: files), options: []
+                ).count == 1)
         } else {
             await #expect(throws: (any Error).self) { try await media.verifyRemoteImage(at: url) }
         }
@@ -48,13 +59,20 @@ struct MediaDependencyTests {
     @Test(.timeLimit(.minutes(1)), arguments: ["empty", "oversized", "gif"])
     func downloadingReplacesUnusableExistingCache(kind: String) async throws {
         let files = PreferenceMemoryFiles()
-        let bytes = kind == "gif" ? try #require(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")) : try png(width: 2)
+        let bytes =
+            kind == "gif"
+            ? try #require(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="))
+            : try png(width: 2)
         let transport = Images(bytes: bytes)
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/cache.png")
         let original = try await media.images.file(for: url)
-        let corrupt = kind == "gif" ? Data(bytes.dropLast())
-            : Data(repeating: 0, count: kind == "empty" ? 0 : RemoteImageResourceLimits.maximumEncodedBytes + 1)
+        let corrupt =
+            kind == "gif"
+            ? Data(bytes.dropLast())
+            : Data(
+                repeating: 0,
+                count: kind == "empty" ? 0 : RemoteImageResourceLimits.maximumEncodedBytes + 1)
         try files.writeData(corrupt, to: original, options: [.atomic])
         #expect(await media.images.cachedFile(for: url) == nil)
         let repaired = try await media.images.file(for: url)
@@ -65,7 +83,7 @@ struct MediaDependencyTests {
         #expect(transport.requests == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func resourceFilesAndDecodedHitsReuseTheirIdentityAndFollowAtomicReplacement() async throws {
+    @Test(.timeLimit(.minutes(1))) func resourceFiles() async throws {
         let files = PreferenceMemoryFiles()
         let transport = Images(bytes: try png(width: 2))
         let media = environment(files: files, previewFiles: files, transport: transport)
@@ -73,12 +91,16 @@ struct MediaDependencyTests {
         let first = try await media.images.file(for: url)
         let original = try await media.images.file(for: url)
         #expect(first == original && transport.requests == 1)
-        #expect(try files.contentsOfDirectory(at: ImageCacheDirectories.gallery(using: files), options: []).count == 1)
+        #expect(
+            try files.contentsOfDirectory(
+                at: ImageCacheDirectories.gallery(using: files), options: []
+            ).count == 1)
         let image = try #require(await media.stillDecoder.image(at: first))
         let reads = files.readCount(at: first)
         #expect(await media.stillDecoder.image(at: first) === image)
         #expect(files.readCount(at: first) == reads)
-        let animated = try #require(await media.animatedDecoder.image(at: first, reduceMotion: true))
+        let animated = try #require(
+            await media.animatedDecoder.image(at: first, reduceMotion: true))
         let animatedReads = files.readCount(at: first)
         #expect(await media.animatedDecoder.image(at: first, reduceMotion: true) === animated)
         #expect(files.readCount(at: first) == animatedReads)
@@ -91,16 +113,18 @@ struct MediaDependencyTests {
         #expect(await media.animatedDecoder.image(at: first, reduceMotion: true)?.size.width == 3)
     }
 
-    @Test(.timeLimit(.minutes(1))) func linkifiedTextPreservesLinksWithinTheDisplayBudget() async {
+    @Test(.timeLimit(.minutes(1))) func linkifiedTextPreservesLinksWithinBudget() async {
         let source = "阅读 https://bit101.cn/paper/42 与正文"
         let rendered = await communityLinkifiedText(source)
         #expect(String(rendered.characters) == source)
-        #expect(rendered.runs.compactMap(\.link).map(\.absoluteString) == ["https://bit101.cn/paper/42"])
+        #expect(
+            rendered.runs.compactMap(\.link).map(\.absoluteString) == ["https://bit101.cn/paper/42"]
+        )
         let oversized = await communityLinkifiedText(String(repeating: "中", count: 100_000))
         #expect(String(oversized.characters).utf8.count <= CommunityTextLimits.maximumDisplayBytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func displaySizedImagesShareAndReleaseTheActiveBitmapBudget() async throws {
+    @Test(.timeLimit(.minutes(1))) func displaySizedImagesShare() async throws {
         let files = PreferenceMemoryFiles()
         let file = files.temporaryDirectoryURL.appending(path: "display-budget.png")
         try files.writeData(try png(width: 256, height: 256), to: file, options: [.atomic])
@@ -109,34 +133,47 @@ struct MediaDependencyTests {
         let pixels = try #require(image.cgImage)
         #expect(pixels.width == 16 && pixels.height == 16)
         let animated = RemoteAnimatedImageDecoder(files: files)
-        #expect(await animated.image(at: file, reduceMotion: false, maximumPixelSize: 8)?.cgImage?.width == 8)
+        #expect(
+            await animated.image(at: file, reduceMotion: false, maximumPixelSize: 8)?.cgImage?.width
+                == 8)
         let budget = MediaDisplayBudget(maximumBytes: pixels.bytesPerRow * pixels.height)
-        let first = MediaDisplayedImage(), second = MediaDisplayedImage(), third = MediaDisplayedImage()
+        let first = MediaDisplayedImage()
+        let second = MediaDisplayedImage()
+        let third = MediaDisplayedImage()
         #expect(first.set(image, budget: budget) && second.set(image, budget: budget))
         #expect(budget.usedBytes == budget.maximumBytes)
         let additional = UIImage(cgImage: pixels)
-        #expect(third.set(additional, budget: budget) == false && third.image == nil && third.waitingForBudget)
+        #expect(
+            third.set(additional, budget: budget) == false && third.image == nil
+                && third.waitingForBudget)
         first.clear()
         #expect(budget.usedBytes == budget.maximumBytes)
         second.clear()
         #expect(budget.usedBytes == 0 && budget.releaseGeneration > 0)
         #expect(third.set(additional, budget: budget) && !third.waitingForBudget)
         third.clear()
-        let repeated = try #require(UIImage.animatedImage(with: Array(repeating: image, count: 10), duration: 1))
+        let repeated = try #require(
+            UIImage.animatedImage(with: Array(repeating: image, count: 10), duration: 1))
         #expect(first.set(repeated, budget: budget) == false && budget.usedBytes == 0)
         first.clear()
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func concurrentAvatarsShareTheirRequestAndKeepTheRemainingConsumerAfterCancellation() async throws {
+    func concurrentAvatarsShareCancel() async throws {
         let transport = DelayedImages(bytes: try png(width: 2))
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/old.png")
-        let first = CachedRemoteImageLoader(), second = CachedRemoteImageLoader()
+        let first = CachedRemoteImageLoader()
+        let second = CachedRemoteImageLoader()
         let cancelled = Task { await first.load(url: url, media: media) }
         let remaining = Task { await second.load(url: url, media: media) }
-        defer { cancelled.cancel(); remaining.cancel(); transport.pending?.resume(); transport.pending = nil }
+        defer {
+            cancelled.cancel()
+            remaining.cancel()
+            transport.pending?.resume()
+            transport.pending = nil
+        }
         try await waitForAsyncTestEvent { await media.images.waitingConsumerCount == 2 }
         try await waitForTestEvent { !(transport.pending == nil) }
         #expect(transport.requests == 1)
@@ -151,7 +188,7 @@ struct MediaDependencyTests {
         #expect(media.displayBudget.usedBytes == 0)
     }
 
-    @Test(.timeLimit(.minutes(1))) func stillImagesDownsampleWithinTheDecodeBudgetAndPreserveAspectRatio() async throws {
+    @Test(.timeLimit(.minutes(1))) func stillImagesDownsamplePreserveAspectRatio() async throws {
         let data = try png(width: 256, height: 128)
         let files = PreferenceMemoryFiles()
         let file = files.temporaryDirectoryURL.appending(path: "bounded-still.png")
@@ -162,7 +199,9 @@ struct MediaDependencyTests {
         #expect(image.width <= 32 && image.height <= 32)
         #expect(image.width == image.height * 2)
         #expect(BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: 3) == nil)
-        #expect(BoundedStillImageDecoder.image(from: Data("damaged".utf8), maximumDecodedBytes: 4096) == nil)
+        #expect(
+            BoundedStillImageDecoder.image(from: Data("damaged".utf8), maximumDecodedBytes: 4096)
+                == nil)
     }
     private final class BudgetedImages: HTTPTransport {
         let bytes: Data
@@ -177,12 +216,16 @@ struct MediaDependencyTests {
             requests += 1
             if requests == 1 { throw HTTPClientError.responseTooLarge }
             let url = try #require(request.url)
-            return (bytes, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                bytes,
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["avatar", "thumbnail", "original"])
-    func oversizedImageDownloadsPreserveCacheSpaceAndSupportRetry(scope: String) async throws {
+    func oversizedImageDownloadsPreserveCacheSpace(scope: String) async throws {
         let files = PreferenceMemoryFiles()
         let transport = BudgetedImages(bytes: try png(width: 2))
         let media = environment(files: files, previewFiles: files, transport: transport)
@@ -219,17 +262,26 @@ struct MediaDependencyTests {
             if url.lastPathComponent == "old.png" {
                 try await withCheckedThrowingContinuation { pending = $0 }
             }
-            return (bytes, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                bytes,
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func avatarLoadingTracksAnEnvironmentReplacementAtTheSameURL(delayed: Bool) async throws {
+    func avatarLoadingTracksUrl(delayed: Bool) async throws {
         let oldTransport = DelayedImages(bytes: try png(width: 1))
         let newTransport = Images(bytes: try png(width: 2))
-        let first = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: oldTransport)
-        let second = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: newTransport)
-        let url = AppURL.required(delayed ? "https://example.invalid/old.png" : "https://example.invalid/image.png")
+        let first = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: oldTransport)
+        let second = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: newTransport)
+        let url = AppURL.required(
+            delayed ? "https://example.invalid/old.png" : "https://example.invalid/image.png")
         let loader = CachedRemoteImageLoader()
         let old = Task { await loader.load(url: url, media: first) }
         if delayed {
@@ -246,16 +298,21 @@ struct MediaDependencyTests {
         }
         #expect(loader.image?.size.width == 2)
         #expect(newTransport.requests == 1)
-        #expect(MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(first))
-            != MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(second)))
+        #expect(
+            MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(first))
+                != MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(second)))
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func animatedImageCoordinatorReplacesItsEnvironmentAtTheSameResource() async throws {
+    func animatedImageCoordinatorReplacesResource() async throws {
         let oldTransport = DelayedImages(bytes: try png(width: 1))
         let newTransport = Images(bytes: try png(width: 2))
-        let first = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: oldTransport)
-        let second = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: newTransport)
+        let first = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: oldTransport)
+        let second = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: newTransport)
         let coordinator = RemoteAnimatedImage.Coordinator(media: first)
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/old.png")
@@ -274,13 +331,18 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["transport", "corrupt", "gif"])
-    func imageRetryRestoresTheSameResourceAfterTransportOrDecodeFailure(failure: String) async throws {
-        let bytes = failure == "gif" ? try #require(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")) : try png(width: 2)
+    func imageRetryRestoresResource(failure: String) async throws {
+        let bytes =
+            failure == "gif"
+            ? try #require(Data(base64Encoded: "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="))
+            : try png(width: 2)
         let transport = Images(bytes: bytes)
         transport.failuresRemaining = failure == "transport" ? 1 : 0
         transport.corruptResponsesRemaining = failure == "transport" ? 0 : 1
         if failure == "gif" { transport.corruptResponseData = Data(bytes.dropLast()) }
-        let media = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let media = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: transport)
         let coordinator = RemoteAnimatedImage.Coordinator(media: media)
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/retry.png")
@@ -291,47 +353,69 @@ struct MediaDependencyTests {
         coordinator.load(url: url, into: view, media: media, budgetGeneration: 1)
         try await Task.sleep(for: .milliseconds(100))
         #expect(transport.requests == 1)
-        let previousIdentity = MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration)
+        let previousIdentity = MediaImageLoadIdentity(
+            urls: [url], environment: ObjectIdentifier(media),
+            retryGeneration: media.imageRetryGeneration)
         media.retryFailedImages()
-        #expect(previousIdentity != MediaImageLoadIdentity(urls: [url], environment: ObjectIdentifier(media), retryGeneration: media.imageRetryGeneration))
-        coordinator.load(url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
+        #expect(
+            previousIdentity
+                != MediaImageLoadIdentity(
+                    urls: [url], environment: ObjectIdentifier(media),
+                    retryGeneration: media.imageRetryGeneration))
+        coordinator.load(
+            url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
         try await waitForTestEvent { !(view.image == nil) }
         #expect(view.image?.size.width == (failure == "gif" ? 1 : 2) && transport.requests == 2)
         media.retryFailedImages()
-        coordinator.load(url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
+        coordinator.load(
+            url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
         #expect(view.image?.size.width == (failure == "gif" ? 1 : 2) && transport.requests == 2)
         coordinator.cancel(imageView: view)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewEnvironmentReplacementReleasesTheOldSessionAndClaimsTheNewOne() async throws {
-        let first = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: Images(bytes: try png(width: 1)))
+    @Test(.timeLimit(.minutes(1))) func previewEnvironmentReleasesOldSession() async throws {
+        let first = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: Images(bytes: try png(width: 1)))
         let secondFiles = PreferenceMemoryFiles()
-        let second = environment(files: secondFiles, previewFiles: secondFiles, transport: Images(bytes: try png(width: 2)))
+        let second = environment(
+            files: secondFiles, previewFiles: secondFiles,
+            transport: Images(bytes: try png(width: 2)))
         let host = ImageQuickLookPresenter.HostViewController()
         let coordinator = ImageQuickLookPresenter.Coordinator(media: first)
         let url = AppURL.required("https://example.invalid/preview.png")
-        let request = ImagePreviewRequest(remoteImages: [.init(thumbnailURL: url, originalURL: url)], initialIndex: 0)
+        let request = ImagePreviewRequest(
+            remoteImages: [.init(thumbnailURL: url, originalURL: url)], initialIndex: 0)
         coordinator.receive(request, from: host, media: first)
         let oldFile = try await first.images.file(for: url)
         _ = try await first.previewFile(at: oldFile, owner: request.id)
         coordinator.receive(request, from: host, media: second)
-        await #expect(throws: CancellationError.self) { try await first.previewFile(at: oldFile, owner: request.id) }
+        await #expect(throws: CancellationError.self) {
+            try await first.previewFile(at: oldFile, owner: request.id)
+        }
         let newFile = try await second.images.file(for: url)
         let preview = try await second.previewFile(at: newFile, owner: request.id)
         #expect(UIImage(data: try secondFiles.readData(at: newFile))?.size.width == 2)
         coordinator.cancel()
-        await #expect(throws: CancellationError.self) { try await second.previewFile(at: preview, owner: request.id) }
+        await #expect(throws: CancellationError.self) {
+            try await second.previewFile(at: preview, owner: request.id)
+        }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [UTType.png.identifier, UTType.heic.identifier, UTType.jpeg.identifier])
-    func composerPreparesLargeImagesWithinTheExistingPixelAndByteBudget(format: String) async throws {
-        let source = try #require(CGImageSourceCreateWithData(png(width: 3200, height: 1600) as CFData, nil))
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [UTType.png.identifier, UTType.heic.identifier, UTType.jpeg.identifier])
+    func composerPreparesLargePixel(format: String) async throws {
+        let source = try #require(
+            CGImageSourceCreateWithData(png(width: 3200, height: 1600) as CFData, nil))
         let original = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         let encoded = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(encoded, format as CFString, 1, nil))
+        let destination = try #require(
+            CGImageDestinationCreateWithData(encoded, format as CFString, 1, nil))
         CGImageDestinationAddImage(destination, original, nil)
         #expect(CGImageDestinationFinalize(destination))
-        let thumbnail = try #require(BoundedStillImageDecoder.image(from: encoded as Data, maximumPixelSize: 96)?.cgImage)
+        let thumbnail = try #require(
+            BoundedStillImageDecoder.image(from: encoded as Data, maximumPixelSize: 96)?.cgImage)
         #expect(thumbnail.width <= 96 && thumbnail.height <= 96)
         #expect(thumbnail.width == thumbnail.height * 2)
         let prepared = try await ComposerImagePreparer().prepare(encoded as Data)
@@ -343,14 +427,16 @@ struct MediaDependencyTests {
         #expect(prepared.count <= ComposerDraftImageCompressor.maximumBytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func cacheValidationAndDecodingFollowEachInjectedStorageInstance() async throws {
+    @Test(.timeLimit(.minutes(1))) func cacheValidation() async throws {
         let firstFiles = PreferenceMemoryFiles()
         let secondFiles = PreferenceMemoryFiles()
         let previewFiles = PreferenceMemoryFiles()
         let firstTransport = Images(bytes: try png(width: 1))
         let secondTransport = Images(bytes: try png(width: 2))
-        let first = environment(files: firstFiles, previewFiles: previewFiles, transport: firstTransport)
-        let second = environment(files: secondFiles, previewFiles: PreferenceMemoryFiles(), transport: secondTransport)
+        let first = environment(
+            files: firstFiles, previewFiles: previewFiles, transport: firstTransport)
+        let second = environment(
+            files: secondFiles, previewFiles: PreferenceMemoryFiles(), transport: secondTransport)
         let url = AppURL.required("https://example.invalid/image.png")
         let firstURL = try await first.images.file(for: url)
         let secondURL = try await second.images.file(for: url)
@@ -366,17 +452,20 @@ struct MediaDependencyTests {
         #expect(await second.stillDecoder.image(at: secondURL)?.size.width == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewPlaceholderDecodesAndRepairsCorruptedCache() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewPlaceholderDecodes() async throws {
         let files = PreferenceMemoryFiles()
         let previewFiles = PreferenceMemoryFiles()
-        let media = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        let media = environment(
+            files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
         let placeholder = try await media.images.placeholderFile()
         let validBytes = try files.readData(at: placeholder)
         let image = try #require(UIImage(data: validBytes)?.cgImage)
         #expect(image.width == 1 && image.height == 1)
-        let pixels = try #require(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
-                                          bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let pixels = try #require(
+            CGContext(
+                data: nil, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         pixels.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         #expect(try #require(pixels.data).load(fromByteOffset: 3, as: UInt8.self) == 0)
         try files.writeData(Data("corrupted".utf8), to: placeholder, options: [.atomic])
@@ -386,7 +475,7 @@ struct MediaDependencyTests {
         #expect(try previewFiles.readData(at: preview) == validBytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func clearingCacheKeepsDownloadsAndQuickLookUsableInSameSession() async throws {
+    @Test(.timeLimit(.minutes(1))) func clearingCacheKeepsDownloads() async throws {
         let files = PreferenceMemoryFiles(requireExistingParentDirectories: true)
         let bytes = try png(width: 2)
         let transport = Images(bytes: bytes)
@@ -422,13 +511,14 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func successiveGalleryAndAvatarWritesEnforceTheDiskBudget(avatar: Bool) async throws {
+    func successiveGalleryAndWritesEnforceBudget(avatar: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 1 })
         await quota.enforce()
         let initialScans = files.metadataScanCount
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
-        let images = RemoteImageCache(files: files, quota: quota,
+        let images = RemoteImageCache(
+            files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let avatars = CachedRemoteImageStore(files: files, resources: images)
         for index in 0..<3 {
@@ -445,22 +535,28 @@ struct MediaDependencyTests {
         #expect(files.metadataScanCount == initialScans)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewOwnershipRetainsEarlierPagesUntilTheSessionCloses() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewOwnershipRetainsPagesUntilCloses() async throws {
         let domain = "BIT101Tests.preview-file-ownership"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         let files = PreferenceMemoryFiles()
-        let client = HTTPClient(transport: Images(bytes: try png(width: 2) + Data(repeating: 1, count: 700_000)), observer: nil)
-        let media = AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
+        let client = HTTPClient(
+            transport: Images(bytes: try png(width: 2) + Data(repeating: 1, count: 700_000)),
+            observer: nil)
+        let media = AppMedia.makeEnvironment(
+            files: files, previewStorage: MediaPreviewStorage(files: files), defaults: defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         media.cacheLimitMB = 1
         let owner = UUID()
         media.beginPreview(owner: owner)
-        let first = try await media.images.file(for: AppURL.required("https://example.invalid/first.png"))
+        let first = try await media.images.file(
+            for: AppURL.required("https://example.invalid/first.png"))
         _ = try await media.previewFile(at: first, owner: owner)
-        let second = try await media.images.file(for: AppURL.required("https://example.invalid/second.png"))
+        let second = try await media.images.file(
+            for: AppURL.required("https://example.invalid/second.png"))
         _ = try await media.previewFile(at: second, owner: owner)
-        let third = try await media.images.file(for: AppURL.required("https://example.invalid/third.png"))
+        let third = try await media.images.file(
+            for: AppURL.required("https://example.invalid/third.png"))
         await media.enforceCurrentLimit()
         #expect(files.fileExists(at: first))
         #expect(files.fileExists(at: second))
@@ -468,13 +564,16 @@ struct MediaDependencyTests {
         await media.endPreview(owner: owner).value
         await media.enforceCurrentLimit()
         #expect(await media.usedBytes() <= 1_048_576)
-        await #expect(throws: CancellationError.self) { try await media.previewFile(at: first, owner: owner) }
+        await #expect(throws: CancellationError.self) {
+            try await media.previewFile(at: first, owner: owner)
+        }
     }
 
-    @Test(.timeLimit(.minutes(1))) func localPreviewBytesBelongToActiveOwnersAndAreRemovedOnClose() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewBytesBelongAreRemovedOnClose() async throws {
         let files = PreferenceMemoryFiles()
         let previewFiles = PreferenceMemoryFiles()
-        let media = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        let media = environment(
+            files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
         let bytes = try png(width: 2)
         let first = UUID()
         let second = UUID()
@@ -490,27 +589,37 @@ struct MediaDependencyTests {
         #expect(previewFiles.fileExists(at: secondFile))
         await media.endPreview(owner: second).value
         #expect(previewFiles.fileExists(at: secondFile) == false)
-        await #expect(throws: CancellationError.self) { try await media.localPreviewFile(data: bytes, owner: second) }
-        let legacy = ImageCacheDirectories.gallery(using: previewFiles).appending(path: "local-legacy.png")
-        let orphan = ImageCacheDirectories.gallery(using: previewFiles).appending(path: "preview-local-orphan.png")
+        await #expect(throws: CancellationError.self) {
+            try await media.localPreviewFile(data: bytes, owner: second)
+        }
+        let legacy = ImageCacheDirectories.gallery(using: previewFiles).appending(
+            path: "local-legacy.png")
+        let orphan = ImageCacheDirectories.gallery(using: previewFiles).appending(
+            path: "preview-local-orphan.png")
         try previewFiles.writeData(bytes, to: orphan, options: [.atomic])
-        let copiedLegacy = ImageCacheDirectories.gallery(using: previewFiles).appending(path: legacy.lastPathComponent)
+        let copiedLegacy = ImageCacheDirectories.gallery(using: previewFiles).appending(
+            path: legacy.lastPathComponent)
         try previewFiles.writeData(bytes, to: copiedLegacy, options: [.atomic])
-        let reopened = environment(files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
+        let reopened = environment(
+            files: files, previewFiles: previewFiles, transport: Images(bytes: Data()))
         await reopened.enforceCurrentLimit()
         #expect(previewFiles.fileExists(at: orphan) == false)
         #expect(previewFiles.fileExists(at: copiedLegacy) == false)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func cacheCleanupKeepsRemotePreviewFilesAndReportsRemovalFailures(fails: Bool) async throws {
+    func cacheCleanupKeepsRemotePreviewFiles(fails: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let bytes = try png(width: 2)
         let media = environment(files: files, previewFiles: files, transport: Images(bytes: bytes))
-        let cached = try await media.images.file(for: AppURL.required("https://example.invalid/active-preview.png"))
-        let idle = try await media.images.file(for: AppURL.required("https://example.invalid/idle.png"))
-        let first = UUID(), second = UUID()
-        media.beginPreview(owner: first); media.beginPreview(owner: second)
+        let cached = try await media.images.file(
+            for: AppURL.required("https://example.invalid/active-preview.png"))
+        let idle = try await media.images.file(
+            for: AppURL.required("https://example.invalid/idle.png"))
+        let first = UUID()
+        let second = UUID()
+        media.beginPreview(owner: first)
+        media.beginPreview(owner: second)
         #expect(try await media.previewFile(at: cached, owner: first) == cached)
         #expect(try await media.previewFile(at: cached, owner: second) == cached)
         let legacyAvatar = ImageCacheDirectories.avatars(using: files).appending(path: "legacy.png")
@@ -528,16 +637,20 @@ struct MediaDependencyTests {
         #expect(files.fileExists(at: cached) == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func sharedPreviewStorageRetainsFilesAcrossEnvironmentCleanupAndClosing() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewStorageRetainsFilesAcrossCleanup() async throws {
         let files = PreferenceMemoryFiles()
         let storage = MediaPreviewStorage(files: files)
         let client = HTTPClient(transport: Images(bytes: Data()), observer: nil)
-        let first = AppMedia.makeEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+        let first = AppMedia.makeEnvironment(
+            files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
-        let ownerA = UUID(), ownerB = UUID(), bytes = try png(width: 2)
+        let ownerA = UUID()
+        let ownerB = UUID()
+        let bytes = try png(width: 2)
         first.beginPreview(owner: ownerA)
         let file = try await first.localPreviewFile(data: bytes, owner: ownerA)
-        let second = AppMedia.makeEnvironment(files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
+        let second = AppMedia.makeEnvironment(
+            files: files, previewStorage: storage, defaults: AppFileDirectories.defaults,
             imageHTTPClient: client, avatarHTTPClient: client)
         #expect(await second.clearCaches())
         #expect(files.fileExists(at: file))
@@ -552,10 +665,13 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func previewCreationAndRegistrationExcludeConcurrentCleanup() throws {
-        let files = PreferenceMemoryFiles(), ownership = PreviewFileOwnership(), owner = UUID()
+    func previewCreation() throws {
+        let files = PreferenceMemoryFiles()
+        let ownership = PreviewFileOwnership()
+        let owner = UUID()
         let file = files.temporaryDirectoryURL.appending(path: "preview-creation.png")
-        let ready = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        let ready = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
         ownership.begin(owner)
         defer { ownership.end(owner) }
         try ownership.materializeAndPin(file, using: files, owner: owner) {
@@ -564,8 +680,7 @@ struct MediaDependencyTests {
                 ready.signal()
                 ownership.withPaths { retained in
                     if !retained.contains(files.canonicalFileURL(file).path) {
-                        do { try files.removeItem(at: file) }
-                        catch { Issue.record(error) }
+                        do { try files.removeItem(at: file) } catch { Issue.record(error) }
                     }
                 }
                 finished.signal()
@@ -578,25 +693,33 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func remotePreviewCopyPinsBeforeConcurrentCleanup() async throws {
-        let files = PreferenceMemoryFiles(), previewFiles = PreferenceMemoryFiles()
-        let ownership = PreviewFileOwnership(), owner = UUID()
+    func remotePreviewCopyPins() async throws {
+        let files = PreferenceMemoryFiles()
+        let previewFiles = PreferenceMemoryFiles()
+        let ownership = PreviewFileOwnership()
+        let owner = UUID()
         ownership.begin(owner)
         defer { ownership.end(owner) }
         let source = files.temporaryDirectoryURL.appending(path: "remote.png")
         let bytes = try png(width: 2)
         try files.writeData(bytes, to: source, options: [.atomic])
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 0 })
-        let images = RemoteImageCache(files: files, quota: quota, httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
-        let ready = DispatchSemaphore(value: 0), finished = DispatchSemaphore(value: 0)
+        let images = RemoteImageCache(
+            files: files, quota: quota,
+            httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
+        let ready = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
         previewFiles.interceptNextWrite {
             DispatchQueue.global().async {
                 ready.signal()
                 ownership.withPaths { retained in
-                    let children = (try? previewFiles.contentsOfDirectory(at: ImageCacheDirectories.previews(using: previewFiles), options: [])) ?? []
-                    for file in children where !retained.contains(previewFiles.canonicalFileURL(file).path) {
-                        do { try previewFiles.removeItem(at: file) }
-                        catch { Issue.record(error) }
+                    let children =
+                        (try? previewFiles.contentsOfDirectory(
+                            at: ImageCacheDirectories.previews(using: previewFiles), options: []))
+                        ?? []
+                    for file in children
+                    where !retained.contains(previewFiles.canonicalFileURL(file).path) {
+                        do { try previewFiles.removeItem(at: file) } catch { Issue.record(error) }
                     }
                 }
                 finished.signal()
@@ -604,28 +727,32 @@ struct MediaDependencyTests {
             ready.wait()
             #expect(finished.wait(timeout: .now() + 1) == .timedOut)
         }
-        let preview = try await images.previewFile(at: source, using: previewFiles, sharesStorage: false, ownership: ownership, owner: owner)
+        let preview = try await images.previewFile(
+            at: source, using: previewFiles, sharesStorage: false, ownership: ownership,
+            owner: owner)
         try await waitForTestEvent { finished.wait(timeout: .now()) == .success }
         #expect(try previewFiles.readData(at: preview) == bytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func clearingMediaReleasesBothDecodedMemoryCaches() async throws {
+    @Test(.timeLimit(.minutes(1))) func clearingMediaReleasesDecodedMemoryCaches() async throws {
         let files = PreferenceMemoryFiles()
         let bytes = try png(width: 2)
         let media = environment(files: files, previewFiles: files, transport: Images(bytes: bytes))
         let url = AppURL.required("https://example.invalid/decoded.png")
         let original = try await media.images.file(for: url)
         let still = try #require(await media.stillDecoder.image(at: original))
-        let animated = try #require(await media.animatedDecoder.image(at: original, reduceMotion: true))
+        let animated = try #require(
+            await media.animatedDecoder.image(at: original, reduceMotion: true))
         await media.clearCaches()
         let restored = try await media.images.file(for: url)
         let newStill = try #require(await media.stillDecoder.image(at: restored))
-        let newAnimated = try #require(await media.animatedDecoder.image(at: restored, reduceMotion: true))
+        let newAnimated = try #require(
+            await media.animatedDecoder.image(at: restored, reduceMotion: true))
         #expect(newStill !== still)
         #expect(newAnimated !== animated)
     }
 
-    @Test(.timeLimit(.minutes(1))) func memoryPressureReleasesCachedImagesAndPreservesActiveDisplaysAndDiskFiles() async throws {
+    @Test(.timeLimit(.minutes(1))) func memoryPressureReleasesCachedImages() async throws {
         let files = PreferenceMemoryFiles()
         let bytes = try png(width: 2)
         let transport = Images(bytes: bytes)
@@ -664,21 +791,28 @@ struct MediaDependencyTests {
             reads += 1
             guard reads <= suspendedReads else { return eventualLimit }
             let first = reads == 1
-            return await withCheckedContinuation { if first { pending = $0 } else { secondPending = $0 } }
+            return await withCheckedContinuation {
+                if first { pending = $0 } else { secondPending = $0 }
+            }
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true])
-    func concurrentQuotaWaitsKeepBothDownloadsReadable(firstFinishesFirst: Bool, avatar: Bool) async throws {
+    func concurrentQuotaWaitsKeepDownloadsReadable(firstFinishesFirst: Bool, avatar: Bool)
+        async throws
+    {
         let files = PreferenceMemoryFiles()
         let limit = SuspendedCacheLimit(suspendedReads: 2, eventualLimit: 1)
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { await limit.read() })
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
-        let cache = RemoteImageCache(files: files, quota: quota,
+        let cache = RemoteImageCache(
+            files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let avatars = CachedRemoteImageStore(files: files, resources: cache)
         let first = Task {
-            try await cache.withFile(for: AppURL.required("https://example.invalid/first.png")) { try files.readData(at: $0) }
+            try await cache.withFile(for: AppURL.required("https://example.invalid/first.png")) {
+                try files.readData(at: $0)
+            }
         }
         try await waitForTestEvent { limit.pending != nil }
         let second = Task {
@@ -706,14 +840,17 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func imageReadLeaseSurvivesAConcurrentQuotaPrune() async throws {
+    func imageReadLeaseSurvivesConcurrentQuotaPrune() async throws {
         let files = PreferenceMemoryFiles()
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { 1 })
         let bytes = try png(width: 2) + Data(repeating: 1, count: 600_000)
-        let cache = RemoteImageCache(files: files, quota: quota, httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
+        let cache = RemoteImageCache(
+            files: files, quota: quota,
+            httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let pausedRead = SuspendedCacheLimit()
         let read = Task {
-            try await cache.withFile(for: AppURL.required("https://example.invalid/reading.png")) { @MainActor file in
+            try await cache.withFile(for: AppURL.required("https://example.invalid/reading.png")) {
+                @MainActor file in
                 _ = await pausedRead.read()
                 return try files.readData(at: file)
             }
@@ -727,12 +864,13 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func clearingImagesInvalidatesDownloadWaitingForItsQuota(avatar: Bool) async throws {
+    func clearingImagesInvalidatesDownloadQuota(avatar: Bool) async throws {
         let files = PreferenceMemoryFiles()
         let limit = SuspendedCacheLimit()
         let quota = ImageCacheDiskQuota(files: files, cacheLimitMB: { await limit.read() })
         let bytes = try png(width: 2)
-        let cache = RemoteImageCache(files: files, quota: quota,
+        let cache = RemoteImageCache(
+            files: files, quota: quota,
             httpClient: HTTPClient(transport: Images(bytes: bytes), observer: nil))
         let url = AppURL.required("https://example.invalid/quota.png")
         if avatar {
@@ -755,7 +893,7 @@ struct MediaDependencyTests {
         #expect(try files.readData(at: restored) == bytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func clearingAvatarsRejectsAnEarlierDownloadAndAllowsANewRequest() async throws {
+    @Test(.timeLimit(.minutes(1))) func clearingAvatarsRejectsEarlierDownload() async throws {
         let transport = DelayedImages(bytes: try png(width: 2))
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
@@ -768,7 +906,8 @@ struct MediaDependencyTests {
         await download.value
         #expect(loader.image == nil)
         #expect(await media.avatars.data(for: url) == nil)
-        #expect(files.totalRegularFileSize(at: try #require(files.directoryURL(.cachesDirectory))) == 0)
+        #expect(
+            files.totalRegularFileSize(at: try #require(files.directoryURL(.cachesDirectory))) == 0)
         let retry = Task { await loader.load(url: url, media: media) }
         try await waitForTestEvent { !(transport.requests < 2) }
         transport.pending?.resume()
@@ -779,9 +918,13 @@ struct MediaDependencyTests {
 
     @Test(.timeLimit(.minutes(1))) func anOldAvatarFailurePreservesTheNewURLImage() async throws {
         let transport = DelayedImages(bytes: try png(width: 2))
-        let media = environment(files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let media = environment(
+            files: PreferenceMemoryFiles(), previewFiles: PreferenceMemoryFiles(),
+            transport: transport)
         let loader = CachedRemoteImageLoader()
-        let old = Task { await loader.load(url: AppURL.required("https://example.invalid/old.png"), media: media) }
+        let old = Task {
+            await loader.load(url: AppURL.required("https://example.invalid/old.png"), media: media)
+        }
         try await waitForTestEvent { !(transport.pending == nil) }
         await loader.load(url: AppURL.required("https://example.invalid/new.png"), media: media)
         #expect(loader.image?.size.width == 2)
@@ -790,7 +933,7 @@ struct MediaDependencyTests {
         #expect(loader.image?.size.width == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func cancellingOneImageConsumerPreservesTheSharedDownload() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellingOneImagePreservesDownload() async throws {
         let bytes = try png(width: 2)
         let transport = DelayedImages(bytes: bytes)
         let files = PreferenceMemoryFiles()
@@ -807,11 +950,13 @@ struct MediaDependencyTests {
         #expect(try files.readData(at: await second.value) == bytes)
     }
 
-    @Test(.timeLimit(.minutes(1))) func clearingImagesCancelsTheWaitAndRejectsLateDownloadBytes() async throws {
+    @Test(.timeLimit(.minutes(1))) func clearingImagesCancelsWait() async throws {
         let transport = DelayedImages(bytes: try png(width: 2))
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: transport)
-        let download = Task { try await media.images.file(for: AppURL.required("https://example.invalid/old.png")) }
+        let download = Task {
+            try await media.images.file(for: AppURL.required("https://example.invalid/old.png"))
+        }
         try await waitForTestEvent { !(transport.pending == nil) }
         await media.clearCaches()
         if case .success = await download.result { Issue.record("缓存清理应终止既有下载") }
@@ -821,7 +966,7 @@ struct MediaDependencyTests {
         #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
     }
 
-    @Test(.timeLimit(.minutes(1))) func localPreviewPreparesTheSelectedPageAndRetainsAllPagePositions() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewPreparesPageRetainsAllPagePositions() async throws {
         let files = PreferenceMemoryFiles()
         let media = environment(files: files, previewFiles: files, transport: Images(bytes: Data()))
         let images = try (1...64).map { try #require(UIImage(data: png(width: $0))) }
@@ -833,21 +978,27 @@ struct MediaDependencyTests {
         let selectedFile = try #require(prepared.items[63].url)
         #expect(UIImage(data: try files.readData(at: selectedFile))?.size.width == 64)
         #expect(prepared.items.dropLast().allSatisfy { $0.url != selectedFile })
-        let localFiles = try files.contentsOfDirectory(at: ImageCacheDirectories.previews(using: files), options: [])
-            .filter { $0.lastPathComponent.hasPrefix("preview-local-") }
+        let localFiles = try files.contentsOfDirectory(
+            at: ImageCacheDirectories.previews(using: files), options: []
+        )
+        .filter { $0.lastPathComponent.hasPrefix("preview-local-") }
         #expect(localFiles == [selectedFile])
         await media.endPreview(owner: request.id).value
         #expect(files.fileExists(at: selectedFile) == false)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], ["gif", "png"])
-    func productionImageProbeChecksTheCompleteAnimation(damaged: Bool, format: String) async throws {
-        let data = NSMutableData(), files = PreferenceMemoryFiles()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
+    func productionImageProbeChecksAnimation(damaged: Bool, format: String) async throws {
+        let data = NSMutableData()
+        let files = PreferenceMemoryFiles()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
         for color in [UIColor.systemRed, .systemBlue] {
             let pixels = try #require(UIImage(data: png(width: 1, color: color))?.cgImage)
-            CGImageDestinationAddImage(destination, pixels,
-                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)
+            CGImageDestinationAddImage(
+                destination, pixels,
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary
+            )
         }
         #expect(CGImageDestinationFinalize(destination))
         let complete = format == "gif" ? data as Data : try png(width: 2)
@@ -871,27 +1022,36 @@ struct MediaDependencyTests {
     func gifFramesAndReducedMotionReadInjectedBytes(firstDelay: Double) async throws {
         let secondDelay = firstDelay == 0.4 ? 0.1 : 0.5
         let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 2, nil))
         for (color, delay) in [(UIColor.systemRed, firstDelay), (UIColor.systemBlue, secondDelay)] {
             let image = try #require(UIImage(data: png(width: 1, color: color))?.cgImage)
-            CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay]] as CFDictionary)
+            CGImageDestinationAddImage(
+                destination, image,
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay]]
+                    as CFDictionary)
         }
         #expect(CGImageDestinationFinalize(destination))
         let files = PreferenceMemoryFiles()
         let file = URL(fileURLWithPath: "/preference-sync/animation.gif")
         try files.writeData(data as Data, to: file, options: [.atomic])
         let transport = Images(bytes: data as Data)
-        let media = environment(files: files, previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let animated = try #require(await media.animatedDecoder.image(at: file, reduceMotion: false))
+        let media = environment(
+            files: files, previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let animated = try #require(
+            await media.animatedDecoder.image(at: file, reduceMotion: false))
         let frames = try #require(animated.images)
         let firstPixels = try #require(frames.first?.cgImage?.dataProvider?.data) as Data
-        let firstFrameCount = frames.filter { ($0.cgImage?.dataProvider?.data as Data?) == firstPixels }.count
+        let firstFrameCount = frames.filter {
+            ($0.cgImage?.dataProvider?.data as Data?) == firstPixels
+        }.count
         let firstDuration = animated.duration * Double(firstFrameCount) / Double(frames.count)
         #expect(abs(firstDuration - firstDelay) < 0.001)
         #expect(abs(animated.duration - firstDuration - secondDelay) < 0.001)
         var unique = Set<ObjectIdentifier>()
         let actualBytes = frames.reduce(0) { bytes, frame in
-            guard let pixels = frame.cgImage, unique.insert(ObjectIdentifier(pixels)).inserted else { return bytes }
+            guard let pixels = frame.cgImage, unique.insert(ObjectIdentifier(pixels)).inserted
+            else { return bytes }
             return bytes + pixels.bytesPerRow * pixels.height
         }
         #expect(unique.count == 2 && frames.count > unique.count)
@@ -914,8 +1074,10 @@ struct MediaDependencyTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func wideJPEGRespectsAlignedDecodeBudget() async throws {
-        let bytes = try #require(UIImage(data: png(width: 4728, height: 1701))?.jpegData(compressionQuality: 0.8))
-        let files = PreferenceMemoryFiles(), budget = RemoteImageResourceLimits.maximumDecodedBytes / 2
+        let bytes = try #require(
+            UIImage(data: png(width: 4728, height: 1701))?.jpegData(compressionQuality: 0.8))
+        let files = PreferenceMemoryFiles()
+        let budget = RemoteImageResourceLimits.maximumDecodedBytes / 2
         let file = files.temporaryDirectoryURL.appending(path: "wide.jpeg")
         try files.writeData(bytes, to: file, options: [])
         let decoder = RemoteAnimatedImageDecoder(files: files, maximumDecodedBytes: budget)
@@ -925,12 +1087,17 @@ struct MediaDependencyTests {
         #expect(image.size.width < 4728 && image.size.height < 1701)
     }
 
-    @Test(.timeLimit(.minutes(1))) func animatedImageDownsamplesFramesBeforeExceedingItsDecodeBudget() async throws {
+    @Test(.timeLimit(.minutes(1))) func animatedImageDownsamplesFrames() async throws {
         let data = NSMutableData()
-        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 4, nil))
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 4, nil))
         for color in [UIColor.systemRed, .systemGreen, .systemBlue, .systemYellow] {
-            let image = try #require(UIImage(data: png(width: 64, height: 64, color: color))?.cgImage)
-            CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)
+            let image = try #require(
+                UIImage(data: png(width: 64, height: 64, color: color))?.cgImage)
+            CGImageDestinationAddImage(
+                destination, image,
+                [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary
+            )
         }
         #expect(CGImageDestinationFinalize(destination))
         let files = PreferenceMemoryFiles()
@@ -941,7 +1108,8 @@ struct MediaDependencyTests {
         let frames = try #require(image.images)
         #expect(frames.count == 4)
         #expect(frames.allSatisfy { $0.size.width < 64 && $0.size.height < 64 })
-        #expect(frames.reduce(0) { $0 + ($1.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) } <= 4096)
+        #expect(
+            frames.reduce(0) { $0 + ($1.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) } <= 4096)
         #expect(abs(image.duration - 0.4) < 0.001)
     }
 }

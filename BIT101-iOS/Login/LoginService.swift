@@ -3,10 +3,10 @@
 //  BIT101-iOS
 //
 
-import Foundation
-import Combine
 import ClientCore
+import Combine
 import CommunityTransport
+import Foundation
 import TransportCore
 
 /// 登录业务门面。
@@ -16,13 +16,19 @@ struct LoginService {
     private let storage: LoginStorage
     private let apiClient: BIT101APIClient
     private let verifySchoolIdentity: (String, String) async throws -> SchoolIdentityVerification
-    var sessionChanges: AnyPublisher<Void, Never> { storage.changes.map { _ in () }.eraseToAnyPublisher() }
+    var sessionChanges: AnyPublisher<Void, Never> {
+        storage.changes.map { _ in () }.eraseToAnyPublisher()
+    }
 
     init() { self.init(storage: AppAccountSession.storage, apiClient: .shared) }
 
     /// 独立实例由调用方共同提供凭据存储与 API 客户端。
-    init(storage: LoginStorage, apiClient: BIT101APIClient,
-         verifySchoolIdentity: @escaping (String, String) async throws -> SchoolIdentityVerification = AppNativeSchoolAuthentication.verifyIdentity) {
+    init(
+        storage: LoginStorage, apiClient: BIT101APIClient,
+        verifySchoolIdentity:
+            @escaping (String, String) async throws -> SchoolIdentityVerification =
+            AppNativeSchoolAuthentication.verifyIdentity
+    ) {
         self.storage = storage
         self.apiClient = apiClient
         self.verifySchoolIdentity = verifySchoolIdentity
@@ -44,7 +50,7 @@ struct LoginService {
     ///
     /// 这条检查由启动后台校验、设置页手动检查和日程同步前置校验共同调用，
     /// 负责确认 BIT101 自有会话并返回当前学号。学校 SSO 会话按需通过
-    /// `restoreSchoolSessionIfNeeded()` 恢复。
+    /// `restoreSchoolSession()` 恢复。
     ///
     /// 远端返回会话过期时共享社区凭据恢复，凭据遭拒时标记社区登录待更新；错误沿调用链抛出，
     /// 本地数据继续支撑主 App、watch 和 widget 的当前登录展示。
@@ -55,7 +61,9 @@ struct LoginService {
                 try await renewCommunitySession(observed: storage.communityCredentials)
                 return savedStudentID
             }
-            if storage.hasCachedSession { throw CommunitySessionRestorationError.credentialsRejected }
+            if storage.hasCachedSession {
+                throw CommunitySessionRestorationError.credentialsRejected
+            }
             return nil
         }
 
@@ -64,7 +72,7 @@ struct LoginService {
         let bit101LoggedIn = try await apiClient.checkBIT101Login(fakeCookie: fakeCookie)
         try Task.checkCancellation()
         guard storage.communityCredentials.identity == observed.identity,
-              storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines) == fakeCookie
+            storage.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines) == fakeCookie
         else { throw CancellationError() }
         guard bit101LoggedIn else {
             try await renewCommunitySession(observed: observed)
@@ -82,13 +90,14 @@ struct LoginService {
     /// 负责确保学校 SSO 会话可用，BIT101 自有 fake-cookie 由 `checkLogin()` 校验。
     ///
     /// 空教室这类纯学校接口沿学校会话路径查询，完整登录检查会增加查询等待时间。
-    func restoreSchoolSessionIfNeeded() async throws -> String? {
+    func restoreSchoolSession() async throws -> String? {
         let owner = storage.schoolSessionIdentity
         try await storage.schoolSessionRecovery.refresh(identity: owner) {
-            do { _ = try await restoreSchoolSession() }
-            catch LoginServiceError.schoolPasswordRejected {
+            do { _ = try await refreshSchoolSession() } catch LoginServiceError
+                .schoolPasswordRejected
+            {
                 try await storage.updateSchoolCredentials()
-                _ = try await restoreSchoolSession()
+                _ = try await refreshSchoolSession()
             }
         }
         try Task.checkCancellation()
@@ -96,7 +105,7 @@ struct LoginService {
         return savedStudentID
     }
 
-    private func restoreSchoolSession() async throws -> String? {
+    private func refreshSchoolSession() async throws -> String? {
         try await storage.prepareSchoolCredentials()
         let identity = storage.schoolSessionIdentity
         let schoolPage = try await apiClient.fetchSchoolLoginPage()
@@ -119,7 +128,8 @@ struct LoginService {
             throw LoginServiceError.unableToRestoreSchoolSession
         }
 
-        let reloginSucceeded = try await apiClient.loginSchool(credentials: storage, page: schoolPage)
+        let reloginSucceeded = try await apiClient.loginSchool(
+            credentials: storage, page: schoolPage)
 
         try Task.checkCancellation()
         guard storage.schoolSessionIdentity == identity else { throw CancellationError() }
@@ -132,7 +142,9 @@ struct LoginService {
     /// 社区密码优先走账号登录，学校身份验证承接账号缺失与凭据恢复。
     func login(studentID: String, password: String) async throws -> String {
         let account = studentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !account.isEmpty, !password.isEmpty else { throw LoginServiceError.invalidCredentials }
+        guard !account.isEmpty, !password.isEmpty else {
+            throw LoginServiceError.invalidCredentials
+        }
         let identity = storage.communityCredentials.identity
         let digest = LoginCrypto.md5Hex(password)
         var response: RegisterResponse
@@ -142,19 +154,24 @@ struct LoginService {
         var validatedDigest: String?
         do {
             do {
-                response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
+                response = try await apiClient.loginCommunity(
+                    studentID: account, passwordDigest: digest)
                 validatedDigest = digest
             } catch LoginServiceError.invalidCredentials {
                 // 服务端共用账号缺失与密码错误响应，学校证明交由 login_mode 保留已有密码。
-                let verified = try await withSchoolPassword(studentID: account, password: schoolPassword, identity: identity) {
-                    try await verifyRegistrationIdentity(studentID: account, password: $0)
+                let verified = try await withSchoolPassword(
+                    studentID: account, password: schoolPassword, identity: identity
+                ) {
+                    try await verifyRegistration(studentID: account, password: $0)
                 }
                 schoolPassword = verified.password
                 try validateCommunityIdentity(identity)
-                response = try await apiClient.register(password: digest, token: verified.proof.token,
+                response = try await apiClient.register(
+                    password: digest, token: verified.proof.token,
                     code: verified.proof.code, loginMode: true)
                 do {
-                    response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest)
+                    response = try await apiClient.loginCommunity(
+                        studentID: account, passwordDigest: digest)
                     validatedDigest = digest
                 } catch {
                     if TaskCancellation.matches(error) { throw error }
@@ -162,16 +179,20 @@ struct LoginService {
                 }
             }
             try validateCommunityIdentity(identity)
-            try storage.saveLoginState(studentID: account, password: schoolPassword, fakeCookie: response.fakeCookie,
+            try storage.saveLoginState(
+                studentID: account, password: schoolPassword, fakeCookie: response.fakeCookie,
                 communityPasswordDigest: validatedDigest)
             return account
         } catch {
-            guard (!storage.hasCachedSession || savedStudentID != account),
-                  BIT101APIClient.permitsIndependentSchoolLogin(after: error) else { throw error }
+            guard !storage.hasCachedSession || savedStudentID != account,
+                BIT101APIClient.allowsSchoolOnlyLogin(after: error)
+            else { throw error }
             try validateCommunityIdentity(identity)
             let initialPassword = schoolPassword
             let verification = Task {
-                try await withSchoolPassword(studentID: account, password: initialPassword, identity: identity) {
+                try await withSchoolPassword(
+                    studentID: account, password: initialPassword, identity: identity
+                ) {
                     try await verifySchoolIdentity(account, $0)
                 }
             }
@@ -181,7 +202,9 @@ struct LoginService {
             defer { accountChanges.cancel() }
             let verified = try await withTaskCancellationHandler {
                 try await verification.value
-            } onCancel: { verification.cancel() }
+            } onCancel: {
+                verification.cancel()
+            }
             try validateCommunityIdentity(identity)
             let proof = verified.proof
             guard proof.studentID == account else { throw LoginServiceError.invalidServerResponse }
@@ -191,17 +214,18 @@ struct LoginService {
         }
     }
 
-    private func withSchoolPassword<Proof>(studentID: String, password: String, identity: CommunitySessionIdentity,
-        verify: (String) async throws -> Proof) async throws -> (password: String, proof: Proof) {
+    private func withSchoolPassword<Proof>(
+        studentID: String, password: String, identity: CommunitySessionIdentity,
+        verify: (String) async throws -> Proof
+    ) async throws -> (password: String, proof: Proof) {
         try validateCommunityIdentity(identity)
-        do { return (password, try await verify(password)) }
-        catch let error as LoginServiceError {
+        do { return (password, try await verify(password)) } catch let error as LoginServiceError {
             switch error {
             case .invalidCredentials, .schoolPasswordRejected: break
             default: throw error
             }
             try validateCommunityIdentity(identity)
-            let replacement = try await storage.schoolPasswordForIdentityVerification(studentID: studentID)
+            let replacement = try await storage.schoolPassword(studentID: studentID)
             try validateCommunityIdentity(identity)
             return (replacement, try await verify(replacement))
         }
@@ -218,68 +242,95 @@ struct LoginService {
         return response.token
     }
 
-    func verifyRegistrationIdentity(studentID: String, password: String) async throws -> WebVPNVerifyResponse {
+    func verifyRegistration(studentID: String, password: String) async throws
+        -> WebVPNVerifyResponse
+    {
         let context = try await apiClient.webVPNVerifyInit(studentID: studentID)
         guard context.captcha.isEmpty else { throw LoginServiceError.schoolCaptchaRequired }
-        return try await apiClient.webVPNVerify(studentID: studentID,
+        return try await apiClient.webVPNVerify(
+            studentID: studentID,
             password: LoginCrypto.encryptPassword(password, saltBase64: context.salt),
             execution: context.execution, cookie: context.cookie, salt: context.salt)
     }
 
-    func registerAccount(studentID: String, password: String, token: String, code: String, schoolPassword: String?) async throws {
+    func registerAccount(
+        studentID: String, password: String, token: String, code: String, schoolPassword: String?
+    ) async throws {
         let identity = storage.communityCredentials.identity
         let digest = LoginCrypto.md5Hex(password)
         let response: RegisterResponse
-        do { response = try await apiClient.register(password: digest, token: token, code: code, loginMode: false) }
-        catch let completionError as RegistrationCompletionError {
-            guard !Task.isCancelled, !TaskCancellation.matches(completionError) else { throw completionError }
+        do {
+            response = try await apiClient.register(
+                password: digest, token: token, code: code, loginMode: false)
+        } catch let completionError as RegistrationCompletionError {
+            guard !Task.isCancelled, !TaskCancellation.matches(completionError) else {
+                throw completionError
+            }
             try validateCommunityIdentity(identity)
             do {
-                response = try await apiClient.loginCommunity(studentID: studentID, passwordDigest: digest)
-                guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                response = try await apiClient.loginCommunity(
+                    studentID: studentID, passwordDigest: digest)
+                guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else {
                     throw LoginServiceError.invalidServerResponse
                 }
             } catch { throw completionError }
         }
         try Task.checkCancellation()
         guard storage.communityCredentials.identity == identity else { throw CancellationError() }
-        let existingSchoolPassword = storage.currentStudentID == studentID ? storage.currentPassword : ""
-        let savedSchoolPassword = schoolPassword ?? (existingSchoolPassword.isEmpty ? password : existingSchoolPassword)
+        let existingSchoolPassword =
+            storage.currentStudentID == studentID ? storage.currentPassword : ""
+        let savedSchoolPassword =
+            schoolPassword ?? (existingSchoolPassword.isEmpty ? password : existingSchoolPassword)
         do {
-            try storage.saveLoginState(studentID: studentID, password: savedSchoolPassword, fakeCookie: response.fakeCookie,
+            try storage.saveLoginState(
+                studentID: studentID, password: savedSchoolPassword,
+                fakeCookie: response.fakeCookie,
                 communityPasswordDigest: digest)
         } catch { throw RegistrationCompletionError(underlying: error, isConfirmed: true) }
     }
 
     /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
-    func startCommunitySessionRecovery(observed: CommunityCredentials) {
-        storage.communityRefreshCoordinator.start(observed: observed) { try await renewCommunitySession(observed: observed) }
+    func recoverCommunitySession(observed: CommunityCredentials) {
+        storage.communityRefreshCoordinator.start(observed: observed) {
+            try await renewCommunitySession(observed: observed)
+        }
     }
 
     func renewCommunitySession(observed: CommunityCredentials) async throws {
-        try await storage.communityRefreshCoordinator.refresh(observed: observed, current: { storage.communityCredentials }) {
-            do { try await authenticateCommunitySession(expectedIdentity: observed.identity) }
-            catch CommunitySessionRestorationError.credentialsRejected {
+        try await storage.communityRefreshCoordinator.refresh(
+            observed: observed, current: { storage.communityCredentials }
+        ) {
+            do {
+                try await authenticateCommunity(expectedIdentity: observed.identity)
+            } catch CommunitySessionRestorationError.credentialsRejected {
                 try Task.checkCancellation()
                 guard storage.communityCredentials == observed else { throw CancellationError() }
-                storage.requireCommunityAuthentication()
+                storage.requireCommunityAuth()
                 throw CommunitySessionRestorationError.credentialsRejected
             }
         }
     }
 
-    private func authenticateCommunitySession(expectedIdentity: CommunitySessionIdentity) async throws {
-        guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
-        if let digest = try storage.loadCommunityPasswordDigest() {
+    private func authenticateCommunity(expectedIdentity: CommunitySessionIdentity) async throws {
+        guard storage.communityCredentials.identity == expectedIdentity else {
+            throw CancellationError()
+        }
+        if let digest = try storage.loadCommunityDigest() {
             let account = storage.currentStudentID
             let response: RegisterResponse
-            do { response = try await apiClient.loginCommunity(studentID: account, passwordDigest: digest) }
-            catch let error as LoginServiceError where error.isCredentialFailure {
+            do {
+                response = try await apiClient.loginCommunity(
+                    studentID: account, passwordDigest: digest)
+            } catch let error as LoginServiceError where error.isCredentialFailure {
                 throw CommunitySessionRestorationError.credentialsRejected
             }
             try Task.checkCancellation()
-            guard storage.communityCredentials.identity == expectedIdentity else { throw CancellationError() }
-            try storage.saveLoginState(studentID: account, password: storage.currentPassword,
+            guard storage.communityCredentials.identity == expectedIdentity else {
+                throw CancellationError()
+            }
+            try storage.saveLoginState(
+                studentID: account, password: storage.currentPassword,
                 fakeCookie: response.fakeCookie, communityPasswordDigest: digest)
             return
         }
@@ -290,27 +341,33 @@ struct LoginService {
         let response: RegisterResponse
         var validatedDigest: String?
         do {
-            response = try await apiClient.loginCommunity(studentID: credentials.studentID, passwordDigest: digest)
+            response = try await apiClient.loginCommunity(
+                studentID: credentials.studentID, passwordDigest: digest)
             validatedDigest = digest
         } catch LoginServiceError.invalidCredentials {
             do {
-                response = try await authenticateSchoolIdentity(studentID: credentials.studentID,
+                response = try await verifySchoolIdentity(
+                    studentID: credentials.studentID,
                     password: credentials.password, communityPasswordDigest: digest)
             } catch let error as LoginServiceError where error.isCredentialFailure {
                 throw CommunitySessionRestorationError.credentialsRejected
             }
         }
         try validateCommunityIdentity(expectedIdentity)
-        try storage.saveLoginState(studentID: credentials.studentID, password: credentials.password,
+        try storage.saveLoginState(
+            studentID: credentials.studentID, password: credentials.password,
             fakeCookie: response.fakeCookie, communityPasswordDigest: validatedDigest)
     }
 
-    private func authenticateSchoolIdentity(studentID: String, password: String,
-        communityPasswordDigest: String) async throws -> RegisterResponse {
+    private func verifySchoolIdentity(
+        studentID: String, password: String,
+        communityPasswordDigest: String
+    ) async throws -> RegisterResponse {
         let identity = storage.communityCredentials.identity
-        let proof = try await verifyRegistrationIdentity(studentID: studentID, password: password)
+        let proof = try await verifyRegistration(studentID: studentID, password: password)
         try validateCommunityIdentity(identity)
-        return try await apiClient.register(password: communityPasswordDigest, token: proof.token,
+        return try await apiClient.register(
+            password: communityPasswordDigest, token: proof.token,
             code: proof.code, loginMode: true)
     }
 

@@ -4,13 +4,18 @@ import ScheduleDomain
 @MainActor
 enum ScheduleReminderNotificationDate {
     static func components(for date: Date) -> DateComponents {
-        let trigger = Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.up))
-        return ScheduleDateCodec.calendar.dateComponents([.calendar, .timeZone, .year, .month, .day, .hour, .minute, .second], from: trigger)
+        let trigger = Date(
+            timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.up))
+        return ScheduleDateCodec.calendar.dateComponents(
+            [.calendar, .timeZone, .year, .month, .day, .hour, .minute, .second], from: trigger)
     }
 
-    static func futureDisplayDate(for occurrence: CourseReminderOccurrence, among occurrences: [CourseReminderOccurrence],
-        leadMinutes: Int, now: Date) -> Date? {
-        let start = ScheduleReminderPlanner.effectiveDisplayWindowStart(for: occurrence, among: occurrences, leadMinutes: leadMinutes)
+    static func futureDisplayDate(
+        for occurrence: CourseReminderOccurrence, among occurrences: [CourseReminderOccurrence],
+        leadMinutes: Int, now: Date
+    ) -> Date? {
+        let start = ScheduleReminderPlanner.displayWindowStart(
+            for: occurrence, among: occurrences, leadMinutes: leadMinutes)
         return start > now && start < occurrence.startDate ? start : nil
     }
 }
@@ -40,13 +45,25 @@ protocol ScheduleReminderNotificationCenter {
 @MainActor
 struct SystemScheduleReminderNotificationCenter: ScheduleReminderNotificationCenter {
     let center: UNUserNotificationCenter
-    func authorizationStatus() async -> UNAuthorizationStatus { await center.notificationSettings().authorizationStatus }
-    func pendingRequests() async -> [UNNotificationRequest] { await center.pendingNotificationRequests() }
-    func deliveredIdentifiers() async -> [String] { await center.deliveredNotifications().map(\.request.identifier) }
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await center.notificationSettings().authorizationStatus
+    }
+    func pendingRequests() async -> [UNNotificationRequest] {
+        await center.pendingNotificationRequests()
+    }
+    func deliveredIdentifiers() async -> [String] {
+        await center.deliveredNotifications().map(\.request.identifier)
+    }
     func add(_ request: UNNotificationRequest) async throws { try await center.add(request) }
-    func removePending(_ identifiers: [String]) { center.removePendingNotificationRequests(withIdentifiers: identifiers) }
-    func removeDelivered(_ identifiers: [String]) { center.removeDeliveredNotifications(withIdentifiers: identifiers) }
-    func requestAuthorization() async throws -> Bool { try await center.requestAuthorization(options: [.alert, .sound]) }
+    func removePending(_ identifiers: [String]) {
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    func removeDelivered(_ identifiers: [String]) {
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    func requestAuthorization() async throws -> Bool {
+        try await center.requestAuthorization(options: [.alert, .sound])
+    }
 }
 
 private struct ScheduleReminderNotificationReplacementError: LocalizedError {
@@ -64,7 +81,9 @@ final class ScheduleReminderNotifications {
     private let logger = Logger(subsystem: "BIT101", category: "ScheduleReminderNotifications")
     private static let notificationIdentifierPrefix = "BIT101.ScheduleReminder"
 
-    init(center: UNUserNotificationCenter) { notificationCenter = SystemScheduleReminderNotificationCenter(center: center) }
+    init(center: UNUserNotificationCenter) {
+        notificationCenter = SystemScheduleReminderNotificationCenter(center: center)
+    }
     init(center: any ScheduleReminderNotificationCenter) { notificationCenter = center }
 
     func authorizationState() async -> ScheduleReminderNotificationAuthorizationState {
@@ -92,8 +111,12 @@ final class ScheduleReminderNotifications {
         try checkCurrent()
         let authorization = await notificationCenter.authorizationStatus()
         try checkCurrent()
-        let previous = await notificationCenter.pendingRequests().filter { $0.identifier.hasPrefix(Self.notificationIdentifierPrefix) }
-        let delivered = await notificationCenter.deliveredIdentifiers().filter { $0.hasPrefix(Self.notificationIdentifierPrefix) }
+        let previous = await notificationCenter.pendingRequests().filter {
+            $0.identifier.hasPrefix(Self.notificationIdentifierPrefix)
+        }
+        let delivered = await notificationCenter.deliveredIdentifiers().filter {
+            $0.hasPrefix(Self.notificationIdentifierPrefix)
+        }
         try checkCurrent()
         guard [.authorized, .provisional, .ephemeral].contains(authorization) else {
             notificationCenter.removePending(previous.map(\.identifier))
@@ -101,17 +124,24 @@ final class ScheduleReminderNotifications {
             return 0
         }
         let now = Date()
-        let scheduledItems = zip(occurrences, ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
-            .compactMap { occurrence, displayStart -> (CourseReminderOccurrence, Date)? in
-                guard displayStart > now, displayStart < occurrence.startDate else { return nil }
-                return (occurrence, displayStart)
-            }
-            .sorted { $0.1 < $1.1 }
+        let scheduledItems = zip(
+            occurrences,
+            ScheduleReminderPlanner.displayWindowStarts(
+                for: occurrences, leadMinutes: leadMinutes)
+        )
+        .compactMap { occurrence, displayStart -> (CourseReminderOccurrence, Date)? in
+            guard displayStart > now, displayStart < occurrence.startDate else { return nil }
+            return (occurrence, displayStart)
+        }
+        .sorted { $0.1 < $1.1 }
         let requests = scheduledItems.prefix(64).enumerated().map { index, item in
             UNNotificationRequest(
-                identifier: Self.notificationIdentifier(studentID: session.studentID, index: index),
-                content: fallbackNotificationContent(for: item.0),
-                trigger: UNCalendarNotificationTrigger(dateMatching: ScheduleReminderNotificationDate.components(for: item.1), repeats: false))
+                identifier: Self.notificationIdentifier(
+                    studentID: session.studentID, index: index),
+                content: fallbackNoticeContent(for: item.0),
+                trigger: UNCalendarNotificationTrigger(
+                    dateMatching: ScheduleReminderNotificationDate.components(for: item.1),
+                    repeats: false))
         }
         var attempted = Set<String>()
         do {
@@ -123,29 +153,36 @@ final class ScheduleReminderNotifications {
             try checkCurrent()
         } catch {
             let retainedIDs = Set(previous.map(\.identifier))
-            notificationCenter.removePending(Array(isCurrent() ? attempted.subtracting(retainedIDs) : attempted))
+            notificationCenter.removePending(
+                Array(isCurrent() ? attempted.subtracting(retainedIDs) : attempted))
             var restorationFailures = 0
             if isCurrent() {
                 for request in previous where attempted.contains(request.identifier) {
                     guard isCurrent() else { break }
-                    do { try await notificationCenter.add(request) }
-                    catch { restorationFailures += 1 }
+                    do { try await notificationCenter.add(request) } catch {
+                        restorationFailures += 1
+                    }
                 }
             }
             if !isCurrent() { notificationCenter.removePending(Array(attempted)) }
             if restorationFailures > 0 {
-                throw ScheduleReminderNotificationReplacementError(original: error, restorationFailures: restorationFailures)
+                throw ScheduleReminderNotificationReplacementError(
+                    original: error, restorationFailures: restorationFailures)
             }
             throw error
         }
-        notificationCenter.removePending(previous.map(\.identifier).filter { !attempted.contains($0) })
+        notificationCenter.removePending(
+            previous.map(\.identifier).filter { !attempted.contains($0) })
         notificationCenter.removeDelivered(delivered)
-        logger.debug("scheduled fallback notifications count=\(requests.count, privacy: .public)")
+        logger.debug(
+            "scheduled fallback notifications count=\(requests.count, privacy: .public)")
         return requests.count
     }
 
     /// 构造与 Live Activity 同语义的本地通知内容。
-    private func fallbackNotificationContent(for occurrence: CourseReminderOccurrence) -> UNMutableNotificationContent {
+    private func fallbackNoticeContent(for occurrence: CourseReminderOccurrence)
+        -> UNMutableNotificationContent
+    {
         let content = UNMutableNotificationContent()
         content.title = occurrence.kindText == "日程" ? "即将开始日程" : "即将上课"
 
@@ -153,13 +190,14 @@ final class ScheduleReminderNotifications {
         let teacher = occurrence.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
         let summary = [
             occurrence.title,
-            ScheduleReminderPlanner.timeRangeText(start: occurrence.startDate, end: occurrence.endDate),
+            ScheduleReminderPlanner.timeRangeText(
+                start: occurrence.startDate, end: occurrence.endDate),
             subtitle,
             teacher.isEmpty || teacher == subtitle ? nil : teacher,
         ]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
 
         content.body = summary
         content.sound = .default
@@ -169,20 +207,27 @@ final class ScheduleReminderNotifications {
 
     /// 删除已排期和已送达的课前提醒通知。
     func clear() async {
-        let pending = await notificationCenter.pendingRequests().map(\.identifier).filter { $0.hasPrefix(Self.notificationIdentifierPrefix) }
+        let pending = await notificationCenter.pendingRequests().map(\.identifier).filter {
+            $0.hasPrefix(Self.notificationIdentifierPrefix)
+        }
         notificationCenter.removePending(pending)
-        let delivered = await notificationCenter.deliveredIdentifiers().filter { $0.hasPrefix(Self.notificationIdentifierPrefix) }
+        let delivered = await notificationCenter.deliveredIdentifiers().filter {
+            $0.hasPrefix(Self.notificationIdentifierPrefix)
+        }
         notificationCenter.removeDelivered(delivered)
     }
 
     private static func notificationIdentifier(studentID: String, index: Int) -> String {
-        "\(notificationIdentifierPrefix).\(studentID.isEmpty ? "__default__" : studentID).\(index)"
+        """
+        \(notificationIdentifierPrefix).\(studentID.isEmpty ? "__default__" : studentID).\
+        \(index)
+        """
     }
 
     /// 首次开启提醒时申请本地通知权限。
     ///
     /// 获得授权后，Activity 未启动时通过本地通知发送课前提醒。
-    func requestAuthorizationIfNeeded() async -> Bool {
+    func authorizeIfNeeded() async -> Bool {
         let authorization = await notificationCenter.authorizationStatus()
 
         switch authorization {
@@ -194,7 +239,12 @@ final class ScheduleReminderNotifications {
             do {
                 return try await notificationCenter.requestAuthorization()
             } catch {
-                logger.error("request notification authorization failed: \(error.localizedDescription, privacy: .public)")
+                logger.error(
+                    """
+                    request notification authorization failed: \
+                    \(error.localizedDescription, privacy: .public)
+                    """
+                )
                 return false
             }
         @unknown default:

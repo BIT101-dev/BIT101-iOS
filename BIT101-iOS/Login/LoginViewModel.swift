@@ -1,12 +1,12 @@
-import TransportCore
+import Combine
 import DesignSystemKit
+import Foundation
+import TransportCore
+
 //
 //  LoginViewModel.swift
 //  BIT101-iOS
 //
-
-import Combine
-import Foundation
 
 private func isLoginCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
@@ -55,7 +55,8 @@ final class LoginViewModel: ObservableObject {
             self.sessionRevision &+= 1
             self.studentID = self.service.savedStudentID
             self.password = ""
-            self.screenState = self.service.hasCachedSession ? .signedIn(studentID: self.studentID) : .signedOut
+            self.screenState =
+                self.service.hasCachedSession ? .signedIn(studentID: self.studentID) : .signedOut
         }
     }
 
@@ -63,9 +64,8 @@ final class LoginViewModel: ObservableObject {
     ///
     /// 当前属性校验输入的非空条件与提交状态；网络结果和密码正确性由提交流程处理。
     var canSubmit: Bool {
-        !studentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !password.isEmpty &&
-            !isSubmitting
+        !studentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+            && !isSubmitting
     }
 
     /// 首次进入时检查登录态，视图重建期间沿用已完成的检查状态。
@@ -73,9 +73,9 @@ final class LoginViewModel: ObservableObject {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
 
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         await AppUITestBootstrap.prepareSessionIfNeeded()
-#endif
+        #endif
         guard service.hasCachedSession else {
             screenState = .signedOut
             return
@@ -179,9 +179,13 @@ final class AccountRegistrationViewModel: ObservableObject {
     @Published var studentID: String { didSet { invalidateVerification() } }
     @Published var password = ""
     @Published var confirmation = ""
-    @Published var schoolPassword = "" { didSet { if method == .school { invalidateVerification() } } }
+    @Published var schoolPassword = "" {
+        didSet { if method == .school { invalidateVerification() } }
+    }
     @Published var code = ""
-    @Published var method: RegistrationVerificationMethod = .school { didSet { invalidateVerification() } }
+    @Published var method: RegistrationVerificationMethod = .school {
+        didSet { invalidateVerification() }
+    }
     @Published private(set) var isVerifying = false
     @Published private(set) var isSubmitting = false
     @Published private(set) var verified = false
@@ -193,16 +197,19 @@ final class AccountRegistrationViewModel: ObservableObject {
 
     init(studentID: String, service: (any AccountRegistrationServicing)? = nil) {
         self.studentID = studentID
-        self.service = service ?? LoginService.registrationRuntimeService()
+        self.service = service ?? LoginService.registrationService()
     }
 
     var account: String { studentID.trimmingCharacters(in: .whitespacesAndNewlines) }
     var isBusy: Bool { isVerifying || isSubmitting }
-    var canVerify: Bool { !isBusy && !account.isEmpty && (method == .email || !schoolPassword.isEmpty) }
+    var canVerify: Bool {
+        !isBusy && !account.isEmpty && (method == .email || !schoolPassword.isEmpty)
+    }
     var passwordsMatch: Bool { password.count >= 8 && password == confirmation }
     var canSubmit: Bool {
-        !isBusy && passwordsMatch && !token.isEmpty &&
-            (method == .school ? verified : code.count == 6 && code.allSatisfy { $0.isASCII && $0.isNumber })
+        !isBusy && passwordsMatch && !token.isEmpty
+            && (method == .school
+                ? verified : code.count == 6 && code.allSatisfy { $0.isASCII && $0.isNumber })
     }
 
     private func invalidateVerification() {
@@ -219,10 +226,13 @@ final class AccountRegistrationViewModel: ObservableObject {
         defer { isVerifying = false }
         do {
             if method == .school {
-                let proof = try await service.verifyRegistrationIdentity(studentID: account, password: schoolPassword)
+                let proof = try await service.verifyRegistration(
+                    studentID: account, password: schoolPassword)
                 try Task.checkCancellation()
                 guard revision == currentRevision else { return }
-                guard !proof.token.isEmpty, !proof.code.isEmpty else { throw LoginServiceError.invalidServerResponse }
+                guard !proof.token.isEmpty, !proof.code.isEmpty else {
+                    throw LoginServiceError.invalidServerResponse
+                }
                 token = proof.token
                 code = proof.code
                 verified = true
@@ -246,7 +256,8 @@ final class AccountRegistrationViewModel: ObservableObject {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            try await service.registerAccount(studentID: account, password: password, token: token, code: code,
+            try await service.registerAccount(
+                studentID: account, password: password, token: token, code: code,
                 schoolPassword: method == .school ? schoolPassword : nil)
             password = ""
             confirmation = ""

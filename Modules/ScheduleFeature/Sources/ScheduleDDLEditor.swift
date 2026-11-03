@@ -1,11 +1,11 @@
-import ScheduleDomain
+import Foundation
 import ScheduleContracts
+import ScheduleDomain
+
 //
 //  ScheduleDDLEditor.swift
 //  BIT101-iOS
 //
-
-import Foundation
 
 /// DDL 集合的纯编辑规则。
 ///
@@ -13,7 +13,8 @@ import Foundation
 enum ScheduleDDLEditor {
     static func draft(for event: DDLEventRecord?) -> DDLDraft {
         guard let event else { return DDLDraft() }
-        return DDLDraft(title: event.title, dueAt: event.dueAt, text: event.text, images: event.images ?? [])
+        return DDLDraft(
+            title: event.title, dueAt: event.dueAt, text: event.text, images: event.images ?? [])
     }
 
     static func mergingSyncedEvents(
@@ -28,7 +29,8 @@ enum ScheduleDDLEditor {
                 .map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let uniqueEvents = Dictionary(syncedEvents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let uniqueEvents = Dictionary(
+            syncedEvents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let mergedSyncedEvents = uniqueEvents.values.map { event in
             guard let existing = existingLexueEvents[event.id] else { return event }
             var merged = event
@@ -56,15 +58,16 @@ enum ScheduleDDLEditor {
         try validateText(draft.text)
         try validateImages(draft.images, alongside: events)
         var events = events
-        events.append(DDLEventRecord(
-            id: id,
-            group: "main",
-            title: try normalizedTitle(draft.title),
-            text: draft.text,
-            dueAt: draft.dueAt,
-            done: false,
-            images: draft.images.isEmpty ? nil : draft.images
-        ))
+        events.append(
+            DDLEventRecord(
+                id: id,
+                group: "main",
+                title: try normalizedTitle(draft.title),
+                text: draft.text,
+                dueAt: draft.dueAt,
+                done: false,
+                images: draft.images.isEmpty ? nil : draft.images
+            ))
         return events.sorted { lhs, rhs in
             if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
             return lhs.id < rhs.id
@@ -94,14 +97,21 @@ enum ScheduleDDLEditor {
         events.filter { $0.id != id }
     }
 
-    private static func validateImages(_ images: [DDLImageAttachment], alongside events: [DDLEventRecord]) throws {
+    private static func validateImages(
+        _ images: [DDLImageAttachment], alongside events: [DDLEventRecord]
+    ) throws {
         guard DDLImagePolicy.isValid(images) else {
-            throw NSError(domain: "BIT101.Schedule", code: -1, userInfo: [NSLocalizedDescriptionKey: "每条 DDL 最多添加 9 张图片，单张图片上限为 1 MB。"])
+            throw NSError(
+                domain: "BIT101.Schedule", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "每条 DDL 最多添加 9 张图片，单张图片上限为 1 MB。"])
         }
-        let total = DDLImagePolicy.totalBytes(in: events)
+        let total =
+            DDLImagePolicy.totalBytes(in: events)
             + images.reduce(0) { $0 + $1.data.count }
         guard total <= DDLImagePolicy.maximumTotalBytes else {
-            throw NSError(domain: "BIT101.Schedule", code: -1, userInfo: [NSLocalizedDescriptionKey: "DDL 图片总容量达到 16 MB，请移除部分图片后保存。"])
+            throw NSError(
+                domain: "BIT101.Schedule", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "DDL 图片总容量达到 16 MB，请移除部分图片后保存。"])
         }
     }
 
@@ -120,8 +130,12 @@ enum ScheduleDDLEditor {
 
     private static func validateText(_ text: String) throws {
         guard text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes else {
-            throw NSError(domain: "BIT101.Schedule", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "标题和详情长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。"])
+            throw NSError(
+                domain: "BIT101.Schedule", code: -1,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "标题和详情长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。"
+                ])
         }
     }
 }

@@ -12,7 +12,7 @@ public nonisolated enum ScheduleICSParser {
         try Task.checkCancellation()
         let lines = unfoldLines(in: ics).filter { !$0.isEmpty }
         guard lines.first?.caseInsensitiveCompare("BEGIN:VCALENDAR") == .orderedSame,
-              lines.last?.caseInsensitiveCompare("END:VCALENDAR") == .orderedSame
+            lines.last?.caseInsensitiveCompare("END:VCALENDAR") == .orderedSame
         else {
             throw ParseError.invalidCalendarData
         }
@@ -33,13 +33,17 @@ public nonisolated enum ScheduleICSParser {
                 let name = String(controlLine.dropFirst(6))
                 guard name != "VTODO" else { throw ParseError.invalidCalendarData }
                 if name == "VCALENDAR" {
-                    guard components.isEmpty, !hasCalendar else { throw ParseError.invalidCalendarData }
+                    guard components.isEmpty, !hasCalendar else {
+                        throw ParseError.invalidCalendarData
+                    }
                     hasCalendar = true
                 } else {
                     guard !components.isEmpty else { throw ParseError.invalidCalendarData }
                 }
                 if name == "VEVENT" {
-                    guard components == ["VCALENDAR"], currentEvent == nil else { throw ParseError.invalidCalendarData }
+                    guard components == ["VCALENDAR"], currentEvent == nil else {
+                        throw ParseError.invalidCalendarData
+                    }
                     currentEvent = [:]
                 }
                 components.append(name)
@@ -50,15 +54,24 @@ public nonisolated enum ScheduleICSParser {
                 let name = String(controlLine.dropFirst(4))
                 guard components.last == name else { throw ParseError.invalidCalendarData }
                 if name == "VEVENT" {
-                    guard let properties = currentEvent else { throw ParseError.invalidCalendarData }
+                    guard let properties = currentEvent else {
+                        throw ParseError.invalidCalendarData
+                    }
                     if properties["STATUS"]?.value.uppercased() == "CANCELLED" {
-                        guard let uid = properties["UID"]?.value.trimmingCharacters(in: .whitespacesAndNewlines),
-                              !uid.isEmpty else { throw ParseError.invalidCalendarData }
+                        guard
+                            let uid = properties["UID"]?.value.trimmingCharacters(
+                                in: .whitespacesAndNewlines),
+                            !uid.isEmpty
+                        else { throw ParseError.invalidCalendarData }
                         cancelledIDs.insert(uid)
                         eventsByID[uid] = nil
                     } else {
-                        guard let event = makeEvent(from: properties, dates: &dates) else { throw ParseError.invalidCalendarData }
-                        guard eventsByID[event.id] == nil || eventsByID[event.id] == event else { throw ParseError.invalidCalendarData }
+                        guard let event = makeEvent(from: properties, dates: &dates) else {
+                            throw ParseError.invalidCalendarData
+                        }
+                        guard eventsByID[event.id] == nil || eventsByID[event.id] == event else {
+                            throw ParseError.invalidCalendarData
+                        }
                         if !cancelledIDs.contains(event.id) { eventsByID[event.id] = event }
                     }
                     currentEvent = nil
@@ -69,9 +82,13 @@ public nonisolated enum ScheduleICSParser {
 
             guard currentEvent != nil, components.last == "VEVENT" else { continue }
             let (keyParts, value) = try splitProperty(line)
-            guard let name = keyParts.first, !name.isEmpty else { throw ParseError.invalidCalendarData }
+            guard let name = keyParts.first, !name.isEmpty else {
+                throw ParseError.invalidCalendarData
+            }
             let propertyName = name.uppercased()
-            if ["UID", "DTSTART", "SUMMARY", "DESCRIPTION", "STATUS"].contains(propertyName), currentEvent?[propertyName] != nil {
+            if ["UID", "DTSTART", "SUMMARY", "DESCRIPTION", "STATUS"].contains(propertyName),
+                currentEvent?[propertyName] != nil
+            {
                 throw ParseError.invalidCalendarData
             }
             guard !["RRULE", "RDATE", "EXDATE", "RECURRENCE-ID"].contains(name.uppercased()) else {
@@ -80,10 +97,13 @@ public nonisolated enum ScheduleICSParser {
 
             var parameters: [String: String] = [:]
             for parameter in keyParts.dropFirst() {
-                let parameterParts = parameter.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                let parameterParts = parameter.split(
+                    separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
                 guard parameterParts.count == 2 else { throw ParseError.invalidCalendarData }
                 let parameterName = parameterParts[0].uppercased()
-                guard !parameterName.isEmpty, parameters[parameterName] == nil else { throw ParseError.invalidCalendarData }
+                guard !parameterName.isEmpty, parameters[parameterName] == nil else {
+                    throw ParseError.invalidCalendarData
+                }
                 parameters[parameterName] = String(parameterParts[1])
                     .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             }
@@ -158,14 +178,15 @@ public nonisolated enum ScheduleICSParser {
     }
 
     private static func unfoldLines(in ics: String) -> [String] {
-        let normalized = ics
+        let normalized =
+            ics
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
 
         var lines: [String] = []
         for rawLine in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-            if (line.hasPrefix(" ") || line.hasPrefix("\t")), !lines.isEmpty {
+            if line.hasPrefix(" ") || line.hasPrefix("\t"), !lines.isEmpty {
                 lines[lines.index(before: lines.endIndex)].append(String(line.dropFirst()))
             } else {
                 lines.append(line)
@@ -174,7 +195,9 @@ public nonisolated enum ScheduleICSParser {
         return lines
     }
 
-    private static func makeEvent(from properties: [String: Property], dates: inout DateParser) -> DDLEventRecord? {
+    private static func makeEvent(from properties: [String: Property], dates: inout DateParser)
+        -> DDLEventRecord?
+    {
         guard
             let uid = properties["UID"]?.value.trimmingCharacters(in: .whitespacesAndNewlines),
             !uid.isEmpty,
@@ -184,7 +207,8 @@ public nonisolated enum ScheduleICSParser {
 
         let timeZone: TimeZone?
         if let rawIdentifier = start.parameters["TZID"] {
-            let identifier = rawIdentifier.hasPrefix("\"") && rawIdentifier.hasSuffix("\"")
+            let identifier =
+                rawIdentifier.hasPrefix("\"") && rawIdentifier.hasSuffix("\"")
                 ? String(rawIdentifier.dropFirst().dropLast()) : rawIdentifier
             guard let identified = TimeZone(identifier: identifier) else { return nil }
             timeZone = identified
@@ -215,15 +239,19 @@ public nonisolated enum ScheduleICSParser {
             let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
             let utc = value.hasSuffix("Z")
             let zone = utc ? .gmt : timeZone ?? defaultTimeZone
-            let format = utc ? "yyyyMMdd'T'HHmmss'Z'" : value.contains("T") ? "yyyyMMdd'T'HHmmss" : "yyyyMMdd"
+            let format =
+                utc
+                ? "yyyyMMdd'T'HHmmss'Z'" : value.contains("T") ? "yyyyMMdd'T'HHmmss" : "yyyyMMdd"
             let key = zone.identifier + "/" + format
             let formatter: DateFormatter
-            if let cached = formatters[key] { formatter = cached }
-            else {
+            if let cached = formatters[key] {
+                formatter = cached
+            } else {
                 formatter = ScheduleICSParser.formatter(timeZone: zone, format: format)
                 formatters[key] = formatter
             }
-            guard let date = formatter.date(from: value), formatter.string(from: date) == value else { return nil }
+            guard let date = formatter.date(from: value), formatter.string(from: date) == value
+            else { return nil }
             return date
         }
     }

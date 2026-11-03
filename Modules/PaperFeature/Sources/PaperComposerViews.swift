@@ -27,11 +27,16 @@ struct PaperComposerView: View {
     @State private var didLoadDraft = false
     private var isBusy: Bool { model.isSubmitting || submitTask != nil }
 
-    init(editingPaper: PaperDetail? = nil, initialContent: String,
-         currentIdentity: @escaping () -> CommunitySessionIdentity, onCreated: @escaping () -> Void) {
+    init(
+        editingPaper: PaperDetail? = nil, initialContent: String,
+        currentIdentity: @escaping () -> CommunitySessionIdentity,
+        onCreated: @escaping () -> Void
+    ) {
         self.onCreated = onCreated
-        _model = State(initialValue: PaperComposerViewModel(editingPaper: editingPaper,
-            initialContent: initialContent, currentIdentity: currentIdentity))
+        _model = State(
+            initialValue: PaperComposerViewModel(
+                editingPaper: editingPaper,
+                initialContent: initialContent, currentIdentity: currentIdentity))
     }
 
     var body: some View {
@@ -42,17 +47,22 @@ struct PaperComposerView: View {
                     .font(AppDesignSystem.Typography.body)
                     .accessibilityLabel("标题")
                     .accessibilityIdentifier("paper.editor.title")
-                TextField("", text: $model.intro, prompt: AppInputPrompt.text("简介"), axis: .vertical)
-                    .font(AppDesignSystem.Typography.body)
-                    .lineLimit(3, reservesSpace: true)
-                    .accessibilityLabel("简介")
-                    .accessibilityIdentifier("paper.editor.intro")
+                TextField(
+                    "", text: $model.intro, prompt: AppInputPrompt.text("简介"), axis: .vertical
+                )
+                .font(AppDesignSystem.Typography.body)
+                .lineLimit(3, reservesSpace: true)
+                .accessibilityLabel("简介")
+                .accessibilityIdentifier("paper.editor.intro")
                 if model.canEditBody {
-                    TextField("", text: $model.content, prompt: AppInputPrompt.text("正文"), axis: .vertical)
-                        .font(AppDesignSystem.Typography.body)
-                        .lineLimit(10, reservesSpace: true)
-                        .accessibilityLabel("正文")
-                        .accessibilityIdentifier("paper.editor.content")
+                    TextField(
+                        "", text: $model.content, prompt: AppInputPrompt.text("正文"),
+                        axis: .vertical
+                    )
+                    .font(AppDesignSystem.Typography.body)
+                    .lineLimit(10, reservesSpace: true)
+                    .accessibilityLabel("正文")
+                    .accessibilityIdentifier("paper.editor.content")
                 } else {
                     Text("正文请在网页编辑，标题和简介可在此修改。")
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -64,12 +74,17 @@ struct PaperComposerView: View {
                     .appInteractiveListRow()
                     .accessibilityIdentifier("ui.paper-composer-view.匿名发布")
             }
-            CommunityPublicationReviewSection(state: model.publicationReview,
-                destination: AnyView(PaperSearchView(dependencies: dependencies, media: media, initialQuery: model.publicationReview.searchTitle))) {
+            CommunityPublicationReviewSection(
+                state: model.publicationReview,
+                destination: AnyView(
+                    PaperSearchView(
+                        dependencies: dependencies, media: media,
+                        initialQuery: model.publicationReview.searchTitle))
+            ) {
                 guard submitTask == nil else { return }
                 submitTask = Task {
                     defer { submitTask = nil }
-                    await model.acknowledgePublicationReview(drafts: dependencies.drafts)
+                    await model.confirmPublicationReview(drafts: dependencies.drafts)
                 }
             }
             if let latest = model.conflictingPaper {
@@ -77,9 +92,12 @@ struct PaperComposerView: View {
                     Text("当前编辑内容已保留。确认覆盖后，保存会提交当前标题、简介、正文和匿名设置。")
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     NavigationLink("查看最新文章") {
-                        PaperDetailView(dependencies: dependencies, media: media,
-                            initialPaper: .init(id: latest.id, title: latest.title, intro: latest.intro,
-                                likeNum: latest.likeNum, commentNum: latest.commentNum, updateTime: latest.updateTime), onChanged: {})
+                        PaperDetailView(
+                            dependencies: dependencies, media: media,
+                            initialPaper: .init(
+                                id: latest.id, title: latest.title, intro: latest.intro,
+                                likeNum: latest.likeNum, commentNum: latest.commentNum,
+                                updateTime: latest.updateTime), onChanged: {})
                     }
                     .appInteractiveListRow()
                     .accessibilityIdentifier("paper.edit.review-latest")
@@ -102,11 +120,10 @@ struct PaperComposerView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") {
-                    if model.hasUnsavedChanges { isConfirmingDiscard = true }
-                    else { dismiss() }
+                    if model.hasUnsavedChanges { isConfirmingDiscard = true } else { dismiss() }
                 }
-                    .disabled(isBusy)
-                    .accessibilityIdentifier("ui.paper-composer-view.cancel")
+                .disabled(isBusy)
+                .accessibilityIdentifier("ui.paper-composer-view.cancel")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 if needsDraftRecovery {
@@ -124,31 +141,45 @@ struct PaperComposerView: View {
                     guard submitTask == nil else { return }
                     submitTask = Task {
                         defer { submitTask = nil }
-                        if await model.submit(service: dependencies.composer, drafts: dependencies.drafts), !Task.isCancelled {
+                        if await model.submit(
+                            service: dependencies.composer, drafts: dependencies.drafts),
+                            !Task.isCancelled
+                        {
                             onCreated()
                             dismiss()
                         }
                     }
                 }
-                .disabled(isBusy || model.publicationReview.needsReview || model.conflictingPaper != nil)
+                .disabled(
+                    isBusy || model.publicationReview.needsReview
+                        || model.conflictingPaper != nil
+                )
                 .accessibilityIdentifier("ui.paper-composer-view.submit")
             }
         }
         .interactiveDismissDisabled(isBusy || model.hasUnsavedChanges)
-        .confirmationDialog("放弃文章修改？", isPresented: $isConfirmingDiscard, titleVisibility: .visible) {
+        .confirmationDialog(
+            "放弃文章修改？", isPresented: $isConfirmingDiscard, titleVisibility: .visible
+        ) {
             Button("暂存并离开", action: saveDraftAndDismiss)
             Button("放弃修改", role: .destructive) {
                 guard submitTask == nil else { return }
                 submitTask = Task {
                     defer { submitTask = nil }
                     guard model.isCurrentOwner else { return }
-                    let cleanup = await dependencies.drafts.capturePaperCleanup(matching: model.restoredDraft)
+                    let cleanup = await dependencies.drafts.capturePaperCleanup(
+                        matching: model.restoredDraft)
                     guard model.isCurrentOwner else { return }
-                    if await cleanup(), model.isCurrentOwner { dismiss() }
-                    else if model.isCurrentOwner { model.alert = .informational(title: "草稿清理遇到问题", message: "当前编辑内容已保留，请重试。") }
+                    if await cleanup(), model.isCurrentOwner {
+                        dismiss()
+                    } else if model.isCurrentOwner {
+                        model.alert = .informational(
+                            title: "草稿清理遇到问题", message: "当前编辑内容已保留，请重试。")
+                    }
                 }
             }
-            Button("取消", role: .cancel) {}.accessibilityIdentifier("paper.editor.cancel-discard")
+            Button("取消", role: .cancel) {}.accessibilityIdentifier(
+                "paper.editor.cancel-discard")
         }
         .task {
             guard !didLoadDraft else { return }
@@ -184,26 +215,35 @@ struct PaperComposerView: View {
         guard model.isCurrentOwner else { return }
         let result = await dependencies.drafts.loadPaper(paperID: model.editingPaper?.id)
         guard model.isCurrentOwner else { return }
-        if let draft = result.snapshot { pendingDraft = draft; isConfirmingRestore = true }
-        else if case .unreadable = result {
+        if let draft = result.snapshot {
+            pendingDraft = draft
+            isConfirmingRestore = true
+        } else if case .unreadable = result {
             draftRecovery = recovery
             needsDraftRecovery = true
             isConfirmingDraftRecovery = true
-        }
-        else if !result.allowsWrite {
-            model.alert = .informational(title: "草稿版本需要更新", message: "原始草稿已保留，请使用支持当前草稿格式的 App 版本后重试恢复。")
+        } else if !result.allowsWrite {
+            model.alert = .informational(
+                title: "草稿版本需要更新", message: "原始草稿已保留，请使用支持当前草稿格式的 App 版本后重试恢复。")
         }
     }
 
     private func recoverDraftStorage() {
-        guard submitTask == nil, model.isCurrentOwner, let recovery = draftRecovery else { return }
+        guard submitTask == nil, model.isCurrentOwner, let recovery = draftRecovery else {
+            return
+        }
         submitTask = Task {
             defer { submitTask = nil }
             guard model.isCurrentOwner else { return }
             let recovered = await recovery()
             guard model.isCurrentOwner else { return }
-            if recovered { needsDraftRecovery = false; await loadDraft() }
-            else { model.alert = .informational(title: "草稿恢复遇到问题", message: "原始草稿和当前编辑内容已保留，请检查本机存储与 App 版本后重试。") }
+            if recovered {
+                needsDraftRecovery = false
+                await loadDraft()
+            } else {
+                model.alert = .informational(
+                    title: "草稿恢复遇到问题", message: "原始草稿和当前编辑内容已保留，请检查本机存储与 App 版本后重试。")
+            }
         }
     }
 
@@ -215,8 +255,12 @@ struct PaperComposerView: View {
             guard model.isCurrentOwner else { return }
             let saved = await dependencies.drafts.savePaper(snapshot)
             guard model.isCurrentOwner else { return }
-            if saved { dismiss() }
-            else { model.alert = .informational(title: "文章暂存遇到问题", message: "当前编辑内容已保留。请核对已保存的文章草稿与本机可用空间，再重试暂存。") }
+            if saved {
+                dismiss()
+            } else {
+                model.alert = .informational(
+                    title: "文章暂存遇到问题", message: "当前编辑内容已保留。请核对已保存的文章草稿与本机可用空间，再重试暂存。")
+            }
         }
     }
 }
@@ -233,8 +277,11 @@ private struct PaperDraftsView: View {
 
     var body: some View {
         List {
-            if isLoading { AppInlineLoadingState("正在读取草稿") }
-            else if drafts.isEmpty { Text("暂无文章草稿") }
+            if isLoading {
+                AppInlineLoadingState("正在读取草稿")
+            } else if drafts.isEmpty {
+                Text("暂无文章草稿")
+            }
             ForEach(drafts, id: \.paperID) { draft in
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
                     Text(draft.title.isEmpty ? "未命名文章" : draft.title)
@@ -255,7 +302,12 @@ private struct PaperDraftsView: View {
                 Button("完成") { dismiss() }.accessibilityIdentifier("paper.drafts.done")
             }
         }
-        .confirmationDialog("删除此文章草稿？", isPresented: Binding(get: { selectedDraft != nil }, set: { if !$0 { selectedDraft = nil } }), titleVisibility: .visible) {
+        .confirmationDialog(
+            "删除此文章草稿？",
+            isPresented: Binding(
+                get: { selectedDraft != nil }, set: { if !$0 { selectedDraft = nil } }),
+            titleVisibility: .visible
+        ) {
             Button("删除草稿", role: .destructive) {
                 guard operation == nil, let draft = selectedDraft else { return }
                 operation = Task {
@@ -265,12 +317,18 @@ private struct PaperDraftsView: View {
                     guard isCurrentOwner() else { return }
                     let removed = await cleanup()
                     guard isCurrentOwner() else { return }
-                    if removed { await loadDrafts() }
-                    else { alert = .informational(title: "草稿清理遇到问题", message: "原始草稿和当前编辑内容已保留，请重试。") }
+                    if removed {
+                        await loadDrafts()
+                    } else {
+                        alert = .informational(
+                            title: "草稿清理遇到问题", message: "原始草稿和当前编辑内容已保留，请重试。")
+                    }
                 }
             }
             Button("取消", role: .cancel) {}.accessibilityIdentifier("paper.drafts.cancel-delete")
-        } message: { Text("当前编辑内容会保留。") }
+        } message: {
+            Text("当前编辑内容会保留。")
+        }
         .task { await loadDrafts() }
         .onDisappear { operation?.cancel() }
         .diagnosticAlert(item: $alert)
@@ -281,8 +339,11 @@ private struct PaperDraftsView: View {
         let result = await dependencies.drafts.loadPaperDrafts()
         guard isCurrentOwner() else { return }
         isLoading = false
-        if result.allowsWrite { drafts = result.snapshot ?? [] }
-        else { alert = .informational(title: "草稿读取遇到问题", message: "原始草稿已保留，请检查本机存储与 App 版本后重试。") }
+        if result.allowsWrite {
+            drafts = result.snapshot ?? []
+        } else {
+            alert = .informational(title: "草稿读取遇到问题", message: "原始草稿已保留，请检查本机存储与 App 版本后重试。")
+        }
     }
 }
 
@@ -308,11 +369,16 @@ final class PaperComposerViewModel {
     private(set) var publicationReview: ComposerPublicationReviewState = .ready
     var alert: AppAlert?
 
-    init(editingPaper: PaperDetail?, initialContent: String, currentIdentity: @escaping () -> CommunitySessionIdentity) {
+    init(
+        editingPaper: PaperDetail?, initialContent: String,
+        currentIdentity: @escaping () -> CommunitySessionIdentity
+    ) {
         self.currentIdentity = currentIdentity
         owner = currentIdentity()
         self.editingPaper = editingPaper
-        canEditBody = editingPaper.map { PaperEditorContentBuilder.canEditAsPlainText($0.content) } ?? true
+        canEditBody =
+            editingPaper.map { PaperEditorContentBuilder.canEditAsPlainText($0.content) }
+            ?? true
         originalPlainContent = initialContent.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialContent = initialContent
         expectedUpdatedAt = editingPaper?.updateTime
@@ -329,13 +395,17 @@ final class PaperComposerViewModel {
     }
 
     var draftSnapshot: PaperComposerDraftSnapshot {
-        .init(paperID: editingPaper?.id, baselineUpdatedAt: expectedUpdatedAt, title: title,
-              intro: intro, content: content, anonymous: anonymous)
+        .init(
+            paperID: editingPaper?.id, baselineUpdatedAt: expectedUpdatedAt, title: title,
+            intro: intro, content: content, anonymous: anonymous)
     }
 
     func restoreDraft(_ draft: PaperComposerDraftSnapshot) {
         guard isCurrentOwner, !isSubmitting, draft.paperID == editingPaper?.id else { return }
-        title = draft.title; intro = draft.intro; content = draft.content; anonymous = draft.anonymous
+        title = draft.title
+        intro = draft.intro
+        content = draft.content
+        anonymous = draft.anonymous
         expectedUpdatedAt = draft.baselineUpdatedAt
         restoredDraft = draft
     }
@@ -352,7 +422,8 @@ final class PaperComposerViewModel {
     func refreshPublicationReview(drafts: any ComposerPublicationStoring) async {
         guard editingPaper == nil, isCurrentOwner else { return }
         do {
-            let pending = try await drafts.loadPublication(kind: .paper, owner: owner.accountIdentifier)
+            let pending = try await drafts.loadPublication(
+                kind: .paper, owner: owner.accountIdentifier)
             guard isCurrentOwner else { return }
             publicationReview = pending.map(ComposerPublicationReviewState.pending) ?? .ready
         } catch {
@@ -362,7 +433,7 @@ final class PaperComposerViewModel {
         }
     }
 
-    func acknowledgePublicationReview(drafts: any ComposerPublicationStoring) async {
+    func confirmPublicationReview(drafts: any ComposerPublicationStoring) async {
         guard isCurrentOwner, !isSubmitting, publicationReview.needsReview else { return }
         isSubmitting = true
         defer { isSubmitting = false }
@@ -370,7 +441,8 @@ final class PaperComposerViewModel {
             switch publicationReview {
             case .ready: return
             case .pending(let attempt): _ = try await drafts.finishPublication(attempt)
-            case .requiresRecovery: try await drafts.resetPublicationsAfterReview(owner: owner.accountIdentifier)
+            case .requiresRecovery:
+                try await drafts.resetReviewedPublications(owner: owner.accountIdentifier)
             }
             await refreshPublicationReview(drafts: drafts)
         } catch {
@@ -380,11 +452,14 @@ final class PaperComposerViewModel {
         }
     }
 
-    func submit(service: any PaperComposerServicing,
-                drafts: any PaperComposerDraftStoring & ComposerPublicationStoring) async -> Bool {
+    func submit(
+        service: any PaperComposerServicing,
+        drafts: any PaperComposerDraftStoring & ComposerPublicationStoring
+    ) async -> Bool {
         guard !isSubmitting, isCurrentOwner, conflictingPaper == nil else { return false }
         guard !publicationReview.needsReview else {
-            alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            alert = AppAlert(
+                title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
             return false
         }
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -416,17 +491,23 @@ final class PaperComposerViewModel {
         var publication: ComposerPublicationAttempt?
         do {
             if let editingPaper {
-                try await service.updatePaper(id: editingPaper.id, title: title, intro: intro,
-                    content: serializedBody, anonymous: anonymous, publicEdit: expectedPublicEdit,
+                try await service.updatePaper(
+                    id: editingPaper.id, title: title, intro: intro,
+                    content: serializedBody, anonymous: anonymous,
+                    publicEdit: expectedPublicEdit,
                     lastUpdatedAt: expectedUpdatedAt ?? editingPaper.updateTime)
             } else {
-                let started = try await drafts.beginPublication(.paper(title: title, intro: intro,
-                    content: serializedBody, anonymous: anonymous), owner: owner.accountIdentifier)
+                let started = try await drafts.beginPublication(
+                    .paper(
+                        title: title, intro: intro,
+                        content: serializedBody, anonymous: anonymous),
+                    owner: owner.accountIdentifier)
                 switch started {
                 case .pending(let attempt):
                     guard isCurrentOwner else { return false }
                     publicationReview = .pending(attempt)
-                    alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+                    alert = AppAlert(
+                        title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
                     return false
                 case .started(let attempt): publication = attempt
                 }
@@ -435,16 +516,21 @@ final class PaperComposerViewModel {
                     return false
                 }
                 if let publication { publicationReview = .pending(publication) }
-                _ = try await service.createPaper(title: title, intro: intro, content: serializedBody,
+                _ = try await service.createPaper(
+                    title: title, intro: intro, content: serializedBody,
                     anonymous: anonymous, publicEdit: true)
             }
             guard isCurrentOwner else { return false }
             if await cleanup() {
                 if let publication {
-                    do { _ = try await drafts.finishPublication(publication) }
-                    catch { Self.logger.error("清理已发布事务受阻：\(String(describing: error), privacy: .private)") }
+                    do { _ = try await drafts.finishPublication(publication) } catch {
+                        Self.logger.error(
+                            "清理已发布事务受阻：\(String(describing: error), privacy: .private)")
+                    }
                 }
-            } else { Self.logger.error("已发布文章的草稿清理受阻，原始草稿已保留。") }
+            } else {
+                Self.logger.error("已发布文章的草稿清理受阻，原始草稿已保留。")
+            }
             return isCurrentOwner
         } catch {
             guard isCurrentOwner else { return false }
@@ -466,9 +552,12 @@ final class PaperComposerViewModel {
                     } catch {
                         guard isCurrentOwner else { return false }
                         publicationReview = .requiresRecovery
-                        Self.logger.error("结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
+                        Self.logger.error(
+                            "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
                     }
-                } else { publicationReview = .requiresRecovery }
+                } else {
+                    publicationReview = .requiresRecovery
+                }
             }
             guard isCurrentOwner else { return false }
             alert = AppAlert(title: "发布失败", error: error)
@@ -487,11 +576,16 @@ struct PaperCommentComposerSheet: View {
     @State private var text = ""
     @State private var anonymous = false
     @State private var isSubmissionRequested = false
-    private var hasDraftContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous }
+    private var hasDraftContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || anonymous
+    }
 
     var body: some View {
-        let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID)
+        let submission = CommunityCommentSubmission(
+            objectID: target.objectID,
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID
+        )
         List {
             AppCommentComposerContentSection(title: target.title, anonymous: $anonymous) {
                 TextField(
@@ -504,9 +598,11 @@ struct PaperCommentComposerSheet: View {
                 .lineLimit(12, reservesSpace: true)
                 .frame(minHeight: AppDesignSystem.Size.Editor.multilineMinimumHeight)
                 .accessibilityLabel(target.placeholder)
-                    .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
+                .accessibilityIdentifier("ui.paper-comment-composer-sheet.input")
             }
-                CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
+            CommunityCommentReviewSection(submission: submission, actions: review) {
+                isSubmissionRequested = true
+            }
         }
         .disabled(isSubmitting || isSubmissionRequested)
         .accessibilityIdentifier("interaction.PaperCommentComposerSheet.list")

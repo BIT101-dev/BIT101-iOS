@@ -1,26 +1,30 @@
-import SchedulePorts
+import Foundation
 import ScheduleDomain
+import SchedulePorts
 import StorageCore
+
 //
 //  ScheduleViewModel+Preferences.swift
 //  BIT101-iOS
 //
 
-import Foundation
-
 extension ScheduleViewModel {
-    public var settingsSnapshot: ScheduleSettingsSnapshot { ScheduleSettingsSnapshot(courses: courseState, preferences: presentationPreferences, sync: syncState) }
+    public var settingsSnapshot: ScheduleSettingsSnapshot {
+        ScheduleSettingsSnapshot(
+            courses: courseState, preferences: presentationPreferences, sync: syncState)
+    }
 
     public func exportScheduleCode(courses: [CourseRecord]? = nil) async throws -> String {
         let generation = accountGeneration
         let code: String
         do {
-            code = try await ScheduleShareCodeCodec.encodeForSharing(courses: courses ?? persistenceSnapshot.courses)
+            code = try await ScheduleShareCodeCodec.encodeForSharing(
+                courses: courses ?? persistenceSnapshot.courses)
         } catch {
-            try requireCurrentShareOperation(generation)
+            try requireShareOperation(generation)
             throw error
         }
-        try requireCurrentShareOperation(generation)
+        try requireShareOperation(generation)
         return code
     }
 
@@ -28,46 +32,54 @@ extension ScheduleViewModel {
         let generation = accountGeneration
         let payload: ScheduleExportPayload
         do {
-            payload = try await ScheduleShareCodeCodec.decodeForImport(text, using: persistenceSnapshot)
+            payload = try await ScheduleShareCodeCodec.decodeForImport(
+                text, using: persistenceSnapshot)
         } catch {
-            try requireCurrentShareOperation(generation)
+            try requireShareOperation(generation)
             throw error
         }
-        try requireCurrentShareOperation(generation)
+        try requireShareOperation(generation)
         try importSharedSchedule(payload)
     }
 
-    private func requireCurrentShareOperation(_ generation: Int) throws {
+    private func requireShareOperation(_ generation: Int) throws {
         try Task.checkCancellation()
         guard accountGeneration == generation else { throw CancellationError() }
     }
 
-    public func importCurrentTermToSystemCalendar() async throws -> Int {
-        try await platformActions.importSystemCalendar(courses: courseSnapshot, term: persistenceSnapshot.currentTerm)
+    public func importTermToCalendar() async throws -> Int {
+        try await platformActions.importSystemCalendar(
+            courses: courseSnapshot, term: persistenceSnapshot.currentTerm)
     }
 
-    func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
-        try await platformActions.importSystemCalendarEntries(content, term: term)
+    func importCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> Int
+    {
+        try await platformActions.importCalendarEntries(content, term: term)
     }
 
-    func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult {
-        try await platformActions.deleteSystemCalendarEntries(content, term: term)
+    func deleteCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    {
+        try await platformActions.deleteCalendarEntries(content, term: term)
     }
 
-    func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult {
-        try await platformActions.deleteSystemCalendarEntries(markerIDs: markerIDs, term: term)
+    func deleteCalendarEntries(markerIDs: Set<String>, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    {
+        try await platformActions.deleteCalendarEntries(markerIDs: markerIDs, term: term)
     }
 
-    public func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
-        try await platformActions.deleteImportedSystemCalendarEvents()
+    public func deleteImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
+        try await platformActions.deleteImportedEvents()
     }
 
-    public func rebuildSystemCalendarImportHistory() async throws -> Int {
-        try await platformActions.rebuildSystemCalendarImportHistory()
+    public func rebuildSystemHistory() async throws -> Int {
+        try await platformActions.rebuildSystemHistory()
     }
 
     /// 从小组件入口显示主课表的当前周。
-    func showCurrentPrimarySchedule() {
+    func showPrimarySchedule() {
         selectedCourseScheduleIndex = 0
         selectedWeek = resolvedAutomaticWeek()
     }
@@ -77,7 +89,8 @@ extension ScheduleViewModel {
         let term = courseState.currentTerm
         guard isCacheWritable, !term.isEmpty else { return }
         if let date {
-            let firstDayString = ScheduleDateCodec.formatDate(ScheduleDateCodec.monday(containing: date))
+            let firstDayString = ScheduleDateCodec.formatDate(
+                ScheduleDateCodec.monday(containing: date))
             courseState.manualFirstDayStringsByTerm[term] = firstDayString
         } else {
             guard courseState.termSchedulesByTerm[term] != nil else { return }
@@ -109,7 +122,9 @@ extension ScheduleViewModel {
         let nextIndex = (selectedCourseScheduleIndex + step).modulo(count)
         selectedCourseScheduleIndex = nextIndex
         let targetSchedule = variants[nextIndex]
-        let targetHasSelectedWeek = targetSchedule.courses.contains { $0.weeks.contains(selectedWeek) }
+        let targetHasSelectedWeek = targetSchedule.courses.contains {
+            $0.weeks.contains(selectedWeek)
+        }
         if !targetHasSelectedWeek {
             selectedWeek = resolvedAutomaticWeek(for: targetSchedule.firstDay)
         }
@@ -127,7 +142,9 @@ extension ScheduleViewModel {
     public func renameSharedSchedule(id: String, to title: String) throws {
         try repository.requireWritable()
         let trimmed = try validatedScheduleTitle(title)
-        guard let index = courseState.sharedSchedules.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = courseState.sharedSchedules.firstIndex(where: { $0.id == id }) else {
+            return
+        }
         courseState.sharedSchedules[index].title = trimmed
         persist()
     }
@@ -135,7 +152,8 @@ extension ScheduleViewModel {
     /// 删除一份导入的分享课表。
     public func deleteSharedSchedule(id: String) {
         courseState.sharedSchedules.removeAll { $0.id == id }
-        selectedCourseScheduleIndex = min(selectedCourseScheduleIndex, max(courseSchedules.count - 1, 0))
+        selectedCourseScheduleIndex = min(
+            selectedCourseScheduleIndex, max(courseSchedules.count - 1, 0))
         persist()
     }
 
@@ -165,7 +183,7 @@ extension ScheduleViewModel {
     }
 
     /// 设置课程卡片显示内容。
-    public func setScheduleCardContentMode(_ mode: ScheduleCardContentMode) {
+    public func setCardContentMode(_ mode: ScheduleCardContentMode) {
         guard presentationPreferences.scheduleCardContentMode != mode else { return }
         presentationPreferences.scheduleCardContentMode = mode
         persist()
@@ -181,9 +199,10 @@ extension ScheduleViewModel {
             let generation = repository.accountGeneration
             cloudSyncEnableTask = Task { [repository, platformActions] in
                 guard await repository.persistAndWait(source: .localWithoutCloudPush),
-                      repository.accountGeneration == generation,
-                      repository.accountSession == session,
-                      repository.syncState.iCloudSyncEnabled, !Task.isCancelled else { return }
+                    repository.accountGeneration == generation,
+                    repository.accountSession == session,
+                    repository.syncState.iCloudSyncEnabled, !Task.isCancelled
+                else { return }
                 await platformActions.enableCloudSync(session: session)
             }
         } else {
@@ -192,7 +211,7 @@ extension ScheduleViewModel {
     }
 
     /// 设置课程提醒 Live Activity 启用状态。
-    public func setShowCourseLiveActivityReminder(_ value: Bool) {
+    public func setActivityReminder(_ value: Bool) {
         presentationPreferences.showCourseLiveActivityReminder = value
         persist()
 
@@ -205,7 +224,7 @@ extension ScheduleViewModel {
     }
 
     /// 设置灵动岛/锁屏提醒的提前显示阈值。
-    public func setCourseLiveActivityLeadMinutes(_ value: Int) {
+    public func setActivityLeadMinutes(_ value: Int) {
         presentationPreferences.courseLiveActivityLeadMinutes = value
         persist()
     }
@@ -215,7 +234,8 @@ extension ScheduleViewModel {
     /// 每行格式固定为 `开始时间,结束时间`；这里会同时校验顺序和重叠。
     public func setTimeTable(from text: String) throws {
         try repository.requireWritable()
-        let lines = text
+        let lines =
+            text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }

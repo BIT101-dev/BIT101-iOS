@@ -1,8 +1,8 @@
-import CommunityTransport
 import CloudKit
-import ScheduleSync
 import Combine
+import CommunityTransport
 import Foundation
+import ScheduleSync
 
 /// 同步状态随所选账号事件重置，迟到报告按完整账号代际筛选。
 @MainActor
@@ -12,12 +12,17 @@ final class ScheduleCloudSyncPresentation: ObservableObject {
     private var subscription: AnyCancellable?
     private var cloudSubscription: AnyCancellable?
 
-    init(currentAccount: @escaping () -> ScheduleCloudAccount?, accountChanges: AnyPublisher<CommunitySessionIdentity, Never>) {
+    init(
+        currentAccount: @escaping () -> ScheduleCloudAccount?,
+        accountChanges: AnyPublisher<CommunitySessionIdentity, Never>
+    ) {
         self.currentAccount = currentAccount
         subscription = accountChanges.sink { [weak self] identity in
             guard let self else { return }
             if let account = self.currentAccount() {
-                guard account.studentID == identity.accountIdentifier, account.generation == identity.generation else { return }
+                guard account.studentID == identity.accountIdentifier,
+                    account.generation == identity.generation
+                else { return }
             } else {
                 guard identity.accountIdentifier.isEmpty else { return }
             }

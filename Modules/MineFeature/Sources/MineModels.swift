@@ -1,4 +1,6 @@
 import CommunityCore
+import Foundation
+
 //
 //  MineModels.swift
 //  BIT101-iOS
@@ -6,15 +8,15 @@ import CommunityCore
 //  Created by Codex on 2026-03-24.
 //
 
-import Foundation
-
 /// “我的”页个人信息接口模型。
 ///
 /// `MineUserInfo` 服务于“我的主页”和他人主页的资料卡。
 /// 模型包含基础用户信息、关注关系和是否本人这些关系态字段。
 public nonisolated struct MineUserInfo: Decodable, Sendable {
     public var isViewerAuthenticated = true
-    private enum CodingKeys: String, CodingKey { case user, followingNum, followerNum, following, follower, own }
+    private enum CodingKeys: String, CodingKey {
+        case user, followingNum, followerNum, following, follower, own
+    }
     /// 当前主页主体用户。
     public let user: CommunityUser
     /// 当前主页用户关注的人数。
@@ -28,10 +30,15 @@ public nonisolated struct MineUserInfo: Decodable, Sendable {
     /// 该资料页属于当前登录用户时为 `true`。
     public let own: Bool
 
-    public func updatingUser(nickname: String? = nil, motto: String? = nil, avatar: CommunityImage? = nil) -> Self {
-        let updated = CommunityUser(id: user.id, createTime: user.createTime, nickname: nickname ?? user.nickname,
+    public func updatingUser(
+        nickname: String? = nil, motto: String? = nil, avatar: CommunityImage? = nil
+    ) -> Self {
+        let updated = CommunityUser(
+            id: user.id, createTime: user.createTime, nickname: nickname ?? user.nickname,
             avatar: avatar ?? user.avatar, motto: motto ?? user.motto, identity: user.identity)
-        return MineUserInfo(isViewerAuthenticated: isViewerAuthenticated, user: updated, followingNum: followingNum, followerNum: followerNum,
+        return MineUserInfo(
+            isViewerAuthenticated: isViewerAuthenticated, user: updated, followingNum: followingNum,
+            followerNum: followerNum,
             following: following, follower: follower, own: own)
     }
 

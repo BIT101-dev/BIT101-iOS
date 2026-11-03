@@ -1,6 +1,6 @@
 import DesignSystemKit
-import ScheduleDomain
 import Foundation
+import ScheduleDomain
 
 /// 设置页消费的课表配置与名称快照。
 public nonisolated struct ScheduleSettingsSnapshot {
@@ -26,7 +26,10 @@ public nonisolated struct ScheduleSettingsSnapshot {
     public let showExamInfo: Bool
     public let showCourseLiveActivityReminder: Bool
 
-    init(courses: ScheduleCourseState, preferences: SchedulePresentationPreferences, sync: ScheduleSyncState) {
+    init(
+        courses: ScheduleCourseState, preferences: SchedulePresentationPreferences,
+        sync: ScheduleSyncState
+    ) {
         currentTerm = courses.currentTerm
         firstDayString = courses.firstDayString
         firstDay = courses.firstDay
@@ -106,13 +109,18 @@ public nonisolated enum ScheduleCalendarAxisMode: String, CaseIterable, Identifi
 struct ScheduleCalendarHeaderMetrics {
     let captionLineHeight: CGFloat
     var weekItemHeight: CGFloat {
-        captionLineHeight + AppDesignSystem.Schedule.WeekSlider.barHeight + AppDesignSystem.Schedule.Grid.cellSpacing
+        captionLineHeight + AppDesignSystem.Schedule.WeekSlider.barHeight
+            + AppDesignSystem.Schedule.Grid.cellSpacing
     }
     var weekSliderHeight: CGFloat {
-        max(AppDesignSystem.Schedule.WeekSlider.sliderHeight, weekItemHeight + AppDesignSystem.Spacing.regular)
+        max(
+            AppDesignSystem.Schedule.WeekSlider.sliderHeight,
+            weekItemHeight + AppDesignSystem.Spacing.regular)
     }
     var dateHeaderHeight: CGFloat {
-        max(AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight, captionLineHeight + AppDesignSystem.Spacing.regular)
+        max(
+            AppDesignSystem.Schedule.WeekSlider.dateHeaderHeight,
+            captionLineHeight + AppDesignSystem.Spacing.regular)
     }
     var compactHeaderHeight: CGFloat {
         max(AppDesignSystem.Schedule.WeekSlider.compactHeaderHeight, dateHeaderHeight)

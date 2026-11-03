@@ -40,7 +40,7 @@ public struct DDLSettingsPage: View {
                 .buttonStyle(.plain)
                 .disabled(viewModel.isSyncingDDL || !repository.acceptsEdits)
                 .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.ddl-settings-page.refresh-subscription")
+                .accessibilityIdentifier("ui.ddl-settings-page.refresh-subscription")
             }
 
             Section("显示设置") {
@@ -54,7 +54,7 @@ public struct DDLSettingsPage: View {
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.ddl-settings-page.before-day")
+                .accessibilityIdentifier("ui.ddl-settings-page.before-day")
 
                 Button {
                     pickerRoute = .afterDay
@@ -66,14 +66,14 @@ public struct DDLSettingsPage: View {
                 }
                 .buttonStyle(.plain)
                 .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.ddl-settings-page.after-day")
+                .accessibilityIdentifier("ui.ddl-settings-page.after-day")
             }
             .disabled(!repository.acceptsEdits)
         }
         .accessibilityIdentifier("interaction.DDLSettingsPage.list")
         .appGroupedListStyle()
         .task { await viewModel.loadIfNeeded() }
-        .scheduleSchoolVerification(viewModel: viewModel)
+        .verifySchoolChallengeStep(viewModel: viewModel)
         .sheet(item: $pickerRoute) { route in
             switch route {
             case .beforeDay:
@@ -132,7 +132,10 @@ private struct DDLSettingsNumberPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var value: Int
 
-    init(title: String, initialValue: Int, repository: ScheduleRepository, onSubmit: @escaping (Int) -> Bool) {
+    init(
+        title: String, initialValue: Int, repository: ScheduleRepository,
+        onSubmit: @escaping (Int) -> Bool
+    ) {
         self.title = title
         self.repository = repository
         self.onSubmit = onSubmit
@@ -148,7 +151,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                     ScheduleCacheRecoveryView(repository: repository)
                 }
                 Picker(title, selection: $value) {
-                    ForEach(0 ... 30, id: \.self) { day in
+                    ForEach(0...30, id: \.self) { day in
                         Text("\(day) 天")
                             .tag(day)
                     }
@@ -158,7 +161,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                 .labelsHidden()
                 .accessibilityLabel(title)
                 .appSelectionFeedback(trigger: value)
-                    .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.value")
+                .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.value")
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -167,14 +170,14 @@ private struct DDLSettingsNumberPickerSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                        .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.cancel")
+                    .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         if onSubmit(value) { dismiss() }
                     }
-                        .disabled(!repository.acceptsEdits)
-                        .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
+                    .disabled(!repository.acceptsEdits)
+                    .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
                 }
             }
         }

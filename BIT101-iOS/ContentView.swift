@@ -1,16 +1,16 @@
-import ScoreDomain
-import ScorePorts
-import ScoreFeature
-import TransportCore
 import DesignSystemKit
+import ScoreDomain
+import ScoreFeature
+import ScorePorts
+import SwiftUI
+import TransportCore
+
 //
 //  ContentView.swift
 //  BIT101-iOS
 //
 //  Created by Harry Bit on 2026-03-24.
 //
-
-import SwiftUI
 
 /// 提供应用内展示的 ICP 备案号和工信部备案管理系统入口，供用户核验备案信息。
 enum AppLegalInfo {
@@ -29,9 +29,12 @@ struct ContentView: View {
             switch loginViewModel.screenState {
             case .signedOut:
                 LoginRootView(viewModel: loginViewModel)
-            case let .signedIn(studentID):
-                AppShellView(transcriptService: transcriptService, studentID: studentID, onLogout: loginViewModel.logout)
-                    .id(studentID)
+            case .signedIn(let studentID):
+                AppShellView(
+                    transcriptService: transcriptService, studentID: studentID,
+                    onLogout: loginViewModel.logout
+                )
+                .id(studentID)
             }
         }
         .appWindowLayout()
@@ -51,7 +54,7 @@ struct ContentView: View {
             AppRestoreReadiness.restoredSession(state)
         }
         .diagnosticAlert(item: $loginViewModel.alert)
-        .appDiagnosticRecoveryActions()
+        .diagnosticRecoveryActions()
         .defaultAppStorage(AppFileDirectories.defaults)
     }
 }

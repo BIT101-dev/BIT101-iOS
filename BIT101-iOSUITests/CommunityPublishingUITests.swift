@@ -2,18 +2,20 @@ import XCTest
 
 nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     @MainActor
-    func testGalleryPublicationReviewSurvivesRestartAndDraftRestore() {
+    func testGalleryPublishReviewSurvivesRestart() {
         publicationReviewSurvivesRestart(paper: false)
     }
 
     @MainActor
-    func testPaperPublicationReviewSurvivesRestartAndDraftRestore() {
+    func testPaperPublishReviewSurvivesRestart() {
         publicationReviewSurvivesRestart(paper: true)
     }
 
     @MainActor
     private func publicationReviewSurvivesRestart(paper: Bool) {
-        app = configureApp(resetStorage: true, content: true, publicationOutcomeUnknownOnce: true, initialTab: "gallery")
+        app = configureApp(
+            resetStorage: true, content: true, publicationOutcomeUnknownOnce: true,
+            initialTab: "gallery")
         if paper { tapHeader(app.sectionTab("文章")) }
         tap(paper ? "发布文章" : "发布话题")
         let title = paper ? "核对后的文章" : "核对后的话题"
@@ -21,18 +23,23 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         if paper { replaceText("保留简介", in: app.textFields["简介"]) }
         replaceText("保留发布内容", in: app.textFields["正文"])
         dismissKeyboard()
-        if !paper { tap("活动"); tap("聊天") }
+        if !paper {
+            tap("活动")
+            tap("聊天")
+        }
         tap("发布")
         assertUI(app.alerts["发布结果待确认"].appears(timeout: 5), "回执丢失应要求核对发布结果。")
         closeAlertIfPresent()
         tap("取消")
         tap(paper ? "暂存并离开" : "保存草稿")
-        app = configureApp(resetStorage: false, restartProcess: true, content: true, initialTab: "gallery")
+        app = configureApp(
+            resetStorage: false, restartProcess: true, content: true, initialTab: "gallery")
         if paper { tapHeader(app.sectionTab("文章")) }
         tap(paper ? "发布文章" : "发布话题")
         tap(paper ? "恢复草稿" : "加载草稿")
         assertUI(app.textFields["标题"].value as? String == title, "重新启动应保留原有草稿。")
-        let submit = app.buttons[paper ? "ui.paper-composer-view.submit" : "ui.gallery-composer-scene.submit"]
+        let submit = app.buttons[
+            paper ? "ui.paper-composer-view.submit" : "ui.gallery-composer-scene.submit"]
         submit.assertDisabled("待确认的发布应等待用户核对。")
         tap("community.publication.review-content")
         assertUI(app.navigationBars["搜索"].appears(timeout: 5), "核对入口应直接打开原生搜索。")
@@ -45,14 +52,17 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         review.tapBriefly()
         assertUI(review.disappears(timeout: 5), "确认后应结束待核对状态。")
         reveal(submit, description: "核对后的发布入口", searchFromTop: true)
-        assertUI(waitUntil(NSPredicate(format: "enabled == true"), on: submit, timeout: 5), "用户确认后应允许再次发布。")
+        assertUI(
+            waitUntil(NSPredicate(format: "enabled == true"), on: submit, timeout: 5),
+            "用户确认后应允许再次发布。")
         submit.tapBriefly()
         assertUI(textElement(title).appears(timeout: 5), "确认后的发布应更新列表。")
     }
 
     @MainActor
-    func testDamagedPaperDraftStorageRecoversAndKeepsCurrentInput() {
-        app = configureApp(resetStorage: true, content: true, paperDraftRecovery: true, initialTab: "gallery")
+    func testDamagedPaperDraftStorageRecovers() {
+        app = configureApp(
+            resetStorage: true, content: true, paperDraftRecovery: true, initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         tap("发布文章")
         assertUI(app.alerts["恢复文章草稿存储？"].appears(timeout: 5), "损坏的文章草稿应提供确认恢复入口。")
@@ -63,7 +73,8 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         dismissKeyboard()
         tap("paper.draft.recovery")
         tap("paper.draft.recovery.confirm")
-        assertUI(app.buttons["ui.paper-composer-view.save-draft"].appears(timeout: 5), "恢复后应继续提供暂存。")
+        assertUI(
+            app.buttons["ui.paper-composer-view.save-draft"].appears(timeout: 5), "恢复后应继续提供暂存。")
         assertUI(app.textFields["标题"].value as? String == "恢复中的文章", "恢复存储应保留当前输入。")
         tap("暂存")
         tap("发布文章")
@@ -75,7 +86,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    func testGallerySettingsValidationTogglesAndPersistence() {
+    func testGallerySettingsValidationToggles() {
         app = configureApp(resetStorage: true)
         openSettings("gallery")
         let values = ["隐藏机器人帖子", "隐藏匿名内容", "使用网页话廊"].map { ($0, toggle($0)) }
@@ -89,8 +100,10 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: false, restartProcess: true, initialSettings: "gallery")
         assertUI(app.textFields["屏蔽用户 UID（逗号分隔）"].value as? String == "12,34", "重新装载应保留屏蔽 UID。")
         for (title, value) in values {
-            assertUI(app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.value as? String == value,
-                     "重新装载应保留开关状态：\(title)。")
+            assertUI(
+                app.switches.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+                    .value as? String == value,
+                "重新装载应保留开关状态：\(title)。")
         }
     }
 
@@ -113,12 +126,10 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         assertUI(app.mainTab("我的").exists, "取消重置应保留当前会话。")
     }
 
-
-
-
     @MainActor
-    func testGalleryComposerTagsSettingsPublishAndDelete() {
-        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "gallery")
+    func testGalleryComposerTagsSettingsPublish() {
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, initialTab: "gallery")
         tap("发布话题")
         tap("发布")
         assertUI(app.alerts["发布失败"].appears(timeout: 5), "空话题应展示必填验证。")
@@ -160,7 +171,9 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("更多操作")
         tap("删除帖子")
         app.alerts.buttons["删除"].tapBriefly()
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5), "删除应移除刚发布的话题。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: poster, timeout: 5),
+            "删除应移除刚发布的话题。")
         tap("发布话题")
         replaceText("待丢弃草稿", in: app.textFields["标题"])
         dismissKeyboard()
@@ -170,7 +183,9 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("不加载")
         assertUI(app.textFields["标题"].value as? String != "待丢弃草稿", "放弃恢复应保留空编辑器。")
         tap("取消")
-        app = configureApp(resetStorage: true, content: true, animations: true, claimsFailureOnce: true, initialTab: "gallery")
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, claimsFailureOnce: true,
+            initialTab: "gallery")
         tap("发布话题")
         let retry = app.buttons["gallery.editor.retry-claims"]
         assertUI(retry.appears(timeout: 5), "声明加载失败应在编辑页提供重试。")
@@ -181,10 +196,11 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("不保存")
     }
 
-
     @MainActor
     func testPaperPublishEditCommentAndDelete() {
-        app = configureApp(resetStorage: true, content: true, animations: true, paperEditConflictOnce: true, initialTab: "gallery")
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, paperEditConflictOnce: true,
+            initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         tap("发布文章")
         let paperComposer = app.navigationBars["发布文章"]
@@ -230,7 +246,9 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         reveal(app.textFields["标题"], description: "草稿管理后的标题", searchFromTop: true)
         assertUI(app.textFields["标题"].value as? String == "测试发布文章", "草稿管理应保留当前编辑输入。")
         tap("发布")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: paperComposer, timeout: 5), "文章发布后应关闭编辑窗口。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: paperComposer, timeout: 5),
+            "文章发布后应关闭编辑窗口。")
         let paper = textElement("测试发布文章")
         assertUI(paper.appears(timeout: 5), "发布应更新文章列表。")
         paper.tapBriefly()
@@ -241,7 +259,9 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         replaceText("测试文章评论", in: app.textFields.firstMatch)
         dismissKeyboard()
         tap("发布")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: commentComposer, timeout: 5), "评论提交后应关闭输入窗口。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: commentComposer, timeout: 5),
+            "评论提交后应关闭输入窗口。")
         reveal(textElement("测试文章评论"), description: "测试文章评论")
         assertUI(textElement("测试文章评论").exists, "提交应更新文章评论。")
         tap("更多操作")
@@ -265,24 +285,32 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         let save = app.buttons["ui.paper-composer-view.submit"]
         reveal(save, description: "确认版本后的保存入口", searchFromTop: true)
         save.tapBriefly()
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5), "保存文章应返回详情。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5), "保存文章应返回详情。")
         assertUI(textElement("测试修改文章").appears(timeout: 5), "保存应更新文章详情。")
-        assertUI(app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "文章发布测试正文")).firstMatch.native.exists,
-                 "修改标题应保留完整正文。")
+        assertUI(
+            app.textViews.matching(NSPredicate(format: "value CONTAINS %@", "文章发布测试正文")).firstMatch
+                .native.exists,
+            "修改标题应保留完整正文。")
         tap("更多操作")
         app.buttons["paper.detail.edit"].tapBriefly()
         assertUI(editor.appears(timeout: 5), "已保存文章应支持再次编辑。")
         replaceText("取消的文章修改", in: app.textFields["标题"])
         dismissKeyboard()
         let edge = app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
-        edge.press(forDuration: 0.01, thenDragTo: app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
-        assertUI(editor.exists && app.textFields["标题"].value as? String == "取消的文章修改", "边缘返回应保留待确认的文章修改。")
+        edge.press(
+            forDuration: 0.01,
+            thenDragTo: app.native.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
+        assertUI(
+            editor.exists && app.textFields["标题"].value as? String == "取消的文章修改", "边缘返回应保留待确认的文章修改。")
         tap("取消")
         dismissSystemPopover(UIElement(app.native.sheets.firstMatch))
         assertUI(app.textFields["标题"].value as? String == "取消的文章修改", "继续编辑应保留当前输入。")
         tap("取消")
         tap("放弃修改")
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5), "取消编辑应返回文章详情。")
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: editor, timeout: 5),
+            "取消编辑应返回文章详情。")
         assertUI(textElement("测试修改文章").exists, "取消应保留已保存的文章标题。")
         tap("更多操作")
         tap("删除文章")
@@ -291,10 +319,14 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         tap("删除文章")
         app.alerts.buttons["删除"].tapBriefly()
         assertUI(app.buttons["发布文章"].appears(timeout: 5), "删除应返回文章列表。")
-        let article = app.descendants(matching: .any).matching(NSPredicate(
-            format: "label CONTAINS %@ OR label CONTAINS %@", "测试修改文章", "测试发布文章"
-        )).firstMatch
-        assertUI(waitUntil(NSPredicate(format: "exists == false"), on: article, timeout: 5), "文章列表应移除删除的文章。")
+        let article = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label CONTAINS %@ OR label CONTAINS %@", "测试修改文章", "测试发布文章"
+            )
+        ).firstMatch
+        assertUI(
+            waitUntil(NSPredicate(format: "exists == false"), on: article, timeout: 5),
+            "文章列表应移除删除的文章。")
     }
 
     @MainActor

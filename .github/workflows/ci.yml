@@ -89,7 +89,9 @@ jobs:
         working-directory: Cloudflare/EmergencyUpdateWorker
         run: npm ci
       - name: Install Python analysis tool
-        run: brew install --quiet ruff
+        run: |
+          brew install --quiet ruff
+          python3 -m pip install --break-system-packages -r Scripts/style-requirements.txt
       - name: Load target branch coverage baseline
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
         env:

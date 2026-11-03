@@ -9,12 +9,12 @@ import ScheduleContracts
 import SwiftUI
 
 /// 统一压缩教室名称里的冗长楼名，提升课表卡片可读性。
-private func normalizeDisplayedClassroom(_ value: String) -> String {
+private func normalizeClassroom(_ value: String) -> String {
     ScheduleDisplayNormalizer.courseCardClassroomText(value)
 }
 
 /// 将课程标题转换为展示文本。
-private func normalizeDisplayedCourseTitle(_ value: String) -> String {
+private func normalizeCourseTitle(_ value: String) -> String {
     ScheduleDisplayNormalizer.normalizeCourseTitle(value)
 }
 
@@ -25,12 +25,15 @@ extension CourseScheduleTabView {
         }
 
         // 课表网格按当前周展示，课程、考试和自定义日程统一转换为日历块模型。
-        let weekStart = ScheduleDateCodec.calendar.date(
-            byAdding: .day,
-            value: ScheduleWeekCodec.weekOffset(forWeekNumber: viewModel.selectedWeek) * 7,
-            to: firstDay
-        ) ?? firstDay
-        let weekEnd = ScheduleDateCodec.calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
+        let weekStart =
+            ScheduleDateCodec.calendar.date(
+                byAdding: .day,
+                value: ScheduleWeekCodec.weekOffset(forWeekNumber: viewModel.selectedWeek) * 7,
+                to: firstDay
+            ) ?? firstDay
+        let weekEnd =
+            ScheduleDateCodec.calendar.date(byAdding: .day, value: 7, to: weekStart)
+            ?? weekStart
 
         let courseEntries: [ScheduleCalendarEntry]
         switch viewModel.presentationPreferences.scheduleDisplayMode {
@@ -42,13 +45,19 @@ extension CourseScheduleTabView {
             courseEntries = makeAllWeeksCourseEntries(from: activeSchedule.courses)
         }
 
-        let examEntries = viewModel.presentationPreferences.showExamInfo ? activeSchedule.exams.compactMap { exam -> ScheduleCalendarEntry? in
-            guard let date = ScheduleDateCodec.parseDate(exam.dateString), date >= weekStart, date < weekEnd else { return nil }
-            return examEntry(for: exam)
-        } : []
+        let examEntries =
+            viewModel.presentationPreferences.showExamInfo
+            ? activeSchedule.exams.compactMap { exam -> ScheduleCalendarEntry? in
+                guard let date = ScheduleDateCodec.parseDate(exam.dateString),
+                    date >= weekStart, date < weekEnd
+                else { return nil }
+                return examEntry(for: exam)
+            } : []
         let customEntries = activeSchedule.customSchedules.flatMap { schedule in
             schedule.occurrenceDateStrings.compactMap { dateString -> ScheduleCalendarEntry? in
-                guard let date = ScheduleDateCodec.parseDate(dateString), date >= weekStart, date < weekEnd else { return nil }
+                guard let date = ScheduleDateCodec.parseDate(dateString), date >= weekStart,
+                    date < weekEnd
+                else { return nil }
                 return customEntry(for: schedule, dateString: dateString)
             }
         }
@@ -63,8 +72,10 @@ extension CourseScheduleTabView {
             let startMinutes = TimeSlot.validMinutes(exam.beginTime),
             let endMinutes = TimeSlot.validMinutes(exam.endTime)
         else { return nil }
-        let startSection = convertTimeToSection(timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
-        let endSection = convertTimeToSection(timeText: exam.endTime, timeTable: activeSchedule.timeTable)
+        let startSection = convertTimeToSection(
+            timeText: exam.beginTime, timeTable: activeSchedule.timeTable)
+        let endSection = convertTimeToSection(
+            timeText: exam.endTime, timeTable: activeSchedule.timeTable)
 
         guard endMinutes > startMinutes else { return nil }
 
@@ -78,27 +89,32 @@ extension CourseScheduleTabView {
             startMinutes: startMinutes,
             endMinutes: endMinutes,
             title: "(考试)\n\(exam.name)",
-            subtitle: normalizeDisplayedClassroom(exam.classroom),
+            subtitle: normalizeClassroom(exam.classroom),
             detailLines: [
                 exam.teacher.isEmpty ? nil : "教师：\(exam.teacher)",
-                exam.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(exam.classroom))",
+                exam.classroom.isEmpty ? nil : "教室：\(normalizeClassroom(exam.classroom))",
                 exam.examMode.isEmpty ? nil : "形式：\(exam.examMode)",
-                (exam.beginTime.isEmpty || exam.endTime.isEmpty) ? nil : "时间：\(exam.beginTime)-\(exam.endTime)",
+                (exam.beginTime.isEmpty || exam.endTime.isEmpty)
+                    ? nil : "时间：\(exam.beginTime)-\(exam.endTime)",
                 exam.seatID.isEmpty ? nil : "座位号：\(exam.seatID)",
             ].compactMap { $0 },
             kind: .exam
         )
     }
 
-    func customEntry(for schedule: CustomScheduleRecord, dateString: String) -> ScheduleCalendarEntry? {
+    func customEntry(for schedule: CustomScheduleRecord, dateString: String)
+        -> ScheduleCalendarEntry?
+    {
         guard let date = ScheduleDateCodec.parseDate(dateString) else { return nil }
         let weekday = ScheduleDateCodec.weekdayIndex(from: date)
         guard
             let startMinutes = TimeSlot.validMinutes(schedule.beginTime),
             let endMinutes = TimeSlot.validMinutes(schedule.endTime)
         else { return nil }
-        let startSection = convertTimeToSection(timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
-        let endSection = convertTimeToSection(timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
+        let startSection = convertTimeToSection(
+            timeText: schedule.beginTime, timeTable: activeSchedule.timeTable)
+        let endSection = convertTimeToSection(
+            timeText: schedule.endTime, timeTable: activeSchedule.timeTable)
         guard endMinutes > startMinutes else { return nil }
 
         return ScheduleCalendarEntry(
@@ -127,9 +143,12 @@ extension CourseScheduleTabView {
         sourceIDs: [String] = [],
         includeWeekInfo: Bool = false
     ) -> ScheduleCalendarEntry {
-        let subtitleParts = includeWeekInfo
+        let subtitleParts =
+            includeWeekInfo
             ? [compactWeekText(course.weeks)].compactMap { $0 }
-            : [course.classroom.isEmpty ? nil : normalizeDisplayedClassroom(course.classroom)].compactMap { $0 }
+            : [course.classroom.isEmpty ? nil : normalizeClassroom(course.classroom)].compactMap {
+                $0
+            }
 
         return ScheduleCalendarEntry(
             id: "course-\(course.id)",
@@ -138,13 +157,15 @@ extension CourseScheduleTabView {
             dayOfWeek: course.weekday,
             startSection: CGFloat(course.startSection - 1),
             endSection: CGFloat(course.endSection),
-            startMinutes: activeSchedule.timeTable.first(where: { $0.id == course.startSection })?.startMinutes,
-            endMinutes: activeSchedule.timeTable.first(where: { $0.id == course.endSection })?.endMinutes,
-            title: normalizeDisplayedCourseTitle(course.name),
+            startMinutes: activeSchedule.timeTable.first(where: { $0.id == course.startSection }
+            )?.startMinutes,
+            endMinutes: activeSchedule.timeTable.first(where: { $0.id == course.endSection })?
+                .endMinutes,
+            title: normalizeCourseTitle(course.name),
             subtitle: subtitleParts.joined(separator: "\n"),
             detailLines: [
                 course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
-                course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
+                course.classroom.isEmpty ? nil : "教室：\(normalizeClassroom(course.classroom))",
                 "学分：\(course.creditText)",
                 "节次：\(course.sectionText)",
                 course.description.isEmpty ? nil : course.description,
@@ -162,11 +183,14 @@ extension CourseScheduleTabView {
         }
 
         var result: [ScheduleCalendarEntry] = []
-        for day in 1 ... 7 {
-            let dayEntries = entries
+        for day in 1...7 {
+            let dayEntries =
+                entries
                 .filter { $0.dayOfWeek == day }
                 .sorted {
-                    if $0.startSection == $1.startSection { return $0.endSection < $1.endSection }
+                    if $0.startSection == $1.startSection {
+                        return $0.endSection < $1.endSection
+                    }
                     return $0.startSection < $1.startSection
                 }
 
@@ -194,7 +218,7 @@ extension CourseScheduleTabView {
         for entry in entries {
             for sourceID in entry.resolvedSourceIDs {
                 guard seenIDs.insert(sourceID).inserted,
-                      let course = activeSchedule.courses.first(where: { $0.id == sourceID })
+                    let course = activeSchedule.courses.first(where: { $0.id == sourceID })
                 else { continue }
                 courses.append(course)
             }
@@ -221,25 +245,30 @@ extension CourseScheduleTabView {
         }
         let orderedCourses = orderedCourseGroups.flatMap { $0 }
 
-        let title = orderedCourseGroups
-            .map { normalizeDisplayedCourseTitle($0[0].name) }
+        let title =
+            orderedCourseGroups
+            .map { normalizeCourseTitle($0[0].name) }
             .joined(separator: "\n")
-        let subtitle = orderedCourseGroups
+        let subtitle =
+            orderedCourseGroups
             .compactMap { compactWeekText($0.flatMap(\.weeks)) }
             .joined(separator: "\n")
         let detailLines = orderedCourses.flatMap { course -> [String] in
             let weekText = compactWeekText(course.weeks) ?? "未知周次"
             return [
-                "课程：\(normalizeDisplayedCourseTitle(course.name))（\(weekText)）",
+                "课程：\(normalizeCourseTitle(course.name))（\(weekText)）",
                 course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
-                course.classroom.isEmpty ? nil : "教室：\(normalizeDisplayedClassroom(course.classroom))",
+                course.classroom.isEmpty ? nil : "教室：\(normalizeClassroom(course.classroom))",
                 "学分：\(course.creditText)",
                 "节次：\(course.sectionText)",
             ].compactMap { $0 }
         }
 
+        let day = entries[0].dayOfWeek
+        let section = entries[0].startSection
+        let courseIDs = entries.map(\.id).joined(separator: ",")
         return ScheduleCalendarEntry(
-            id: "course-overview-\(entries[0].dayOfWeek)-\(entries[0].startSection)-\(entries.map(\.id).joined(separator: ","))",
+            id: "course-overview-\(day)-\(section)-\(courseIDs)",
             sourceID: courses.first?.id ?? entries[0].sourceID,
             sourceIDs: orderedCourses.map(\.id),
             dayOfWeek: entries[0].dayOfWeek,

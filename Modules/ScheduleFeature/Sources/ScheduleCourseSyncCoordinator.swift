@@ -1,6 +1,6 @@
 import ClientCore
-import DesignSystemKit
 import Combine
+import DesignSystemKit
 import Foundation
 import ScheduleDomain
 import SchedulePorts
@@ -19,8 +19,10 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         case idle
         case syncing(term: String?)
         case loadingTerms
-        case awaitingVerification(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
-        case submittingVerification(ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
+        case awaitingVerification(
+            ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
+        case submittingVerification(
+            ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -34,8 +36,10 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
     private var requestTask: Task<Void, Never>?
     private var revision = 0
 
-    init(service: any ScheduleCourseServicing, repository: ScheduleRepository,
-         virtualNetworkLikely: @escaping @MainActor () -> Bool) {
+    init(
+        service: any ScheduleCourseServicing, repository: ScheduleRepository,
+        virtualNetworkLikely: @escaping @MainActor () -> Bool
+    ) {
         self.service = service
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
@@ -45,22 +49,27 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
 
     var isSyncingCourses: Bool { if case .syncing = phase { true } else { false } }
     var isLoadingTerms: Bool { if case .loadingTerms = phase { true } else { false } }
-    var isSubmittingVerificationCode: Bool { if case .submittingVerification = phase { true } else { false } }
-    var syncingTerm: String? { if case let .syncing(term) = phase { term } else { nil } }
+    var isSubmittingVerificationCode: Bool {
+        if case .submittingVerification = phase { true } else { false }
+    }
+    var syncingTerm: String? { if case .syncing(let term) = phase { term } else { nil } }
     var verificationChallenge: BITLoginAuthenticationChallenge? {
         switch phase {
-        case let .awaitingVerification(_, challenge), let .submittingVerification(_, challenge): challenge
+        case .awaitingVerification(_, let challenge), .submittingVerification(_, let challenge):
+            challenge
         default: nil
         }
     }
     var continuation: ScheduleAuthenticationContinuation? {
         switch phase {
-        case let .awaitingVerification(continuation, _), let .submittingVerification(continuation, _): continuation
+        case .awaitingVerification(let continuation, _),
+            .submittingVerification(let continuation, _):
+            continuation
         default: nil
         }
     }
     var courseSyncTerm: String? {
-        guard case let .courseSync(term) = continuation else { return nil }
+        guard case .courseSync(let term) = continuation else { return nil }
         return term
     }
 
@@ -75,14 +84,16 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         notice = nil
     }
 
-    func waitForClassroomAuthentication(_ challenge: BITLoginAuthenticationChallenge) {
+    func waitForClassroomAuth(_ challenge: BITLoginAuthenticationChallenge) {
         guard case .idle = phase else { return }
         phase = .awaitingVerification(.classroomRefresh, challenge)
         verificationError = nil
     }
 
-    func syncCourses(term: String?, selectTerm: (String) -> Void,
-                     applyPayload: @escaping (CourseSyncPayload) async -> Void) async {
+    func syncCourses(
+        term: String?, selectTerm: (String) -> Void,
+        applyPayload: @escaping (CourseSyncPayload) async -> Void
+    ) async {
         guard case .idle = phase, !Task.isCancelled else { return }
         let requested = term?.trimmingCharacters(in: .whitespacesAndNewlines)
         let term = requested?.isEmpty == true ? nil : requested
@@ -117,18 +128,22 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         }
     }
 
-    func submitVerificationCode(_ code: String, applyPayload: @escaping (CourseSyncPayload) async -> Void,
-                       refreshClassrooms: @escaping () async -> Void) async {
-        guard case let .awaitingVerification(continuation, challenge) = phase else { return }
+    func submitVerificationCode(
+        _ code: String, applyPayload: @escaping (CourseSyncPayload) async -> Void,
+        refreshClassrooms: @escaping () async -> Void
+    ) async {
+        guard case .awaitingVerification(let continuation, let challenge) = phase else { return }
         let code = AppVerificationCode.normalize(code, isCaptcha: challenge.isCaptcha)
         guard AppVerificationCode.isValid(code, isCaptcha: challenge.isCaptcha) else {
-            verificationError = AppVerificationCode.validationMessage(isCaptcha: challenge.isCaptcha)
+            verificationError = AppVerificationCode.validationMessage(
+                isCaptcha: challenge.isCaptcha)
             return
         }
         verificationError = nil
-        await perform(phase: .submittingVerification(continuation, challenge)) { [self] request, account in
+        await perform(phase: .submittingVerification(continuation, challenge)) {
+            [self] request, account in
             do {
-                try await service.submitVerificationCodeForTeachingCenterAuthentication(code, for: challenge)
+                try await service.submitTeachingCode(code, for: challenge)
                 guard accepts(request, account: account) else { return }
                 phase = .idle
                 switch continuation {
@@ -138,7 +153,7 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
                     } else {
                         await loadAvailableTerms()
                     }
-                case let .courseSync(term):
+                case .courseSync(let term):
                     phase = .syncing(term: term)
                     let payload = try await service.syncCourses(term: term)
                     guard accepts(request, account: account) else { return }
@@ -153,7 +168,7 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         }
     }
 
-    func dismissVerificationChallenge() {
+    func dismissChallenge() {
         guard case .awaitingVerification = phase else { return }
         revision &+= 1
         phase = .idle
@@ -181,12 +196,14 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         requestTask = nil
         switch self.phase {
         case .syncing, .loadingTerms: self.phase = .idle
-        case let .submittingVerification(continuation, challenge): self.phase = .awaitingVerification(continuation, challenge)
+        case .submittingVerification(let continuation, let challenge):
+            self.phase = .awaitingVerification(continuation, challenge)
         case .idle, .awaitingVerification: break
         }
     }
 
-    private func handle(_ error: Error, continuing continuation: ScheduleAuthenticationContinuation) {
+    private func handle(_ error: Error, continuing continuation: ScheduleAuthenticationContinuation)
+    {
         guard !TaskCancellation.matches(error) else { return }
         switch error {
         case ScheduleServiceError.secondFactorRequired(let challenge):
@@ -195,17 +212,20 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
         case let error as ScheduleServiceError where error.isSchoolTransportFailure:
             phase = .idle
             verificationError = nil
-            notice = schoolFailureNotice(title: "学校服务连接失败", message: error.schoolTransportFailureMessage,
+            notice = schoolFailureNotice(
+                title: "学校服务连接失败", message: error.schoolTransportFailureMessage,
                 networkFailure: true, underlyingError: error)
         case let error where SchoolServiceFailure.from(error) != nil:
             phase = .idle
             verificationError = nil
-            notice = schoolFailureNotice(title: "学校认证失败", message: error.localizedDescription, underlyingError: error)
+            notice = schoolFailureNotice(
+                title: "学校认证失败", message: error.localizedDescription, underlyingError: error)
         case ScheduleServiceError.challengeInvalid(let message):
             phase = .idle
             verificationError = nil
             notice = .userInput(title: "验证已失效", message: message, underlyingError: error)
-        case ScheduleServiceError.authenticationFailed(let message) where isSubmittingVerificationCode:
+        case ScheduleServiceError.authenticationFailed(let message)
+        where isSubmittingVerificationCode:
             verificationError = "认证服务处理失败，请点击取消后重新同步课表。\n\(message)"
         case let error as ScheduleServiceError where error.isUnpublishedCourseSchedule:
             notice = .userInput(title: "课表暂未发布", message: error.localizedDescription)
@@ -213,8 +233,10 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
             if isSubmittingVerificationCode {
                 verificationError = error.localizedDescription
             } else {
-                notice = schoolFailureNotice(title: continuation == .availableTerms ? "学期列表加载失败" : "课表同步失败",
-                    message: error.localizedDescription, networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error)
+                notice = schoolFailureNotice(
+                    title: continuation == .availableTerms ? "学期列表加载失败" : "课表同步失败",
+                    message: error.localizedDescription,
+                    networkFailure: Self.isSchoolTransportError(error), underlyingError: error)
             }
         }
     }

@@ -141,25 +141,32 @@ final class ScheduleBlankContextMenuControl: UIControl {
         configurationForMenuAtLocation location: CGPoint
     ) -> UIContextMenuConfiguration? {
         lastInteractionLocation = location
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) {
+            [weak self] _ in
             guard let self else { return UIMenu(children: []) }
-            var actions: [UIMenuElement] = [UIAction(
-                title: self.shareTitle,
-                image: Self.coloredMenuImage("square.and.arrow.up"),
-                identifier: UIAction.Identifier(self.showsImport ? "schedule.menu.share" : "schedule.course.menu.share")
-            ) { [weak self] _ in
-                self?.interactionEvidence?("interaction.ScheduleBlankContextMenuControl.share", "tap")
-                self?.onShare?()
-            }]
-            if self.showsImport {
-                actions.append(UIAction(
-                    title: "导入课表",
-                    image: Self.coloredMenuImage("square.and.arrow.down"),
-                    identifier: UIAction.Identifier("schedule.menu.import")
+            var actions: [UIMenuElement] = [
+                UIAction(
+                    title: self.shareTitle,
+                    image: Self.coloredMenuImage("square.and.arrow.up"),
+                    identifier: UIAction.Identifier(
+                        self.showsImport ? "schedule.menu.share" : "schedule.course.menu.share")
                 ) { [weak self] _ in
-                    self?.interactionEvidence?("interaction.ScheduleBlankContextMenuControl.import", "tap")
-                    self?.onImport?()
-                })
+                    self?.interactionEvidence?(
+                        "interaction.ScheduleBlankContextMenuControl.share", "tap")
+                    self?.onShare?()
+                }
+            ]
+            if self.showsImport {
+                actions.append(
+                    UIAction(
+                        title: "导入课表",
+                        image: Self.coloredMenuImage("square.and.arrow.down"),
+                        identifier: UIAction.Identifier("schedule.menu.import")
+                    ) { [weak self] _ in
+                        self?.interactionEvidence?(
+                            "interaction.ScheduleBlankContextMenuControl.import", "tap")
+                        self?.onImport?()
+                    })
             }
             return UIMenu(children: actions)
         }
@@ -179,7 +186,8 @@ final class ScheduleBlankContextMenuControl: UIControl {
 }
 
 struct CourseScheduleCalendarView: View {
-    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule.WeekSlider.captionLineHeight
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule
+        .WeekSlider.captionLineHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
     private static let weekdayTitles = ["一", "二", "三", "四", "五", "六", "七"]
     @State private var contextMenuFeedbackToken = 0
@@ -238,14 +246,16 @@ struct CourseScheduleCalendarView: View {
             let metrics = ScheduleCalendarHeaderMetrics(captionLineHeight: captionLineHeight)
             let weekSliderHeight = metrics.weekSliderHeight
             let dateHeaderHeight = metrics.dateHeaderHeight
-            let headerHeight = displayMode == .weekly
+            let headerHeight =
+                displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
                 : metrics.compactHeaderHeight
             let groups = quantizedCalendarGroups(entries: entries)
-            let outsideHeight = groups.outside.isEmpty ? 0 : AppDesignSystem.Size.Control.touchTarget
+            let outsideHeight =
+                groups.outside.isEmpty ? 0 : AppDesignSystem.Size.Control.touchTarget
             let usableHeight = max(proxy.size.height - headerHeight - outsideHeight, 1)
             let rowHeight = usableHeight / CGFloat(max(timeTable.count, 1))
-            let visibleWeekdays = (1 ... 7).filter {
+            let visibleWeekdays = (1...7).filter {
                 if $0 == 6 { return showSaturday }
                 if $0 == 7 { return showSunday }
                 return true
@@ -260,15 +270,19 @@ struct CourseScheduleCalendarView: View {
                     to: firstDay
                 )
             }
-            let highlightWeekday = currentWeek == week
+            let highlightWeekday =
+                currentWeek == week
                 ? ScheduleDateCodec.weekdayIndex(from: currentDate)
                 : nil
-            let timeLineSection = currentWeek == week
+            let timeLineSection =
+                currentWeek == week
                 ? convertMinutesToSection(minutes: currentMinute(), timeTable: timeTable)
                 : nil
 
             ZStack(alignment: .topLeading) {
-                if let highlightWeekday, visibleWeekdays.contains(highlightWeekday), let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
+                if let highlightWeekday, visibleWeekdays.contains(highlightWeekday),
+                    let index = visibleWeekdays.firstIndex(of: highlightWeekday)
+                {
                     Rectangle()
                         .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
                         .frame(width: dayWidth, height: usableHeight)
@@ -292,11 +306,16 @@ struct CourseScheduleCalendarView: View {
                                 .font(AppDesignSystem.Typography.captionEmphasis)
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
                                 .lineLimit(1)
-                                .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+                                .minimumScaleFactor(
+                                    AppDesignSystem.Schedule.Grid.minimumScaleFactor
+                                )
                                 .frame(width: leftWidth, height: dateHeaderHeight)
-                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
-                            ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                            ForEach(Array(weekDates.enumerated()), id: \.offset) {
+                                index, date in
+                                let weekday = weekdayText(for: visibleWeekdays[index])
+                                let dateText = mmddText(for: date)
                                 Button {
                                     onSelectDay(date, visibleWeekdays[index])
                                 } label: {
@@ -304,10 +323,13 @@ struct CourseScheduleCalendarView: View {
                                         .font(AppDesignSystem.Typography.caption)
                                         .foregroundStyle(AppDesignSystem.Foreground.primary)
                                         .frame(width: dayWidth, height: dateHeaderHeight)
-                                        .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                                        .background(
+                                            AppDesignSystem.Palette.Background.secondaryGrouped)
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("第\(week)周，周\(weekdayText(for: visibleWeekdays[index]))，\(mmddText(for: date))")
+                                .accessibilityLabel(
+                                    "第\(week)周，周\(weekday)，\(dateText)"
+                                )
                             }
                         }
                     } else {
@@ -321,8 +343,11 @@ struct CourseScheduleCalendarView: View {
                                     .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(AppDesignSystem.Foreground.primary)
                                     .frame(width: dayWidth, height: headerHeight)
-                                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-                                    .accessibilityLabel("周\(weekdayText(for: visibleWeekdays[index]))")
+                                    .background(
+                                        AppDesignSystem.Palette.Background.secondaryGrouped
+                                    )
+                                    .accessibilityLabel(
+                                        "周\(weekdayText(for: visibleWeekdays[index]))")
                             }
                         }
                     }
@@ -337,7 +362,8 @@ struct CourseScheduleCalendarView: View {
                                     .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
                                     .lineLimit(1)
-                                    .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+                                    .minimumScaleFactor(
+                                        AppDesignSystem.Schedule.Grid.minimumScaleFactor)
                             }
                             .frame(width: leftWidth, height: rowHeight)
                             .accessibilityElement(children: .combine)
@@ -352,24 +378,32 @@ struct CourseScheduleCalendarView: View {
                     }
                 }
 
-                ForEach(0 ... timeTable.count, id: \.self) { row in
+                ForEach(0...timeTable.count, id: \.self) { row in
                     Rectangle()
-                        .fill(row == 0
-                            ? AppDesignSystem.Schedule.GridPalette.majorLine
-                            : AppDesignSystem.Schedule.GridPalette.minorLine)
+                        .fill(
+                            row == 0
+                                ? AppDesignSystem.Schedule.GridPalette.majorLine
+                                : AppDesignSystem.Schedule.GridPalette.minorLine
+                        )
                         .frame(height: gridLineWidth)
-                        .offset(y: headerHeight + rowHeight * CGFloat(row) - AppDesignSystem.Schedule.Grid.lineOffset)
+                        .offset(
+                            y: headerHeight + rowHeight * CGFloat(row)
+                                - AppDesignSystem.Schedule.Grid.lineOffset
+                        )
                         .zIndex(-1)
                 }
 
-                ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
+                ForEach(0...visibleWeekdays.count, id: \.self) { column in
                     Rectangle()
-                        .fill(column == 0
-                            ? AppDesignSystem.Schedule.GridPalette.majorLine
-                            : AppDesignSystem.Schedule.GridPalette.minorLine)
+                        .fill(
+                            column == 0
+                                ? AppDesignSystem.Schedule.GridPalette.majorLine
+                                : AppDesignSystem.Schedule.GridPalette.minorLine
+                        )
                         .frame(
                             width: gridLineWidth,
-                            height: proxy.size.height - (displayMode == .weekly ? weekSliderHeight : 0)
+                            height: proxy.size.height
+                                - (displayMode == .weekly ? weekSliderHeight : 0)
                         )
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(column) - gridLineWidth / 2,
@@ -379,18 +413,22 @@ struct CourseScheduleCalendarView: View {
                 }
 
                 if let timeLineSection,
-                   timeLineSection > 0,
-                   timeLineSection < CGFloat(timeTable.count),
-                   let highlightWeekday,
-                   visibleWeekdays.contains(highlightWeekday),
-                   let index = visibleWeekdays.firstIndex(of: highlightWeekday) {
+                    timeLineSection > 0,
+                    timeLineSection < CGFloat(timeTable.count),
+                    let highlightWeekday,
+                    visibleWeekdays.contains(highlightWeekday),
+                    let index = visibleWeekdays.firstIndex(of: highlightWeekday)
+                {
                     Rectangle()
                         .fill(AppDesignSystem.Palette.Accent.primary)
-                        .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
+                        .frame(
+                            width: dayWidth,
+                            height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight
+                        )
                         .offset(
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
-                    )
+                        )
                 }
 
                 VStack(spacing: AppDesignSystem.Spacing.none) {
@@ -402,17 +440,28 @@ struct CourseScheduleCalendarView: View {
                         onImport: onImportSchedule,
                         onMenuWillPresent: { contextMenuFeedbackToken &+= 1 }
                     )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
-                        .padding(.bottom, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(
+                        .trailing,
+                        AppDesignSystem.Size.Control.touchTarget
+                            + AppDesignSystem.Spacing.regular
+                    )
+                    .padding(
+                        .bottom,
+                        AppDesignSystem.Size.Control.touchTarget
+                            + AppDesignSystem.Spacing.regular)
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
 
-                ForEach(calendarPlacements(entries: groups.grid.filter { visibleWeekdays.contains($0.dayOfWeek) },
-                                           separateOverlaps: displayMode == .weekly)) { placement in
+                ForEach(
+                    calendarPlacements(
+                        entries: groups.grid.filter { visibleWeekdays.contains($0.dayOfWeek) },
+                        separateOverlaps: displayMode == .weekly)
+                ) { placement in
                     let entry = placement.entry
                     let laneWidth = dayWidth / CGFloat(placement.columnCount)
-                    let cardWidth = max(laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
+                    let cardWidth = max(
+                        laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
                     ZStack(alignment: .topLeading) {
                         ForEach(entry.orderedBackgroundLayers) { layer in
                             // 课程背景使用不透明系统色，网格线保持在卡片后方。
@@ -447,10 +496,11 @@ struct CourseScheduleCalendarView: View {
                         ScheduleEntryInteractionView(
                             entry: entry,
                             onTap: { onSelect(entry) },
-                            onMenuWillPresent: entry.kind == .course ? {
-                                contextMenuFeedbackToken &+= 1
-                                onPrepareCourseShare(entry)
-                            } : nil,
+                            onMenuWillPresent: entry.kind == .course
+                                ? {
+                                    contextMenuFeedbackToken &+= 1
+                                    onPrepareCourseShare(entry)
+                                } : nil,
                             onShare: entry.kind == .course ? { onLongPressCourse(entry) } : nil
                         )
                         .frame(
@@ -472,7 +522,8 @@ struct CourseScheduleCalendarView: View {
                     )
                     .contentShape(Rectangle())
                     .offset(
-                        x: leftWidth + dayWidth * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
+                        x: leftWidth + dayWidth
+                            * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
                             + laneWidth * CGFloat(placement.column)
                             + gridLineWidth,
                         y: headerHeight + rowHeight * entry.startSection
@@ -490,11 +541,14 @@ struct CourseScheduleCalendarView: View {
                                         .font(AppDesignSystem.Typography.captionEmphasis)
                                         .lineLimit(2)
                                         .padding(.horizontal, AppDesignSystem.Spacing.regular)
-                                    ScheduleEntryInteractionView(entry: entry, onTap: { onSelect(entry) })
+                                    ScheduleEntryInteractionView(
+                                        entry: entry, onTap: { onSelect(entry) })
                                 }
                                 .frame(width: dayWidth, height: outsideHeight)
                                 .background(AppDesignSystem.Palette.Accent.surface)
-                                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                                .clipShape(
+                                    AppDesignSystem.roundedRectangle(
+                                        AppDesignSystem.Radius.card))
                             }
                         }
                     }
@@ -502,7 +556,8 @@ struct CourseScheduleCalendarView: View {
                     .frame(height: outsideHeight)
                     .background {
                         GeometryReader { geometry in
-                            Color.clear.preference(key: AppHorizontalControlFramesKey.self,
+                            Color.clear.preference(
+                                key: AppHorizontalControlFramesKey.self,
                                 value: [geometry.frame(in: .global)])
                         }
                     }
@@ -525,14 +580,15 @@ struct CourseScheduleCalendarView: View {
     }
 
     private func weekdayText(for weekday: Int) -> String {
-        guard (1 ... Self.weekdayTitles.count).contains(weekday) else {
+        guard (1...Self.weekdayTitles.count).contains(weekday) else {
             return "?"
         }
         return Self.weekdayTitles[weekday - 1]
     }
 
     private func currentMinute() -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: currentDate)
+        let components = ScheduleDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: currentDate)
         return min(
             max((components.hour ?? 0) * 60 + (components.minute ?? 0), 0),
             24 * 60
@@ -564,7 +620,9 @@ private final class CourseShareItemSource: NSObject, UIActivityItemSource {
         self.subject = subject
     }
 
-    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+    func activityViewControllerPlaceholderItem(
+        _ activityViewController: UIActivityViewController
+    ) -> Any {
         url
     }
 

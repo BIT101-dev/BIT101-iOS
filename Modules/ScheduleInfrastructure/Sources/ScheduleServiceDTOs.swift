@@ -1,12 +1,12 @@
-import ScheduleDomain
+import Foundation
 import ScheduleContracts
+import ScheduleDomain
 import SchedulePorts
+
 //
 //  ScheduleServiceDTOs.swift
 //  BIT101-iOS
 //
-
-import Foundation
 
 /// 当前学期接口响应体。
 nonisolated struct CurrentTermResponse: Decodable, Sendable {
@@ -111,7 +111,8 @@ nonisolated struct CourseResponse: Decodable, Sendable {
             name = try container.decodeIfPresent(String.self, forKey: .name)
             teacher = try container.decodeIfPresent(String.self, forKey: .teacher)
             classroom = try container.decodeIfPresent(String.self, forKey: .classroom)
-            scheduleDescription = try container.decodeIfPresent(String.self, forKey: .scheduleDescription)
+            scheduleDescription = try container.decodeIfPresent(
+                String.self, forKey: .scheduleDescription)
             rawWeeks = try container.decodeIfPresent(String.self, forKey: .rawWeeks)
             displayWeeks = try container.decodeIfPresent(String.self, forKey: .displayWeeks)
             weekday = try container.decodeIfPresent(Int.self, forKey: .weekday)
@@ -119,7 +120,7 @@ nonisolated struct CourseResponse: Decodable, Sendable {
             endSection = try container.decodeIfPresent(Int.self, forKey: .endSection)
             campus = try container.decodeIfPresent(String.self, forKey: .campus)
             courseNumber = try container.decodeIfPresent(String.self, forKey: .courseNumber)
-            credit = container.decodeFlexibleDoubleIfPresent(forKey: .credit)
+            credit = container.decodeOptionalDouble(forKey: .credit)
             hour = try container.decodeIfPresent(Int.self, forKey: .hour)
             type = try container.decodeIfPresent(String.self, forKey: .type)
             category = try container.decodeIfPresent(String.self, forKey: .category)
@@ -129,9 +130,11 @@ nonisolated struct CourseResponse: Decodable, Sendable {
 
     let datas: Datas
 }
+nonisolated
 
-private nonisolated extension KeyedDecodingContainer {
-    func decodeFlexibleDoubleIfPresent(forKey key: Key) -> Double? {
+    extension KeyedDecodingContainer
+{
+    fileprivate func decodeOptionalDouble(forKey key: Key) -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
             return value
         }
@@ -139,7 +142,9 @@ private nonisolated extension KeyedDecodingContainer {
             return Double(value)
         }
         if let value = try? decodeIfPresent(String.self, forKey: key),
-           let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)), number.isFinite {
+            let number = Double(value.trimmingCharacters(in: .whitespacesAndNewlines)),
+            number.isFinite
+        {
             return number
         }
         return nil
@@ -181,16 +186,19 @@ nonisolated extension CourseResponse {
             flag == "1" ? index + 1 : nil
         }
         let displayWeeks = SmallTermWeekNormalizer.weeksDescribed(in: row.displayWeeks ?? "")
-        let weeks = displayWeeks.isEmpty || (!rawWeeks.isEmpty && Set(rawWeeks).isSubset(of: displayWeeks))
+        let weeks =
+            displayWeeks.isEmpty || (!rawWeeks.isEmpty && Set(rawWeeks).isSubset(of: displayWeeks))
             ? rawWeeks : displayWeeks.sorted()
         let scheduleIdentity = [
             row.term ?? "",
-            number.isEmpty ? scheduleCourseIdentity(number: number, name: name, teacher: row.teacher ?? "") : number,
+            number.isEmpty
+                ? scheduleCourseIdentity(number: number, name: name, teacher: row.teacher ?? "")
+                : number,
             String(row.weekday ?? 0),
             String(row.startSection ?? 0),
             String(row.endSection ?? 0),
             row.classroom ?? "",
-            weeks.map(String.init).joined(separator: ",")
+            weeks.map(String.init).joined(separator: ","),
         ].joined(separator: "-")
 
         let course = CourseRecord(
@@ -212,7 +220,8 @@ nonisolated extension CourseResponse {
             category: row.category ?? "",
             department: row.department ?? ""
         )
-        return ParsedCourse(course: course, rawWeeks: rawWeeks, sourceDisplayWeeks: row.displayWeeks)
+        return ParsedCourse(
+            course: course, rawWeeks: rawWeeks, sourceDisplayWeeks: row.displayWeeks)
     }
 
     var courseRecords: [CourseRecord] {
@@ -344,7 +353,8 @@ nonisolated struct ClassroomListResponse: Decodable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             classroomName = try container.decode(String.self, forKey: .classroomName)
             guard container.contains(.busyTimeString) else {
-                throw DecodingError.keyNotFound(CodingKeys.busyTimeString,
+                throw DecodingError.keyNotFound(
+                    CodingKeys.busyTimeString,
                     .init(codingPath: decoder.codingPath, debugDescription: "教室占用字段需要存在。"))
             }
             busyTimeString = try container.decodeIfPresent(String.self, forKey: .busyTimeString)
@@ -366,13 +376,17 @@ extension ClassroomListResponse {
                 try Task.checkCancellation()
             }
             let value = row.busyTimeString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let busy: [Int] = try value.isEmpty ? [] : value.split(separator: ",", omittingEmptySubsequences: false).map { token in
-                guard let section = Int(token.trimmingCharacters(in: .whitespacesAndNewlines)),
-                      section > 0, section <= ScheduleCourseConstraints.maximumSection
-                else { throw ScheduleServiceError.invalidResponse }
-                return section
-            }
-            let classroom = ClassroomRecord(id: row.classroomName, name: row.classroomName, busyTimeCodes: busy.sorted())
+            let busy: [Int] =
+                try value.isEmpty
+                ? []
+                : value.split(separator: ",", omittingEmptySubsequences: false).map { token in
+                    guard let section = Int(token.trimmingCharacters(in: .whitespacesAndNewlines)),
+                        section > 0, section <= ScheduleCourseConstraints.maximumSection
+                    else { throw ScheduleServiceError.invalidResponse }
+                    return section
+                }
+            let classroom = ClassroomRecord(
+                id: row.classroomName, name: row.classroomName, busyTimeCodes: busy.sorted())
             guard classroom.hasValidOccupancy else { throw ScheduleServiceError.invalidResponse }
             classrooms.append(classroom)
         }
@@ -401,7 +415,8 @@ extension ExamResponse {
                 try Task.checkCancellation()
             }
             let rawCourseName = row.courseName ?? ""
-            let name = rawCourseName
+            let name =
+                rawCourseName
                 .split(separator: "]")
                 .first?
                 .split(separator: "[")
@@ -411,19 +426,24 @@ extension ExamResponse {
             let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
             let beginTime = times.first ?? ""
             let endTime = times.dropFirst().first ?? ""
-            let timeDescription = row.timeDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let timeDescription = row.timeDescription.trimmingCharacters(
+                in: .whitespacesAndNewlines)
             guard times.count == 2 || timeDescription.isEmpty || timeDescription == "待定"
             else { throw ScheduleServiceError.invalidResponse }
             let courseID = (row.courseID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 
+            let term = row.termCode ?? ""
+            let reference = courseID.isEmpty ? name : courseID
+            let date = row.dateString ?? ""
             let exam = ExamRecord(
-                id: "\(row.termCode ?? "")-\(courseID.isEmpty ? name : courseID)-\(row.dateString ?? "")-\(row.timeDescription)",
+                id: "\(term)-\(reference)-\(date)-\(row.timeDescription)",
                 term: row.termCode ?? "",
                 name: name,
                 courseID: courseID,
                 teacher: row.teacherName ?? "",
                 classroom: row.location ?? "",
-                dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init) ?? (row.dateString ?? ""),
+                dateString: (row.dateString ?? "").split(separator: " ").first.map(String.init)
+                    ?? (row.dateString ?? ""),
                 beginTime: beginTime,
                 endTime: endTime,
                 examMode: row.examMode ?? "",

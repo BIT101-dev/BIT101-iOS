@@ -1,4 +1,5 @@
 import CommunityCore
+
 #if os(iOS)
 import CommunityUI
 import MediaKit
@@ -35,8 +36,16 @@ struct PaperSummaryCard: View {
 
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                         Text(previewMetadata?.authorName ?? (previewFailed ? "作者暂不可用" : "加载中"))
-                            .font(previewMetadata == nil ? AppDesignSystem.Typography.subheadline : AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(previewMetadata == nil ? AppDesignSystem.Foreground.secondary : AppDesignSystem.Foreground.primary)
+                            .font(
+                                previewMetadata == nil
+                                    ? AppDesignSystem.Typography.subheadline
+                                    : AppDesignSystem.Typography.bodyEmphasis
+                            )
+                            .foregroundStyle(
+                                previewMetadata == nil
+                                    ? AppDesignSystem.Foreground.secondary
+                                    : AppDesignSystem.Foreground.primary
+                            )
                             .lineLimit(1)
 
                         Text(AppDateText.timestampText(from: paper.updateTime))

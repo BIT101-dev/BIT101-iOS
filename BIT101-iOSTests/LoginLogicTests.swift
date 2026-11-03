@@ -1,38 +1,52 @@
 import ClientCore
-import TransportCore
+import Foundation
 import ScoreInfrastructure
+import Testing
+import TransportCore
+import UIKit
+
+@testable import BIT101_iOS
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
-import Foundation
-import UIKit
-import Testing
-@testable import BIT101_iOS
 
 @Suite("Login parsing and authentication", .serialized)
 struct LoginLogicTests {
-    @Test(arguments: [#"<input id = 'login-croypto' value = 'c2FsdA==' />"#,
-                      #"<input value = 'c2FsdA==' id = 'login-croypto' />"#,
-                      #"<span id = 'login-croypto'>c2FsdA==</span>"#])
+    @Test(arguments: [
+        #"<input id = 'login-croypto' value = 'c2FsdA==' />"#,
+        #"<input value = 'c2FsdA==' id = 'login-croypto' />"#,
+        #"<span id = 'login-croypto'>c2FsdA==</span>"#,
+    ])
     func parsesHTMLAttributeWhitespace(html: String) {
-        let context = SchoolLoginHTMLParser.parse(html: html + #"<input id = 'login-page-flowkey' value = 'flow' />"#)
+        let context = SchoolLoginHTMLParser.parse(
+            html: html + #"<input id = 'login-page-flowkey' value = 'flow' />"#)
         #expect(context.salt == "c2FsdA==" && context.execution == "flow")
     }
 
-    @Test(arguments: [#"<input data-id='login-croypto' value='wrong' />"#,
-                      #"<input value='wrong' data-id='login-croypto' />"#,
-                      #"<span data-id='login-croypto'>wrong</span>"#])
+    @Test(arguments: [
+        #"<input data-id='login-croypto' value='wrong' />"#,
+        #"<input value='wrong' data-id='login-croypto' />"#,
+        #"<span data-id='login-croypto'>wrong</span>"#,
+    ])
     func distinguishesHTMLAttributeNames(html: String) {
         let context = SchoolLoginHTMLParser.parse(html: html + #"<a href='/logout'>退出登录</a>"#)
         #expect(context.salt == nil && context.isLoggedIn)
     }
 
     @Test func selectsTheSecondFactorFormWithItsOwnFields() throws {
-        let html = #"<form action='/search'><input id='login-page-flowkey' value='other-flow'></form><form action='/cas/login?step=2'><input id = 'login-page-flowkey' value = 'flow'><input id = 'user-object-id' value = 'user'><div id='secondSmsLoginForm'></div></form>"#
+        let html =
+            #"""
+            <form action='/search'><input id='login-page-flowkey' value='other-flow'></form><f\#
+            orm action='/cas/login?step=2'><input id = 'login-page-flowkey' value = 'flow'><in\#
+            put id = 'user-object-id' value = 'user'><div id='secondSmsLoginForm'></div></form\#
+            >
+            """#
         let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
-        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: html, baseURL: baseURL))
+        let context = try #require(
+            SchoolLoginHTMLParser.parseSecondFactorPage(html: html, baseURL: baseURL))
         #expect(context.execution == "flow" && context.userObjectID == "user")
         #expect(context.formAction.absoluteString == "https://sso.bit.edu.cn/cas/login?step=2")
-        #expect(SchoolLoginHTMLParser.parseSecondFactorPage(html: html + html, baseURL: baseURL) == nil)
+        #expect(
+            SchoolLoginHTMLParser.parseSecondFactorPage(html: html + html, baseURL: baseURL) == nil)
     }
 
     @Test("CAS success gate 401 is a terminal browser landing response")
@@ -40,24 +54,25 @@ struct LoginLogicTests {
         let gateURL = try #require(URL(string: "https://sso.bit.edu.cn/gate/cas-success"))
         let otherURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
 
-        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: gateURL))
-        #expect(BIT101APIClient.isSchoolLoginSuccessLanding(gateURL))
-        let reportedGateURL = try #require(URL(string: "https://sso.bit.edu.cn/gate/cas-success/?ticket=test-ticket"))
-        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: reportedGateURL))
-        #expect(BIT101APIClient.isSchoolLoginSuccessLanding(reportedGateURL))
-        #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 401, url: otherURL))
-        #expect(!BIT101APIClient.isSchoolLoginSuccessLanding(otherURL))
-        #expect(!BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: otherURL))
-        #expect(BIT101APIClient.isAcceptedSchoolLoginCompletion(statusCode: 204, url: gateURL))
+        #expect(BIT101APIClient.acceptsSchoolLoginResult(statusCode: 401, url: gateURL))
+        #expect(BIT101APIClient.isSchoolSuccessLanding(gateURL))
+        let reportedGateURL = try #require(
+            URL(string: "https://sso.bit.edu.cn/gate/cas-success/?ticket=test-ticket"))
+        #expect(BIT101APIClient.acceptsSchoolLoginResult(statusCode: 401, url: reportedGateURL))
+        #expect(BIT101APIClient.isSchoolSuccessLanding(reportedGateURL))
+        #expect(!BIT101APIClient.acceptsSchoolLoginResult(statusCode: 401, url: otherURL))
+        #expect(!BIT101APIClient.isSchoolSuccessLanding(otherURL))
+        #expect(!BIT101APIClient.acceptsSchoolLoginResult(statusCode: 204, url: otherURL))
+        #expect(BIT101APIClient.acceptsSchoolLoginResult(statusCode: 204, url: gateURL))
     }
 
     @Test("CAS fields are extracted from either quote style")
     func parsesCASLoginPage() {
         let html = """
-        <span id='login-croypto'> c2FsdA== </span>
-        <span id="login-page-flowkey"> execution-value </span>
-        用户名密码
-        """
+            <span id='login-croypto'> c2FsdA== </span>
+            <span id="login-page-flowkey"> execution-value </span>
+            用户名密码
+            """
         let context = SchoolLoginHTMLParser.parse(html: html)
 
         #expect(context.salt == "c2FsdA==")
@@ -78,10 +93,11 @@ struct LoginLogicTests {
     @Test("Password transforms stay compatible with the existing backend")
     func passwordTransformVectors() throws {
         #expect(LoginCrypto.md5Hex("abc") == "900150983cd24fb0d6963f7d28e17f72")
-        #expect(try LoginCrypto.encryptPassword(
-            "abc",
-            saltBase64: "AAAAAAAAAAAAAAAAAAAAAA=="
-        ) == "l2qZX5TPTB4ktuL7Bn56aQ==")
+        #expect(
+            try LoginCrypto.encryptPassword(
+                "abc",
+                saltBase64: "AAAAAAAAAAAAAAAAAAAAAA=="
+            ) == "l2qZX5TPTB4ktuL7Bn56aQ==")
     }
 
     @Test("Malformed salts are rejected before encryption")
@@ -93,19 +109,19 @@ struct LoginLogicTests {
 
     @Test("Credential failure responses use the dedicated login error")
     func recognizesCredentialFailureResponse() {
-        #expect(BIT101APIClient.isCredentialFailureMessage("统一身份认证失败Orz"))
-        #expect(BIT101APIClient.isCredentialFailureMessage("用户名或密码错误"))
-        #expect(!BIT101APIClient.isCredentialFailureMessage("服务暂时不可用"))
+        #expect(BIT101APIClient.isCredentialFailure("统一身份认证失败Orz"))
+        #expect(BIT101APIClient.isCredentialFailure("用户名或密码错误"))
+        #expect(!BIT101APIClient.isCredentialFailure("服务暂时不可用"))
     }
 
     @Test("School second-factor pages expose a resumable form context")
     func parsesSchoolSecondFactorPage() throws {
         let html = """
-        <div id="secondSmsLoginForm"></div>
-        <span id="login-page-flowkey">execution-value</span>
-        <input id="user-object-id" value="user-object-value" />
-        <form action="/cas/login"></form>
-        """
+            <div id="secondSmsLoginForm"></div>
+            <span id="login-page-flowkey">execution-value</span>
+            <input id="user-object-id" value="user-object-value" />
+            <form action="/cas/login"></form>
+            """
         let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/login"))
         let context = try #require(
             SchoolLoginHTMLParser.parseSecondFactorPage(
@@ -130,7 +146,10 @@ extension LoginLogicTests {
             if failWrites { throw CocoaError(.fileWriteUnknown) }
             values[account] = value
         }
-        func delete(account: String) -> Bool { values[account] = nil; return true }
+        func delete(account: String) -> Bool {
+            values[account] = nil
+            return true
+        }
     }
 
     private final class SchoolLoginResponses: HTTPTransport {
@@ -142,73 +161,129 @@ extension LoginLogicTests {
             switch url.lastPathComponent {
             case "login":
                 guard url.host == "sso.bit.edu.cn" else {
-                    return (Data(#"{"msg":"用户名或密码错误"}"#.utf8),
-                        try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+                    return (
+                        Data(#"{"msg":"用户名或密码错误"}"#.utf8),
+                        try #require(
+                            HTTPURLResponse(
+                                url: url, statusCode: 401, httpVersion: nil, headerFields: nil))
+                    )
                 }
                 body = Data(#"<a href="/logout">退出登录</a>"#.utf8)
             case "webvpn_verify_init":
-                body = Data(#"{"salt":"AAAAAAAAAAAAAAAAAAAAAA==","execution":"school-flow","cookie":"school-cookie","captcha":""}"#.utf8)
+                body = Data(
+                    #"""
+                    {"salt":"AAAAAAAAAAAAAAAAAAAAAA==","execution":"school-flow","cookie":"sch\#
+                    ool-cookie","captcha":""}
+                    """#
+                    .utf8)
             case "webvpn_verify":
                 let data = try #require(request.httpBody)
-                let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
-                let accepted = try ["school-password", "saved-school-password", "new-school-password"].map {
+                let payload = try #require(
+                    JSONSerialization.jsonObject(with: data) as? [String: String])
+                let accepted = try [
+                    "school-password", "saved-school-password", "new-school-password",
+                ].map {
                     try LoginCrypto.encryptPassword($0, saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==")
                 }
                 guard accepted.contains(payload["password"] ?? "") else {
-                    return (Data(#"{"msg":"用户名或密码错误"}"#.utf8),
-                        try #require(HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: nil)))
+                    return (
+                        Data(#"{"msg":"用户名或密码错误"}"#.utf8),
+                        try #require(
+                            HTTPURLResponse(
+                                url: url, statusCode: 401, httpVersion: nil, headerFields: nil))
+                    )
                 }
                 body = Data(#"{"token":"school-proof","code":"123456"}"#.utf8)
             case "register": body = Data(#"{"fake_cookie":"community-cookie"}"#.utf8)
             case "cookies": body = Data(#"{"data":{"wengine_vpn_ticket":"school-ticket"}}"#.utf8)
-            case "xnxqcx.do": body = Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#.utf8)
-            case "dqxnxq.do": body = Data(#"{"datas":{"dqxnxq":{"rows":[{"DM":"2026-2027-1"}]}}}"#.utf8)
+            case "xnxqcx.do":
+                body = Data(
+                    #"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#
+                        .utf8)
+            case "dqxnxq.do":
+                body = Data(#"{"datas":{"dqxnxq":{"rows":[{"DM":"2026-2027-1"}]}}}"#.utf8)
             case "cxxszhxqkb.do":
                 let bundle = Bundle(for: SchoolLoginResponses.self)
-                let fixture = bundle.url(forResource: "schedule-service-response", withExtension: "json", subdirectory: "Fixtures")
+                let fixture =
+                    bundle.url(
+                        forResource: "schedule-service-response", withExtension: "json",
+                        subdirectory: "Fixtures")
                     ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
                 body = try Data(contentsOf: #require(fixture))
             case "cxxsksap.do": body = Data(#"{"datas":{"cxxsksap":{"rows":[]}}}"#.utf8)
             case "cxzkbrq.do": body = Data(#"{"data":[{"XQ":1,"RQ":"2026-09-07"}]}"#.utf8)
-            case "ggzdpx.do": body = Data(#"{"datas":{"ggzdpx":{"rows":[{"DM":"2","MC":"良乡校区"}]}}}"#.utf8)
-            case "cxjxl.do": body = Data(#"{"datas":{"cxjxl":{"rows":[{"JXLDM":"2701-2","JXLMC":"文萃楼B","XXXQDM":"2"}]}}}"#.utf8)
-            case "cxkxjasqk.do": body = Data(#"{"datas":{"cxkxjasqk":{"rows":[{"JASMC":"B101","ZYJC":"1,2"}]}}}"#.utf8)
-            case "start": body = Data(#"{"challenge_id":"score-challenge","access_token":"score-token","status":"authenticated"}"#.utf8)
+            case "ggzdpx.do":
+                body = Data(#"{"datas":{"ggzdpx":{"rows":[{"DM":"2","MC":"良乡校区"}]}}}"#.utf8)
+            case "cxjxl.do":
+                body = Data(
+                    #"""
+                    {"datas":{"cxjxl":{"rows":[{"JXLDM":"2701-2","JXLMC":"文萃楼B","XXXQDM":"2"}]\#
+                    }}}
+                    """#
+                    .utf8)
+            case "cxkxjasqk.do":
+                body = Data(
+                    #"{"datas":{"cxkxjasqk":{"rows":[{"JASMC":"B101","ZYJC":"1,2"}]}}}"#.utf8)
+            case "start":
+                body = Data(
+                    #"""
+                    {"challenge_id":"score-challenge","access_token":"score-token","status":"a\#
+                    uthenticated"}
+                    """#
+                    .utf8)
             case "wdkbby-5959167891382285.do", "i18n.do": body = Data("{}".utf8)
             default: throw URLError(.unsupportedURL)
             }
-            return (body, try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                body,
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
-    private func schoolService(storage: LoginStorage, transport: SchoolLoginResponses) throws -> ScheduleService {
-        ScheduleService(credentials: storage, crypto: AppScheduleServiceCrypto(),
-            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: { throw URLError(.unsupportedURL) }),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+    private func schoolService(storage: LoginStorage, transport: SchoolLoginResponses) throws
+        -> ScheduleService
+    {
+        ScheduleService(
+            credentials: storage, crypto: AppScheduleServiceCrypto(),
+            schoolSessionRestorer: AppScheduleSchoolSessionRestorer(restore: {
+                throw URLError(.unsupportedURL)
+            }),
+            teachingCenterState: TeachingCenterSessionState(
+                cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
             transport: transport)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["terms", "courses", "classrooms", "scores", "school-session"])
-    func identityProofKeepsSchoolFeaturesUsableWithSeparatePasswords(first: String) async throws {
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: ["terms", "courses", "classrooms", "scores", "school-session"])
+    func identityProofKeepsSchoolFeaturesPasswords(first: String) async throws {
         let domain = "BIT101Tests.community-school"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let credentials = Credentials(), transport = SchoolLoginResponses()
+        let credentials = Credentials()
+        let transport = SchoolLoginResponses()
         var prompts: [String] = []
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in }, requestSchoolPassword: {
-            prompts.append($0)
-            return "school-password"
-        })
+        let storage = LoginStorage(
+            defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in },
+            requestSchoolPassword: {
+                prompts.append($0)
+                return "school-password"
+            })
         let http = HTTPClient(transport: transport, observer: nil)
-        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let login = LoginService(
+            storage: storage,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         #expect(try await login.login(studentID: "A", password: "account-password") == "A")
         #expect(storage.currentPassword == "school-password" && prompts == ["A"])
         let owner = storage.communityCredentials
         let school = try schoolService(storage: storage, transport: transport)
         func use(_ feature: String) async throws {
             switch feature {
-            case "terms": #expect(try await school.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
+            case "terms":
+                #expect(try await school.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
             case "courses":
                 let payload = try await school.syncCourses()
                 #expect(payload.term == "2026-2027-1" && !payload.courses.isEmpty)
@@ -216,102 +291,148 @@ extension LoginLogicTests {
                 #expect(try await school.fetchCampuses().first?.name == "良乡校区")
                 #expect(try await school.fetchBuildings(campusCode: "2").first?.id == "2701-2")
                 #expect(try await school.fetchCurrentTermOnly() == "2026-2027-1")
-                #expect(try await school.fetchClassrooms(buildingID: "2701-2", term: "2026-2027-1", date: Date()).first?.name == "B101")
-            case "school-session": #expect(try await login.restoreSchoolSessionIfNeeded() == "A")
+                #expect(
+                    try await school.fetchClassrooms(
+                        buildingID: "2701-2", term: "2026-2027-1", date: Date()
+                    ).first?.name == "B101")
+            case "school-session": #expect(try await login.restoreSchoolSession() == "A")
             default:
-                let score = ScoreService(credentials: storage, httpClient: http, sensitiveHTTPClient: http,
+                let score = ScoreService(
+                    credentials: storage, httpClient: http, sensitiveHTTPClient: http,
                     endpointBaseURL: try #require(URL(string: "https://example.invalid")))
                 #expect(try await score.startScoreChallenge().status == "authenticated")
             }
         }
         try await use(first)
-        for feature in ["terms", "courses", "classrooms", "scores", "school-session"] where feature != first { try await use(feature) }
+        for feature in ["terms", "courses", "classrooms", "scores", "school-session"]
+        where feature != first { try await use(feature) }
         #expect(prompts == ["A"] && storage.currentPassword == "school-password")
         #expect(storage.communityCredentials == owner)
-        #expect(try storage.loadCommunityPasswordDigest() == nil)
-        #expect(transport.requests.prefix(7).map(\.url?.lastPathComponent)
-            == ["login", "webvpn_verify_init", "webvpn_verify", "webvpn_verify_init", "webvpn_verify", "register", "login"])
-        let loginRequest = try #require(transport.requests.first { $0.url?.lastPathComponent == "register" }?.httpBody)
-        let loginBody = try #require(JSONSerialization.jsonObject(with: loginRequest) as? [String: Any])
+        #expect(try storage.loadCommunityDigest() == nil)
+        #expect(
+            transport.requests.prefix(7).map(\.url?.lastPathComponent)
+                == [
+                    "login", "webvpn_verify_init", "webvpn_verify", "webvpn_verify_init",
+                    "webvpn_verify", "register", "login",
+                ])
+        let loginRequest = try #require(
+            transport.requests.first { $0.url?.lastPathComponent == "register" }?.httpBody)
+        let loginBody = try #require(
+            JSONSerialization.jsonObject(with: loginRequest) as? [String: Any])
         #expect(loginBody["password"] as? String == LoginCrypto.md5Hex("account-password"))
         #expect(loginBody["login_mode"] as? Bool == true)
-        for request in transport.requests where ["cookies", "start"].contains(request.url?.lastPathComponent ?? "") {
+        for request in transport.requests
+        where ["cookies", "start"].contains(request.url?.lastPathComponent ?? "") {
             let data = try #require(request.httpBody)
             let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(body["password"] as? String == "school-password")
         }
-        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
+        let reopened = LoginStorage(
+            defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in })
         try await reopened.prepareSchoolCredentials()
-        #expect(reopened.currentPassword == "school-password" && reopened.communityCredentials.cookie == owner.cookie)
+        #expect(
+            reopened.currentPassword == "school-password"
+                && reopened.communityCredentials.cookie == owner.cookie)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["empty-password", "saved-password", "switch-account"])
-    func schoolLoginUpdatesCredentialsWithinTheSelectedAccount(state: String) async throws {
+    @Test(
+        .timeLimit(.minutes(1)), arguments: ["empty-password", "saved-password", "switch-account"])
+    func schoolLoginUpdatesCredentialsWithinAccount(state: String) async throws {
         let domain = "BIT101Tests.login-password-reuse"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in "new-school-password" })
-        try storage.saveLoginState(studentID: state == "switch-account" ? "B" : "A",
-            password: state == "empty-password" ? "" : "saved-school-password", fakeCookie: "old-cookie",
+        let storage = LoginStorage(
+            defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in },
+            requestSchoolPassword: { _ in "new-school-password" })
+        try storage.saveLoginState(
+            studentID: state == "switch-account" ? "B" : "A",
+            password: state == "empty-password" ? "" : "saved-school-password",
+            fakeCookie: "old-cookie",
             communityPasswordDigest: "old-digest")
         let http = HTTPClient(transport: SchoolLoginResponses(), observer: nil)
-        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let login = LoginService(
+            storage: storage,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         #expect(try await login.login(studentID: "A", password: "account-password") == "A")
-        #expect(storage.currentPassword == (state == "saved-password" ? "saved-school-password" : "new-school-password") && storage.currentStudentID == "A")
-        #expect(try storage.loadCommunityPasswordDigest() == (state == "switch-account" ? nil : "old-digest"))
+        #expect(
+            storage.currentPassword
+                == (state == "saved-password" ? "saved-school-password" : "new-school-password")
+                && storage.currentStudentID == "A")
+        #expect(
+            try storage.loadCommunityDigest() == (state == "switch-account" ? nil : "old-digest"))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["cancel", "switch", "write-failure", "empty"])
-    func interruptedSchoolPasswordEntryPreservesCommunitySession(reason: String) async throws {
+    func interruptedSchoolPasswordPreservesSession(reason: String) async throws {
         let domain = "BIT101Tests.school-password-interruption"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials()
         var reply: CheckedContinuation<String, Error>?
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
-            try await withCheckedThrowingContinuation { reply = $0 }
-        })
-        try storage.saveLoginState(studentID: "A", password: "", fakeCookie: "cookie-A", communityPasswordDigest: "community-A")
+        let storage = LoginStorage(
+            defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in },
+            requestSchoolPassword: { _ in
+                try await withCheckedThrowingContinuation { reply = $0 }
+            })
+        try storage.saveLoginState(
+            studentID: "A", password: "", fakeCookie: "cookie-A",
+            communityPasswordDigest: "community-A")
         let pending = Task { try await storage.prepareSchoolCredentials() }
         try await waitForTestEvent { reply != nil }
         if reason == "switch" {
-            try storage.saveLoginState(studentID: "B", password: "", fakeCookie: "cookie-B", communityPasswordDigest: "community-B")
+            try storage.saveLoginState(
+                studentID: "B", password: "", fakeCookie: "cookie-B",
+                communityPasswordDigest: "community-B")
         }
         if reason == "cancel" { pending.cancel() }
         if reason == "write-failure" { credentials.failWrites = true }
         reply?.resume(returning: reason == "empty" ? "" : "school-password")
-        do { try await pending.value; Issue.record("Interrupted password entry must retain the account state") }
-        catch { if ["cancel", "switch"].contains(reason) { #expect(error is CancellationError) } }
+        do {
+            try await pending.value
+            Issue.record("Interrupted password entry must retain the account state")
+        } catch {
+            if ["cancel", "switch"].contains(reason) { #expect(error is CancellationError) }
+        }
         #expect(storage.currentPassword.isEmpty)
         #expect(storage.currentStudentID == (reason == "switch" ? "B" : "A"))
         #expect(storage.fakeCookie == (reason == "switch" ? "cookie-B" : "cookie-A"))
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func concurrentSchoolRequestsSharePasswordEntryAndSettingsCanReplaceIt(cancelWaiter: Bool) async throws {
+    func concurrentSchoolRequestsSharePasswordEntry(cancelWaiter: Bool) async throws {
         let domain = "BIT101Tests.school-password-concurrency"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         var prompts = 0
         var reply: CheckedContinuation<String, Error>?
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
-            prompts += 1
-            return try await withCheckedThrowingContinuation { reply = $0 }
-        })
-        try storage.saveLoginState(studentID: "A", password: "", fakeCookie: "cookie", communityPasswordDigest: "community")
+        let storage = LoginStorage(
+            defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in },
+            requestSchoolPassword: { _ in
+                prompts += 1
+                return try await withCheckedThrowingContinuation { reply = $0 }
+            })
+        try storage.saveLoginState(
+            studentID: "A", password: "", fakeCookie: "cookie", communityPasswordDigest: "community"
+        )
         let first = Task { try await storage.prepareSchoolCredentials() }
         try await waitForTestEvent { reply != nil }
         var secondStarted = false
-        let second = Task { secondStarted = true; try await storage.prepareSchoolCredentials() }
+        let second = Task {
+            secondStarted = true
+            try await storage.prepareSchoolCredentials()
+        }
         try await waitForTestEvent { secondStarted }
         if cancelWaiter { second.cancel() }
-        reply?.resume(returning: "school-password"); reply = nil
+        reply?.resume(returning: "school-password")
+        reply = nil
         try await first.value
-        do { try await second.value; #expect(!cancelWaiter) }
-        catch { #expect(cancelWaiter && error is CancellationError) }
+        do {
+            try await second.value
+            #expect(!cancelWaiter)
+        } catch { #expect(cancelWaiter && error is CancellationError) }
         #expect(prompts == 1)
         let owner = storage.communityCredentials
         let replacement = Task { try await storage.updateSchoolCredentials() }
@@ -328,22 +449,39 @@ extension LoginLogicTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         for cancelFirst in [false, true] {
             defaults.removePersistentDomain(forName: domain)
-            var prompts = 0, firstFinished = false, secondFinished = false, secondStarted = false
+            var prompts = 0
+            var firstFinished = false
+            var secondFinished = false
+            var secondStarted = false
             var reply: CheckedContinuation<String, Error>?
-            let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in }, requestSchoolPassword: { _ in
-                prompts += 1
-                return try await withCheckedThrowingContinuation { reply = $0 }
-            })
-            try storage.saveLoginState(studentID: "A", password: "", fakeCookie: "cookie", communityPasswordDigest: "community")
+            let storage = LoginStorage(
+                defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in },
+                requestSchoolPassword: { _ in
+                    prompts += 1
+                    return try await withCheckedThrowingContinuation { reply = $0 }
+                })
+            try storage.saveLoginState(
+                studentID: "A", password: "", fakeCookie: "cookie",
+                communityPasswordDigest: "community")
             func request(first: Bool) async -> Result<Void, Error> {
                 defer { if first { firstFinished = true } else { secondFinished = true } }
-                do { try await storage.prepareSchoolCredentials(); return .success(()) }
-                catch { return .failure(error) }
+                do {
+                    try await storage.prepareSchoolCredentials()
+                    return .success(())
+                } catch { return .failure(error) }
             }
             let first = Task { await request(first: true) }
             try await waitForTestEvent { reply != nil }
-            let second = Task { secondStarted = true; return await request(first: false) }
-            defer { first.cancel(); second.cancel(); reply?.resume(throwing: CancellationError()); reply = nil }
+            let second = Task {
+                secondStarted = true
+                return await request(first: false)
+            }
+            defer {
+                first.cancel()
+                second.cancel()
+                reply?.resume(throwing: CancellationError())
+                reply = nil
+            }
             try await waitForTestEvent { secondStarted }
             if cancelFirst { first.cancel() } else { second.cancel() }
             try await waitForTestEvent { cancelFirst ? firstFinished : secondFinished }
@@ -352,16 +490,20 @@ extension LoginLogicTests {
             reply = nil
             let cancelled = await (cancelFirst ? first : second).value
             let surviving = await (cancelFirst ? second : first).value
-            if case .failure(let error) = cancelled { #expect(error is CancellationError) }
-            else { Issue.record("已取消等待者应立即结束自己的认证请求") }
+            if case .failure(let error) = cancelled {
+                #expect(error is CancellationError)
+            } else {
+                Issue.record("已取消等待者应立即结束自己的认证请求")
+            }
             if case .failure(let error) = surviving { Issue.record(error) }
             #expect(prompts == 1 && storage.currentPassword == "school-password")
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func schoolAuthenticationPromptsWaitForExistingAlertsAndClearCancelledInput(sms: Bool) async throws {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    func schoolAuthPromptsWaitExistingAlerts(sms: Bool) async throws {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIViewController()
         window.rootViewController = controller
@@ -376,15 +518,22 @@ extension LoginLogicTests {
             if top === existing { inspectedExisting = true }
             return top
         }
-        let password = SchoolPasswordPrompt(presenter: presenter), code = SchoolSMSPrompt(presenter: presenter)
+        let password = SchoolPasswordPrompt(presenter: presenter)
+        let code = SchoolSMSPrompt(presenter: presenter)
         let pending = Task {
-            if sms { return try await code.requestCode(.init(maskedPhone: "123****4567", purpose: "fixture")) }
+            if sms {
+                return try await code.requestCode(
+                    .init(maskedPhone: "123****4567", purpose: "fixture"))
+            }
             return try await password.requestPassword(studentID: "A")
         }
         try await waitForTestEvent { inspectedExisting }
         #expect(controller.presentedViewController === existing)
         existing.dismiss(animated: true)
-        try await waitForTestEvent { controller.presentedViewController != nil && controller.presentedViewController !== existing }
+        try await waitForTestEvent {
+            controller.presentedViewController != nil
+                && controller.presentedViewController !== existing
+        }
         func codeField(in view: UIView) -> UITextField? {
             if let field = view as? UITextField { return field }
             return view.subviews.lazy.compactMap { codeField(in: $0) }.first
@@ -393,14 +542,19 @@ extension LoginLogicTests {
             let sheet = try #require(controller.presentedViewController)
             try await waitForTestEvent { codeField(in: sheet.view) != nil }
             let field = try #require(codeField(in: sheet.view))
-            #expect(field.accessibilityIdentifier == "verification.code" && !field.isSecureTextEntry)
+            #expect(
+                field.accessibilityIdentifier == "verification.code" && !field.isSecureTextEntry)
             field.insertText("abc１２３")
             #expect(field.text == "123")
             pending.cancel()
-            do { _ = try await pending.value; Issue.record("已取消的短信输入应结束等待") }
-            catch { #expect(error is CancellationError) }
+            do {
+                _ = try await pending.value
+                Issue.record("已取消的短信输入应结束等待")
+            } catch { #expect(error is CancellationError) }
             #expect(controller.presentedViewController == nil)
-            let pasted = Task { try await code.requestCode(.init(maskedPhone: "123****4567", purpose: "fixture")) }
+            let pasted = Task {
+                try await code.requestCode(.init(maskedPhone: "123****4567", purpose: "fixture"))
+            }
             try await waitForTestEvent { controller.presentedViewController != nil }
             let nextSheet = try #require(controller.presentedViewController)
             try await waitForTestEvent { codeField(in: nextSheet.view) != nil }
@@ -411,14 +565,18 @@ extension LoginLogicTests {
         } else {
             let alert = try #require(controller.presentedViewController as? UIAlertController)
             let field = try #require(alert.textFields?.first)
-            #expect(field.isSecureTextEntry && field.accessibilityIdentifier == "school.credentials.password")
+            #expect(
+                field.isSecureTextEntry
+                    && field.accessibilityIdentifier == "school.credentials.password")
             #expect(alert.preferredAction?.isEnabled == false)
             field.text = "school-password"
             field.sendActions(for: .editingChanged)
             #expect(alert.preferredAction?.isEnabled == true)
             pending.cancel()
-            do { _ = try await pending.value; Issue.record("已取消的学校密码输入应结束等待") }
-            catch { #expect(error is CancellationError) }
+            do {
+                _ = try await pending.value
+                Issue.record("已取消的学校密码输入应结束等待")
+            } catch { #expect(error is CancellationError) }
             #expect(controller.presentedViewController == nil && field.text?.isEmpty == true)
         }
     }

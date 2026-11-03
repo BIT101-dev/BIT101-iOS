@@ -1,13 +1,16 @@
-import StorageCore
 import DesignSystemKit
 import ScheduleContracts
 import ScheduleSharedStore
+import StorageCore
 import SwiftUI
 import WidgetKit
 
 /// 镜像同步前使用的提示文案。
 private nonisolated enum WidgetSnapshotStorage {
-    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+    static let store = ScheduleExternalSnapshotStore(
+        files: AppFileSystem.files,
+        containerURL: AppFileSystem.files.appGroupContainerURL(
+            identifier: ScheduleSharedContainer.identifier))
 }
 
 private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
@@ -106,13 +109,13 @@ private enum WatchScheduleEntryStatus {
     }
 }
 
-private extension WatchScheduleEntry {
-    var displaySummary: WatchScheduleDisplaySummary? {
+extension WatchScheduleEntry {
+    fileprivate var displaySummary: WatchScheduleDisplaySummary? {
         guard let nextOccurrence else { return nil }
         return WatchScheduleDisplaySummary(occurrence: nextOccurrence, referenceDate: date)
     }
 
-    var status: WatchScheduleEntryStatus {
+    fileprivate var status: WatchScheduleEntryStatus {
         WatchScheduleEntryStatus(message: message)
     }
 }
@@ -140,13 +143,17 @@ private struct WatchScheduleProvider: TimelineProvider {
         completion(loadEntry())
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<WatchScheduleEntry>) -> Void) {
+    func getTimeline(
+        in context: Context, completion: @escaping (Timeline<WatchScheduleEntry>) -> Void
+    ) {
         let now = Date()
-        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: WidgetSnapshotStorage.store, now: now,
+        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(
+            store: WidgetSnapshotStorage.store, now: now,
             includeDisplayUntilDates: false)
         let entries = timeline.map { loadEntry(resolved: $0.resolved, now: $0.date) }
         if timeline.first?.resolved.snapshot == nil {
-            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
+            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(
+                for: [], now: now,
                 includeDisplayUntilDates: false, includeNextMidnight: false)
             completion(Timeline(entries: entries, policy: .after(retry)))
             return
@@ -158,22 +165,31 @@ private struct WatchScheduleProvider: TimelineProvider {
     ///
     /// 时间线以当前时刻之后的课程作为展示对象。
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
-        loadEntry(resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now), now: now)
+        loadEntry(
+            resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(
+                store: WidgetSnapshotStorage.store, now: now), now: now)
     }
 
-    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date) -> WatchScheduleEntry {
+    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
+        -> WatchScheduleEntry
+    {
 
         switch resolved.contentState {
         case .missing:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
+            return WatchScheduleEntry(
+                date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
         case .unavailable:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetUnavailableMessage)
+            return WatchScheduleEntry(
+                date: now, nextOccurrence: nil, message: watchScheduleWidgetUnavailableMessage)
         case .invalid:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetInvalidMessage)
+            return WatchScheduleEntry(
+                date: now, nextOccurrence: nil, message: watchScheduleWidgetInvalidMessage)
         case .loggedOut:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
+            return WatchScheduleEntry(
+                date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
         case .rest:
-            return WatchScheduleEntry(date: now, nextOccurrence: nil, message: watchScheduleWidgetRestMessage)
+            return WatchScheduleEntry(
+                date: now, nextOccurrence: nil, message: watchScheduleWidgetRestMessage)
         case .ready:
             let nextOccurrence = resolved.upcomingOccurrences.first(where: { $0.startDate > now })
             return WatchScheduleEntry(
@@ -184,13 +200,13 @@ private struct WatchScheduleProvider: TimelineProvider {
         }
     }
 
-
 }
 
 /// 提供 Apple Watch complication 和 Smart Stack 课表卡片。
 struct BIT101WatchScheduleWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "BIT101WatchScheduleWidget", provider: WatchScheduleProvider()) { entry in
+        StaticConfiguration(kind: "BIT101WatchScheduleWidget", provider: WatchScheduleProvider()) {
+            entry in
             WatchScheduleEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }

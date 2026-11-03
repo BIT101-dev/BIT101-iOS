@@ -1,21 +1,22 @@
-@testable import BIT101_iOS
-@testable import GalleryFeature
-@testable import PaperFeature
-@testable import CourseFeature
-@testable import TransportCore
 import ClientCore
-import StorageCore
-import Foundation
 import Combine
 import CommunityCore
 import CommunityPersistence
 import CommunityTransport
 import CommunityUI
+import Foundation
 import MediaKit
+import StorageCore
 import SwiftUI
 import Testing
 import UIKit
+
+@testable import BIT101_iOS
+@testable import CourseFeature
+@testable import GalleryFeature
 @testable import MineFeature
+@testable import PaperFeature
+@testable import TransportCore
 
 @MainActor
 @Suite(.serialized)
@@ -24,89 +25,151 @@ struct CommunityRecoveryCompositionTests {
         var authenticated = false, pausePublicPaper = false
         var paperReads: [Bool] = [], commentReads: [Bool] = []
         private var pendingPublicPaper: CheckedContinuation<Void, Never>?
-        func releasePublicPaper() { pendingPublicPaper?.resume(); pendingPublicPaper = nil }
+        func releasePublicPaper() {
+            pendingPublicPaper?.resume()
+            pendingPublicPaper = nil
+        }
         func fetchPaper(id: Int) async throws -> PaperDetail {
             let ready = authenticated
             paperReads.append(ready)
-            if !ready, pausePublicPaper { await withCheckedContinuation { pendingPublicPaper = $0 } }
-            return PaperDetail(isViewerAuthenticated: ready, id: id, title: ready ? "已认证文章" : "公开文章", intro: "", content: "正文",
-                createTime: "", updateTime: "", updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false,
+            if !ready, pausePublicPaper {
+                await withCheckedContinuation { pendingPublicPaper = $0 }
+            }
+            return PaperDetail(
+                isViewerAuthenticated: ready, id: id, title: ready ? "已认证文章" : "公开文章", intro: "",
+                content: "正文",
+                createTime: "", updateTime: "", updateUser: .placeholder(id: 1, nickname: "作者"),
+                anonymous: false,
                 likeNum: 0, commentNum: 1, publicEdit: false, like: false, own: ready)
         }
-        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+        func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws
+            -> [CommunityComment]
+        {
             if page != nil { return [] }
             commentReads.append(authenticated)
-            return [.init(id: 1, obj: "paper\(paperID)", images: [], user: .placeholder(id: 1, nickname: "读者"), anonymous: false,
-                createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0, own: authenticated, rate: 0,
-                replyUser: .placeholder(id: 0, nickname: ""), replyObj: "", text: "评论", sub: [], isViewerAuthenticated: authenticated)]
+            return [
+                .init(
+                    id: 1, obj: "paper\(paperID)", images: [],
+                    user: .placeholder(id: 1, nickname: "读者"), anonymous: false,
+                    createTime: "", updateTime: "", like: false, likeNum: 0, commentNum: 0,
+                    own: authenticated, rate: 0,
+                    replyUser: .placeholder(id: 0, nickname: ""), replyObj: "", text: "评论", sub: [],
+                    isViewerAuthenticated: authenticated)
+            ]
         }
-        func likePaper(id: Int) async throws -> CommunityLikeResult { .init(like: true, likeNum: 1) }
-        func sendLike(objectID: String) async throws -> CommunityLikeResult { .init(like: true, likeNum: 1) }
-        func createComment(objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
-        func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws { throw URLError(.unsupportedURL) }
+        func likePaper(id: Int) async throws -> CommunityLikeResult {
+            .init(like: true, likeNum: 1)
+        }
+        func sendLike(objectID: String) async throws -> CommunityLikeResult {
+            .init(like: true, likeNum: 1)
+        }
+        func createComment(
+            objectID: String, text: String, replyObjectID: String?, replyUID: Int?, anonymous: Bool
+        ) async throws -> CommunityComment { throw URLError(.unsupportedURL) }
+        func updatePaper(
+            id: Int, title: String, intro: String, content: String, anonymous: Bool,
+            publicEdit: Bool, lastUpdatedAt: String
+        ) async throws { throw URLError(.unsupportedURL) }
         func deletePaper(id: Int) async throws { throw URLError(.unsupportedURL) }
     }
 
-    private var paperSummary: PaperSummary { .init(id: 17, title: "文章", intro: "", likeNum: 0, commentNum: 1, updateTime: "") }
+    private var paperSummary: PaperSummary {
+        .init(id: 17, title: "文章", intro: "", likeNum: 0, commentNum: 1, updateTime: "")
+    }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["loaded", "early", "coalesced", "path"])
-    func paperAuthenticationRecoveryRefreshesPublicContentThroughEitherCompletionOrder(phase: String) async throws {
-        let reads = AuthenticationPaperReads(), changes = PassthroughSubject<Void, Never>()
+    func paperAuthRecoveryRefreshesPublicOrder(phase: String) async throws {
+        let reads = AuthenticationPaperReads()
+        let changes = PassthroughSubject<Void, Never>()
         let path = NetworkPathState(snapshot: .init(status: .connected))
         var hasCredentials = false
         reads.pausePublicPaper = phase == "early"
-        let selectedSession = session(), service = PaperService(session: selectedSession)
-        let dependencies = PaperDependencies(list: service, detail: reads, composer: service,
-            drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-auth-recovery"),
-                session: { AppStorageSession(accountIdentifier: "paper-auth-recovery") }, prepareImageData: { $0 }),
+        let selectedSession = session()
+        let service = PaperService(session: selectedSession)
+        let dependencies = PaperDependencies(
+            list: service, detail: reads, composer: service,
+            drafts: ComposerDraftStore(
+                files: PreferenceMemoryFiles(),
+                applicationSupport: URL(fileURLWithPath: "/paper-auth-recovery"),
+                session: { AppStorageSession(accountIdentifier: "paper-auth-recovery") },
+                prepareImageData: { $0 }),
             networkPath: path, currentIdentity: { selectedSession.currentCredentials.identity },
             hasAuthenticationCredentials: { hasCredentials },
             authenticationChanges: changes.eraseToAnyPublisher())
         let selectedMedia = media()
-        let (window, _) = try window(NavigationStack {
-            PaperDetailView(dependencies: dependencies, media: selectedMedia, initialPaper: paperSummary, onChanged: {})
-        })
-        defer { reads.releasePublicPaper(); window.isHidden = true; window.rootViewController = nil }
-        func wait(_ stage: String, for condition: () -> Bool) async throws {
-            do { try await waitForTestEvent(condition) }
-            catch { Issue.record("\(phase) · \(stage)：正文=\(reads.paperReads)，评论=\(reads.commentReads)"); throw error }
+        let (window, _) = try window(
+            NavigationStack {
+                PaperDetailView(
+                    dependencies: dependencies, media: selectedMedia, initialPaper: paperSummary,
+                    onChanged: {})
+            })
+        defer {
+            reads.releasePublicPaper()
+            window.isHidden = true
+            window.rootViewController = nil
         }
-        try await wait("公开读取", for: { reads.paperReads == [false] && reads.commentReads == [false] })
+        func wait(_ stage: String, for condition: () -> Bool) async throws {
+            do { try await waitForTestEvent(condition) } catch {
+                Issue.record("\(phase) · \(stage)：正文=\(reads.paperReads)，评论=\(reads.commentReads)")
+                throw error
+            }
+        }
+        try await wait(
+            "公开读取", for: { reads.paperReads == [false] && reads.commentReads == [false] })
         try await render()
         if phase == "coalesced" {
             hasCredentials = true
             changes.send()
-            try await wait("待重试的认证读取", for: { reads.paperReads == [false, false] && reads.commentReads == [false, false] })
+            try await wait(
+                "待重试的认证读取",
+                for: {
+                    reads.paperReads == [false, false] && reads.commentReads == [false, false]
+                })
             try await render()
         }
         reads.authenticated = true
-        if phase == "coalesced" { hasCredentials = false; changes.send() }
+        if phase == "coalesced" {
+            hasCredentials = false
+            changes.send()
+        }
         hasCredentials = true
-        if phase == "path" { path.update(snapshot: .init(status: .connected)) }
-        else { changes.send() }
+        if phase == "path" {
+            path.update(snapshot: .init(status: .connected))
+        } else {
+            changes.send()
+        }
         let expected = Array(repeating: false, count: phase == "coalesced" ? 2 : 1) + [true]
-        try await wait("恢复认证读取", for: { reads.paperReads == expected && reads.commentReads == expected })
+        try await wait(
+            "恢复认证读取", for: { reads.paperReads == expected && reads.commentReads == expected })
         reads.releasePublicPaper()
         try await render()
-        hasCredentials = false; changes.send()
+        hasCredentials = false
+        changes.send()
         try await render()
-        hasCredentials = true; changes.send()
+        hasCredentials = true
+        changes.send()
         try await render()
         #expect(reads.paperReads == expected && reads.commentReads == expected)
     }
 
-    @Test(.timeLimit(.minutes(1))) func latePublicPaperResponsesKeepTheRecoveredPermissions() async throws {
-        let reads = AuthenticationPaperReads(); reads.pausePublicPaper = true
+    @Test(.timeLimit(.minutes(1))) func latePublicPaperPermissions() async throws {
+        let reads = AuthenticationPaperReads()
+        reads.pausePublicPaper = true
         let model = PaperDetailViewModel(initialPaper: paperSummary, service: reads)
         let first = Task { await model.refreshAll() }
-        defer { reads.releasePublicPaper(); first.cancel() }
+        defer {
+            reads.releasePublicPaper()
+            first.cancel()
+        }
         try await waitForTestEvent { reads.paperReads == [false] && reads.commentReads == [false] }
         reads.authenticated = true
         await model.refreshAll()
         #expect(model.paper?.own == true && model.hasKnownLikeState && !model.hasPublicContent)
         reads.releasePublicPaper()
         await first.value
-        #expect(model.paper?.isViewerAuthenticated == true && model.commentState.items.allSatisfy(\.isViewerAuthenticated))
+        #expect(
+            model.paper?.isViewerAuthenticated == true
+                && model.commentState.items.allSatisfy(\.isViewerAuthenticated))
     }
 
     private final class MineReads: MineOverviewServicing, UserProfileServicing {
@@ -116,11 +179,14 @@ struct CommunityRecoveryCompositionTests {
             requests += 1
             if offline { throw URLError(.notConnectedToInternet) }
             if suspended {
-                do { try await Task.sleep(for: .seconds(60)) }
-                catch { cancellations += 1; throw error }
+                do { try await Task.sleep(for: .seconds(60)) } catch {
+                    cancellations += 1
+                    throw error
+                }
             }
             successes += 1
-            return .init(user: .placeholder(id: 1, nickname: "恢复后的用户"), followingNum: 0, followerNum: 0,
+            return .init(
+                user: .placeholder(id: 1, nickname: "恢复后的用户"), followingNum: 0, followerNum: 0,
                 following: false, follower: false, own: true)
         }
         func fetchUserInfo(id: Int) async throws -> MineUserInfo { try await fetchMyInfo() }
@@ -128,32 +194,51 @@ struct CommunityRecoveryCompositionTests {
         func fetchUserPosters(userID: Int, page: Int) async throws -> [CommunityPoster] { [] }
         func fetchFollowers(page: Int) async throws -> [CommunityUser] { [] }
         func fetchFollowings(page: Int) async throws -> [CommunityUser] { [] }
-        func followUser(id: Int) async throws -> MineFollowResult { throw URLError(.unsupportedURL) }
+        func followUser(id: Int) async throws -> MineFollowResult {
+            throw URLError(.unsupportedURL)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func mineRecoveryRestartsAfterItsConnectedRequestIsCancelled(profile: Bool) async throws {
-        let service = MineReads(), path = NetworkPathState(snapshot: .init(status: .disconnected))
-        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: path)
+    func mineRecoveryRestartsIsCancelled(profile: Bool) async throws {
+        let service = MineReads()
+        let path = NetworkPathState(snapshot: .init(status: .disconnected))
+        let dependencies = MineDependencies(
+            overview: service, profile: service, deletePoster: { _ in }, networkPath: path)
         let posters = CommunityPosterDestination { _ in AnyView(Text("帖子")) }
-        let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("设置")) },
+        let settings = CommunitySettingsDestinations(
+            settingsEntries: [], settings: { _ in AnyView(Text("设置")) },
             suggestion: { AnyView(Text("反馈")) })
-        let view: AnyView = profile
-            ? AnyView(UserProfileRootView(dependencies: dependencies, media: media(), posters: posters, userID: 1))
-            : AnyView(MineRootView(dependencies: dependencies, media: media(), posters: posters, settings: settings,
-                fallbackStudentID: "fixture", onLogout: {}))
+        let view: AnyView =
+            profile
+            ? AnyView(
+                UserProfileRootView(
+                    dependencies: dependencies, media: media(), posters: posters, userID: 1))
+            : AnyView(
+                MineRootView(
+                    dependencies: dependencies, media: media(), posters: posters,
+                    settings: settings,
+                    fallbackStudentID: "fixture", onLogout: {}))
         let (window, _) = try window(NavigationStack { view })
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         func wait(_ stage: String, for condition: () -> Bool) async throws {
-            do { try await waitForTestEvent(condition) }
-            catch {
-                Issue.record("\(stage)：profile=\(profile)，请求=\(service.requests)，取消=\(service.cancellations)，成功=\(service.successes)")
+            do { try await waitForTestEvent(condition) } catch {
+                Issue.record(
+                    """
+                    \(stage)：profile=\(profile)，请求=\(service.requests)，取消=\
+                    \(service.cancellations)，成功=\(service.successes)
+                    """
+                )
                 throw error
             }
         }
         try await wait("初次加载", for: { service.requests == 1 })
         try await render()
-        service.offline = false; service.suspended = true
+        service.offline = false
+        service.suspended = true
         path.update(snapshot: .init(status: .connected))
         try await wait("连接恢复", for: { service.requests == 2 })
         path.update(snapshot: .init(status: .disconnected))
@@ -174,18 +259,29 @@ struct CommunityRecoveryCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["connection", "interface", "wifi"])
-    func courseSearchStaysAvailableThroughFailureAndConnectedRecovery(change: String) async throws {
-        let path = NetworkPathState(snapshot: .init(status: change == "connection" ? .disconnected : .connected, interfaces: [.wifi])), reads = CourseReads()
-        let preferences = CommunityPreferences(snapshot: .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
-            useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
-        let dependencies = CourseDependencies(list: reads, detail: CourseService(session: session()), preferences: preferences,
+    func courseSearchStaysAvailableFailure(change: String) async throws {
+        let path = NetworkPathState(
+            snapshot: .init(
+                status: change == "connection" ? .disconnected : .connected, interfaces: [.wifi]))
+        let reads = CourseReads()
+        let preferences = CommunityPreferences(
+            snapshot: .init(
+                hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
+        let dependencies = CourseDependencies(
+            list: reads, detail: CourseService(session: session()), preferences: preferences,
             networkPath: path, loadCourseCredits: { [] })
         let model = dependencies.makeListViewModel()
         model.searchText = "旧查询"
-        let (window, controller) = try window(NavigationStack {
-            CoursePageContent(viewModel: model, dependencies: dependencies, selection: .constant(nil))
-        })
-        defer { window.isHidden = true; window.rootViewController = nil }
+        let (window, controller) = try window(
+            NavigationStack {
+                CoursePageContent(
+                    viewModel: model, dependencies: dependencies, selection: .constant(nil))
+            })
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         try await waitForTestEvent { if case .failed = model.state.status { true } else { false } }
         try await render()
         func fields(_ view: UIView) -> [UITextField] {
@@ -200,7 +296,9 @@ struct CommunityRecoveryCompositionTests {
             #expect(reads.queries == ["旧查询"])
         }
         reads.offline = false
-        path.update(snapshot: .init(status: .connected, interfaces: change == "interface" ? [.cellular] : [.wifi]))
+        path.update(
+            snapshot: .init(
+                status: .connected, interfaces: change == "interface" ? [.cellular] : [.wifi]))
         try await waitForTestEvent { model.state.status == .loaded }
         #expect(reads.queries == ["旧查询", "旧查询"])
         model.searchText = "新查询"
@@ -209,27 +307,32 @@ struct CommunityRecoveryCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aFailedRefreshRetainsItsRecoveryAfterContentWasLoaded() async {
-        let reads = CourseReads(); reads.offline = false
+    func failedRefreshRetainsRecovery() async {
+        let reads = CourseReads()
+        reads.offline = false
         let model = CourseListViewModel(service: reads)
         await model.bootstrapIfNeeded()
         reads.offline = true
         await model.refresh()
         #expect(model.state.status == .loaded && model.alert != nil)
         reads.offline = false
-        await model.retryAfterConnectivityRecovery()
+        await model.retryAfterReconnect()
         #expect(reads.queries.count == 3 && model.state.status == .loaded && model.alert == nil)
     }
 
     private final class PaperReads: PaperListServicing {
         var calls = 0, offline = true
-        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws
+            -> [PaperSummary]
+        {
             calls += 1
             if offline { throw URLError(.notConnectedToInternet) }
             return []
         }
         func fetchPaper(id: Int) async throws -> PaperDetail { throw URLError(.unsupportedURL) }
-        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata { throw URLError(.unsupportedURL) }
+        func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
+            throw URLError(.unsupportedURL)
+        }
     }
 
     private final class Messages: GalleryMessageServicing {
@@ -240,38 +343,52 @@ struct CommunityRecoveryCompositionTests {
             if holdSummary {
                 isSuspended = true
                 defer { isSuspended = false }
-                do { try await Task.sleep(for: .seconds(60)) }
-                catch { cancellations += 1; throw error }
+                do { try await Task.sleep(for: .seconds(60)) } catch {
+                    cancellations += 1
+                    throw error
+                }
             }
             return .init()
         }
-        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage]
+        {
             cursors.append(lastID)
             return []
         }
     }
 
     private final class UnusedTransport: HTTPTransport {
-        func data(for request: URLRequest) async throws -> (Data, URLResponse) { throw URLError(.unsupportedURL) }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            throw URLError(.unsupportedURL)
+        }
     }
 
     private func session() -> CommunitySession {
-        CommunitySession(httpClient: HTTPClient(transport: UnusedTransport(), observer: nil),
-            baseURL: AppURL.required("https://example.invalid"), credentials: {
+        CommunitySession(
+            httpClient: HTTPClient(transport: UnusedTransport(), observer: nil),
+            baseURL: AppURL.required("https://example.invalid"),
+            credentials: {
                 .init(identity: .init(accountIdentifier: "composition-recovery"), cookie: "fixture")
             }, refresh: { _ in })
     }
 
     private func media() -> MediaEnvironment {
-        let files = PreferenceMemoryFiles(), client = HTTPClient(transport: UnusedTransport(), observer: nil)
-        return AppMedia.makeEnvironment(files: files, previewStorage: MediaPreviewStorage(files: files),
+        let files = PreferenceMemoryFiles()
+        let client = HTTPClient(transport: UnusedTransport(), observer: nil)
+        return AppMedia.makeEnvironment(
+            files: files, previewStorage: MediaPreviewStorage(files: files),
             imageHTTPClient: client, avatarHTTPClient: client)
     }
 
     private func window<V: View>(_ view: V) throws -> (UIWindow, UIHostingController<AnyView>) {
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene), controller = UIHostingController(rootView: AnyView(view.environment(\.scenePhase, .active)))
-        window.rootViewController = controller; window.makeKeyAndVisible(); window.layoutIfNeeded()
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(
+            rootView: AnyView(view.environment(\.scenePhase, .active)))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
         return (window, controller)
     }
 
@@ -284,13 +401,24 @@ struct CommunityRecoveryCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func paperRecoveryWaitsForTheConnectedTransitionAfterConnectionIsRequired() async throws {
-        let path = NetworkPathState(snapshot: .init(status: .disconnected)), service = PaperReads()
+    func paperRecoveryWaitsConnectedTransition() async throws {
+        let path = NetworkPathState(snapshot: .init(status: .disconnected))
+        let service = PaperReads()
         let paperSession = session()
         let details = PaperService(session: paperSession)
-        let dependencies = PaperDependencies(list: service, detail: details, composer: details, drafts: ComposerDraftStore(files: PreferenceMemoryFiles(), applicationSupport: URL(fileURLWithPath: "/paper-draft"), session: { AppStorageSession(accountIdentifier: "composition-recovery") }, prepareImageData: { $0 }), networkPath: path, currentIdentity: { paperSession.currentCredentials.identity })
+        let dependencies = PaperDependencies(
+            list: service, detail: details, composer: details,
+            drafts: ComposerDraftStore(
+                files: PreferenceMemoryFiles(),
+                applicationSupport: URL(fileURLWithPath: "/paper-draft"),
+                session: { AppStorageSession(accountIdentifier: "composition-recovery") },
+                prepareImageData: { $0 }), networkPath: path,
+            currentIdentity: { paperSession.currentCredentials.identity })
         let (window, _) = try window(PaperRootView(dependencies: dependencies, media: media()))
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         try await waitForTestEvent { service.calls == 1 }
         path.update(snapshot: .init(status: .requiresConnection))
         try await render()
@@ -302,37 +430,61 @@ struct CommunityRecoveryCompositionTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func messageRecoveryCancellationKeepsItsWindowRetryableAfterOwnerExit(changeType: Bool) async throws {
+    func messageRecoveryCancelKeepsWindowRetryable(changeType: Bool) async throws {
         let domain = "BIT101Tests.message-owner-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        let files = PreferenceMemoryFiles(), account = AppStorageSession(accountIdentifier: domain)
-        let readStore = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/message-owner-recovery"),
+        let files = PreferenceMemoryFiles()
+        let account = AppStorageSession(accountIdentifier: domain)
+        let readStore = GalleryMessageReadStore(
+            files: files, storageRoot: URL(fileURLWithPath: "/message-owner-recovery"),
             defaults: defaults, session: { account })
-        let service = Messages(), model = GalleryMessageViewModel(service: service, readStore: readStore)
+        let service = Messages()
+        let model = GalleryMessageViewModel(service: service, readStore: readStore)
         await model.refreshSelectedType()
         let path = NetworkPathState(snapshot: .init(status: .disconnected))
-        let preferences = CommunityPreferences(snapshot: .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
-            useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
+        let preferences = CommunityPreferences(
+            snapshot: .init(
+                hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
         let gallery = GalleryService(session: session(), preferences: { preferences.snapshot })
-        let dependencies = GalleryDependencies(webCredentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()),
-            currentIdentity: { .init(accountIdentifier: domain) }, feed: gallery, messageService: service, posterDetail: gallery,
-            subscriptions: gallery, reporting: gallery, composer: gallery, images: gallery, preferences: preferences, messages: readStore,
-            drafts: ComposerDraftStore(files: files, applicationSupport: URL(fileURLWithPath: "/message-owner-recovery"),
-                session: { account }, prepareImageData: ComposerDraftImageCompressor.compress), networkPath: path)
-        let view = GalleryMessagesView(papers: .init(papers: { _, _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }),
-            courses: .init { _ in AnyView(Text("course")) }, viewModel: model)
-            .environment(dependencies).environment(media()).environment(CommunityProfileDestination { _ in AnyView(Text("profile")) })
+        let dependencies = GalleryDependencies(
+            webCredentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()),
+            currentIdentity: { .init(accountIdentifier: domain) }, feed: gallery,
+            messageService: service, posterDetail: gallery,
+            subscriptions: gallery, reporting: gallery, composer: gallery, images: gallery,
+            preferences: preferences, messages: readStore,
+            drafts: ComposerDraftStore(
+                files: files, applicationSupport: URL(fileURLWithPath: "/message-owner-recovery"),
+                session: { account }, prepareImageData: ComposerDraftImageCompressor.compress),
+            networkPath: path)
+        let view = GalleryMessagesView(
+            papers: .init(
+                papers: { _, _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }
+            ),
+            courses: .init { _ in AnyView(Text("course")) }, viewModel: model
+        )
+        .environment(dependencies).environment(media()).environment(
+            CommunityProfileDestination { _ in AnyView(Text("profile")) })
         let (window, controller) = try window(NavigationStack { view })
-        defer { window.isHidden = true; window.rootViewController = nil; model.pendingOperations.cancel() }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            model.pendingOperations.cancel()
+        }
         try await render()
         service.failSummary = true
-        await model.refreshSelectedType(); model.alert = nil
-        service.failSummary = false; service.holdSummary = true
+        await model.refreshSelectedType()
+        model.alert = nil
+        service.failSummary = false
+        service.holdSummary = true
         path.update(snapshot: .init(status: .connected))
         try await waitForTestEvent { service.isSuspended }
-        if changeType { model.selectedType = .like }
-        else { controller.rootView = AnyView(Text("closed")) }
+        if changeType {
+            model.selectedType = .like
+        } else {
+            controller.rootView = AnyView(Text("closed"))
+        }
         try await waitForTestEvent { service.cancellations > 0 }
         service.holdSummary = false
         controller.rootView = AnyView(Text("closed"))

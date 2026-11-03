@@ -6,7 +6,8 @@ import UIKit
 
 /// 线性时间轴视图。
 struct LinearScheduleCalendarView: View {
-    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule.WeekSlider.captionLineHeight
+    @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule
+        .WeekSlider.captionLineHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
     let entries: [ScheduleCalendarEntry]
     let week: Int
@@ -32,7 +33,8 @@ struct LinearScheduleCalendarView: View {
             let metrics = ScheduleCalendarHeaderMetrics(captionLineHeight: captionLineHeight)
             let weekSliderHeight = metrics.weekSliderHeight
             let dateHeaderHeight = metrics.dateHeaderHeight
-            let headerHeight = displayMode == .weekly
+            let headerHeight =
+                displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
                 : metrics.compactHeaderHeight
 
@@ -118,11 +120,15 @@ private struct LinearScheduleHeader: View {
                             .font(AppDesignSystem.Typography.captionEmphasis)
                             .foregroundStyle(AppDesignSystem.Foreground.primary)
                             .lineLimit(1)
-                            .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+                            .minimumScaleFactor(
+                                AppDesignSystem.Schedule.Grid.minimumScaleFactor
+                            )
                             .frame(width: dayWidth, height: dateHeaderHeight)
                             .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
                         ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                            let weekday = weekdayTitle(visibleWeekdays[index])
+                            let dateText = ScheduleDateCodec.formatCompactDate(date)
                             Button {
                                 onSelectDay(date, visibleWeekdays[index])
                             } label: {
@@ -130,10 +136,13 @@ private struct LinearScheduleHeader: View {
                                     .font(AppDesignSystem.Typography.caption)
                                     .foregroundStyle(AppDesignSystem.Foreground.primary)
                                     .frame(width: dayWidth, height: dateHeaderHeight)
-                                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                                    .background(
+                                        AppDesignSystem.Palette.Background.secondaryGrouped)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("第\(week)周，\(weekdayTitle(visibleWeekdays[index]))，\(ScheduleDateCodec.formatCompactDate(date))")
+                            .accessibilityLabel(
+                                "第\(week)周，\(weekday)，\(dateText)"
+                            )
                         }
                     }
                 }
@@ -162,7 +171,7 @@ private struct LinearScheduleHeader: View {
     }
 
     private var visibleWeekdayValues: [Int] {
-        (1 ... 7).filter {
+        (1...7).filter {
             if $0 == 6 { return showSaturday }
             if $0 == 7 { return showSunday }
             return true
@@ -247,7 +256,10 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
             hostingController?.rootView = LinearScheduleCanvasView(configuration: configuration)
         }
 
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
             true
         }
     }
@@ -262,7 +274,8 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     private var viewportSize = CGSize.zero
     private var hasInitialPosition = false
     private var pendingScale = AppDesignSystem.Schedule.timelineDefaultScale
-    lazy var timelinePinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(zoomTimeline(_:)))
+    lazy var timelinePinchGesture = UIPinchGestureRecognizer(
+        target: self, action: #selector(zoomTimeline(_:)))
     private var pinchViewport: ScheduleTimelineViewport?
     private var pinchAnchorY: CGFloat = 0
 
@@ -296,11 +309,14 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     @objc private func zoomTimeline(_ gesture: UIPinchGestureRecognizer) {
         let anchorY = gesture.location(in: self).y - contentOffset.y
         if gesture.state == .began {
-            pinchViewport = ScheduleTimelineViewport(viewportHeight: bounds.height, scale: zoomScale, offsetY: contentOffset.y)
+            pinchViewport = ScheduleTimelineViewport(
+                viewportHeight: bounds.height, scale: zoomScale, offsetY: contentOffset.y)
             pinchAnchorY = anchorY
         }
         guard let initial = pinchViewport else { return }
-        let next = initial.zoomed(to: initial.scale * gesture.scale, initialAnchorY: pinchAnchorY, currentAnchorY: anchorY)
+        let next = initial.zoomed(
+            to: initial.scale * gesture.scale, initialAnchorY: pinchAnchorY,
+            currentAnchorY: anchorY)
         pendingScale = next.scale
         setZoomScale(next.scale, animated: false)
         updateCanvasGeometry()
@@ -325,16 +341,19 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
         guard bounds.width > 0, bounds.height > 0 else { return }
         if viewportSize != bounds.size {
             let previousHeight = viewportSize.height
-            let centerRatio = previousHeight > 0
+            let centerRatio =
+                previousHeight > 0
                 ? (contentOffset.y + previousHeight / 2) / max(previousHeight * zoomScale, 1)
                 : 0
             viewportSize = bounds.size
             zoomContainer.bounds = CGRect(origin: .zero, size: viewportSize)
-            zoomContainer.center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+            zoomContainer.center = CGPoint(
+                x: viewportSize.width / 2, y: viewportSize.height / 2)
             updateCanvasGeometry()
 
             if previousHeight > 0 {
-                let nextOffset = centerRatio * viewportSize.height * zoomScale - viewportSize.height / 2
+                let nextOffset =
+                    centerRatio * viewportSize.height * zoomScale - viewportSize.height / 2
                 setVerticalOffset(nextOffset)
             }
         }
@@ -402,7 +421,8 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     private func updateCanvasGeometry() {
         guard viewportSize.width > 0, viewportSize.height > 0 else { return }
         let scale = max(zoomScale, 0.001)
-        zoomContainer.center = CGPoint(x: viewportSize.width * scale / 2, y: viewportSize.height * scale / 2)
+        zoomContainer.center = CGPoint(
+            x: viewportSize.width * scale / 2, y: viewportSize.height * scale / 2)
         accessibilityValue = "缩放 \(Int((scale * 100).rounded()))%"
         let canvasSize = CGSize(
             width: viewportSize.width,
@@ -426,7 +446,8 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     }
 
     private func currentMinute() -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: Date())
+        let components = ScheduleDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: Date())
         return min(
             max((components.hour ?? 12) * 60 + (components.minute ?? 0), 0),
             24 * 60
@@ -462,11 +483,18 @@ private struct LinearScheduleCanvasView: View {
                     onMenuWillPresent: { contextMenuFeedbackToken &+= 1 }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.trailing, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
-                .padding(.bottom, AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular)
+                .padding(
+                    .trailing,
+                    AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular
+                )
+                .padding(
+                    .bottom,
+                    AppDesignSystem.Size.Control.touchTarget + AppDesignSystem.Spacing.regular
+                )
                 .frame(width: proxy.size.width, height: contentHeight, alignment: .topLeading)
 
-                ForEach(configuration.entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) { entry in
+                ForEach(configuration.entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) {
+                    entry in
                     entryView(
                         entry,
                         leftWidth: columnWidth,
@@ -483,7 +511,7 @@ private struct LinearScheduleCanvasView: View {
     }
 
     private var visibleWeekdayValues: [Int] {
-        (1 ... 7).filter {
+        (1...7).filter {
             if $0 == 6 { return configuration.showSaturday }
             if $0 == 7 { return configuration.showSunday }
             return true
@@ -500,14 +528,19 @@ private struct LinearScheduleCanvasView: View {
     ) -> some View {
         ZStack(alignment: .topLeading) {
             if configuration.currentWeek == configuration.week,
-               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate)) {
+                let index = visibleWeekdays.firstIndex(
+                    of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate))
+            {
                 Rectangle()
                     .fill(AppDesignSystem.Schedule.GridPalette.todayHighlight)
                     .frame(width: dayWidth, height: contentHeight)
                     .offset(x: leftWidth + dayWidth * CGFloat(index))
             }
 
-            ForEach(Array(stride(from: timelineStart + 60, through: timelineEnd - 60, by: 60)), id: \.self) { minute in
+            ForEach(
+                Array(stride(from: timelineStart + 60, through: timelineEnd - 60, by: 60)),
+                id: \.self
+            ) { minute in
                 let y = yPosition(
                     for: minute,
                     contentHeight: contentHeight,
@@ -529,18 +562,25 @@ private struct LinearScheduleCanvasView: View {
                     .offset(y: y - AppDesignSystem.Spacing.regular)
             }
 
-            ForEach(0 ... visibleWeekdays.count, id: \.self) { column in
+            ForEach(0...visibleWeekdays.count, id: \.self) { column in
                 Rectangle()
                     .fill(AppDesignSystem.Schedule.GridPalette.majorLine)
-                    .frame(width: AppDesignSystem.Schedule.Grid.lineWidth, height: contentHeight)
+                    .frame(
+                        width: AppDesignSystem.Schedule.Grid.lineWidth, height: contentHeight
+                    )
                     .offset(x: leftWidth + dayWidth * CGFloat(column))
             }
 
             if configuration.currentWeek == configuration.week,
-               let index = visibleWeekdays.firstIndex(of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate)) {
+                let index = visibleWeekdays.firstIndex(
+                    of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate))
+            {
                 Rectangle()
                     .fill(AppDesignSystem.Palette.Accent.primary)
-                    .frame(width: dayWidth, height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)
+                    .frame(
+                        width: dayWidth,
+                        height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight
+                    )
                     .offset(
                         x: leftWidth + dayWidth * CGFloat(index),
                         y: yPosition(
@@ -563,9 +603,12 @@ private struct LinearScheduleCanvasView: View {
         timelineStart: Int,
         timelineEnd: Int
     ) -> some View {
-        let start = entry.startMinutes ?? fallbackMinute(for: entry.startSection, start: timelineStart, end: timelineEnd)
+        let start =
+            entry.startMinutes
+            ?? fallbackMinute(for: entry.startSection, start: timelineStart, end: timelineEnd)
         let end = max(
-            entry.endMinutes ?? fallbackMinute(for: entry.endSection, start: timelineStart, end: timelineEnd),
+            entry.endMinutes
+                ?? fallbackMinute(for: entry.endSection, start: timelineStart, end: timelineEnd),
             start + 1
         )
         let startY = yPosition(
@@ -581,7 +624,8 @@ private struct LinearScheduleCanvasView: View {
             end: timelineEnd
         )
         let cardWidth = max(dayWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
-        let cardHeight = max(endY - startY - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 18)
+        let cardHeight = max(
+            endY - startY - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 18)
 
         return ZStack(alignment: .topLeading) {
             CourseScheduleBackgroundView(entry: entry)
@@ -593,18 +637,21 @@ private struct LinearScheduleCanvasView: View {
             ScheduleEntryInteractionView(
                 entry: entry,
                 onTap: { configuration.onSelect(entry) },
-                onMenuWillPresent: entry.kind == .course ? {
-                    contextMenuFeedbackToken &+= 1
-                    configuration.onPrepareCourseShare(entry)
-                } : nil,
-                onShare: entry.kind == .course ? { configuration.onLongPressCourse(entry) } : nil
+                onMenuWillPresent: entry.kind == .course
+                    ? {
+                        contextMenuFeedbackToken &+= 1
+                        configuration.onPrepareCourseShare(entry)
+                    } : nil,
+                onShare: entry.kind == .course
+                    ? { configuration.onLongPressCourse(entry) } : nil
             )
             .frame(width: cardWidth, height: cardHeight)
         }
         .frame(width: cardWidth, height: cardHeight)
         .contentShape(Rectangle())
         .offset(
-            x: leftWidth + dayWidth * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
+            x: leftWidth + dayWidth
+                * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
                 + AppDesignSystem.Schedule.Grid.lineWidth,
             y: startY + AppDesignSystem.Schedule.Grid.lineWidth
         )
@@ -612,7 +659,10 @@ private struct LinearScheduleCanvasView: View {
     }
 
     private func fallbackMinute(for section: CGFloat, start: Int, end: Int) -> Int {
-        start + Int((section / CGFloat(max(configuration.timeTable.count, 1))) * CGFloat(end - start))
+        start
+            + Int(
+                (section / CGFloat(max(configuration.timeTable.count, 1)))
+                    * CGFloat(end - start))
     }
 
     private func yPosition(
@@ -626,7 +676,8 @@ private struct LinearScheduleCanvasView: View {
     }
 
     private var currentMinute: Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: configuration.currentDate)
+        let components = ScheduleDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: configuration.currentDate)
         return min(max((components.hour ?? 12) * 60 + (components.minute ?? 0), 0), 24 * 60)
     }
 }

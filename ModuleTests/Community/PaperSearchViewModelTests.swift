@@ -1,17 +1,18 @@
-import TransportCore
 import CommunityCore
 import DesignSystemKit
-@testable import PaperFeature
+import Foundation
+import Testing
+import TransportCore
+
 @testable import CourseFeature
 @testable import GalleryFeature
 @testable import MineFeature
-import Foundation
-import Testing
+@testable import PaperFeature
 
 @Suite("Paper search state machine")
 struct PaperSearchViewModelTests {
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func failedListKeepsItsCauseAfterTheTransientAlertIsDismissed() async {
+    func failedListKeepsCause() async {
         let service = ServiceStub(result: .failure(URLError(.notConnectedToInternet)))
         let model = PaperListViewModel(service: service)
         await model.refresh()
@@ -23,48 +24,65 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
-    func refreshRevalidatesAuthorsWhileKeepingTheDisplayedMetadata(search: Bool) async throws {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-a")
+    func refreshRevalidatesAuthors(search: Bool) async throws {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-a")
         let service = ServiceStub(result: .success([paper]))
-        let model: PaperCollectionViewModel = search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
+        let model: PaperCollectionViewModel =
+            search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
         model.searchText = "fixture"
         service.metadata = { _ in
-            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "version-a",
-                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+            PaperDetail(
+                id: 1, title: "fixture", intro: "", content: "", createTime: "",
+                updateTime: "version-a",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0,
+                publicEdit: true, like: false, own: true)
         }
-        await model.refresh(); await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.refresh()
+        await model.loadPreviewMetadata(for: paper)
         let author = try #require(model.previewMetadata(for: paper.id))
         service.metadata = { _ in
-            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "version-a",
-                updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+            PaperDetail(
+                id: 1, title: "fixture", intro: "", content: "", createTime: "",
+                updateTime: "version-a",
+                updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0,
+                publicEdit: true, like: false, own: true)
         }
         await model.refresh()
         #expect(model.previewMetadata(for: paper.id) == author)
-        await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.loadPreviewMetadata(for: paper)
         let updatedAuthor = try #require(model.previewMetadata(for: paper.id))
         #expect(updatedAuthor != author && service.metadataRequests == 2)
         service.result = .failure(URLError(.timedOut))
         await model.refresh()
         #expect(model.previewMetadata(for: paper.id) == updatedAuthor)
-        service.result = .success([.init(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "version-b")])
+        service.result = .success([
+            .init(
+                id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0,
+                updateTime: "version-b")
+        ])
         await model.refresh()
         #expect(model.previewMetadata(for: paper.id) == nil)
-        await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.loadPreviewMetadata(for: paper)
         #expect(service.metadataRequests == 3)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
-    func refreshingKeepsDisplayedAuthorsUntilTheNewFirstPageArrives(search: Bool) async throws {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func refreshingKeepsDisplayedAuthorsArrives(search: Bool) async throws {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
-        let model: PaperCollectionViewModel = search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
+        let model: PaperCollectionViewModel =
+            search ? PaperSearchViewModel(service: service) : PaperListViewModel(service: service)
         model.searchText = "fixture"
         service.metadata = { _ in
-            return PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+            return PaperDetail(
+                id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0,
+                publicEdit: true, like: false, own: true)
         }
         await model.refresh()
-        await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.loadPreviewMetadata(for: paper)
         let author = try #require(model.previewMetadata(for: paper.id))
         let gate = ListRequestGate<[PaperSummary]>()
         service.fetch = { try await gate.request() }
@@ -72,12 +90,12 @@ struct PaperSearchViewModelTests {
         try await gate.waitUntilRequested()
         #expect(model.previewMetadata(for: paper.id) == author)
         #expect(model.state.items == [paper])
-        await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.loadPreviewMetadata(for: paper)
         #expect(service.metadataRequests == 1)
         gate.finish([paper])
         await refreshing.value
         #expect(model.previewMetadata(for: paper.id) == nil)
-        await model.loadPreviewMetadataIfNeeded(for: paper)
+        await model.loadPreviewMetadata(for: paper)
         #expect(service.metadataRequests == 2)
     }
 
@@ -90,7 +108,9 @@ struct PaperSearchViewModelTests {
 
         init(result: Result<[PaperSummary], Error>) { self.result = result }
 
-        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+        func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws
+            -> [PaperSummary]
+        {
             requests.append((search, order, page))
             if let fetch { return try await fetch() }
             return try result.get()
@@ -106,13 +126,16 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func listPaginationKeepsTheSuccessfulConditionsAfterEditingAndRefreshFailure() async {
-        let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func listPaginationKeepsSuccessfulConditions() async {
+        let paper = PaperSummary(
+            id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let model = PaperListViewModel(service: service)
-        model.searchText = "A"; model.selectedOrder = .like
+        model.searchText = "A"
+        model.selectedOrder = .like
         await model.refresh()
-        model.searchText = "B"; model.selectedOrder = .newest
+        model.searchText = "B"
+        model.selectedOrder = .newest
         service.result = .failure(URLError(.timedOut))
         await model.refresh()
         #expect(model.displayedQueryDescription == "“A”的文章 · 高赞")
@@ -130,13 +153,16 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func searchPaginationKeepsItsSubmittedConditionsWhileEditing() async {
-        let paper = PaperSummary(id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func searchPaginationKeepsSubmittedConditions() async {
+        let paper = PaperSummary(
+            id: 1, title: "A", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let model = PaperSearchViewModel(service: service)
-        model.searchText = "A"; model.selectedOrder = .like
+        model.searchText = "A"
+        model.selectedOrder = .like
         await model.performSearch()
-        model.searchText = "B"; model.selectedOrder = .newest
+        model.searchText = "B"
+        model.selectedOrder = .newest
         #expect(model.displayedQueryDescription == "“A”的文章 · 高赞")
         service.result = .success([])
         await model.loadMoreIfNeeded(currentPaper: paper)
@@ -145,13 +171,18 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true], [false, true]) @MainActor
-    func metadataRefreshRejectsEarlierRequestsAndReflectsAnonymity(search: Bool, staleFailure: Bool) async throws {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func metadataRefreshRejectsEarlierRequests(search: Bool, staleFailure: Bool) async throws {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
-        let original = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
-        let edited = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-            updateUser: listUser(2), anonymous: true, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        let original = PaperDetail(
+            id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true,
+            like: false, own: true)
+        let edited = PaperDetail(
+            id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(2), anonymous: true, likeNum: 0, commentNum: 0, publicEdit: true,
+            like: false, own: true)
         let list = PaperListViewModel(service: service)
         let results = PaperSearchViewModel(service: service)
         results.searchText = "fixture"
@@ -160,15 +191,16 @@ struct PaperSearchViewModelTests {
         let preview: @MainActor () -> PaperPreviewMetadata?
         if search {
             refresh = { await results.performSearch() }
-            load = { await results.loadPreviewMetadataIfNeeded(for: paper) }
+            load = { await results.loadPreviewMetadata(for: paper) }
             preview = { results.previewMetadata(for: paper.id) }
         } else {
             refresh = { await list.refresh() }
-            load = { await list.loadPreviewMetadataIfNeeded(for: paper) }
+            load = { await list.loadPreviewMetadata(for: paper) }
             preview = { list.previewMetadata(for: paper.id) }
         }
         service.metadata = { _ in original }
-        await refresh(); await load()
+        await refresh()
+        await load()
         #expect(preview()?.authorName == original.updateUser.nickname)
         await refresh()
         #expect(preview() == nil)
@@ -190,29 +222,40 @@ struct PaperSearchViewModelTests {
         #expect(preview()?.avatarFallbackURL == nil)
         #expect(preview()?.authorName == edited.previewMetadata.authorName)
         #expect(search ? results.previewFailedIDs.isEmpty : list.previewFailedIDs.isEmpty)
-        if search { results.reset(); #expect(preview() == nil) }
+        if search {
+            results.reset()
+            #expect(preview() == nil)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
-    func leavingThePageReleasesPreviewRequestsForTheSamePaper(search: Bool) async throws {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func leavingPageReleasesPreviewRequestsPaper(search: Bool) async throws {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let list = PaperListViewModel(service: service)
         let results = PaperSearchViewModel(service: service)
         results.searchText = "fixture"
         func load() async {
-            if search { await results.loadPreviewMetadataIfNeeded(for: paper) }
-            else { await list.loadPreviewMetadataIfNeeded(for: paper) }
+            if search {
+                await results.loadPreviewMetadata(for: paper)
+            } else {
+                await list.loadPreviewMetadata(for: paper)
+            }
         }
         func preview() -> PaperPreviewMetadata? {
             search ? results.previewMetadata(for: paper.id) : list.previewMetadata(for: paper.id)
         }
         if search { await results.performSearch() } else { await list.refresh() }
         let earlierGate = ListRequestGate<PaperDetail>()
-        let old = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
-        let fresh = PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-            updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+        let old = PaperDetail(
+            id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true,
+            like: false, own: true)
+        let fresh = PaperDetail(
+            id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+            updateUser: listUser(2), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true,
+            like: false, own: true)
         var requests = 0
         service.metadata = { _ in
             requests += 1
@@ -232,16 +275,26 @@ struct PaperSearchViewModelTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
-    func failedPreviewLeavesALoadResultAndRefreshAllowsRetry(search: Bool) async {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func failedPreviewLeavesLoadResult(search: Bool) async {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let list = PaperListViewModel(service: service)
         let results = PaperSearchViewModel(service: service)
         results.searchText = "fixture"
-        func refresh() async { if search { await results.performSearch() } else { await list.refresh() } }
-        func load() async { if search { await results.loadPreviewMetadataIfNeeded(for: paper) } else { await list.loadPreviewMetadataIfNeeded(for: paper) } }
+        func refresh() async {
+            if search { await results.performSearch() } else { await list.refresh() }
+        }
+        func load() async {
+            if search {
+                await results.loadPreviewMetadata(for: paper)
+            } else {
+                await list.loadPreviewMetadata(for: paper)
+            }
+        }
         func failures() -> Set<Int> { search ? results.previewFailedIDs : list.previewFailedIDs }
-        await refresh(); await load()
+        await refresh()
+        await load()
         #expect(failures() == [paper.id])
         await load()
         #expect(service.metadataRequests == 1)
@@ -249,20 +302,28 @@ struct PaperSearchViewModelTests {
         await load()
         #expect(service.metadataRequests == 2 && failures() == [paper.id])
         service.metadata = { _ in throw CancellationError() }
-        await refresh(); await load()
+        await refresh()
+        await load()
         #expect(failures().isEmpty)
         service.metadata = { _ in
-            PaperDetail(id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
-                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0, publicEdit: true, like: false, own: true)
+            PaperDetail(
+                id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
+                updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0,
+                publicEdit: true, like: false, own: true)
         }
-        await refresh(); await load()
+        await refresh()
+        await load()
         #expect(failures().isEmpty)
-        #expect(search ? results.previewMetadata(for: paper.id) != nil : list.previewMetadata(for: paper.id) != nil)
+        #expect(
+            search
+                ? results.previewMetadata(for: paper.id) != nil
+                : list.previewMetadata(for: paper.id) != nil)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func returningBeforeTheCancelledBootstrapEndsStartsAFreshRequest() async throws {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    func returningEndsStartsFreshRequest() async throws {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .success([paper]))
         let gate = ListRequestGate<[PaperSummary]>()
         service.fetch = { try await gate.request() }
@@ -278,8 +339,9 @@ struct PaperSearchViewModelTests {
         #expect(model.state.status == .loaded && model.state.items == [paper])
     }
 
-    @Test(.timeLimit(.minutes(1))) @MainActor func paperListRetriesItsCancelledBootstrapWhenThePageReturns() async {
-        let paper = PaperSummary(id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+    @Test(.timeLimit(.minutes(1))) @MainActor func paperListRetriesCancelledBootstrap() async {
+        let paper = PaperSummary(
+            id: 1, title: "fixture", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         let service = ServiceStub(result: .failure(CancellationError()))
         let model = PaperListViewModel(service: service)
         await model.bootstrapIfNeeded()

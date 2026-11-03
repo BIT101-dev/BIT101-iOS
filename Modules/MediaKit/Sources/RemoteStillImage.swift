@@ -14,25 +14,39 @@ final class RemoteStillImageLoader {
     private var displayedURL: URL?
     var image: UIImage? { displayed.image }
 
-    func clear() { displayed.clear(); displayedURL = nil; currentResource = nil }
+    func clear() {
+        displayed.clear()
+        displayedURL = nil
+        currentResource = nil
+    }
 
-    func load(thumbnailURL: URL?, originalURL: URL?, loadsOriginal: Bool, media: MediaEnvironment,
-        pixelSize: Int, onAspectRatioResolved: ((CGFloat) -> Void)? = nil) async {
+    func load(
+        thumbnailURL: URL?, originalURL: URL?, loadsOriginal: Bool, media: MediaEnvironment,
+        pixelSize: Int, onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+    ) async {
         let urls = mediaImageURLs([thumbnailURL, originalURL])
-        let resource = MediaImageLoadIdentity(urls: urls.map(Optional.some), environment: ObjectIdentifier(media), pixelSize: pixelSize)
-        if currentResource != resource { clear(); currentResource = resource }
+        let resource = MediaImageLoadIdentity(
+            urls: urls.map(Optional.some), environment: ObjectIdentifier(media),
+            pixelSize: pixelSize)
+        if currentResource != resource {
+            clear()
+            currentResource = resource
+        }
         let original = originalURL.map { HTTPSURLUpgrade.upgradedURL(from: $0) } ?? urls.first
         if image != nil && (!loadsOriginal || displayedURL == original) { return }
         func isCurrent() -> Bool { !Task.isCancelled && currentResource == resource }
         func display(_ image: UIImage, url: URL) -> Bool {
             guard displayed.set(image, budget: media.displayBudget) else { return false }
             displayedURL = url
-            if image.size.height > 0 { onAspectRatioResolved?(image.size.width / image.size.height) }
+            if image.size.height > 0 {
+                onAspectRatioResolved?(image.size.width / image.size.height)
+            }
             return true
         }
 
         for url in urls.reversed() {
-            let cached: UIImage?? = try? await media.images.withCachedSource(for: url) { @MainActor source in
+            let cached: UIImage?? = try? await media.images.withCachedSource(for: url) {
+                @MainActor source in
                 await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
             }
             guard isCurrent() else { return }
@@ -78,17 +92,29 @@ private struct RemoteStillImage: View {
             } else {
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
                     .fill(AppDesignSystem.Palette.Accent.surface)
-                    .overlay { Image(systemName: "photo").foregroundStyle(AppDesignSystem.Palette.Accent.primary) }
+                    .overlay {
+                        Image(systemName: "photo").foregroundStyle(
+                            AppDesignSystem.Palette.Accent.primary)
+                    }
             }
         }
         .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
             Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
-        } action: { pixelSize = $0 }
-        .task(id: MediaImageLoadIdentity(urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media),
-            retryGeneration: media.imageRetryGeneration, budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)) {
+        } action: {
+            pixelSize = $0
+        }
+        .task(
+            id: MediaImageLoadIdentity(
+                urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media),
+                retryGeneration: media.imageRetryGeneration,
+                budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)
+        ) {
             guard pixelSize > 0 else { return }
-            await loader.load(thumbnailURL: thumbnailURL, originalURL: originalURL, loadsOriginal: loadsOriginal,
-                media: media, pixelSize: pixelSize, onAspectRatioResolved: onAspectRatioResolved)
+            await loader.load(
+                thumbnailURL: thumbnailURL, originalURL: originalURL,
+                loadsOriginal: loadsOriginal,
+                media: media, pixelSize: pixelSize, onAspectRatioResolved: onAspectRatioResolved
+            )
         }
         .onChange(of: media.displayBudget.releaseGeneration) {
             if loader.displayed.waitingForBudget { budgetRetryGeneration &+= 1 }
@@ -104,14 +130,19 @@ public struct RemoteCachedStillImage: View {
     let contentMode: ContentMode
     let onAspectRatioResolved: ((CGFloat) -> Void)?
 
-    public init(url: URL?, fallbackURL: URL? = nil, contentMode: ContentMode = .fit,
-        onAspectRatioResolved: ((CGFloat) -> Void)? = nil) {
-        self.url = url; self.fallbackURL = fallbackURL; self.contentMode = contentMode
+    public init(
+        url: URL?, fallbackURL: URL? = nil, contentMode: ContentMode = .fit,
+        onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+    ) {
+        self.url = url
+        self.fallbackURL = fallbackURL
+        self.contentMode = contentMode
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
     public var body: some View {
-        RemoteStillImage(thumbnailURL: url, originalURL: fallbackURL, loadsOriginal: false,
+        RemoteStillImage(
+            thumbnailURL: url, originalURL: fallbackURL, loadsOriginal: false,
             contentMode: contentMode, onAspectRatioResolved: onAspectRatioResolved)
     }
 }
@@ -123,14 +154,19 @@ public struct RemoteProgressiveStillImage: View {
     let contentMode: ContentMode
     let onAspectRatioResolved: ((CGFloat) -> Void)?
 
-    public init(thumbnailURL: URL?, originalURL: URL?, contentMode: ContentMode = .fit,
-        onAspectRatioResolved: ((CGFloat) -> Void)? = nil) {
-        self.thumbnailURL = thumbnailURL; self.originalURL = originalURL; self.contentMode = contentMode
+    public init(
+        thumbnailURL: URL?, originalURL: URL?, contentMode: ContentMode = .fit,
+        onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+    ) {
+        self.thumbnailURL = thumbnailURL
+        self.originalURL = originalURL
+        self.contentMode = contentMode
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
     public var body: some View {
-        RemoteStillImage(thumbnailURL: thumbnailURL, originalURL: originalURL, loadsOriginal: true,
+        RemoteStillImage(
+            thumbnailURL: thumbnailURL, originalURL: originalURL, loadsOriginal: true,
             contentMode: contentMode, onAspectRatioResolved: onAspectRatioResolved)
     }
 }

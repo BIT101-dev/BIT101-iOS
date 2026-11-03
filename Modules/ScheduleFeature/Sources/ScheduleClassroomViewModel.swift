@@ -1,14 +1,14 @@
+import ClientCore
+import Combine
+import Foundation
+import ScheduleDomain
 import SchedulePorts
 import TransportCore
-import ClientCore
-import ScheduleDomain
+
 //
 //  ScheduleClassroomViewModel.swift
 //  BIT101-iOS
 //
-
-import Combine
-import Foundation
 
 @MainActor
 public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateConsumer {
@@ -35,17 +35,26 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private var subscription: AnyCancellable?
     private var cacheSubscription: AnyCancellable?
 
-    public init(service: any ScheduleClassroomServicing, repository: ScheduleRepository, virtualNetworkLikely: @escaping @MainActor () -> Bool = { false }, now: @escaping @MainActor () -> Date = { Date() }) {
+    public init(
+        service: any ScheduleClassroomServicing, repository: ScheduleRepository,
+        virtualNetworkLikely: @escaping @MainActor () -> Bool = { false },
+        now: @escaping @MainActor () -> Date = { Date() }
+    ) {
         self.service = service
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
         self.now = now
-        subscription = repository.classroomChanges.sink { [weak self] in self?.objectWillChange.send() }
+        subscription = repository.classroomChanges.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
         cacheSubscription = repository.classroomSelection
             .sink { [weak self] in self?.selectedBuildingID = $0 }
     }
 
-    deinit { classroomTask?.cancel(); classroomPrefetchTask?.cancel() }
+    deinit {
+        classroomTask?.cancel()
+        classroomPrefetchTask?.cancel()
+    }
 
     func restoreCachedState() {
         selectedBuildingID = cache.selectedBuildingID
@@ -117,7 +126,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         selectedBuildingID = ""
         cache.selectedBuildingID = ""
         buildings = cache.cachedClassroomBuildingsByCampusCode[code] ?? []
-        if !buildings.isEmpty { resolveSelectedBuildingIfNeeded() }
+        if !buildings.isEmpty { resolveBuilding() }
         classroomRecords = []
         classroomQueryDate = nil
         classroomLastUpdatedAt = nil
@@ -145,8 +154,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     /// 更新空教室节次筛选结果。
-    func setSelectedClassroomSectionIDs(_ values: [Int]) {
-        cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(values, in: cache.timeTable)
+    func setClassroomSections(_ values: [Int]) {
+        cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(
+            values, in: cache.timeTable)
         cache.isClassroomSectionFilterCustomized = true
         persistClassroomState()
     }
@@ -169,8 +179,11 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         let queryDate = now()
         let cached = restoreClassroomQuery()
         if !force, let cached,
-           ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate) {
-            if cached.records != nil { startNextDayPrefetch(buildingID: buildingID, term: cached.term) }
+            ScheduleDateCodec.calendar.isDate(cached.attemptedAt, inSameDayAs: queryDate)
+        {
+            if cached.records != nil {
+                startNextDayPrefetch(buildingID: buildingID, term: cached.term)
+            }
             return
         }
         cancelClassroomPrefetch()
@@ -183,15 +196,19 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         }
 
         do {
-            term = try await withClassroomRequestTimeout { [self] in try await service.fetchCurrentTermOnly() }
+            term = try await withClassroomTimeout { [self] in
+                try await service.fetchCurrentTermOnly()
+            }
             guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
             let requestTerm = term
-            let records = try await withClassroomRequestTimeout { [service] in
-                try await service.fetchClassrooms(buildingID: buildingID, term: requestTerm, date: queryDate)
+            let records = try await withClassroomTimeout { [service] in
+                try await service.fetchClassrooms(
+                    buildingID: buildingID, term: requestTerm, date: queryDate)
             }
             guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
             let updatedAt = now()
-            let entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: updatedAt,
+            let entry = ClassroomQueryCache(
+                term: term, queryDate: queryDate, attemptedAt: updatedAt,
                 updatedAt: updatedAt, records: records)
             guard entry.isValid else { throw ScheduleServiceError.invalidResponse }
             storeClassroomQuery(entry, buildingID: buildingID)
@@ -201,9 +218,13 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             startNextDayPrefetch(buildingID: buildingID, term: term)
         } catch {
             if isCurrentClassroomRequest(requestID), !TaskCancellation.matches(error) {
-                var entry = cache.cachedClassroomQueriesByBuildingID?[buildingID]
+                var entry =
+                    cache.cachedClassroomQueriesByBuildingID?[buildingID]
                     ?? ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now())
-                if !term.isEmpty, entry.term != term { entry = ClassroomQueryCache(term: term, queryDate: queryDate, attemptedAt: now()) }
+                if !term.isEmpty, entry.term != term {
+                    entry = ClassroomQueryCache(
+                        term: term, queryDate: queryDate, attemptedAt: now())
+                }
                 entry.attemptedAt = now()
                 storeClassroomQuery(entry, buildingID: buildingID)
             }
@@ -215,16 +236,20 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private func restoreClassroomQuery() -> ClassroomQueryCache? {
         let date = now()
         if let prefetched = cache.nextDayClassroomQueriesByBuildingID?[selectedBuildingID],
-           prefetched.records != nil, ScheduleDateCodec.calendar.isDate(prefetched.queryDate, inSameDayAs: date),
-           cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID].map({
-               ScheduleDateCodec.calendar.isDate($0.attemptedAt, inSameDayAs: date)
-           }) != true {
+            prefetched.records != nil,
+            ScheduleDateCodec.calendar.isDate(prefetched.queryDate, inSameDayAs: date),
+            cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID].map({
+                ScheduleDateCodec.calendar.isDate($0.attemptedAt, inSameDayAs: date)
+            }) != true
+        {
             storeClassroomQuery(prefetched, buildingID: selectedBuildingID)
             cache.nextDayClassroomQueriesByBuildingID?.removeValue(forKey: selectedBuildingID)
             persistClassroomState()
         }
         guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID] else {
-            classroomRecords = []; classroomQueryDate = nil; classroomLastUpdatedAt = nil
+            classroomRecords = []
+            classroomQueryDate = nil
+            classroomLastUpdatedAt = nil
             return nil
         }
         classroomRecords = entry.records ?? []
@@ -249,13 +274,17 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     private func startNextDayPrefetch(buildingID: String, term: String) {
-        let calendar = ScheduleDateCodec.calendar, date = now()
+        let calendar = ScheduleDateCodec.calendar
+        let date = now()
         guard classroomPrefetchTask == nil,
-              let nextDay = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: date)),
-              cache.nextDayClassroomQueriesByBuildingID?[buildingID].map({
-                  calendar.isDate($0.queryDate, inSameDayAs: nextDay)
-              }) != true else { return }
-        let generation = accountGeneration, taskID = UUID()
+            let nextDay = calendar.date(
+                byAdding: .day, value: 1, to: calendar.startOfDay(for: date)),
+            cache.nextDayClassroomQueriesByBuildingID?[buildingID].map({
+                calendar.isDate($0.queryDate, inSameDayAs: nextDay)
+            }) != true
+        else { return }
+        let generation = accountGeneration
+        let taskID = UUID()
         classroomPrefetchID = taskID
         classroomPrefetchBuildingID = buildingID
         classroomPrefetchTask = Task(priority: .utility) { @MainActor [weak self, service] in
@@ -269,17 +298,22 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             }
             let entry: ClassroomQueryCache
             do {
-                guard let records = try await self.classroomCoordinator.withTimeout(operation: {
-                    try await service.prefetchClassrooms(buildingID: buildingID, term: term, date: nextDay)
-                }) else { return }
-                entry = ClassroomQueryCache(term: term, queryDate: nextDay, attemptedAt: self.now(),
+                guard
+                    let records = try await self.classroomCoordinator.withTimeout(operation: {
+                        try await service.prefetchClassrooms(
+                            buildingID: buildingID, term: term, date: nextDay)
+                    })
+                else { return }
+                entry = ClassroomQueryCache(
+                    term: term, queryDate: nextDay, attemptedAt: self.now(),
                     updatedAt: self.now(), records: records)
             } catch {
                 guard !TaskCancellation.matches(error) else { return }
                 entry = ClassroomQueryCache(term: term, queryDate: nextDay, attemptedAt: self.now())
             }
             guard !Task.isCancelled, self.accountGeneration == generation, entry.isValid,
-                  calendar.isDate(self.now(), inSameDayAs: date) else { return }
+                calendar.isDate(self.now(), inSameDayAs: date)
+            else { return }
             var queries = (self.cache.nextDayClassroomQueriesByBuildingID ?? [:]).filter {
                 calendar.isDate($0.value.queryDate, inSameDayAs: nextDay)
                     || calendar.isDate($0.value.queryDate, inSameDayAs: date)
@@ -314,20 +348,27 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     func startClassroomPageRefresh(force: Bool = false) {
         guard classroomTask == nil else { return }
         restoreCachedState()
-        applyCurrentClassroomSectionBlock()
+        applyClassroomSections()
         let date = now()
-        let firstEntryToday = cache.classroomRefreshDay.map {
-            !ScheduleDateCodec.calendar.isDate($0, inSameDayAs: date)
-        } ?? true
+        let firstEntryToday =
+            cache.classroomRefreshDay.map {
+                !ScheduleDateCodec.calendar.isDate($0, inSameDayAs: date)
+            } ?? true
         if firstEntryToday {
             cache.classroomRefreshDay = ScheduleDateCodec.calendar.startOfDay(for: date)
             persistClassroomState()
         }
         if !force, !firstEntryToday,
-           campuses.isEmpty || cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] == nil { return }
+            campuses.isEmpty
+                || cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] == nil
+        {
+            return
+        }
         startClassroomRequest { model, requestID in
             if force || firstEntryToday || model.campuses.isEmpty
-                || model.cache.cachedClassroomBuildingsByCampusCode[model.cache.selectedCampusCode] == nil {
+                || model.cache.cachedClassroomBuildingsByCampusCode[model.cache.selectedCampusCode]
+                    == nil
+            {
                 try await model.loadClassroomMeta(requestID: requestID)
             }
             try Task.checkCancellation()
@@ -351,16 +392,15 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             guard let self else { return }
             defer {
                 if self.classroomTaskID == taskID {
-                    self.finishClassroomRequestIfCurrent(requestID)
+                    self.finishClassroomRequest(requestID)
                     self.classroomTask = nil
                     self.classroomTaskID = nil
                 }
             }
             guard self.accountGeneration == generation, !Task.isCancelled else { return }
-            do { try await operation(self, requestID) }
-            catch {
+            do { try await operation(self, requestID) } catch {
                 guard self.accountGeneration == generation else { return }
-                self.handleClassroomRequestError(error, requestID: requestID, title: "空教室同步失败")
+                self.handleClassroomError(error, requestID: requestID, title: "空教室同步失败")
             }
         }
         classroomTask = task
@@ -376,7 +416,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             }
         }
 
-        let fetchedCampuses = try await withClassroomRequestTimeout { [self] in
+        let fetchedCampuses = try await withClassroomTimeout { [self] in
             try await service.fetchCampuses()
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
@@ -384,7 +424,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
         campuses = fetchedCampuses
         cache.cachedClassroomCampuses = fetchedCampuses
-        resolveSelectedCampusIfNeeded()
+        resolveCampus()
         persistClassroomState()
 
         try await loadBuildings(requestID: requestID, force: true)
@@ -394,11 +434,13 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     private func loadBuildings(requestID: Int, force: Bool = false) async throws {
         let campusCode = cache.selectedCampusCode.isEmpty ? nil : cache.selectedCampusCode
         let date = now()
-        if !force, let campusCode, let stored = cache.cachedClassroomBuildingsByCampusCode[campusCode],
-           let refreshed = cache.classroomBuildingRefreshDaysByCampusCode?[campusCode],
-           ScheduleDateCodec.calendar.isDate(refreshed, inSameDayAs: date) {
+        if !force, let campusCode,
+            let stored = cache.cachedClassroomBuildingsByCampusCode[campusCode],
+            let refreshed = cache.classroomBuildingRefreshDaysByCampusCode?[campusCode],
+            ScheduleDateCodec.calendar.isDate(refreshed, inSameDayAs: date)
+        {
             buildings = stored
-            resolveSelectedBuildingIfNeeded()
+            resolveBuilding()
             return
         }
         if let campusCode {
@@ -407,30 +449,32 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             cache.classroomBuildingRefreshDaysByCampusCode = refreshDays
             persistClassroomState()
         }
-        let fetchedBuildings = try await withClassroomRequestTimeout { [self] in
+        let fetchedBuildings = try await withClassroomTimeout { [self] in
             try await service.fetchBuildings(campusCode: campusCode)
         }
         guard isCurrentClassroomRequest(requestID) else { throw CancellationError() }
 
-        applyFetchedBuildingsForCurrentSelection(fetchedBuildings)
+        applyFetchedBuildings(fetchedBuildings)
     }
 
     /// 写入当前校区的教学楼元数据。
-    private func applyFetchedBuildingsForCurrentSelection(_ fetchedBuildings: [BuildingRecord]) {
+    private func applyFetchedBuildings(_ fetchedBuildings: [BuildingRecord]) {
         buildings = fetchedBuildings
         if !cache.selectedCampusCode.isEmpty {
             cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] = fetchedBuildings
         }
-        resolveSelectedBuildingIfNeeded()
+        resolveBuilding()
         persistClassroomState()
     }
 
     /// 在校区列表变化后修正选中校区。
-    private func resolveSelectedCampusIfNeeded() {
+    private func resolveCampus() {
         let validCampusCodes = Set(campuses.map(\.code))
 
         if validCampusCodes.contains(cache.selectedCampusCode) {
-            cache.selectedCampusName = campuses.first(where: { $0.code == cache.selectedCampusCode })?.name ?? cache.selectedCampusName
+            cache.selectedCampusName =
+                campuses.first(where: { $0.code == cache.selectedCampusCode })?.name
+                ?? cache.selectedCampusName
             return
         }
 
@@ -445,7 +489,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     /// 在教学楼列表变化后修正选中教学楼。
-    private func resolveSelectedBuildingIfNeeded() {
+    private func resolveBuilding() {
         let validBuildingIDs = Set(buildings.map(\.buildingCode))
         let cachedBuildingID = cache.selectedBuildingID
 
@@ -459,7 +503,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             return
         }
 
-        if let preferredBuildingID = preferredBuildingID(from: buildings), validBuildingIDs.contains(preferredBuildingID) {
+        if let preferredBuildingID = preferredBuildingID(from: buildings),
+            validBuildingIDs.contains(preferredBuildingID)
+        {
             selectedBuildingID = preferredBuildingID
             cache.selectedBuildingID = selectedBuildingID
             return
@@ -496,13 +542,15 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
 
     /// 当前时间在一天中的分钟偏移。
     private func currentMinutes(at date: Date? = nil) -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: date ?? now())
+        let components = ScheduleDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: date ?? now())
         return (components.hour ?? 0) * 60 + (components.minute ?? 0)
     }
 
     /// 开始一轮新的空教室请求，UI 回写资格始终归属于最新请求。
     private func beginClassroomRequest() -> Int {
-        let request = classroomCoordinator.beginRequest(hasVisibleResults: !classroomAvailabilities.isEmpty)
+        let request = classroomCoordinator.beginRequest(
+            hasVisibleResults: !classroomAvailabilities.isEmpty)
         shouldShowInitialClassroomSpinner = request.shouldShowInitialSpinner
         isLoadingClassroomMeta = false
         isLoadingClassrooms = false
@@ -517,7 +565,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// 统一处理空教室链路错误。
     ///
     /// 当前最新请求负责关闭 loading 和弹窗；在途过期请求跳过 UI 回写。
-    private func handleClassroomRequestError(_ error: Error, requestID: Int, title: String) {
+    private func handleClassroomError(_ error: Error, requestID: Int, title: String) {
         guard isCurrentClassroomRequest(requestID), !Task.isCancelled else { return }
 
         if isCancellation(error) {
@@ -532,7 +580,7 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         isLoadingClassrooms = false
 
         if let scheduleError = error as? ScheduleServiceError {
-            if case let .secondFactorRequired(challenge) = scheduleError {
+            if case .secondFactorRequired(let challenge) = scheduleError {
                 onAuthenticationRequired?(challenge)
                 return
             }
@@ -553,7 +601,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
                 return
             }
             if case .challengeInvalid = scheduleError {
-                notice = ScheduleNotice.userInput(title: title, message: scheduleError.localizedDescription, underlyingError: scheduleError)
+                notice = ScheduleNotice.userInput(
+                    title: title, message: scheduleError.localizedDescription,
+                    underlyingError: scheduleError)
                 return
             }
         }
@@ -561,25 +611,25 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         notice = schoolFailureNotice(
             title: title,
             message: error.localizedDescription,
-            networkFailure: Self.isLikelySchoolTransportError(error),
+            networkFailure: Self.isSchoolTransportError(error),
             underlyingError: error
         )
     }
 
     /// 标记当前空教室请求已正常结束。
-    private func finishClassroomRequestIfCurrent(_ requestID: Int) {
+    private func finishClassroomRequest(_ requestID: Int) {
         guard isCurrentClassroomRequest(requestID) else { return }
         classroomCoordinator.finish(requestID)
         shouldShowInitialClassroomSpinner = false
     }
 
     /// 给单个空教室网络请求设置等待上限，限制学校接口的等待时长。
-    private func withClassroomRequestTimeout<T: Sendable>(
+    private func withClassroomTimeout<T: Sendable>(
         operation: @escaping @MainActor @Sendable () async throws -> T
     ) async throws -> T {
-        try await classroomCoordinator.withAuthenticationThenTimeout(
+        try await classroomCoordinator.withAuthTimeout(
             authentication: { @MainActor [service] in
-                try await service.prepareTeachingCenterAccess()
+                try await service.prepareTeachingAccess()
             },
             operation: operation
         )
@@ -593,7 +643,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         let candidates = ClassroomAvailabilityCalculator.buildingCandidates(from: course.classroom)
         guard !candidates.isEmpty else { return nil }
 
-        let normalizedBuildings = buildings.map { ($0, ClassroomAvailabilityCalculator.normalizedBuildingName($0.name)) }
+        let normalizedBuildings = buildings.map {
+            ($0, ClassroomAvailabilityCalculator.normalizedBuildingName($0.name))
+        }
 
         if let exact = normalizedBuildings.first(where: { pair in
             candidates.contains(pair.1)
@@ -619,7 +671,9 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         return campuses.first { campus in
             let campusName = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.name)
             let campusCode = ClassroomAvailabilityCalculator.normalizedBuildingName(campus.code)
-            return (!campusName.isEmpty && (normalizedCampus.contains(campusName) || campusName.contains(normalizedCampus)))
+            return
+                (!campusName.isEmpty
+                && (normalizedCampus.contains(campusName) || campusName.contains(normalizedCampus)))
                 || (!campusCode.isEmpty && normalizedCampus == campusCode)
         }
     }
@@ -657,7 +711,10 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     /// 把课程的教学周/星期/节次时间拼成真实日期时间。
     private func combineCourseDate(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
         let dayOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week) * 7 + (weekday - 1)
-        guard let day = ScheduleDateCodec.calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
+        guard
+            let day = ScheduleDateCodec.calendar.date(
+                byAdding: .day, value: dayOffset, to: firstDay)
+        else {
             return nil
         }
 
@@ -666,7 +723,8 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
             return nil
         }
 
-        var components = ScheduleDateCodec.calendar.dateComponents([.year, .month, .day], from: day)
+        var components = ScheduleDateCodec.calendar.dateComponents(
+            [.year, .month, .day], from: day)
         components.hour = hour
         components.minute = minute
         components.second = 0
@@ -674,12 +732,14 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     /// 进入或刷新空教室时，按当前时间切换到对应的节次块筛选。
-    private func applyCurrentClassroomSectionBlock() {
+    private func applyClassroomSections() {
         guard !cache.isClassroomSectionFilterCustomized else { return }
-        let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(at: currentMinutes(), in: cache.timeTable)
+        let sectionIDs = ClassroomAvailabilityCalculator.sectionBlock(
+            at: currentMinutes(), in: cache.timeTable)
         guard !sectionIDs.isEmpty else { return }
 
-        let normalized = ClassroomAvailabilityCalculator.normalizedSections(sectionIDs, in: cache.timeTable)
+        let normalized = ClassroomAvailabilityCalculator.normalizedSections(
+            sectionIDs, in: cache.timeTable)
         guard cache.selectedClassroomSectionIDs != normalized else { return }
         cache.selectedClassroomSectionIDs = normalized
         persistClassroomState()

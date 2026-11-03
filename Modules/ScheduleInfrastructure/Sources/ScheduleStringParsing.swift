@@ -25,10 +25,10 @@ nonisolated extension String {
             return [String(self[range])]
         }
 
-        return (1 ..< match.numberOfRanges).map { index in
+        return (1..<match.numberOfRanges).map { index in
             let capture = match.range(at: index)
             guard capture.location != NSNotFound,
-                  let captureRange = Range(capture, in: self)
+                let captureRange = Range(capture, in: self)
             else {
                 return ""
             }

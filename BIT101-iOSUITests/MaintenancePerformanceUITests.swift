@@ -5,7 +5,9 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
     private func application(animations: Bool = true) -> XCUIApplication {
         UIAutomationTestCase.endSharedSession()
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launchArguments = [
+            "--ui-testing", "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
         app.launchEnvironment = [
             "BIT101_UI_TEST_CONTROL_PORT": String(UITestControlClient.port),
             "BIT101_UI_TESTING": "1", "BIT101_UI_TEST_CASE": name,
@@ -19,13 +21,18 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
     @MainActor
     func testStartupPerformance() throws {
         let workload = try PerformanceWorkload("startup", bundle: Bundle(for: Self.self))
-        XCTAssertEqual(try workload.value("operation", as: String.self), "terminate-launch-schedule-ready")
+        XCTAssertEqual(
+            try workload.value("operation", as: String.self), "terminate-launch-schedule-ready")
         XCTAssertEqual(try workload.value("storage", as: String.self), "retained")
         XCTAssertEqual(try workload.value("composition", as: String.self), "production")
         let app = application()
-        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(try workload.value("courses", as: Int.self))
-        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(try workload.value("weeks", as: Int.self))
-        let restoredCourse = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "性能课程 1")).firstMatch
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(
+            try workload.value("courses", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(
+            try workload.value("weeks", as: Int.self))
+        let restoredCourse = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "性能课程 1")
+        ).firstMatch
         let nextWeek = app.buttons.matching(identifier: "下一周").firstMatch
         defer { app.terminate() }
         app.launch()
@@ -50,14 +57,19 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
         let app = application(animations: try workload.value("animations", as: Bool.self))
         let nextWeek = app.buttons.matching(identifier: "下一周").firstMatch
         let previousWeek = app.buttons.matching(identifier: "上一周").firstMatch
-        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(try workload.value("courses", as: Int.self))
-        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(try workload.value("weeks", as: Int.self))
-        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES_PER_SLOT"] = String(try workload.value("coursesPerSlot", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES"] = String(
+            try workload.value("courses", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_WEEKS"] = String(
+            try workload.value("weeks", as: Int.self))
+        app.launchEnvironment["BIT101_UI_TEST_PERFORMANCE_COURSES_PER_SLOT"] = String(
+            try workload.value("coursesPerSlot", as: Int.self))
         app.launch()
         defer { app.terminate() }
         XCTAssertTrue(nextWeek.waitForExistence(timeout: 5))
         for index in [1, 4] {
-            XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "性能课程 \(index)")).firstMatch.waitForExistence(timeout: 5))
+            XCTAssertTrue(
+                app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "性能课程 \(index)"))
+                    .firstMatch.waitForExistence(timeout: 5))
         }
         measure(metrics: [XCTClockMetric(), XCTMemoryMetric(application: app)]) {
             for _ in 0..<pairs {

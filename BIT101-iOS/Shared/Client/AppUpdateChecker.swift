@@ -1,19 +1,20 @@
-import TransportCore
-import CommunityTransport
-import StorageCore
-import Foundation
-import SwiftUI
 import Combine
+import CommunityTransport
+import Foundation
+import StorageCore
+import SwiftUI
+import TransportCore
 
 nonisolated enum BIT101AppStore {
-    nonisolated static let url = AppURL.required("https://apps.apple.com/cn/app/bit101/id6761147125")
+    nonisolated static let url = AppURL.required(
+        "https://apps.apple.com/cn/app/bit101/id6761147125")
 
     static func acceptsUpdateURL(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https",
-              url.host?.lowercased() == "apps.apple.com",
-              url.port == nil || url.port == 443,
-              url.user == nil,
-              url.password == nil
+            url.host?.lowercased() == "apps.apple.com",
+            url.port == nil || url.port == 443,
+            url.user == nil,
+            url.password == nil
         else { return false }
 
         return url.pathComponents.contains("id6761147125")
@@ -27,7 +28,10 @@ nonisolated struct AppStoreRelease: Codable, Equatable, Identifiable, Sendable {
     let currentVersionReleaseDate: Date?
     let trackViewURL: URL?
 
-    init(version: String, releaseNotes: String?, currentVersionReleaseDate: Date? = nil, trackViewURL: URL?) {
+    init(
+        version: String, releaseNotes: String?, currentVersionReleaseDate: Date? = nil,
+        trackViewURL: URL?
+    ) {
         self.version = version
         self.releaseNotes = releaseNotes
         self.currentVersionReleaseDate = currentVersionReleaseDate
@@ -42,8 +46,7 @@ nonisolated struct AppStoreRelease: Codable, Equatable, Identifiable, Sendable {
     }
 
     var appStoreURL: URL {
-        if
-            let trackViewURL,
+        if let trackViewURL,
             BIT101AppStore.acceptsUpdateURL(trackViewURL)
         {
             return trackViewURL
@@ -62,11 +65,13 @@ nonisolated enum AppStoreLookup {
         let url = AppURL.required("https://itunes.apple.com/lookup?id=6761147125&country=cn")
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let queryItems = components?.queryItems ?? []
-        components?.queryItems = queryItems + [
-            URLQueryItem(name: "requestTime", value: String(Int(now.timeIntervalSince1970)))
-        ]
+        components?.queryItems =
+            queryItems + [
+                URLQueryItem(name: "requestTime", value: String(Int(now.timeIntervalSince1970)))
+            ]
         guard let lookupURL = components?.url else { throw URLError(.badURL) }
-        var request = URLRequest(url: lookupURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        var request = URLRequest(
+            url: lookupURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         return request
@@ -87,14 +92,18 @@ nonisolated enum AppStoreLookup {
     static func parse(_ data: Data) throws -> (release: AppStoreRelease, count: Int) {
         let response = try JSONDecoder().decode(Response.self, from: data)
         guard response.resultCount > 0, response.resultCount == response.results.count,
-              let result = response.results.first,
-              !result.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              result.bundleId == "BIT101-dev.BIT101-iOS",
-              BIT101AppStore.acceptsUpdateURL(result.trackViewUrl),
-              let date = ISO8601DateFormatter().date(from: result.currentVersionReleaseDate)
+            let result = response.results.first,
+            !result.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            result.bundleId == "BIT101-dev.BIT101-iOS",
+            BIT101AppStore.acceptsUpdateURL(result.trackViewUrl),
+            let date = ISO8601DateFormatter().date(from: result.currentVersionReleaseDate)
         else { throw URLError(.cannotParseResponse) }
-        return (AppStoreRelease(version: result.version, releaseNotes: result.releaseNotes,
-            currentVersionReleaseDate: date, trackViewURL: result.trackViewUrl), response.resultCount)
+        return (
+            AppStoreRelease(
+                version: result.version, releaseNotes: result.releaseNotes,
+                currentVersionReleaseDate: date, trackViewURL: result.trackViewUrl),
+            response.resultCount
+        )
     }
 }
 
@@ -132,7 +141,7 @@ final class AppUpdateChecker {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         },
         loadData: @escaping DataLoader = { request in
-            let response = try await HTTPClient.shared.send(request, accepting: 100 ..< 600)
+            let response = try await HTTPClient.shared.send(request, accepting: 100..<600)
             return (response.data, response.response)
         }
     ) {
@@ -149,7 +158,7 @@ final class AppUpdateChecker {
                 Self.cachedReleaseKey,
                 Self.ignoredVersionKey,
                 Self.lastPresentedAtKey,
-                Self.lastPresentedVersionKey
+                Self.lastPresentedVersionKey,
             ].forEach(defaults.removeObject(forKey:))
         }
         #endif
@@ -206,7 +215,8 @@ final class AppUpdateChecker {
         let request = try AppStoreLookup.makeRequest(now: now())
         let (data, response) = try await loadData(request)
         guard let httpResponse = response as? HTTPURLResponse,
-              (200 ..< 300).contains(httpResponse.statusCode), AppURL.isSameOrigin(httpResponse.url, as: request.url)
+            (200..<300).contains(httpResponse.statusCode),
+            AppURL.isSameOrigin(httpResponse.url, as: request.url)
         else {
             throw URLError(.badServerResponse)
         }
@@ -230,10 +240,10 @@ final class AppUpdateChecker {
 
     private func eligibleRelease(from release: AppStoreRelease?) -> AppStoreRelease? {
         guard let release,
-              isOldEnoughToPresent(release),
-              AppVersionComparison.isNewer(release.version, than: installedVersion()),
-              defaults.string(forKey: Self.ignoredVersionKey) != release.version,
-              !wasRecentlyPresented(version: release.version)
+            isOldEnoughToPresent(release),
+            AppVersionComparison.isNewer(release.version, than: installedVersion()),
+            defaults.string(forKey: Self.ignoredVersionKey) != release.version,
+            !wasRecentlyPresented(version: release.version)
         else {
             return nil
         }
@@ -241,13 +251,15 @@ final class AppUpdateChecker {
     }
 
     private func isOldEnoughToPresent(_ release: AppStoreRelease) -> Bool {
-        guard let currentVersionReleaseDate = release.currentVersionReleaseDate else { return false }
+        guard let currentVersionReleaseDate = release.currentVersionReleaseDate else {
+            return false
+        }
         return now().timeIntervalSince(currentVersionReleaseDate) >= Self.minimumReleaseAge
     }
 
     private func wasRecentlyPresented(version: String) -> Bool {
         guard defaults.string(forKey: Self.lastPresentedVersionKey) == version,
-              let presentedAt = defaults.object(forKey: Self.lastPresentedAtKey) as? Date
+            let presentedAt = defaults.object(forKey: Self.lastPresentedAtKey) as? Date
         else {
             return false
         }
@@ -301,7 +313,13 @@ struct AppPrompt: Identifiable {
         onDismiss: @escaping @MainActor () -> Void = {},
         onCancel: @escaping @MainActor () -> Void = {}
     ) {
-        self.id = account.map { "\(id)-\(AccountStorageIdentity.stableToken(for: $0.accountIdentifier))-\($0.generation)" } ?? id
+        self.id =
+            account.map {
+                """
+                \(id)-\(AccountStorageIdentity.stableToken(for: $0.accountIdentifier))-\
+                \($0.generation)
+                """
+            } ?? id
         self.account = account
         self.title = title
         self.message = message
@@ -342,8 +360,8 @@ final class AppPromptCoordinator: ObservableObject {
 
     func enqueue(_ prompt: AppPrompt) {
         guard activePrompt?.id != prompt.id,
-              !queuedIDs.contains(prompt.id),
-              !handledIDs.contains(prompt.id)
+            !queuedIDs.contains(prompt.id),
+            !handledIDs.contains(prompt.id)
         else { return }
 
         queuedIDs.insert(prompt.id)
@@ -375,7 +393,7 @@ final class AppPromptCoordinator: ObservableObject {
 
     private func cancelWaiter(promptID: String, waiterID: UUID) {
         guard var waiters = dismissalWaiters[promptID],
-              let index = waiters.firstIndex(where: { $0.id == waiterID })
+            let index = waiters.firstIndex(where: { $0.id == waiterID })
         else { return }
         let waiter = waiters.remove(at: index)
         if waiters.isEmpty {
@@ -530,53 +548,59 @@ private struct AppPromptHostModifier: ViewModifier {
             .task {
                 guard let notice = await updateCoordinator.noticeToPresentAtLaunch() else { return }
                 switch notice {
-                case let .emergency(emergency):
-                    promptCoordinator.enqueue(AppPrompt(
-                        id: "emergency-update-\(emergency.noticeID)",
-                        title: emergency.title,
-                        message: emergency.message,
-                        actions: [
-                            AppPromptAction(
-                                id: "open-store",
-                                title: "立即更新",
-                                isDefault: true
-                            ) {
-                                openURL(emergency.safeUpdateURL)
-                            },
-                            AppPromptAction(id: "ignore-today", title: "今日忽略") {
-                                updateCoordinator.ignoreEmergencyForToday(noticeID: emergency.noticeID)
+                case .emergency(let emergency):
+                    promptCoordinator.enqueue(
+                        AppPrompt(
+                            id: "emergency-update-\(emergency.noticeID)",
+                            title: emergency.title,
+                            message: emergency.message,
+                            actions: [
+                                AppPromptAction(
+                                    id: "open-store",
+                                    title: "立即更新",
+                                    isDefault: true
+                                ) {
+                                    openURL(emergency.safeUpdateURL)
+                                },
+                                AppPromptAction(id: "ignore-today", title: "今日忽略") {
+                                    updateCoordinator.ignoreEmergencyForToday(
+                                        noticeID: emergency.noticeID)
+                                },
+                            ]
+                        ))
+                case .appStore(let release):
+                    promptCoordinator.enqueue(
+                        AppPrompt(
+                            id: "app-update-\(release.version)",
+                            title: "发现新版本 \(release.version)",
+                            message: release.updateMessage,
+                            actions: [
+                                AppPromptAction(
+                                    id: "open-store",
+                                    title: "前往 App Store",
+                                    isDefault: true
+                                ) {
+                                    openURL(release.appStoreURL)
+                                },
+                                AppPromptAction(id: "dismiss", title: "本次忽略") {},
+                                AppPromptAction(id: "ignore-version", title: "忽略此版本") {
+                                    updateCoordinator.ignore(version: release.version)
+                                },
+                            ],
+                            onPresent: {
+                                updateCoordinator.markPresented(version: release.version)
                             }
-                        ]
-                    ))
-                case let .appStore(release):
-                    promptCoordinator.enqueue(AppPrompt(
-                        id: "app-update-\(release.version)",
-                        title: "发现新版本 \(release.version)",
-                        message: release.updateMessage,
-                        actions: [
-                            AppPromptAction(
-                                id: "open-store",
-                                title: "前往 App Store",
-                                isDefault: true
-                            ) {
-                                openURL(release.appStoreURL)
-                            },
-                            AppPromptAction(id: "dismiss", title: "本次忽略") {},
-                            AppPromptAction(id: "ignore-version", title: "忽略此版本") {
-                                updateCoordinator.ignore(version: release.version)
-                            }
-                        ],
-                        onPresent: {
-                            updateCoordinator.markPresented(version: release.version)
-                        }
-                    ))
+                        ))
                 }
             }
             .alert(
                 promptCoordinator.activePrompt?.title ?? "",
                 isPresented: Binding(
                     get: { promptCoordinator.activePrompt != nil },
-                    set: { promptCoordinator.alertPresentationChanged(isPresented: $0, promptID: presentedPromptID) }
+                    set: {
+                        promptCoordinator.alertPresentationChanged(
+                            isPresented: $0, promptID: presentedPromptID)
+                    }
                 ),
                 presenting: promptCoordinator.activePrompt
             ) {
@@ -587,12 +611,12 @@ private struct AppPromptHostModifier: ViewModifier {
                             promptCoordinator.perform(action, promptID: prompt.id)
                         }
                         .keyboardShortcut(.defaultAction)
-                            .accessibilityIdentifier("ui.app-prompt-host-modifier.default-action")
+                        .accessibilityIdentifier("ui.app-prompt-host-modifier.default-action")
                     } else {
                         Button(action.title, role: action.role) {
                             promptCoordinator.perform(action, promptID: prompt.id)
                         }
-                            .accessibilityIdentifier("ui.app-prompt-host-modifier.action")
+                        .accessibilityIdentifier("ui.app-prompt-host-modifier.action")
                     }
                 }
             } message: { prompt in
@@ -602,7 +626,9 @@ private struct AppPromptHostModifier: ViewModifier {
 }
 
 extension View {
-    func appPromptHost(updates: AppUpdatePromptCoordinator, prompts: AppPromptCoordinator) -> some View {
+    func appPromptHost(updates: AppUpdatePromptCoordinator, prompts: AppPromptCoordinator)
+        -> some View
+    {
         modifier(AppPromptHostModifier(promptCoordinator: prompts, updateCoordinator: updates))
     }
 }

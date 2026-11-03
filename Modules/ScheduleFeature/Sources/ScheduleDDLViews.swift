@@ -45,7 +45,8 @@ struct DDLScheduleTabView: View {
         }
         .sheet(isPresented: $isShowingSheet) {
             if let event = selectedEvent {
-                DDLEventDetailSheet(event: event, isEditable: viewModel.isCacheWritable,
+                DDLEventDetailSheet(
+                    event: event, isEditable: viewModel.isCacheWritable,
                     remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
                     onEdit: {
                         editingEventID = event.id
@@ -57,24 +58,33 @@ struct DDLScheduleTabView: View {
                             try viewModel.deleteDDL(id: event.id)
                             isShowingSheet = false
                         } catch {
-                            viewModel.notice = ScheduleNotice.userInput(title: "删除失败", message: error.localizedDescription)
+                            viewModel.notice = ScheduleNotice.userInput(
+                                title: "删除失败", message: error.localizedDescription)
                         }
                     })
             } else {
-                DDLEditSheet(draft: $draft, isEditing: editingEventID != nil,
+                DDLEditSheet(
+                    draft: $draft, isEditing: editingEventID != nil,
                     onSubmit: {
                         do {
-                            if let editingEventID { try viewModel.updateDDL(id: editingEventID, draft: draft) }
-                            else { try viewModel.addDDL(draft) }
+                            if let editingEventID {
+                                try viewModel.updateDDL(id: editingEventID, draft: draft)
+                            } else {
+                                try viewModel.addDDL(draft)
+                            }
                             isShowingSheet = false
                         } catch {
-                            viewModel.notice = ScheduleNotice.userInput(title: "保存失败", message: error.localizedDescription)
+                            viewModel.notice = ScheduleNotice.userInput(
+                                title: "保存失败", message: error.localizedDescription)
                         }
                     }, onDismiss: { isShowingSheet = false })
             }
         }
         .onChange(of: isShowingSheet) { _, visible in
-            if !visible { editingEventID = nil; selectedEvent = nil }
+            if !visible {
+                editingEventID = nil
+                selectedEvent = nil
+            }
         }
         .systemImagePreview(item: $imageViewer)
     }
@@ -96,7 +106,7 @@ struct DDLScheduleTabView: View {
                 ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
                     Section {
                         eventRow(event)
-                        .appListRowInsets()
+                            .appListRowInsets()
                     }
                 }
             }
@@ -118,12 +128,15 @@ struct DDLScheduleTabView: View {
             onPreview: { imageViewer = $0 },
             onToggleDone: { viewModel.toggleDDLDone(event) },
             onOpen: {
-                if let url = event.browserURL { openURL(url) }
-                else { selectedEvent = event; isShowingSheet = true }
+                if let url = event.browserURL {
+                    openURL(url)
+                } else {
+                    selectedEvent = event
+                    isShowingSheet = true
+                }
             }
         )
     }
-
 
     private func color(for event: DDLEventRecord) -> Color {
         switch viewModel.ddlTint(for: event, now: currentDate) {
@@ -153,7 +166,9 @@ private struct DDLEventRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             eventContent
-            if let images = event.images, !images.isEmpty { DDLImageStrip(images: images, onPreview: onPreview) }
+            if let images = event.images, !images.isEmpty {
+                DDLImageStrip(images: images, onPreview: onPreview)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("ddl.event.\(event.id)")
@@ -163,35 +178,37 @@ private struct DDLEventRow: View {
     private var eventContent: some View {
         HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                Text(event.displayTitle)
-                    .font(AppDesignSystem.Typography.title)
-                    .strikethrough(event.done)
+                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                    Text(event.displayTitle)
+                        .font(AppDesignSystem.Typography.title)
+                        .strikethrough(event.done)
 
-                if !displayText.isEmpty {
-                    Text(displayText)
+                    if !displayText.isEmpty {
+                        Text(displayText)
+                            .font(AppDesignSystem.Typography.body)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                            .lineLimit(3)
+                            .accessibilityIdentifier("ddl.preview.\(event.id)")
+                    }
+
+                    Text(remainText)
                         .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .lineLimit(3)
-                        .accessibilityIdentifier("ddl.preview.\(event.id)")
-                }
+                        .foregroundStyle(tint)
 
-                Text(remainText)
+                    HStack(
+                        alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular
+                    ) {
+                        Text(dueText)
+                            .accessibilityIdentifier("ddl.due.\(event.id)")
+                        Text(event.sourceTitle)
+                            .accessibilityIdentifier("ddl.source.\(event.id)")
+                    }
                     .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(tint)
-
-                HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
-                    Text(dueText)
-                        .accessibilityIdentifier("ddl.due.\(event.id)")
-                    Text(event.sourceTitle)
-                        .accessibilityIdentifier("ddl.source.\(event.id)")
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
-                .font(AppDesignSystem.Typography.body)
-                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            }
 
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("ddl.open.\(event.id)")
@@ -200,7 +217,10 @@ private struct DDLEventRow: View {
                 Image(systemName: event.done ? "checkmark.circle.fill" : "circle")
                     .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(tint)
-                    .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
+                    .frame(
+                        width: AppDesignSystem.Size.Control.touchTarget,
+                        height: AppDesignSystem.Size.Control.touchTarget
+                    )
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -227,7 +247,8 @@ private struct DDLEventRow: View {
 struct DDLRefreshStatusRow: View {
     @ObservedObject var viewModel: ScheduleDDLViewModel
     var body: some View {
-        AppRefreshStatusRow(isRefreshing: viewModel.isSyncingDDL, refreshingText: "正在刷新 DDL",
+        AppRefreshStatusRow(
+            isRefreshing: viewModel.isSyncingDDL, refreshingText: "正在刷新 DDL",
             lastUpdatedText: viewModel.ddlLastUpdatedText, actionTitle: "刷新",
             onRefresh: { Task { await viewModel.refreshFromUser() } })
     }
@@ -266,7 +287,9 @@ private struct DDLEventDetailSheet: View {
                 }
 
                 if let images = event.images, !images.isEmpty {
-                    Section("图片") { DDLImageStrip(images: images, onPreview: { imageViewer = $0 }) }
+                    Section("图片") {
+                        DDLImageStrip(images: images, onPreview: { imageViewer = $0 })
+                    }
                 }
 
                 if !event.isSchoolSynced && isEditable {
@@ -275,12 +298,12 @@ private struct DDLEventDetailSheet: View {
                             onEdit()
                         }
                         .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.ddl-event-detail-sheet.edit")
+                        .accessibilityIdentifier("ui.ddl-event-detail-sheet.edit")
                         Button("删除", role: .destructive) {
                             onDelete()
                         }
                         .appInteractiveListRow(isDestructive: true)
-                            .accessibilityIdentifier("ui.ddl-event-detail-sheet.delete")
+                        .accessibilityIdentifier("ui.ddl-event-detail-sheet.delete")
                     }
                 }
             }
@@ -326,23 +349,34 @@ private struct DDLEditSheet: View {
                 Section("内容") {
                     TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityIdentifier("ddl.editor.title")
-                    DatePicker("时间", selection: $draft.dueAt, displayedComponents: [.date, .hourAndMinute])
-                        .environment(\.calendar, ScheduleDateCodec.calendar)
-                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
-                        .accessibilityIdentifier("ddl.editor.date")
+                    DatePicker(
+                        "时间", selection: $draft.dueAt,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                    .environment(\.calendar, ScheduleDateCodec.calendar)
+                    .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+                    .accessibilityIdentifier("ddl.editor.date")
                     .appInteractiveListRow()
-                    TextField("", text: $draft.text, prompt: AppInputPrompt.text("详情"), axis: .vertical)
-                        .accessibilityIdentifier("ddl.editor.details")
-                        .lineLimit(4, reservesSpace: true)
+                    TextField(
+                        "", text: $draft.text, prompt: AppInputPrompt.text("详情"),
+                        axis: .vertical
+                    )
+                    .accessibilityIdentifier("ddl.editor.details")
+                    .lineLimit(4, reservesSpace: true)
                 }
                 Section("图片") {
                     if !draft.images.isEmpty {
-                        DDLImageStrip(images: draft.images, onRemove: { id in draft.images.removeAll { $0.id == id } },
+                        DDLImageStrip(
+                            images: draft.images,
+                            onRemove: { id in draft.images.removeAll { $0.id == id } },
                             onPreview: { imageViewer = $0 })
                     }
                     if draft.images.count < DDLImagePolicy.maximumImageCount {
-                        PhotosPicker(selection: $selectedPhotos,
-                            maxSelectionCount: DDLImagePolicy.maximumImageCount - draft.images.count, matching: .images) {
+                        PhotosPicker(
+                            selection: $selectedPhotos,
+                            maxSelectionCount: DDLImagePolicy.maximumImageCount
+                                - draft.images.count, matching: .images
+                        ) {
                             Text("添加图片")
                         }
                         .disabled(isImporting)
@@ -350,7 +384,9 @@ private struct DDLEditSheet: View {
                         .accessibilityIdentifier("ddl.editor.photos")
                     }
                     if isImporting { AppInlineLoadingState("正在处理图片") }
-                    if let importError { Text(importError).foregroundStyle(AppDesignSystem.Palette.Status.danger) }
+                    if let importError {
+                        Text(importError).foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                    }
                 }
             }
             .navigationTitle(isEditing ? "编辑 DDL" : "添加 DDL")
@@ -358,8 +394,11 @@ private struct DDLEditSheet: View {
             .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    AppCancelEditingButton(confirmDiscard: hasChanges || isImporting || !selectedPhotos.isEmpty, onCancel: onDismiss)
-                        .accessibilityIdentifier("ui.ddl-edit-sheet.cancel")
+                    AppCancelEditingButton(
+                        confirmDiscard: hasChanges || isImporting || !selectedPhotos.isEmpty,
+                        onCancel: onDismiss
+                    )
+                    .accessibilityIdentifier("ui.ddl-edit-sheet.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("确定", action: onSubmit)
@@ -381,10 +420,16 @@ private struct DDLEditSheet: View {
         isImporting = true
         importError = nil
         defer { isImporting = false }
-        await ImageDataCompressor.importImages(from: selectedPhotos.map { item in
-            { try await media.loadBoundedImageData(from: item) }
-        }, prepare: { try await ImageDataCompressor.prepare($0, maximumBytes: DDLImagePolicy.maximumImageBytes) },
-            isCurrent: { true }, onPrepared: { draft.images.append(DDLImageAttachment(data: $0)) },
+        await ImageDataCompressor.importImages(
+            from: selectedPhotos.map { item in
+                { try await media.loadBoundedImageData(from: item) }
+            },
+            prepare: {
+                try await ImageDataCompressor.prepare(
+                    $0, maximumBytes: DDLImagePolicy.maximumImageBytes)
+            },
+            isCurrent: { true },
+            onPrepared: { draft.images.append(DDLImageAttachment(data: $0)) },
             onFailure: { importError = "图片处理失败：\($0.localizedDescription)" })
         guard !Task.isCancelled else { return }
         selectedPhotos = []
@@ -400,10 +445,18 @@ private struct DDLImageStrip: View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
-                    LocalImageTile(data: image.data, identifier: "ddl.image.\(image.id)",
-                        pointSize: onRemove == nil ? AppDesignSystem.Size.Media.attachment : AppDesignSystem.Size.Media.draft,
-                        onOpen: { onPreview(ImagePreviewRequest(localImageData: images.map(\.data), initialIndex: index)) },
-                        onRemove: onRemove.map { remove in { remove(image.id) } }, previewLabel: "预览 DDL 图片")
+                    LocalImageTile(
+                        data: image.data, identifier: "ddl.image.\(image.id)",
+                        pointSize: onRemove == nil
+                            ? AppDesignSystem.Size.Media.attachment
+                            : AppDesignSystem.Size.Media.draft,
+                        onOpen: {
+                            onPreview(
+                                ImagePreviewRequest(
+                                    localImageData: images.map(\.data), initialIndex: index))
+                        },
+                        onRemove: onRemove.map { remove in { remove(image.id) } },
+                        previewLabel: "预览 DDL 图片")
                 }
             }
         }

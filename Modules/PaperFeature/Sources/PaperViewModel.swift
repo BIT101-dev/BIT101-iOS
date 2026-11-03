@@ -1,19 +1,19 @@
-import CommunityUI
-import TransportCore
-import DesignSystemKit
+import Combine
 import CommunityCore
 import CommunityTransport
-import Combine
+import CommunityUI
+import DesignSystemKit
 import Foundation
+import TransportCore
 
 private func normalizedPaperSearchText(_ text: String) -> String? {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
 }
 
-private extension PaperListState {
+extension PaperListState {
     /// 首屏请求开始前统一重置分页状态。
-    mutating func prepareForRefresh() {
+    fileprivate mutating func prepareForRefresh() {
         paginationError = nil
         status = .loading
         resetPagination()
@@ -37,7 +37,9 @@ class PaperCollectionViewModel: ObservableObject {
     private var hasBootstrapped = false
     private var pageQuery: (search: String?, order: PaperSortOrder)?
     var displayedQueryDescription: String? {
-        guard let pageQuery, pageQuery.search != trimmedSearchText || pageQuery.order != selectedOrder else { return nil }
+        guard let pageQuery,
+            pageQuery.search != trimmedSearchText || pageQuery.order != selectedOrder
+        else { return nil }
         return "\(pageQuery.search.map { "“\($0)”的文章" } ?? "全部文章") · \(pageQuery.order.title)"
     }
     private var previewLoadingIDs: Set<Int> = []
@@ -45,15 +47,18 @@ class PaperCollectionViewModel: ObservableObject {
     @Published private(set) var refreshGeneration = 0
     @Published private(set) var previewGeneration = 0
     private var refreshTask: Task<Void, Never>?
-    private var refreshPreviousState: (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
+    private var refreshPreviousState:
+        (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
     init(service: any PaperListServicing, requiresSearchText: Bool) {
         self.service = service
         self.requiresSearchText = requiresSearchText
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self else { return }
-            let needsRefresh = self.state.items.needsCommunityRefresh(for: metrics)
-                || self.refreshPreviousState?.state.items.needsCommunityRefresh(for: metrics) == true
+            let needsRefresh =
+                self.state.items.needsCommunityRefresh(for: metrics)
+                || self.refreshPreviousState?.state.items.needsCommunityRefresh(for: metrics)
+                    == true
             if needsRefresh { self.cancelRefreshOperations() }
             var updated = self.state
             if updated.pagedItems.apply(metrics) { self.state = updated }
@@ -64,12 +69,13 @@ class PaperCollectionViewModel: ObservableObject {
     deinit { refreshTask?.cancel() }
 
     func cancelRefreshOperations() {
-        refreshTask?.cancel(); refreshTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
         refreshGeneration &+= 1
         previewRevalidationIDs.formUnion(previewLoadingIDs)
         previewLoadingIDs.removeAll()
         if let refreshPreviousState {
-            let items = refreshPreviousState.state.items.preservingCommunityMetrics(from: state.items)
+            let items = refreshPreviousState.state.items.preservingMetrics(from: state.items)
             state = refreshPreviousState.state
             state.items = items
             previewMetadataByPaperID = refreshPreviousState.metadata
@@ -104,13 +110,17 @@ class PaperCollectionViewModel: ObservableObject {
 
     func refresh() async {
         let task = enqueueRefresh()
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        await withTaskCancellationHandler(
+            operation: { await task.value }, onCancel: { task.cancel() })
     }
 
     private func performRefresh() async {
         let generation = refreshGeneration
         let query = (search: trimmedSearchText, order: selectedOrder)
-        guard !requiresSearchText || query.search != nil else { reset(); return }
+        guard !requiresSearchText || query.search != nil else {
+            reset()
+            return
+        }
         let previousState = state
         let previousMetadata = previewMetadataByPaperID
         let previousFailures = previewFailedIDs
@@ -140,8 +150,11 @@ class PaperCollectionViewModel: ObservableObject {
             )
             try Task.checkCancellation()
             guard refreshGeneration == generation else { return }
-            let previousVersions = Dictionary(uniqueKeysWithValues: previousState.items.map { ($0.id, $0.updateTime) })
-            let unchanged = Set(papers.filter { !$0.updateTime.isEmpty && previousVersions[$0.id] == $0.updateTime }.map(\.id))
+            let previousVersions = Dictionary(
+                uniqueKeysWithValues: previousState.items.map { ($0.id, $0.updateTime) })
+            let unchanged = Set(
+                papers.filter { !$0.updateTime.isEmpty && previousVersions[$0.id] == $0.updateTime }
+                    .map(\.id))
             previewMetadataByPaperID = previousMetadata.filter { unchanged.contains($0.key) }
             previewRevalidationIDs = Set(previewMetadataByPaperID.keys)
             previewFailedIDs = []
@@ -154,7 +167,7 @@ class PaperCollectionViewModel: ObservableObject {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
                 var restoredState = previousState
-                restoredState.items = restoredState.items.preservingCommunityMetrics(from: state.items)
+                restoredState.items = restoredState.items.preservingMetrics(from: state.items)
                 restoredState.isLoadingMore = false
                 if !restoredState.items.isEmpty {
                     restoredState.status = .loaded
@@ -167,16 +180,18 @@ class PaperCollectionViewModel: ObservableObject {
                 return
             }
             needsRefresh = true
-            let items = previousState.items.preservingCommunityMetrics(from: state.items)
+            let items = previousState.items.preservingMetrics(from: state.items)
             state = previousState
             state.items = items
             previewMetadataByPaperID = previousMetadata
             previewFailedIDs = previousFailures
-            state.status = previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
+            state.status =
+                previousState.items.isEmpty ? .failed(error.localizedDescription) : .loaded
             state.failureCause = previousState.items.isEmpty ? error : nil
             state.isLoadingMore = false
             if previousState.items.isEmpty && !requiresSearchText { state.canLoadMore = false }
-            let title = requiresSearchText ? "搜索文章失败" : previousState.items.isEmpty ? "加载文章失败" : "刷新文章失败"
+            let title =
+                requiresSearchText ? "搜索文章失败" : previousState.items.isEmpty ? "加载文章失败" : "刷新文章失败"
             alert = AppAlert(title: title, error: error)
         }
     }
@@ -184,7 +199,9 @@ class PaperCollectionViewModel: ObservableObject {
     func loadMoreIfNeeded(currentPaper: PaperSummary?) async {
         guard let currentPaper, let query = pageQuery else { return }
         let generation = refreshGeneration
-        guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else { return }
+        guard state.status == .loaded, state.shouldLoadMore(currentID: currentPaper.id) else {
+            return
+        }
 
         state.isLoadingMore = true
         defer {
@@ -195,9 +212,15 @@ class PaperCollectionViewModel: ObservableObject {
 
         var request = CommunityPageRequest<Int>(sourcePage: state.nextPage)
         do {
-            guard let papers = try await request.next(isCurrent: { self.refreshGeneration == generation },
-                knownIDs: { self.state.pagedItems.ids },
-                fetch: { try await self.service.fetchPapers(search: query.search, order: query.order, page: $0) }) else { return }
+            guard
+                let papers = try await request.next(
+                    isCurrent: { self.refreshGeneration == generation },
+                    knownIDs: { self.state.pagedItems.ids },
+                    fetch: {
+                        try await self.service.fetchPapers(
+                            search: query.search, order: query.order, page: $0)
+                    })
+            else { return }
             var updated = state
             updated.nextPage = request.sourcePage
             updated.appendPage(papers)
@@ -213,10 +236,13 @@ class PaperCollectionViewModel: ObservableObject {
     }
 
     /// 文章作者信息由详情接口提供；文章行展示前请求详情，并将成功返回的作者预览信息缓存在内存中。
-    func loadPreviewMetadataIfNeeded(for paper: PaperSummary) async {
+    func loadPreviewMetadata(for paper: PaperSummary) async {
         guard state.status == .loaded else { return }
-        guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id) else { return }
-        guard !previewLoadingIDs.contains(paper.id), !previewFailedIDs.contains(paper.id) else { return }
+        guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id)
+        else { return }
+        guard !previewLoadingIDs.contains(paper.id), !previewFailedIDs.contains(paper.id) else {
+            return
+        }
         let generation = refreshGeneration
         previewLoadingIDs.insert(paper.id)
         previewFailedIDs.remove(paper.id)
@@ -314,11 +340,17 @@ final class PaperDetailViewModel: ObservableObject {
     func bootstrapIfNeeded() async {
         await pendingOperations.bootstrapIfNeeded {
             let restoredGeneration = refreshGeneration
-            if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id), !Task.isCancelled,
-               refreshGeneration == restoredGeneration {
-                await handlePaperResult(.success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision, generation: refreshGeneration)
+            if paper == nil, let cached = await service.cachedPaper(id: initialPaper.id),
+                !Task.isCancelled,
+                refreshGeneration == restoredGeneration
+            {
+                await handlePaperResult(
+                    .success(cached), previousStatus: .idle, likeRevisionAtStart: likeRevision,
+                    generation: refreshGeneration)
             }
-            guard refreshGeneration == restoredGeneration, !Task.isCancelled else { return false }
+            guard refreshGeneration == restoredGeneration, !Task.isCancelled else {
+                return false
+            }
             await refreshAll()
             return !Task.isCancelled && paperStatus != .idle && commentState.status != .idle
         }
@@ -329,7 +361,9 @@ final class PaperDetailViewModel: ObservableObject {
         refreshGeneration &+= 1
         commentRefreshGeneration &+= 1
         if paperStatus == .loading { paperStatus = paper == nil ? .idle : .loaded }
-        if commentState.status == .loading { commentState.status = commentState.items.isEmpty ? .idle : .loaded }
+        if commentState.status == .loading {
+            commentState.status = commentState.items.isEmpty ? .idle : .loaded
+        }
         commentState.isLoadingMore = false
         commentOrder = commentState.order
     }
@@ -343,17 +377,24 @@ final class PaperDetailViewModel: ObservableObject {
         let previousPaperStatus = paperStatus
         let previousCommentState = commentState
         paperStatus = .loading
-        resetCommentStateForRefresh()
+        resetCommentsForRefresh()
 
         async let paperRefresh: Void = { @MainActor [self] in
-            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchPaper(id: initialPaper.id) }
+            let result = await CommunityDetailTasks.loadResult { [self] in
+                try await service.fetchPaper(id: initialPaper.id)
+            }
             guard refreshGeneration == generation else { return }
-            await handlePaperResult(result, previousStatus: previousPaperStatus, likeRevisionAtStart: likeRevisionAtStart, generation: generation)
+            await handlePaperResult(
+                result, previousStatus: previousPaperStatus,
+                likeRevisionAtStart: likeRevisionAtStart, generation: generation)
         }()
         async let commentRefresh: Void = { @MainActor [self, commentOrder] in
-            let result = await CommunityDetailTasks.loadResult { [self] in try await service.fetchComments(paperID: initialPaper.id, order: commentOrder, page: nil) }
+            let result = await CommunityDetailTasks.loadResult { [self] in
+                try await service.fetchComments(
+                    paperID: initialPaper.id, order: commentOrder, page: nil)
+            }
             guard commentRefreshGeneration == commentsGeneration else { return }
-            handleCommentRefreshResult(result, previousState: previousCommentState)
+            handleCommentRefresh(result, previousState: previousCommentState)
         }()
         _ = await (paperRefresh, commentRefresh)
     }
@@ -362,27 +403,31 @@ final class PaperDetailViewModel: ObservableObject {
         commentRefreshGeneration &+= 1
         let generation = commentRefreshGeneration
         let previousState = commentState
-        resetCommentStateForRefresh()
+        resetCommentsForRefresh()
         let result = await CommunityDetailTasks.loadResult { [self] in
-            try await self.service.fetchComments(paperID: self.initialPaper.id, order: self.commentOrder, page: nil)
+            try await self.service.fetchComments(
+                paperID: self.initialPaper.id, order: self.commentOrder, page: nil)
         }
         guard commentRefreshGeneration == generation else { return }
-        handleCommentRefreshResult(result, previousState: previousState)
+        handleCommentRefresh(result, previousState: previousState)
     }
 
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
-        guard let currentComment, commentState.shouldLoadMore(currentID: currentComment.id) else { return }
+        guard let currentComment, commentState.shouldLoadMore(currentID: currentComment.id)
+        else { return }
         await loadMoreComments()
     }
 
     func retryCommentsIfNeeded() async {
-        await CommunityDetailTasks.recoverComments(commentState, refresh: { await refreshComments() }, loadMore: { await loadMoreComments() })
+        await CommunityDetailTasks.recoverComments(
+            commentState, refresh: { await refreshComments() },
+            loadMore: { await loadMoreComments() })
     }
 
     private func loadMoreComments() async {
         let generation = commentRefreshGeneration
         guard commentState.status == .loaded,
-              !commentState.isLoadingMore, commentState.canLoadMore
+            !commentState.isLoadingMore, commentState.canLoadMore
         else { return }
 
         let order = commentOrder
@@ -396,23 +441,29 @@ final class PaperDetailViewModel: ObservableObject {
 
         var request = CommunityPageRequest<Int>(sourcePage: commentState.nextPage)
         let result = await CommunityDetailTasks.loadResult { [self] in
-            guard let comments = try await request.next(
-                isCurrent: { self.commentRefreshGeneration == generation },
-                knownIDs: { self.commentState.pagedItems.ids },
-                fetch: { try await self.service.fetchComments(paperID: self.initialPaper.id, order: order, page: $0) }
-            ) else { throw CancellationError() }
+            guard
+                let comments = try await request.next(
+                    isCurrent: { self.commentRefreshGeneration == generation },
+                    knownIDs: { self.commentState.pagedItems.ids },
+                    fetch: {
+                        try await self.service.fetchComments(
+                            paperID: self.initialPaper.id, order: order, page: $0)
+                    }
+                )
+            else { throw CancellationError() }
             return comments
         }
         guard commentRefreshGeneration == generation else { return }
         commentState.nextPage = request.sourcePage
 
         switch result {
-        case let .success(comments):
+        case .success(let comments):
             commentState.confirmRead(in: comments)
-            commentState.appendPage(commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
+            commentState.appendPage(
+                commentState.applyingLocalChanges(to: comments, since: likeRevisionAtStart))
             commentState.canLoadMore = !comments.isEmpty
             commentState.paginationError = nil
-        case let .failure(error):
+        case .failure(let error):
             if TaskCancellation.matches(error) { return }
             commentState.paginationError = error.localizedDescription
             alert = AppAlert(title: "加载更多失败", error: error)
@@ -428,18 +479,27 @@ final class PaperDetailViewModel: ObservableObject {
 
     var isPaperLiked: Bool { latestLikeResult?.like ?? paper?.like ?? false }
     var hasPublicContent: Bool {
-        paper?.isViewerAuthenticated == false || commentState.items.contains {
-                !$0.isViewerAuthenticated || $0.flattenedReplies.contains { !$0.isViewerAuthenticated }
+        paper?.isViewerAuthenticated == false
+            || commentState.items.contains {
+                !$0.isViewerAuthenticated
+                    || $0.flattenedReplies.contains { !$0.isViewerAuthenticated }
             }
     }
-    var hasKnownLikeState: Bool { paper?.isViewerAuthenticated == true || latestLikeResult != nil }
-    var likeStateMessage: String { paper?.isViewerAuthenticated == false ? "社区认证后可点赞" : "点赞状态待获取" }
-    var resolvedLikeNum: Int { latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum }
+    var hasKnownLikeState: Bool {
+        paper?.isViewerAuthenticated == true || latestLikeResult != nil
+    }
+    var likeStateMessage: String {
+        paper?.isViewerAuthenticated == false ? "社区认证后可点赞" : "点赞状态待获取"
+    }
+    var resolvedLikeNum: Int {
+        latestLikeResult?.likeNum ?? paper?.likeNum ?? initialPaper.likeNum
+    }
 
     func likePaper() async {
         guard hasKnownLikeState else { return }
         guard !likeResultNeedsReview else {
-            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            alert = AppAlert(
+                title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return
         }
         guard !isLikingPaper else { return }
@@ -457,7 +517,10 @@ final class PaperDetailViewModel: ObservableObject {
             if error is CommunityToggleOutcomeUnknown {
                 likeResultNeedsReview = true
                 await refreshAll()
-                if likeResultNeedsReview { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                if likeResultNeedsReview {
+                    alert = AppAlert(
+                        title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+                }
                 return
             }
             if TaskCancellation.matches(error) { return }
@@ -484,7 +547,8 @@ final class PaperDetailViewModel: ObservableObject {
     func toggleCommentLike(_ comment: CommunityComment) async {
         guard comment.isViewerAuthenticated else { return }
         guard !commentState.likesNeedingReview.contains(comment.id) else {
-            alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+            alert = AppAlert(
+                title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
             return
         }
         guard !likingCommentIDs.contains(comment.id) else { return }
@@ -498,7 +562,10 @@ final class PaperDetailViewModel: ObservableObject {
             if error is CommunityToggleOutcomeUnknown {
                 commentState.recordUncertainLike(for: comment.id)
                 await refreshComments()
-                if commentState.likesNeedingReview.contains(comment.id) { alert = AppAlert(title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                if commentState.likesNeedingReview.contains(comment.id) {
+                    alert = AppAlert(
+                        title: "点赞结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+                }
                 return
             }
             if TaskCancellation.matches(error) { return }
@@ -507,21 +574,27 @@ final class PaperDetailViewModel: ObservableObject {
     }
 
     var commentReview: CommunityCommentReviewActions {
-        .init(needsReview: { self.commentState.needsReview($0) },
-            acknowledge: { self.commentState.acknowledgeSubmissionReview($0) })
+        .init(
+            needsReview: { self.commentState.needsReview($0) },
+            acknowledge: { self.commentState.confirmSubmissionReview($0) })
     }
 
-    func submitComment(text: String, anonymous: Bool, target: CommunityCommentComposerTarget) async -> Bool {
+    func submitComment(text: String, anonymous: Bool, target: CommunityCommentComposerTarget)
+        async -> Bool
+    {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             alert = AppAlert.userInput(title: "发送失败", message: "请输入评论内容。")
             return false
         }
         guard !isSubmittingComment else { return false }
-        let submission = CommunityCommentSubmission(objectID: target.objectID, text: trimmed,
-            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID)
+        let submission = CommunityCommentSubmission(
+            objectID: target.objectID, text: trimmed,
+            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID
+        )
         guard !commentState.needsReview(submission) else {
-            alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
+            alert = AppAlert(
+                title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
             return false
         }
 
@@ -538,14 +611,20 @@ final class PaperDetailViewModel: ObservableObject {
                 anonymous: anonymous
             )
             let parent: CommunityComment?
-            if case let .comment(mainComment, _) = target { parent = mainComment } else { parent = nil }
+            if case .comment(let mainComment, _) = target {
+                parent = mainComment
+            } else {
+                parent = nil
+            }
             commentState.recordCreated(created, replyingTo: parent)
             pendingOperations.enqueue { [weak self] in await self?.refreshAll() }
             return true
         } catch {
             if error is CommunityCreateOutcomeUnknown {
                 commentState.recordUncertainSubmission(submission)
-                alert = AppAlert(title: "发送结果待确认", message: CommunityCreateOutcomeUnknown.commentReviewMessage)
+                alert = AppAlert(
+                    title: "发送结果待确认",
+                    message: CommunityCreateOutcomeUnknown.commentReviewMessage)
                 return false
             }
             if Task.isCancelled || TaskCancellation.matches(error) { return false }
@@ -554,30 +633,35 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
-    private func handlePaperResult(_ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus, likeRevisionAtStart: Int, generation: Int) async {
+    private func handlePaperResult(
+        _ result: Result<PaperDetail, Error>, previousStatus: CommunityLoadStatus,
+        likeRevisionAtStart: Int, generation: Int
+    ) async {
         guard refreshGeneration == generation else { return }
         switch result {
-        case let .success(paper):
+        case .success(let paper):
             let prepared: [PaperContentBlock]
             do {
                 prepared = try await PaperContentRenderer.blocksForDisplay(from: paper.content)
                 try Task.checkCancellation()
-            }
-            catch {
-                await handlePaperResult(.failure(error), previousStatus: previousStatus, likeRevisionAtStart: likeRevisionAtStart, generation: generation)
+            } catch {
+                await handlePaperResult(
+                    .failure(error), previousStatus: previousStatus,
+                    likeRevisionAtStart: likeRevisionAtStart, generation: generation)
                 return
             }
             guard refreshGeneration == generation else { return }
             likeResultNeedsReview = false
             if likeRevision != likeRevisionAtStart, let latestLikeResult {
-                self.paper = paper.updatingLike(latestLikeResult.like, likeNum: latestLikeResult.likeNum)
+                self.paper = paper.updatingLike(
+                    latestLikeResult.like, likeNum: latestLikeResult.likeNum)
             } else {
                 self.paper = paper
                 latestLikeResult = nil
             }
             contentBlocks = prepared
             paperStatus = .loaded
-        case let .failure(error):
+        case .failure(let error):
             if TaskCancellation.matches(error) {
                 if paper == nil {
                     paperStatus = previousStatus
@@ -594,34 +678,35 @@ final class PaperDetailViewModel: ObservableObject {
         }
     }
 
-    private func handleCommentRefreshResult(
+    private func handleCommentRefresh(
         _ result: Result<[CommunityComment], Error>,
         previousState: CommunityCommentState
     ) {
         switch result {
-        case let .success(comments):
+        case .success(let comments):
             commentState.order = commentOrder
             commentState.confirmRead(in: comments)
-            commentState.applyFirstPage(commentState.applyingLocalChanges(to: comments, since: previousState.likeRevision))
+            commentState.applyFirstPage(
+                commentState.applyingLocalChanges(
+                    to: comments, since: previousState.likeRevision))
             commentState.canLoadMore = !comments.isEmpty
             commentState.finishRefresh()
-        case let .failure(error):
+        case .failure(let error):
             let cancelled = TaskCancellation.matches(error)
-            commentState.restoreAfterRefreshFailure(previousState, failureStatus: cancelled ? nil : .failed(error.localizedDescription))
+            commentState.restoreFailedRefresh(
+                previousState,
+                failureStatus: cancelled ? nil : .failed(error.localizedDescription))
             if commentState.status == .loaded { commentOrder = commentState.order }
             if cancelled { return }
             alert = AppAlert(title: "加载评论失败", error: error)
         }
     }
 
-    private func resetCommentStateForRefresh() {
+    private func resetCommentsForRefresh() {
         commentState.status = .loading
         commentState.isLoadingMore = false
     }
 
-
 }
-
-
 
 #endif

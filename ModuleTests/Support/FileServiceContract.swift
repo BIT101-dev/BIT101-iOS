@@ -7,7 +7,9 @@ public func waitForTestEvent(
     isolation: isolated (any Actor)? = #isolation,
     _ condition: @isolated(any) () throws -> Bool
 ) async throws {
-    try await waitForAsyncTestEvent(timeout: timeout, isolation: isolation) { try await condition() }
+    try await waitForAsyncTestEvent(timeout: timeout, isolation: isolation) {
+        try await condition()
+    }
 }
 
 public func waitForAsyncTestEvent(
@@ -47,8 +49,10 @@ public nonisolated func verifyFileServiceContract(
     let item = nested.appendingPathComponent("value")
     let hidden = root.appendingPathComponent(".hidden")
     let absent = root.appendingPathComponent("absent")
-    do { _ = try files.readData(at: absent, maximumBytes: 10); Issue.record("缺失文件读取需要返回缺失错误") }
-    catch { #expect(AppFileSystem.isMissingFile(error)) }
+    do {
+        _ = try files.readData(at: absent, maximumBytes: 10)
+        Issue.record("缺失文件读取需要返回缺失错误")
+    } catch { #expect(AppFileSystem.isMissingFile(error)) }
     try files.removeItemIfPresent(at: absent)
     try files.createDirectory(at: nested)
     try files.writeData(Data([1, 2, 3]), to: item, options: .atomic)
@@ -63,8 +67,13 @@ public nonisolated func verifyFileServiceContract(
     #expect(files.fileExists(at: folder))
     #expect(files.fileExists(at: nested))
     #expect(!files.isRegularFile(at: nested))
-    #expect(Set(try files.contentsOfDirectory(at: root, options: []).map(\.lastPathComponent)) == ["nested", ".hidden"])
-    #expect(try files.contentsOfDirectory(at: root, options: .skipsHiddenFiles).map(\.lastPathComponent) == ["nested"])
+    #expect(
+        Set(try files.contentsOfDirectory(at: root, options: []).map(\.lastPathComponent)) == [
+            "nested", ".hidden",
+        ])
+    #expect(
+        try files.contentsOfDirectory(at: root, options: .skipsHiddenFiles).map(\.lastPathComponent)
+            == ["nested"])
     #expect(try files.regularFileMetadata(in: root).isEmpty)
     let metadata = try #require(files.regularFileMetadata(in: nested).first)
     #expect(metadata.url == files.canonicalFileURL(item))
@@ -95,10 +104,12 @@ public nonisolated func verifyFileServiceContract(
     }
     if files is LocalAppFileService {
         let manager = FileManager.default
-        let permissions = try #require(manager.attributesOfItem(atPath: root.path)[.posixPermissions])
+        let permissions = try #require(
+            manager.attributesOfItem(atPath: root.path)[.posixPermissions])
         defer {
-            do { try manager.setAttributes([.posixPermissions: permissions], ofItemAtPath: root.path) }
-            catch { Issue.record(error) }
+            do {
+                try manager.setAttributes([.posixPermissions: permissions], ofItemAtPath: root.path)
+            } catch { Issue.record(error) }
         }
         try manager.setAttributes([.posixPermissions: 0o500], ofItemAtPath: root.path)
         #expect(!files.removeContents(of: root))

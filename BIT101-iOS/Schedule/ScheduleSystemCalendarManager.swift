@@ -1,17 +1,19 @@
-import SchedulePorts
-import TransportCore
 import ClientCore
-import MapFeature
-import ScheduleDomain
-import ScheduleContracts
-import StorageCore
 import EventKit
 import Foundation
+import MapFeature
+import ScheduleContracts
+import ScheduleDomain
+import SchedulePorts
+import StorageCore
+import TransportCore
 
 nonisolated enum ScheduleSystemCalendarTransaction {
     static func run<Value>(reset: () -> Void, operation: () throws -> Value) throws -> Value {
-        do { return try operation() }
-        catch { reset(); throw error }
+        do { return try operation() } catch {
+            reset()
+            throw error
+        }
     }
 }
 
@@ -21,8 +23,11 @@ nonisolated enum ScheduleSystemCalendarQuery {
         var ranges: [DateInterval] = []
         var cursor = start
         while cursor < end {
-            guard let limit = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 4, to: cursor),
-                  limit > cursor else { return ranges }
+            guard
+                let limit = ScheduleSharedDateCodec.calendar.date(
+                    byAdding: .year, value: 4, to: cursor),
+                limit > cursor
+            else { return ranges }
             let next = min(end, limit)
             ranges.append(DateInterval(start: cursor, end: next))
             cursor = next
@@ -51,7 +56,8 @@ nonisolated struct ScheduleSystemCalendarEventDraft: Equatable, Sendable {
     var calendarLocation: EKStructuredLocation {
         let value = EKStructuredLocation(title: location)
         if let structuredLocation {
-            value.geoLocation = CLLocation(latitude: structuredLocation.latitude, longitude: structuredLocation.longitude)
+            value.geoLocation = CLLocation(
+                latitude: structuredLocation.latitude, longitude: structuredLocation.longitude)
         }
         return value
     }
@@ -59,18 +65,21 @@ nonisolated struct ScheduleSystemCalendarEventDraft: Equatable, Sendable {
 
 /// 将课表里的周次、星期和节次展开成独立日历事件。
 nonisolated enum ScheduleSystemCalendarEventBuilder {
-    static func makeDrafts(for content: ScheduleSystemCalendarContent) throws -> [ScheduleSystemCalendarEventDraft] {
+    static func makeDrafts(for content: ScheduleSystemCalendarContent) throws
+        -> [ScheduleSystemCalendarEventDraft]
+    {
         switch content {
-        case let .courses(courses, firstDay, timeTable, week):
-            let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(courses: courses, firstDay: firstDay, timeTable: timeTable)
+        case .courses(let courses, let firstDay, let timeTable, let week):
+            let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
+                courses: courses, firstDay: firstDay, timeTable: timeTable)
             guard let week else { return drafts }
             return drafts.filter { $0.markerID.hasSuffix("-w\(week)") }
-        case let .exam(exam):
+        case .exam(let exam):
             guard let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam) else {
                 throw ScheduleSystemCalendarError.invalidEntry("考试时间数据无法生成系统日历事件。")
             }
             return [draft]
-        case let .customSchedule(schedule):
+        case .customSchedule(let schedule):
             let drafts = schedule.occurrenceDateStrings.compactMap {
                 ScheduleSystemCalendarEventBuilder.makeDraft(for: schedule, dateString: $0)
             }
@@ -86,16 +95,18 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         firstDay: Date,
         timeTable: [TimeSlot]
     ) -> [ScheduleSystemCalendarEventDraft] {
-        let slots = Dictionary(timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let slots = Dictionary(
+            timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let calendar = shanghaiCalendar()
 
-        let drafts: [ScheduleSystemCalendarEventDraft] = courses.flatMap { (course: CourseRecord) -> [ScheduleSystemCalendarEventDraft] in
+        let drafts: [ScheduleSystemCalendarEventDraft] = courses.flatMap {
+            (course: CourseRecord) -> [ScheduleSystemCalendarEventDraft] in
             guard
                 let startSlot = slots[course.startSection],
                 let endSlot = slots[course.endSection]
             else { return [] }
 
-            guard (1 ... 7).contains(course.weekday) else { return [] }
+            guard (1...7).contains(course.weekday) else { return [] }
 
             return course.weeks.compactMap { week in
                 guard ScheduleCourseConstraints.isValidWeek(week) else { return nil }
@@ -114,7 +125,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
 
                 let noteLines = [
                     course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
-                    course.number.isEmpty ? nil : "课程编号：\(dataDetectorSafeCourseNumber(course.number))",
+                    course.number.isEmpty ? nil : "课程编号：\(escapedCourseNumber(course.number))",
                     course.description.isEmpty ? nil : course.description,
                 ].compactMap { $0 }
                 let structuredLocation = CampusMapPlaceCatalog.place(
@@ -159,7 +170,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         else { return nil }
 
         let noteLines = [
-            exam.courseID.isEmpty ? nil : "课程号：\(dataDetectorSafeCourseNumber(exam.courseID))",
+            exam.courseID.isEmpty ? nil : "课程号：\(escapedCourseNumber(exam.courseID))",
             exam.teacher.isEmpty ? nil : "教师：\(exam.teacher)",
             exam.examMode.isEmpty ? nil : "形式：\(exam.examMode)",
             exam.seatID.isEmpty ? nil : "座位号：\(exam.seatID)",
@@ -177,7 +188,9 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
         )
     }
 
-    static func makeDraft(for schedule: CustomScheduleRecord, dateString: String? = nil) -> ScheduleSystemCalendarEventDraft? {
+    static func makeDraft(for schedule: CustomScheduleRecord, dateString: String? = nil)
+        -> ScheduleSystemCalendarEventDraft?
+    {
         let calendar = shanghaiCalendar()
         guard
             let day = date(from: dateString ?? schedule.dateString, calendar: calendar),
@@ -224,7 +237,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
 
     /// 在连续数字之间插入不可见的 word joiner，保留视觉内容，同时阻止系统日历
     /// 把纯数字课程号误判成可拨打的电话号码。
-    static func dataDetectorSafeCourseNumber(_ value: String) -> String {
+    static func escapedCourseNumber(_ value: String) -> String {
         var result = ""
         var previousWasNumber = false
         for character in value {
@@ -243,8 +256,8 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             parts.count == 2,
             let hour = Int(parts[0]),
             let minute = Int(parts[1]),
-            (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
-            (0 ... 59).contains(minute)
+            (0...23).contains(hour) || (hour == 24 && minute == 0),
+            (0...59).contains(minute)
         else { return nil }
 
         var components = calendar.dateComponents(
@@ -264,20 +277,23 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             let year = Int(parts[0]),
             let month = Int(parts[1]),
             let day = Int(parts[2]),
-            (1 ... 12).contains(month),
-            (1 ... 31).contains(day)
+            (1...12).contains(month),
+            (1...31).contains(day)
         else { return nil }
 
-        let date = calendar.date(from: DateComponents(
-            calendar: calendar,
-            timeZone: calendar.timeZone,
-            year: year,
-            month: month,
-            day: day
-        ))
+        let date = calendar.date(
+            from: DateComponents(
+                calendar: calendar,
+                timeZone: calendar.timeZone,
+                year: year,
+                month: month,
+                day: day
+            ))
         guard let date else { return nil }
         let resolved = calendar.dateComponents([.year, .month, .day], from: date)
-        guard resolved.year == year, resolved.month == month, resolved.day == day else { return nil }
+        guard resolved.year == year, resolved.month == month, resolved.day == day else {
+            return nil
+        }
         return date
     }
 
@@ -295,12 +311,14 @@ nonisolated enum ScheduleSystemCalendarEventMarker {
             customGroups = Set(markerIDs.compactMap(Self.customGroup))
         }
         func contains(_ markerID: String) -> Bool {
-            markerIDs.contains(markerID) || Self.customGroup(markerID).map(customGroups.contains) == true
+            markerIDs.contains(markerID)
+                || Self.customGroup(markerID).map(customGroups.contains) == true
         }
         private static func customGroup(_ markerID: String) -> String? {
             guard markerID.hasPrefix("custom-") else { return nil }
             if markerID.count > 11, markerID.suffix(11).first == "-",
-               ScheduleSharedDateCodec.parseDate(String(markerID.suffix(10))) != nil {
+                ScheduleSharedDateCodec.parseDate(String(markerID.suffix(10))) != nil
+            {
                 return String(markerID.dropLast(11))
             }
             return markerID
@@ -312,15 +330,19 @@ nonisolated enum ScheduleSystemCalendarEventMarker {
         components.scheme = "bit101"
         components.host = "calendar-course"
         components.path = "/\(id)"
-        components.queryItems = [URLQueryItem(name: "term", value: term),
-                                 URLQueryItem(name: "account", value: session.accountStorageIdentifier)]
+        components.queryItems = [
+            URLQueryItem(name: "term", value: term),
+            URLQueryItem(name: "account", value: session.accountStorageIdentifier),
+        ]
         return components.url
     }
 
     static func matches(_ url: URL?, session: AppStorageSession, term: String? = nil) -> Bool {
         guard let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "bit101", components.host?.lowercased() == "calendar-course",
-              components.queryItems?.first(where: { $0.name == "account" })?.value == session.accountStorageIdentifier
+            components.scheme?.lowercased() == "bit101",
+            components.host?.lowercased() == "calendar-course",
+            components.queryItems?.first(where: { $0.name == "account" })?.value
+                == session.accountStorageIdentifier
         else { return false }
         guard let term else { return true }
         return components.queryItems?.first(where: { $0.name == "term" })?.value == term
@@ -359,9 +381,13 @@ actor ScheduleSystemCalendarManager {
     private let requestAccess: (@MainActor @Sendable () async throws -> Void)?
     private var storageSession = AppStorageSession(accountIdentifier: "")
 
-    init(eventStore: sending EKEventStore = EKEventStore(), defaultsDomain: String? = nil,
-         currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity },
-         requestAccess: (@MainActor @Sendable () async throws -> Void)? = nil) {
+    init(
+        eventStore: sending EKEventStore = EKEventStore(), defaultsDomain: String? = nil,
+        currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = {
+            AppAccountSession.storage.schoolSessionIdentity
+        },
+        requestAccess: (@MainActor @Sendable () async throws -> Void)? = nil
+    ) {
         self.eventStore = eventStore
         self.defaults = AppFileDirectories.defaults(inDomain: defaultsDomain)
         self.currentIdentity = currentIdentity
@@ -373,7 +399,8 @@ actor ScheduleSystemCalendarManager {
         term: String,
         replacingTerm: Bool = false
     ) async throws -> Int {
-        try await performImportDrafts(drafts, term: term, replacingTerm: replacingTerm, owner: currentIdentity())
+        try await performImportDrafts(
+            drafts, term: term, replacingTerm: replacingTerm, owner: currentIdentity())
     }
 
     private func performImportDrafts(
@@ -398,7 +425,8 @@ actor ScheduleSystemCalendarManager {
             return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
                 let calendar = try writableBIT101Calendar()
                 let markerIDs = Set(orderedDrafts.map(\.markerID))
-                let markerEvents = replacingTerm
+                let markerEvents =
+                    replacingTerm
                     ? events(forTerm: term, batches: importedBatches)
                     : events(matchingMarkerIDs: markerIDs, term: term, batches: importedBatches)
                 let existingEvents = Dictionary(
@@ -418,7 +446,8 @@ actor ScheduleSystemCalendarManager {
                     event.startDate = draft.startDate
                     event.endDate = draft.endDate
                     event.timeZone = ScheduleSharedDateCodec.calendar.timeZone
-                    event.url = ScheduleSystemCalendarEventMarker.url(id: draft.markerID, term: term, session: storageSession)
+                    event.url = ScheduleSystemCalendarEventMarker.url(
+                        id: draft.markerID, term: term, session: storageSession)
                     try eventStore.save(event, span: .thisEvent, commit: false)
                     savedEvents.append(event)
                 }
@@ -432,11 +461,13 @@ actor ScheduleSystemCalendarManager {
                     startDate: first.startDate.addingTimeInterval(-24 * 60 * 60),
                     endDate: last.endDate.addingTimeInterval(24 * 60 * 60)
                 )
-                saveBatches(Self.mergingImport(added, into: importedBatches, removing: removedIdentifiers))
+                saveBatches(
+                    Self.mergingImport(added, into: importedBatches, removing: removedIdentifiers))
                 return savedEvents.count
             }
         } catch {
-            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+            if let calendarError = error as? EKError, Self.isCalendarPermissionError(calendarError)
+            {
                 throw ScheduleSystemCalendarError.permissionDenied
             }
             throw error
@@ -447,10 +478,10 @@ actor ScheduleSystemCalendarManager {
         markerIDs: Set<String>,
         term: String? = nil
     ) async throws -> ScheduleSystemCalendarMutationResult {
-        try await performDeleteImportedEvents(markerIDs: markerIDs, term: term, owner: currentIdentity())
+        try await removeImportedEvents(markerIDs: markerIDs, term: term, owner: currentIdentity())
     }
 
-    private func performDeleteImportedEvents(
+    private func removeImportedEvents(
         markerIDs: Set<String>, term: String?, owner: SchoolSessionIdentity
     ) async throws -> ScheduleSystemCalendarMutationResult {
         guard await currentIdentity() == owner else { throw CancellationError() }
@@ -460,7 +491,9 @@ actor ScheduleSystemCalendarManager {
         storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
         let importedBatches = try loadBatches()
         let eventsByIdentifier = Dictionary(
-            uniqueKeysWithValues: events(matchingMarkerIDs: markerIDs, term: term, batches: importedBatches).map { ($0.eventIdentifier, $0) }
+            uniqueKeysWithValues: events(
+                matchingMarkerIDs: markerIDs, term: term, batches: importedBatches
+            ).map { ($0.eventIdentifier, $0) }
         )
         guard !eventsByIdentifier.isEmpty else { return .noOp }
 
@@ -474,7 +507,9 @@ actor ScheduleSystemCalendarManager {
 
                 let removedIdentifiers = Set(eventsByIdentifier.keys)
                 let batches = importedBatches.compactMap { batch -> ImportedBatch? in
-                    let remaining = batch.eventIdentifiers.filter { !removedIdentifiers.contains($0) }
+                    let remaining = batch.eventIdentifiers.filter {
+                        !removedIdentifiers.contains($0)
+                    }
                     guard !remaining.isEmpty else { return nil }
                     return ImportedBatch(
                         term: batch.term,
@@ -488,7 +523,8 @@ actor ScheduleSystemCalendarManager {
                 return .changed(eventsByIdentifier.count)
             }
         } catch {
-            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+            if let calendarError = error as? EKError, Self.isCalendarPermissionError(calendarError)
+            {
                 throw ScheduleSystemCalendarError.permissionDenied
             }
             throw error
@@ -502,7 +538,9 @@ actor ScheduleSystemCalendarManager {
         try await deleteImportedEvents(markerIDs: Set(drafts.map(\.markerID)), term: term)
     }
 
-    @MainActor func importCurrentTerm(from courses: ScheduleCourseSnapshot, term: String) async throws -> Int {
+    @MainActor func importCurrentTerm(from courses: ScheduleCourseSnapshot, term: String)
+        async throws -> Int
+    {
         try await performImportCurrentTerm(from: courses, term: term, owner: currentIdentity())
     }
 
@@ -526,26 +564,34 @@ actor ScheduleSystemCalendarManager {
     }
 
     @MainActor func deleteAllImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
-        try await performDeleteAllImportedEvents(owner: currentIdentity())
+        try await deleteAllImportedEvents(owner: currentIdentity())
     }
 
     /// 沿现有日历标记重建当前账号的导入索引，事件内容保持完整。
     @MainActor func rebuildImportHistory() async throws -> Int {
-        try await performRebuildImportHistory(owner: currentIdentity())
+        try await rebuildImportHistory(owner: currentIdentity())
     }
 
-    private func performRebuildImportHistory(owner: SchoolSessionIdentity) async throws -> Int {
+    private func rebuildImportHistory(owner: SchoolSessionIdentity) async throws -> Int {
         guard await currentIdentity() == owner else { throw CancellationError() }
         try await requireFullAccess()
         guard await currentIdentity() == owner else { throw CancellationError() }
         try Task.checkCancellation()
         storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
-        let lower = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date()) ?? .distantPast
-        let upper = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date()) ?? .distantFuture
-        let events = calendarEvents(calendars: nil, startDate: lower, endDate: upper).compactMap { event -> ImportHistoryEvent? in
+        let lower =
+            ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date())
+            ?? .distantPast
+        let upper =
+            ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date())
+            ?? .distantFuture
+        let events = calendarEvents(calendars: nil, startDate: lower, endDate: upper).compactMap {
+            event -> ImportHistoryEvent? in
             guard let id = event.eventIdentifier, let calendar = event.calendar,
-                  let start = event.startDate, let end = event.endDate else { return nil }
-            return .init(id: id, calendarID: calendar.calendarIdentifier, url: event.url, start: start, end: end)
+                let start = event.startDate, let end = event.endDate
+            else { return nil }
+            return .init(
+                id: id, calendarID: calendar.calendarIdentifier, url: event.url, start: start,
+                end: end)
         }
         let batches = Self.recoveredBatches(from: events, session: storageSession)
         try Task.checkCancellation()
@@ -554,33 +600,42 @@ actor ScheduleSystemCalendarManager {
         return batches.reduce(0) { $0 + $1.eventIdentifiers.count }
     }
 
-    nonisolated static func recoveredBatches(from events: [ImportHistoryEvent], session: AppStorageSession) -> [ImportedBatch] {
+    nonisolated static func recoveredBatches(
+        from events: [ImportHistoryEvent], session: AppStorageSession
+    ) -> [ImportedBatch] {
         struct BatchKey: Hashable {
             let term: String
             let calendarID: String
         }
         let valid = events.filter {
-            !$0.id.isEmpty && !$0.calendarID.isEmpty && $0.start.timeIntervalSince1970.isFinite &&
-            $0.end.timeIntervalSince1970.isFinite && $0.end > $0.start && ScheduleSystemCalendarEventMarker.matches($0.url, session: session)
+            !$0.id.isEmpty && !$0.calendarID.isEmpty && $0.start.timeIntervalSince1970.isFinite
+                && $0.end.timeIntervalSince1970.isFinite && $0.end > $0.start
+                && ScheduleSystemCalendarEventMarker.matches($0.url, session: session)
         }
         let grouped = Dictionary(grouping: valid) { event in
-            let term = event.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
+            let term =
+                event.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?
                 .queryItems?.first(where: { $0.name == "term" })?.value ?? ""
             return BatchKey(term: term, calendarID: event.calendarID)
         }
         return grouped.compactMap { key, events -> ImportedBatch? in
             guard !key.term.isEmpty, !key.calendarID.isEmpty else { return nil }
-            guard let start = events.map(\.start).min(), let end = events.map(\.end).max() else { return nil }
-            return ImportedBatch(term: key.term, calendarIdentifier: key.calendarID,
+            guard let start = events.map(\.start).min(), let end = events.map(\.end).max() else {
+                return nil
+            }
+            return ImportedBatch(
+                term: key.term, calendarIdentifier: key.calendarID,
                 eventIdentifiers: events.map(\.id), startDate: start, endDate: end)
         }
     }
 
     nonisolated static func mergingImport(
-        _ added: ImportedBatch, into batches: [ImportedBatch], removing removedIdentifiers: Set<String>
+        _ added: ImportedBatch, into batches: [ImportedBatch],
+        removing removedIdentifiers: Set<String>
     ) -> [ImportedBatch] {
         var identifiers = added.eventIdentifiers
-        var start = added.startDate, end = added.endDate
+        var start = added.startDate
+        var end = added.endDate
         var result: [ImportedBatch] = []
         for batch in batches {
             let remaining = batch.eventIdentifiers.filter { !removedIdentifiers.contains($0) }
@@ -590,19 +645,26 @@ actor ScheduleSystemCalendarManager {
                 start = min(start, batch.startDate)
                 end = max(end, batch.endDate)
             } else {
-                result.append(ImportedBatch(term: batch.term, calendarIdentifier: batch.calendarIdentifier,
-                    eventIdentifiers: remaining, startDate: batch.startDate, endDate: batch.endDate))
+                result.append(
+                    ImportedBatch(
+                        term: batch.term, calendarIdentifier: batch.calendarIdentifier,
+                        eventIdentifiers: remaining, startDate: batch.startDate,
+                        endDate: batch.endDate))
             }
         }
-        result.append(ImportedBatch(term: added.term, calendarIdentifier: added.calendarIdentifier,
-            eventIdentifiers: identifiers, startDate: start, endDate: end))
+        result.append(
+            ImportedBatch(
+                term: added.term, calendarIdentifier: added.calendarIdentifier,
+                eventIdentifiers: identifiers, startDate: start, endDate: end))
         return result
     }
 
     /// 账号清理等待当前同步事务及其本地批次写入完成。
     func finishPendingTransactions() {}
 
-    private func performDeleteAllImportedEvents(owner: SchoolSessionIdentity) async throws -> ScheduleSystemCalendarMutationResult {
+    private func deleteAllImportedEvents(owner: SchoolSessionIdentity) async throws
+        -> ScheduleSystemCalendarMutationResult
+    {
         guard await currentIdentity() == owner else { throw CancellationError() }
         try await requireFullAccess()
         guard await currentIdentity() == owner else { throw CancellationError() }
@@ -616,7 +678,9 @@ actor ScheduleSystemCalendarManager {
 
                 for batch in batches {
                     for identifier in batch.eventIdentifiers {
-                        if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event) {
+                        if let event = eventStore.event(withIdentifier: identifier),
+                            isBIT101Event(event)
+                        {
                             eventsByIdentifier[identifier] = event
                         }
                     }
@@ -632,16 +696,18 @@ actor ScheduleSystemCalendarManager {
 
                 // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
                 if let calendar = existingBIT101Calendar() {
-                    let lowerBound = ScheduleSharedDateCodec.calendar.date(
-                        byAdding: .year,
-                        value: -10,
-                        to: Date()
-                    ) ?? Date.distantPast
-                    let upperBound = ScheduleSharedDateCodec.calendar.date(
-                        byAdding: .year,
-                        value: 10,
-                        to: Date()
-                    ) ?? Date.distantFuture
+                    let lowerBound =
+                        ScheduleSharedDateCodec.calendar.date(
+                            byAdding: .year,
+                            value: -10,
+                            to: Date()
+                        ) ?? Date.distantPast
+                    let upperBound =
+                        ScheduleSharedDateCodec.calendar.date(
+                            byAdding: .year,
+                            value: 10,
+                            to: Date()
+                        ) ?? Date.distantFuture
                     for event in taggedEvents(
                         calendars: [calendar],
                         startDate: lowerBound,
@@ -663,7 +729,8 @@ actor ScheduleSystemCalendarManager {
                 return .changed(eventsByIdentifier.count)
             }
         } catch {
-            if let calendarError = error as? EKError, Self.isCalendarWritePermissionError(calendarError) {
+            if let calendarError = error as? EKError, Self.isCalendarPermissionError(calendarError)
+            {
                 throw ScheduleSystemCalendarError.permissionDenied
             }
             throw error
@@ -671,7 +738,10 @@ actor ScheduleSystemCalendarManager {
     }
 
     private func requireFullAccess() async throws {
-        if let requestAccess { try await requestAccess(); return }
+        if let requestAccess {
+            try await requestAccess()
+            return
+        }
         do {
             switch EKEventStore.authorizationStatus(for: .event) {
             case .fullAccess:
@@ -697,13 +767,13 @@ actor ScheduleSystemCalendarManager {
         }
     }
 
-    private static func isCalendarWritePermissionError(_ error: EKError) -> Bool {
+    private static func isCalendarPermissionError(_ error: EKError) -> Bool {
         switch error.code {
         case .calendarReadOnly,
-             .sourceDoesNotAllowCalendarAddDelete,
-             .sourceDoesNotAllowEvents,
-             .calendarDoesNotAllowEvents,
-             .eventStoreNotAuthorized:
+            .sourceDoesNotAllowCalendarAddDelete,
+            .sourceDoesNotAllowEvents,
+            .calendarDoesNotAllowEvents,
+            .eventStoreNotAuthorized:
             return true
         default:
             return false
@@ -718,9 +788,10 @@ actor ScheduleSystemCalendarManager {
             return existing
         }
 
-        guard let source = eventStore.defaultCalendarForNewEvents?.source
-            ?? eventStore.sources.first(where: { $0.sourceType == .calDAV })
-            ?? eventStore.sources.first(where: { $0.sourceType == .local })
+        guard
+            let source = eventStore.defaultCalendarForNewEvents?.source
+                ?? eventStore.sources.first(where: { $0.sourceType == .calDAV })
+                ?? eventStore.sources.first(where: { $0.sourceType == .local })
         else {
             throw ScheduleSystemCalendarError.noWritableCalendarSource
         }
@@ -734,8 +805,7 @@ actor ScheduleSystemCalendarManager {
     }
 
     private func existingBIT101Calendar() -> EKCalendar? {
-        if
-            let identifier = defaults.string(forKey: Self.calendarIdentifierKey),
+        if let identifier = defaults.string(forKey: Self.calendarIdentifierKey),
             let calendar = eventStore.calendar(withIdentifier: identifier)
         {
             return calendar
@@ -757,10 +827,13 @@ actor ScheduleSystemCalendarManager {
             .filter { isBIT101Event($0, term: term) }
     }
 
-    private func calendarEvents(calendars: [EKCalendar]?, startDate: Date, endDate: Date) -> [EKEvent] {
+    private func calendarEvents(calendars: [EKCalendar]?, startDate: Date, endDate: Date)
+        -> [EKEvent]
+    {
         var eventsByIdentifier: [String: EKEvent] = [:]
         for interval in ScheduleSystemCalendarQuery.intervals(start: startDate, end: endDate) {
-            let predicate = eventStore.predicateForEvents(withStart: interval.start, end: interval.end, calendars: calendars)
+            let predicate = eventStore.predicateForEvents(
+                withStart: interval.start, end: interval.end, calendars: calendars)
             for event in eventStore.events(matching: predicate) {
                 if let identifier = event.eventIdentifier { eventsByIdentifier[identifier] = event }
             }
@@ -774,10 +847,14 @@ actor ScheduleSystemCalendarManager {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
     }
 
-    private func events(matchingMarkerIDs markerIDs: Set<String>, term: String? = nil, batches: [ImportedBatch]) -> [EKEvent] {
+    private func events(
+        matchingMarkerIDs markerIDs: Set<String>, term: String? = nil, batches: [ImportedBatch]
+    ) -> [EKEvent] {
         guard !markerIDs.isEmpty else { return [] }
         let selection = ScheduleSystemCalendarEventMarker.Selection(markerIDs)
-        return events(forTerm: term, batches: batches).filter { selection.contains(markerID(from: $0)) }
+        return events(forTerm: term, batches: batches).filter {
+            selection.contains(markerID(from: $0))
+        }
     }
 
     private func events(forTerm term: String?, batches: [ImportedBatch]) -> [EKEvent] {
@@ -785,7 +862,9 @@ actor ScheduleSystemCalendarManager {
         for batch in batches {
             if let term, batch.term != term { continue }
             for identifier in batch.eventIdentifiers {
-                if let event = eventStore.event(withIdentifier: identifier), isBIT101Event(event, term: term) {
+                if let event = eventStore.event(withIdentifier: identifier),
+                    isBIT101Event(event, term: term)
+                {
                     eventsByIdentifier[identifier] = event
                 }
             }
@@ -799,9 +878,15 @@ actor ScheduleSystemCalendarManager {
             }
         }
         if let calendar = existingBIT101Calendar() {
-            let lowerBound = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date()) ?? .distantPast
-            let upperBound = ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date()) ?? .distantFuture
-            for event in taggedEvents(calendars: [calendar], startDate: lowerBound, endDate: upperBound, term: term) {
+            let lowerBound =
+                ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: -10, to: Date())
+                ?? .distantPast
+            let upperBound =
+                ScheduleSharedDateCodec.calendar.date(byAdding: .year, value: 10, to: Date())
+                ?? .distantFuture
+            for event in taggedEvents(
+                calendars: [calendar], startDate: lowerBound, endDate: upperBound, term: term)
+            {
                 eventsByIdentifier[event.eventIdentifier] = event
             }
         }
@@ -813,10 +898,15 @@ actor ScheduleSystemCalendarManager {
     }
 
     private func loadBatches() throws -> [ImportedBatch] {
-        guard let value = defaults.object(forKey: storageSession.key(Self.batchesKey)) else { return [] }
-        guard let data = value as? Data else { throw ScheduleSystemCalendarError.importHistoryUnreadable }
-        do { return try JSONDecoder().decode([ImportedBatch].self, from: data) }
-        catch { throw ScheduleSystemCalendarError.importHistoryUnreadable }
+        guard let value = defaults.object(forKey: storageSession.key(Self.batchesKey)) else {
+            return []
+        }
+        guard let data = value as? Data else {
+            throw ScheduleSystemCalendarError.importHistoryUnreadable
+        }
+        do { return try JSONDecoder().decode([ImportedBatch].self, from: data) } catch {
+            throw ScheduleSystemCalendarError.importHistoryUnreadable
+        }
     }
 
     private func saveBatches(_ batches: [ImportedBatch]) {

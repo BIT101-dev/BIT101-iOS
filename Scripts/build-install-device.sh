@@ -20,7 +20,8 @@ case "$ACTION" in
     ;;
   *)
     if [[ $# -gt 1 ]]; then
-      echo "用法：Scripts/build-install-device.sh [build|archive|archive-signed|mac|screenshot|info|toolchain]" >&2
+      echo \
+        "用法：Scripts/build-install-device.sh [操作]；运行 --help 查看操作列表。" >&2
       exit 64
     fi
     ;;
@@ -31,7 +32,8 @@ case "$ACTION" in
     echo "Scripts/build-install-device.sh build        编译 iOS App 与扩展"
     echo "Scripts/build-install-device.sh archive      编译正式归档及 dSYM"
     echo "Scripts/build-install-device.sh archive-signed 归档并签名，供 App Store 导出"
-    echo "Scripts/build-install-device.sh install-archive <归档路径> [--clean] 安装并启动归档；--clean 先卸载现有 App"
+    echo \
+      "Scripts/build-install-device.sh install-archive <归档路径> [--clean] 安装并启动归档；--clean 先卸载现有 App"
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
     echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
@@ -39,7 +41,9 @@ case "$ACTION" in
     exit 0
     ;;
   install|install-archive|build|archive|archive-signed|mac|screenshot|info|toolchain) ;;
-  *) echo "操作：build、archive、archive-signed、install-archive、mac、screenshot、info、toolchain；直接运行自动装机。" >&2; exit 64 ;;
+  *) echo \
+    "操作：build、archive、archive-signed、install-archive、mac、screenshot、info、toolchain；直接运行自动装机。" >&2; \
+    exit 64 ;;
 esac
 
 if [[ "$ACTION" == toolchain ]]; then
@@ -62,9 +66,13 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
     connection="无线"
     if [[ "$BIT101_DEVICE_TRANSPORT" == wired ]]; then connection="USB"; fi
     echo "真机连接：$BIT101_DEVICE_NAME · $connection"
-    lock_state="$(xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet --json-output /dev/stdout)"
+    lock_state="$(xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" \
+      --quiet --json-output /dev/stdout)"
     printf '%s' "$lock_state" |
-      python3 -c 'import json,sys; state=json.load(sys.stdin)["result"]; print("设备状态：" + ("请解锁" if state.get("passcodeRequired") else "已解锁"))'
+      python3 -c 'import json, sys
+
+state = json.load(sys.stdin)["result"]
+print("设备状态：" + ("请解锁" if state.get("passcodeRequired") else "已解锁"))'
   fi
   exit 0
 fi
@@ -80,28 +88,33 @@ if [[ "$ACTION" == install-archive ]]; then
     echo "请提供包含已签名 BIT101-iOS App 的归档。" >&2
     exit 64
   fi
-  APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Info.plist")"
+  APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+    "$APP_PATH/Info.plist")"
   APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
   bit101_require_device || exit 1
   bit101_invalidate_restore
   if [[ "${3:-}" == --clean ]]; then
-    xcrun devicectl device uninstall app --device "$BIT101_DEVICETCL_DEVICE_ID" BIT101-dev.BIT101-iOS --quiet
+    xcrun devicectl device uninstall app --device "$BIT101_DEVICETCL_DEVICE_ID" \
+      BIT101-dev.BIT101-iOS --quiet
   fi
   xcrun devicectl device install app --device "$BIT101_DEVICETCL_DEVICE_ID" "$APP_PATH" --quiet
-  xcrun devicectl device process launch --device "$BIT101_DEVICETCL_DEVICE_ID" --terminate-existing \
+  xcrun devicectl device process launch --device "$BIT101_DEVICETCL_DEVICE_ID" \
+    --terminate-existing \
     BIT101-dev.BIT101-iOS --quiet
   echo "归档 App 已安装并启动：$APP_VERSION ($APP_BUILD) · $BIT101_DEVICE_NAME"
   exit 0
 fi
 if [[ "$ACTION" == install ]]; then
   bit101_require_device || exit 1
-  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)"
+  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest \
+    restore)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
   export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
   finish_install() {
     local install_status=$?
     trap - EXIT
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$install_status" || install_status=$?
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record restore "$install_status" || \
+      install_status=$?
     exit "$install_status"
   }
   trap finish_install EXIT
@@ -109,7 +122,8 @@ fi
 if [[ "$ACTION" == mac ]]; then
   MAC_INPUT_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest catalyst)"
   MAC_RUN_ID="$(uuidgen)"
-  MAC_READINESS="$HOME/Library/Containers/BIT101-dev.BIT101-iOS/Data/Documents/restore-readiness.json"
+    MAC_DOCUMENTS="$HOME/Library/Containers/BIT101-dev.BIT101-iOS/Data/Documents"
+    MAC_READINESS="$MAC_DOCUMENTS/restore-readiness.json"
   mkdir -p "$DERIVED_DATA"
   bit101_run_logged "$DERIVED_DATA/build.log" "Catalyst Release 编译" xcodebuild build \
     -quiet \
@@ -142,7 +156,8 @@ if [[ "$ACTION" == mac ]]; then
   mkdir -p "${RESTORE_LOG:h}"
   mac_deadline=$(( SECONDS + 60 ))
   while (( SECONDS < mac_deadline )); do
-    if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST" > "$RESTORE_LOG" 2>&1; then
+    if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" \
+      "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST" > "$RESTORE_LOG" 2>&1; then
       echo "Catalyst 初始化与活跃进程已确认：$INSTALL_PATH"
       exit 0
     fi
@@ -169,15 +184,18 @@ fi
 if [[ "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   BUILD_ACTION=archive
   BUILD_OVERRIDES+=(-archivePath "$DERIVED_DATA/BIT101-iOS.xcarchive")
-  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest build-archive)"
+  BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest \
+    build-archive)"
   BIT101_VALIDATION_RUN_ID="$(uuidgen)"
   export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
-  BUILD_OVERRIDES+=("BIT101_ARCHIVE_INPUT_DIGEST=$BIT101_VALIDATION_INPUT_IDENTITY" "BIT101_ARCHIVE_RUN_ID=$BIT101_VALIDATION_RUN_ID")
+  BUILD_OVERRIDES+=("BIT101_ARCHIVE_INPUT_DIGEST=$BIT101_VALIDATION_INPUT_IDENTITY" \
+    "BIT101_ARCHIVE_RUN_ID=$BIT101_VALIDATION_RUN_ID")
   rm -rf "$DERIVED_DATA/BIT101-iOS.xcarchive"
   finish_archive() {
     local archive_status=$?
     trap - EXIT
-    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record build-archive "$archive_status" || archive_status=$?
+    python3 "$ROOT_DIR/Scripts/validation_evidence.py" record build-archive "$archive_status" || \
+      archive_status=$?
     exit "$archive_status"
   }
   trap finish_archive EXIT
@@ -212,10 +230,12 @@ mkdir -p "${RESTORE_LOG:h}"
 while (( SECONDS < restore_deadline )); do
   if xcrun devicectl device copy from --device "$BIT101_DEVICETCL_DEVICE_ID" \
       --domain-type appDataContainer --domain-identifier BIT101-dev.BIT101-iOS \
-      --source Documents/restore-readiness.json --destination "$DERIVED_DATA/restore-readiness.json" > "$RESTORE_LOG" 2>&1; then
+      --source Documents/restore-readiness.json --destination \
+        "$DERIVED_DATA/restore-readiness.json" > "$RESTORE_LOG" 2>&1; then
     if xcrun devicectl device info processes --device "$BIT101_DEVICETCL_DEVICE_ID" \
         --quiet --json-output "$DERIVED_DATA/restore-process.json" >> "$RESTORE_LOG" 2>&1; then
-      if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" "$BIT101_VALIDATION_INPUT_IDENTITY" >> "$RESTORE_LOG" 2>&1; then
+      if python3 "$ROOT_DIR/Scripts/validation_restore.py" "$BIT101_VALIDATION_RUN_ID" \
+        "$BIT101_VALIDATION_INPUT_IDENTITY" >> "$RESTORE_LOG" 2>&1; then
         echo "iOS Release 初始化与活跃进程已确认：$BIT101_DEVICE_NAME"
         exit 0
       fi

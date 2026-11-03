@@ -15,24 +15,34 @@ public final class SessionRefreshCoordinator<Identity: Equatable & Sendable> {
     public init() {}
 
     /// 同账号认证共用操作，各等待者分别结束自己的请求。
-    public func refresh(identity: Identity, restore: @escaping () async throws -> Void) async throws {
+    public func refresh(identity: Identity, restore: @escaping () async throws -> Void) async throws
+    {
         try Task.checkCancellation()
         if let pending, pending.identity != identity { cancel() }
         let waiter = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
-                if pending != nil { pending?.waiters[waiter] = continuation }
-                else {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if pending != nil {
+                    pending?.waiters[waiter] = continuation
+                } else {
                     let id = UUID()
                     pending = Pending(id: id, identity: identity, waiters: [waiter: continuation])
                     pending?.task = Task {
-                        do { try await restore(); self.finish(id, result: .success(())) }
-                        catch { self.finish(id, result: .failure(error)) }
+                        do {
+                            try await restore()
+                            self.finish(id, result: .success(()))
+                        } catch { self.finish(id, result: .failure(error)) }
                     }
                 }
             }
-        } onCancel: { Task { @MainActor in self.cancel(waiter) } }
+        } onCancel: {
+            Task { @MainActor in self.cancel(waiter) }
+        }
         try Task.checkCancellation()
     }
 
@@ -51,6 +61,9 @@ public final class SessionRefreshCoordinator<Identity: Equatable & Sendable> {
     private func cancel(_ waiter: UUID) {
         guard let continuation = pending?.waiters.removeValue(forKey: waiter) else { return }
         continuation.resume(throwing: CancellationError())
-        if pending?.waiters.isEmpty == true { pending?.task?.cancel(); pending = nil }
+        if pending?.waiters.isEmpty == true {
+            pending?.task?.cancel()
+            pending = nil
+        }
     }
 }

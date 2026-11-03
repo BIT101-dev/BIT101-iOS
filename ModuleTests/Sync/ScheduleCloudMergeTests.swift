@@ -1,17 +1,28 @@
 import Foundation
 import ScheduleDomain
 import Testing
+
 @testable import ScheduleSync
 
 struct ScheduleCloudMergeTests {
     @Test(arguments: ["root", "records", "dictionary", "nested-records", "legacy-field"])
-    func baselineCollectionsPreserveCorruptionAndLegacySemantics(fault: String) throws {
+    func baselineCollectionsPreserveCorruption(fault: String) throws {
         let base = ScheduleCache()
         var local = base
         var remote = base
-        local.manualCourseRulesByTerm = ["term": [.init(id: "local", sourceIdentity: "a", sourceCourses: [], replacementCourses: [])]]
-        remote.manualCourseRulesByTerm = ["term": [.init(id: "remote", sourceIdentity: "b", sourceCourses: [], replacementCourses: [])]]
-        var object = try #require(try JSONSerialization.jsonObject(with: ScheduleCloudStateMerge.baseline(for: base)) as? [String: Any])
+        local.manualCourseRulesByTerm = [
+            "term": [
+                .init(id: "local", sourceIdentity: "a", sourceCourses: [], replacementCourses: [])
+            ]
+        ]
+        remote.manualCourseRulesByTerm = [
+            "term": [
+                .init(id: "remote", sourceIdentity: "b", sourceCourses: [], replacementCourses: [])
+            ]
+        ]
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: ScheduleCloudStateMerge.baseline(for: base))
+                as? [String: Any])
         switch fault {
         case "records": object["customSchedules"] = [String: String]()
         case "dictionary": object["lexueDDLCompletionByID"] = [String]()
@@ -21,48 +32,68 @@ struct ScheduleCloudMergeTests {
         }
         let data = try JSONSerialization.data(withJSONObject: fault == "root" ? [String]() : object)
         if fault == "legacy-field" {
-            let merged = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote), baseline: data))
+            let merged = try #require(
+                try ScheduleCloudStateMerge.merge(
+                    local: .init(cache: local), remote: .init(cache: remote), baseline: data))
             var result = local
             merged.apply(to: &result)
-            #expect(Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == ["local", "remote"])
+            #expect(
+                Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == [
+                    "local", "remote",
+                ])
         } else {
             #expect(throws: CocoaError.self) {
-                try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote), baseline: data)
+                try ScheduleCloudStateMerge.merge(
+                    local: .init(cache: local), remote: .init(cache: remote), baseline: data)
             }
         }
     }
 
     @Test(arguments: [ScheduleCacheConflictResolution.keepLocal, .useCloud])
-    func resolvingDeletionVersusEditRetainsIndependentRecords(resolution: ScheduleCacheConflictResolution) throws {
+    func resolvingDeletionVersusEditRetainsRecords(resolution: ScheduleCacheConflictResolution)
+        throws
+    {
         var base = ScheduleCache()
         base.ddlEvents = [event("shared")]
         var local = base
         local.ddlEvents = [event("local")]
         var remote = base
         remote.ddlEvents = [event("shared", title: "remote edit"), event("remote")]
-        let state = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote),
-            baseline: ScheduleCloudStateMerge.baseline(for: base), resolution: resolution))
+        let state = try #require(
+            try ScheduleCloudStateMerge.merge(
+                local: .init(cache: local), remote: .init(cache: remote),
+                baseline: ScheduleCloudStateMerge.baseline(for: base), resolution: resolution))
         var result = local
         state.apply(to: &result)
-        let expected: Set<String> = resolution == .keepLocal ? ["local", "remote"] : ["shared", "local", "remote"]
+        let expected: Set<String> =
+            resolution == .keepLocal ? ["local", "remote"] : ["shared", "local", "remote"]
         #expect(Set(result.ddlEvents.map(\.id)) == expected)
-        if resolution == .useCloud { #expect(result.ddlEvents.first { $0.id == "shared" }?.title == "remote edit") }
+        if resolution == .useCloud {
+            #expect(result.ddlEvents.first { $0.id == "shared" }?.title == "remote edit")
+        }
     }
 
     private func event(_ id: String, title: String = "DDL") -> DDLEventRecord {
-        .init(id: id, group: "main", title: title, text: "", dueAt: Date(timeIntervalSince1970: 100), done: false)
+        .init(
+            id: id, group: "main", title: title, text: "", dueAt: Date(timeIntervalSince1970: 100),
+            done: false)
     }
 
-    private func merged(_ base: ScheduleCache, _ local: ScheduleCache, _ remote: ScheduleCache) throws -> ScheduleCache? {
+    private func merged(_ base: ScheduleCache, _ local: ScheduleCache, _ remote: ScheduleCache)
+        throws -> ScheduleCache?
+    {
         let baseline = try ScheduleCloudStateMerge.baseline(for: base)
-        guard let state = try ScheduleCloudStateMerge.merge(local: .init(cache: local), remote: .init(cache: remote),
-            baseline: baseline) else { return nil }
+        guard
+            let state = try ScheduleCloudStateMerge.merge(
+                local: .init(cache: local), remote: .init(cache: remote),
+                baseline: baseline)
+        else { return nil }
         var cache = local
         state.apply(to: &cache)
         return cache
     }
 
-    @Test func independentAdditionsDeletionsAndCompletionsConvergeInBothOrders() throws {
+    @Test func independentAdditionsDeletions() throws {
         var base = ScheduleCache()
         base.ddlEvents = [event("removed"), event("kept")]
         base.lexueDDLCompletionByID = ["eclass:1": false, "eclass:2": false]
@@ -81,7 +112,7 @@ struct ScheduleCloudMergeTests {
         #expect(try ScheduleCloudSyncState.matches(forward, backward))
     }
 
-    @Test func concurrentEditsAndDeleteVersusEditKeepTheConflictChoice() throws {
+    @Test func concurrentEdits() throws {
         var base = ScheduleCache()
         base.ddlEvents = [event("shared")]
         var local = base
@@ -95,20 +126,39 @@ struct ScheduleCloudMergeTests {
         #expect(try merged(base, local, remote)?.ddlEvents.isEmpty == true)
     }
 
-    @Test func independentlyAddedCourseRulesAndCustomSchedulesSurvive() throws {
+    @Test func independentlyAddedCourseSurvive() throws {
         let base = ScheduleCache()
         var local = base
         var remote = base
-        local.manualCourseRulesByTerm = ["term": [.init(id: "local", sourceIdentity: "a", sourceCourses: [], replacementCourses: [])]]
-        remote.manualCourseRulesByTerm = ["term": [.init(id: "remote", sourceIdentity: "b", sourceCourses: [], replacementCourses: [])]]
-        local.customSchedules = [.init(id: "a", title: "a", subtitle: "", description: "", dateString: "", beginTime: "", endTime: "")]
-        remote.customSchedules = [.init(id: "b", title: "b", subtitle: "", description: "", dateString: "", beginTime: "", endTime: "")]
+        local.manualCourseRulesByTerm = [
+            "term": [
+                .init(id: "local", sourceIdentity: "a", sourceCourses: [], replacementCourses: [])
+            ]
+        ]
+        remote.manualCourseRulesByTerm = [
+            "term": [
+                .init(id: "remote", sourceIdentity: "b", sourceCourses: [], replacementCourses: [])
+            ]
+        ]
+        local.customSchedules = [
+            .init(
+                id: "a", title: "a", subtitle: "", description: "", dateString: "", beginTime: "",
+                endTime: "")
+        ]
+        remote.customSchedules = [
+            .init(
+                id: "b", title: "b", subtitle: "", description: "", dateString: "", beginTime: "",
+                endTime: "")
+        ]
         let result = try #require(try merged(base, local, remote))
-        #expect(Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == ["local", "remote"])
+        #expect(
+            Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == [
+                "local", "remote",
+            ])
         #expect(Set(result.customSchedules.map(\.id)) == ["a", "b"])
     }
 
-    @Test func campusChangeConflictsWithOldCampusBuildingSelection() throws {
+    @Test func campusChangeConflictsSelection() throws {
         var base = ScheduleCache()
         base.selectedCampusName = "中关村校区"
         base.selectedCampusCode = "1"

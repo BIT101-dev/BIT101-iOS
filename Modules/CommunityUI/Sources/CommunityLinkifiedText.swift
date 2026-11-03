@@ -13,7 +13,8 @@ private nonisolated final class CommunityAttributedStringBox: NSObject {
 /// 链接扫描由独立 actor 串行执行，缓存登记正文与链接的字节成本。
 private actor CommunityLinkifiedTextCache {
     static let shared = CommunityLinkifiedTextCache()
-    private let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    private let detector = try? NSDataDetector(
+        types: NSTextCheckingResult.CheckingType.link.rawValue)
     private let values: NSCache<NSString, CommunityAttributedStringBox> = {
         let cache = NSCache<NSString, CommunityAttributedStringBox>()
         cache.countLimit = 600
@@ -27,14 +28,26 @@ private actor CommunityLinkifiedTextCache {
         if let cached = values.object(forKey: key) { return cached.value }
         let rendered = NSMutableAttributedString(string: text)
         guard let detector else { return AttributedString(text) }
-        let matches = detector.matches(in: text, range: NSRange(text.startIndex..<text.endIndex, in: text))
+        let matches = detector.matches(
+            in: text, range: NSRange(text.startIndex..<text.endIndex, in: text))
         guard !Task.isCancelled else { return AttributedString(text) }
         for match in matches {
-            if let url = match.url { rendered.addAttribute(NSAttributedString.Key("NSLink"), value: url, range: match.range) }
+            if let url = match.url {
+                rendered.addAttribute(
+                    NSAttributedString.Key("NSLink"), value: url, range: match.range)
+            }
         }
-        let result = (try? AttributedString(rendered, including: \.foundation)) ?? AttributedString(text)
-        let cost = key.length * 4 + matches.reduce(0) { $0 + ($1.url?.absoluteString.utf16.count ?? 0) * 2 + MemoryLayout<NSRange>.stride }
-        if !Task.isCancelled { values.setObject(CommunityAttributedStringBox(result), forKey: key, cost: cost) }
+        let result =
+            (try? AttributedString(rendered, including: \.foundation)) ?? AttributedString(text)
+        let cost =
+            key.length * 4
+            + matches.reduce(0) {
+                $0 + ($1.url?.absoluteString.utf16.count ?? 0) * 2
+                    + MemoryLayout<NSRange>.stride
+            }
+        if !Task.isCancelled {
+            values.setObject(CommunityAttributedStringBox(result), forKey: key, cost: cost)
+        }
         return result
     }
 }
@@ -60,7 +73,11 @@ public struct CommunityLinkedText: View {
     public var body: some View {
         let needsFullReading = !preview && CommunityTextLimits.requiresFullReading(text)
         let source = CommunityTextLimits.displayText(text, preview: preview || needsFullReading)
-        let rendered = prefix + Text(parsed.flatMap { $0.source == source ? $0.value : nil } ?? AttributedString(source))
+        let rendered =
+            prefix
+            + Text(
+                parsed.flatMap { $0.source == source ? $0.value : nil }
+                    ?? AttributedString(source))
         Group {
             if needsFullReading {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
@@ -74,11 +91,11 @@ public struct CommunityLinkedText: View {
                 rendered
             }
         }
-            .task(id: source) {
-                let value = await communityLinkifiedText(source)
-                if !Task.isCancelled { parsed = (source, value) }
-            }
-            .sheet(isPresented: $isReadingFullText) { CommunityFullTextSheet(text: text) }
+        .task(id: source) {
+            let value = await communityLinkifiedText(source)
+            if !Task.isCancelled { parsed = (source, value) }
+        }
+        .sheet(isPresented: $isReadingFullText) { CommunityFullTextSheet(text: text) }
     }
 }
 

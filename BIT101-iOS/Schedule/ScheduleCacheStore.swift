@@ -1,24 +1,26 @@
-import CommunityTransport
-import ScheduleSync
-import SchedulePersistence
-import StorageCore
-import ScheduleDomain
 //
 //  ScheduleCacheStore.swift
 //  BIT101-iOS
 //
 import Combine
+import CommunityTransport
 import Foundation
+import ScheduleDomain
+import SchedulePersistence
+import ScheduleSync
+import StorageCore
 
 /// 日程模块本地缓存仓库。
 ///
 /// 统一负责 `ScheduleCache` 的磁盘读写和变更通知发送。
 enum ScheduleCacheStore {
     private static let changeSubject = PassthroughSubject<AppStorageSession, Never>()
-    static var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
+    static var changes: AnyPublisher<AppStorageSession, Never> {
+        changeSubject.eraseToAnyPublisher()
+    }
     private nonisolated static let writeQueue = SchedulePersistenceStore(
         files: AppFileDirectories.files,
-        storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
+        storageRoot: AppFileDirectories.appSupportURL(named: "BIT101-iOS"),
         userStateMatches: ScheduleCloudSyncState.matches
     )
     private static let operations = SchedulePersistenceCoordinator()
@@ -57,7 +59,9 @@ enum ScheduleCacheStore {
         isCurrent: @escaping @MainActor () -> Bool = { true }
     ) async -> Bool {
         var cacheToSave = cache
-        if source == .local || source == .localWithoutCloudPush || source == .recovery || source == .rebuild {
+        if source == .local || source == .localWithoutCloudPush || source == .recovery
+            || source == .rebuild
+        {
             cacheToSave.updatedAt = ScheduleCacheTimestamp.next(
                 after: max(cache.updatedAt, cache.cloudSyncBaselineAt),
                 now: Date()
@@ -68,24 +72,29 @@ enum ScheduleCacheStore {
         }
         let session = AppFileDirectories.currentSession
         let accountIdentifier = session.accountStorageIdentifier
-        guard expectedAccountIdentifier == nil || expectedAccountIdentifier == session.accountDirectoryName else {
+        guard
+            expectedAccountIdentifier == nil
+                || expectedAccountIdentifier == session.accountDirectoryName
+        else {
             return false
         }
         let legacyIdentifier = legacyAccountIdentifier()
         let identity = AppAccountSession.storage.communityCredentials.identity
-        let didWrite = await operations.perform(isCurrent: {
-            AppFileDirectories.currentSession == session
-                && AppAccountSession.storage.communityCredentials.identity == identity
-                && isCurrent()
-        }, operation: {
-            await writeQueue.write(
-                cacheToSave,
-                accountIdentifier: accountIdentifier,
-                legacyAccountIdentifier: legacyIdentifier,
-                source: source,
-                expectedUpdatedAt: source == .recovery ? cache.updatedAt : expectedUpdatedAt
-            ) != nil
-        })
+        let didWrite = await operations.perform(
+            isCurrent: {
+                AppFileDirectories.currentSession == session
+                    && AppAccountSession.storage.communityCredentials.identity == identity
+                    && isCurrent()
+            },
+            operation: {
+                await writeQueue.write(
+                    cacheToSave,
+                    accountIdentifier: accountIdentifier,
+                    legacyAccountIdentifier: legacyIdentifier,
+                    source: source,
+                    expectedUpdatedAt: source == .recovery ? cache.updatedAt : expectedUpdatedAt
+                ) != nil
+            })
         guard didWrite else { return false }
         postCacheDidChange()
         return true
@@ -99,11 +108,14 @@ enum ScheduleCacheStore {
         let session = AppFileDirectories.currentSession
         let urls = cacheURLs()
         let identity = AppAccountSession.storage.communityCredentials.identity
-        let didClear = await operations.perform(isCurrent: { true }, operation: {
-            await writeQueue.clear(urls: urls)
-        })
+        let didClear = await operations.perform(
+            isCurrent: { true },
+            operation: {
+                await writeQueue.clear(urls: urls)
+            })
         if didClear, AppFileDirectories.currentSession == session,
-           AppAccountSession.storage.communityCredentials.identity == identity {
+            AppAccountSession.storage.communityCredentials.identity == identity
+        {
             postCacheDidChange()
         }
         return didClear

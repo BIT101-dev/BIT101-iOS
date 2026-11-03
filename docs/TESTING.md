@@ -145,7 +145,7 @@ python3 Scripts/check-docs.py
 
 规则维护者为新增规则提供触发、合规与故障样例，并复用编译器事实入口。动态分派、宏及第三方二进制行为结合正式编译条件测试和设备观察核对。检查器职责和资源边界见 [架构与数据边界](ARCHITECTURE.md)，通用界面规范见 [设计系统](DESIGN_SYSTEM.md)。
 
-仓库维护文件上限为 1000 行。提交钩子检查完整暂存内容中的长度和文档引用；Python 与嵌入 Python 的语法及名称检查覆盖变更脚本，Python 依赖图根据暂存模块核对，辅助模块删除同时检查 Python 文件与嵌入代码的导入目标。检查入口变更触发完整脚本库存检查。工作树检查用于日常开发。文档随永久接口与流程维护，脚本解析细节在对应源码和回归样例中维护。检查器自身回归通过 `--self-test` 在统一审计中执行；日常检查与提交钩子验收当前输入。
+仓库维护文件上限为 1000 行。Swift、Python、Shell 和 JavaScript 的物理单行上限为 100 字符，函数基础名称上限为 42 字符，函数内控制流与闭包嵌套上限为 4 层。检查器通过 SwiftSyntax、Python AST 和 Tree-sitter 解析结构；长表达式与深层逻辑按职责拆分。提交钩子检查完整暂存内容中的长度和文档引用；Python 与嵌入 Python 的语法及名称检查覆盖变更脚本，Python 依赖图根据暂存模块核对，辅助模块删除同时检查 Python 文件与嵌入代码的导入目标。检查入口变更触发完整脚本库存检查。工作树检查用于日常开发。文档随永久接口与流程维护，脚本解析细节在对应源码和测试样例中维护。检查器自身测试通过 `--self-test` 在统一审计中执行；日常检查与提交钩子验收当前输入。
 
 独立检查组并行运行，固定日志由审计锁协调。语法、脚本、文档和依赖的定向检查使用各自所需资源；Swift 编译工具、模块检查、组合规则和产物维护共同取得编译产物锁。退出时回收所属工作进程并保留原始退出状态；终端显示失败组和有效诊断，完整日志继续保存在固定路径。
 
@@ -281,3 +281,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 提交全部改动后，`python3 Scripts/validation_evidence.py bind` 绑定完整本地证据，`python3 Scripts/validation_evidence.py check` 核对当前输入、环境、结果和提交。发布回执通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成固定 `release-receipt.json` 附件，按发布授权上传。公开回执保存必要的版本、提交、执行状态及采样身份，完整设备、邮件和影像证据从本地报告审阅。
 
 验证输入、结果批次、缓存和 CI 归集协议见[开发与验证基础设施](ARCHITECTURE.md#开发与验证基础设施)。
+
+### 代码格式
+
+`Scripts/format-code.py` 格式化维护源码，参数可指定文件。Swift 使用仓库的 `.swift-format`，Python 使用 Ruff，JavaScript 使用 Prettier；字符串与嵌入 Python 的排版保留原始值与语法树。结构限制由 `Scripts/check-file-lengths.py` 统一验收，提交钩子和 CI 共用该入口。

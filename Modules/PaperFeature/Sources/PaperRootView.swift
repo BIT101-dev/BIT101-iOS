@@ -16,11 +16,15 @@ public struct PaperRootView: View {
     private let scene: PaperRootViewScene
     private let identity: [ObjectIdentifier]
 
-    public init(dependencies: PaperDependencies,
+    public init(
+        dependencies: PaperDependencies,
         media: MediaEnvironment,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        onShowFeed: @escaping () -> Void = {}) {
-        scene = PaperRootViewScene(dependencies: dependencies, media: media, requestedPaperID: requestedPaperID, onShowFeed: onShowFeed)
+        onShowFeed: @escaping () -> Void = {}
+    ) {
+        scene = PaperRootViewScene(
+            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
+            onShowFeed: onShowFeed)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -59,13 +63,18 @@ private struct PaperRootViewScene: View {
         AppBrowserLayout(selection: $selectedPaper, title: "选择一篇文章", symbol: "doc.text") {
             content
         } detail: { paper in
-            PaperDetailView(dependencies: dependencies, media: media, initialPaper: paper, onDeleted: { selectedPaper = nil }) {
+            PaperDetailView(
+                dependencies: dependencies, media: media, initialPaper: paper,
+                onDeleted: { selectedPaper = nil }
+            ) {
                 viewModel.enqueueRefresh()
             }
         }
         .sheet(isPresented: $isShowingComposer) {
             NavigationStack {
-                PaperComposerView(initialContent: "", currentIdentity: dependencies.currentIdentity) {
+                PaperComposerView(
+                    initialContent: "", currentIdentity: dependencies.currentIdentity
+                ) {
                     handleComposerCreated()
                 }
             }
@@ -80,16 +89,19 @@ private struct PaperRootViewScene: View {
             viewModel.retryFailedPreviews()
         }
         .task(id: requestedPaperID) {
-            consumeDeepLinkedPaperIfNeeded(requestedPaperID)
+            consumePaperLink(requestedPaperID)
         }
         .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
             guard oldValue != newValue else { return }
             viewModel.enqueueRefresh()
         }
-        .communityReadRecovery(networkPath: dependencies.networkPath,
-            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil) {
-            if viewModel.needsRefresh { await viewModel.refresh() }
-            else if viewModel.state.paginationError != nil {
+        .communityReadRecovery(
+            networkPath: dependencies.networkPath,
+            isEnabled: !isShowingComposer && !isShowingSearch && selectedPaper == nil
+        ) {
+            if viewModel.needsRefresh {
+                await viewModel.refresh()
+            } else if viewModel.state.paginationError != nil {
                 await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
             }
             viewModel.retryFailedPreviews()
@@ -109,9 +121,9 @@ private struct PaperRootViewScene: View {
                     CommunityResultsContext(viewModel.displayedQueryDescription)
                     switch viewModel.state.status {
                     case .idle where viewModel.state.items.isEmpty,
-                         .loading where viewModel.state.items.isEmpty:
+                        .loading where viewModel.state.items.isEmpty:
                         AppInlineLoadingState("正在加载文章")
-                    case let .failed(message) where viewModel.state.items.isEmpty:
+                    case .failed(let message) where viewModel.state.items.isEmpty:
                         AppScrollStateContainer {
                             AppFailureState(
                                 title: "加载文章失败",
@@ -133,13 +145,23 @@ private struct PaperRootViewScene: View {
                                 )
                             }
                         } else {
-                            LazyVGrid(columns: [GridItem(.flexible())], spacing: AppDesignSystem.Spacing.none) {
-                                ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
-                                    AppFeedRow(isLast: index == viewModel.state.items.count - 1, isSelected: selectedPaper?.id == paper.id) {
+                            LazyVGrid(
+                                columns: [GridItem(.flexible())],
+                                spacing: AppDesignSystem.Spacing.none
+                            ) {
+                                ForEach(
+                                    Array(viewModel.state.items.enumerated()), id: \.element.id
+                                ) { index, paper in
+                                    AppFeedRow(
+                                        isLast: index == viewModel.state.items.count - 1,
+                                        isSelected: selectedPaper?.id == paper.id
+                                    ) {
                                         PaperSummaryCard(
                                             paper: paper,
-                                            previewMetadata: viewModel.previewMetadata(for: paper.id),
-                                            previewFailed: viewModel.previewFailedIDs.contains(paper.id),
+                                            previewMetadata: viewModel.previewMetadata(
+                                                for: paper.id),
+                                            previewFailed: viewModel.previewFailedIDs.contains(
+                                                paper.id),
                                             onOpen: {
                                                 selectedPaper = paper
                                             }
@@ -147,43 +169,53 @@ private struct PaperRootViewScene: View {
                                     }
                                     .id(paper.id)
                                     .task(id: viewModel.previewGeneration) {
-                                        await viewModel.loadPreviewMetadataIfNeeded(for: paper)
+                                        await viewModel.loadPreviewMetadata(for: paper)
                                     }
-                                    .task(id: viewModel.state.status == .loaded ? viewModel.state.nextPage : nil) {
+                                    .task(
+                                        id: viewModel.state.status == .loaded
+                                            ? viewModel.state.nextPage : nil
+                                    ) {
                                         await viewModel.loadMoreIfNeeded(currentPaper: paper)
                                     }
                                 }
                             }
                             .scrollTargetLayout()
 
-                            CommunityPaginationFooter(isLoading: viewModel.state.isLoadingMore,
-                                errorMessage: viewModel.state.paginationError) {
-                                await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+                            CommunityPaginationFooter(
+                                isLoading: viewModel.state.isLoadingMore,
+                                errorMessage: viewModel.state.paginationError
+                            ) {
+                                await viewModel.loadMoreIfNeeded(
+                                    currentPaper: viewModel.state.items.last)
                             }
                         }
+                    }
                 }
             }
-            }
-            .scrollPosition(id: Binding(get: { currentTopPaperID },
-                set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top)
+            .scrollPosition(
+                id: Binding(
+                    get: { currentTopPaperID },
+                    set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top
+            )
             .refreshable {
-                    interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
+                interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
 
                 await viewModel.enqueueRefresh().value
             }
             .simultaneousGesture(sortSwitchGesture)
             .accessibilityIdentifier("paper.sort-surface")
 
-
         }
         .appBrowserActions {
-                AppFloatingActionButton(systemImage: "square.and.pencil", accessibilityLabel: "发布文章") {
-                    isShowingComposer = true
-                }
+            AppFloatingActionButton(
+                systemImage: "square.and.pencil", accessibilityLabel: "发布文章"
+            ) {
+                isShowingComposer = true
+            }
 
-                AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
-                    isShowingSearch = true
-                }
+            AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
+                isShowingSearch = true
+            }
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(
@@ -199,7 +231,7 @@ private struct PaperRootViewScene: View {
 
     }
 
-    private func consumeDeepLinkedPaperIfNeeded(_ paperID: Int?) {
+    private func consumePaperLink(_ paperID: Int?) {
         guard let paperID else { return }
         selectedPaper = PaperSummary(
             id: paperID,
@@ -223,12 +255,14 @@ private struct PaperRootViewScene: View {
     ///
     /// 当已经位于最左或最右的排序分区时，继续向外轻扫会切回“话题”页。
     private var sortSwitchGesture: some Gesture {
-        makeHorizontalSwitchGesture(onStep: switchSortOrder)
+        horizontalSwitchGesture(onStep: switchSortOrder)
     }
 
     private func switchSortOrder(step: Int) {
         let allOrders = PaperSortOrder.allCases
-        guard let currentIndex = allOrders.firstIndex(of: viewModel.selectedOrder) else { return }
+        guard let currentIndex = allOrders.firstIndex(of: viewModel.selectedOrder) else {
+            return
+        }
         let lastIndex = allOrders.index(before: allOrders.endIndex)
 
         if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {

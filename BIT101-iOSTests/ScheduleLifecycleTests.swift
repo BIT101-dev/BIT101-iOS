@@ -1,16 +1,17 @@
-import ScheduleSync
 import ClientCore
-import StorageCore
-import SchedulePersistence
-@testable import GalleryFeature
-@testable import PaperFeature
-@testable import ScheduleFeature
-import ScheduleDomain
 import CommunityCore
 import CommunityTransport
 import Foundation
+import ScheduleDomain
+import SchedulePersistence
+import ScheduleSync
+import StorageCore
 import Testing
+
 @testable import BIT101_iOS
+@testable import GalleryFeature
+@testable import PaperFeature
+@testable import ScheduleFeature
 
 @Suite("Schedule cache migration and reconciliation")
 struct ScheduleCacheMigrationTests {
@@ -68,7 +69,7 @@ struct ScheduleCacheMigrationTests {
     }
 
     @Test("Legacy cache migration preserves row-specific negative weeks")
-    func rowSpecificNegativeWeeksSurviveCacheDecoding() throws {
+    func rowSpecificNegativeSurviveCacheDecoding() throws {
         let course = CourseRecord(
             id: "negative-row",
             term: "2026-2027-1",
@@ -94,11 +95,12 @@ struct ScheduleCacheMigrationTests {
             "storedCourseScheduleParserVersion": 1,
             "currentTerm": course.term,
             "firstDayString": "2026-08-31",
-            "courses": try JSONSerialization.jsonObject(with: encoder.encode([course]))
+            "courses": try JSONSerialization.jsonObject(with: encoder.encode([course])),
         ]
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(ScheduleCache.self, from: JSONSerialization.data(withJSONObject: object))
+        let decoded = try decoder.decode(
+            ScheduleCache.self, from: JSONSerialization.data(withJSONObject: object))
 
         #expect(decoded.courses.first?.weeks == [-1])
         #expect(decoded.cachedCoursesByTerm[course.term]?.first?.weeks == [-1])
@@ -131,71 +133,83 @@ struct ScheduleCacheMigrationTests {
         let old = Date(timeIntervalSince1970: 100)
         let new = Date(timeIntervalSince1970: 200)
         for localTime in [old, new] {
-            #expect(ScheduleCacheReconciliationPolicy.decision(
-                localHasUnpushedChanges: false, localUpdatedAt: localTime,
-                remoteUpdatedAt: old, allowsRemoteApply: true
-            ) == .applyRemote)
-            #expect(ScheduleCacheReconciliationPolicy.decision(
-                localHasUnpushedChanges: false, localUpdatedAt: localTime,
-                remoteUpdatedAt: old, allowsRemoteApply: false
-            ) == .noChange)
+            #expect(
+                ScheduleCacheReconciliationPolicy.decision(
+                    localHasUnpushedChanges: false, localUpdatedAt: localTime,
+                    remoteUpdatedAt: old, allowsRemoteApply: true
+                ) == .applyRemote)
+            #expect(
+                ScheduleCacheReconciliationPolicy.decision(
+                    localHasUnpushedChanges: false, localUpdatedAt: localTime,
+                    remoteUpdatedAt: old, allowsRemoteApply: false
+                ) == .noChange)
         }
 
-        #expect(ScheduleCacheReconciliationPolicy.decision(
-            localHasUnpushedChanges: true,
-            localUpdatedAt: old,
-            remoteUpdatedAt: new,
-            allowsRemoteApply: true
-        ) == .applyRemote)
-        #expect(ScheduleCacheReconciliationPolicy.decision(
-            localHasUnpushedChanges: true,
-            localUpdatedAt: new,
-            remoteUpdatedAt: old,
-            allowsRemoteApply: true
-        ) == .uploadLocal)
-        #expect(ScheduleCacheReconciliationPolicy.decision(
-            localHasUnpushedChanges: true,
-            localUpdatedAt: new,
-            remoteUpdatedAt: old,
-            allowsRemoteApply: false
-        ) == .uploadLocal)
-        #expect(ScheduleCacheReconciliationPolicy.decision(
-            localHasUnpushedChanges: true,
-            localUpdatedAt: old,
-            remoteUpdatedAt: new,
-            allowsRemoteApply: false
-        ) == .noChange)
-        #expect(ScheduleCacheReconciliationPolicy.decision(
-            localHasUnpushedChanges: true,
-            localUpdatedAt: new,
-            remoteUpdatedAt: new,
-            allowsRemoteApply: true
-        ) == .noChange)
-        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-            localHasUnpushedChanges: false,
-            localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2"
-        ))
-        #expect(!ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-            localHasUnpushedChanges: true,
-            localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v1"
-        ))
-        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-            localHasUnpushedChanges: true,
-            localBaselineRecordTag: "record-v1",
-            remoteRecordTag: "record-v2"
-        ))
-        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-            localHasUnpushedChanges: true,
-            localBaselineRecordTag: "record-v1",
-            remoteRecordTag: ""
-        ))
-        #expect(ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-            localHasUnpushedChanges: true,
-            localBaselineRecordTag: "",
-            remoteRecordTag: "record-v2"
-        ))
+        #expect(
+            ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: true,
+                localUpdatedAt: old,
+                remoteUpdatedAt: new,
+                allowsRemoteApply: true
+            ) == .applyRemote)
+        #expect(
+            ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: true,
+                localUpdatedAt: new,
+                remoteUpdatedAt: old,
+                allowsRemoteApply: true
+            ) == .uploadLocal)
+        #expect(
+            ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: true,
+                localUpdatedAt: new,
+                remoteUpdatedAt: old,
+                allowsRemoteApply: false
+            ) == .uploadLocal)
+        #expect(
+            ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: true,
+                localUpdatedAt: old,
+                remoteUpdatedAt: new,
+                allowsRemoteApply: false
+            ) == .noChange)
+        #expect(
+            ScheduleCacheReconciliationPolicy.decision(
+                localHasUnpushedChanges: true,
+                localUpdatedAt: new,
+                remoteUpdatedAt: new,
+                allowsRemoteApply: true
+            ) == .noChange)
+        #expect(
+            !ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: false,
+                localBaselineRecordTag: "record-v1",
+                remoteRecordTag: "record-v2"
+            ))
+        #expect(
+            !ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: true,
+                localBaselineRecordTag: "record-v1",
+                remoteRecordTag: "record-v1"
+            ))
+        #expect(
+            ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: true,
+                localBaselineRecordTag: "record-v1",
+                remoteRecordTag: "record-v2"
+            ))
+        #expect(
+            ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: true,
+                localBaselineRecordTag: "record-v1",
+                remoteRecordTag: ""
+            ))
+        #expect(
+            ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+                localHasUnpushedChanges: true,
+                localBaselineRecordTag: "",
+                remoteRecordTag: "record-v2"
+            ))
     }
 
     @Test("Cloud state comparison tracks user content across school refreshes")
@@ -203,8 +217,10 @@ struct ScheduleCacheMigrationTests {
         let original = ScheduleCache()
         var refreshed = original
         refreshed.currentTerm = "2026-2027-1"
-        refreshed.courseData.store(TermScheduleSnapshot(term: refreshed.currentTerm, firstDayString: "",
-            courses: [], exams: [], updatedAt: Date()))
+        refreshed.courseData.store(
+            TermScheduleSnapshot(
+                term: refreshed.currentTerm, firstDayString: "",
+                courses: [], exams: [], updatedAt: Date()))
         refreshed.updatedAt = Date()
         refreshed.cloudSyncBaselineAt = Date()
         refreshed.cloudSyncBaselineRecordTag = "confirmed-record"
@@ -223,25 +239,29 @@ struct ScheduleCacheMigrationTests {
 
         #expect(advanced > previous)
         #expect(advanced.timeIntervalSince(previous) >= 0.001)
-        #expect(ScheduleCacheTimestamp.next(after: previous, now: previous.addingTimeInterval(10))
-            == previous.addingTimeInterval(10))
+        #expect(
+            ScheduleCacheTimestamp.next(after: previous, now: previous.addingTimeInterval(10))
+                == previous.addingTimeInterval(10))
 
         let preciseRecordDate = Date(timeIntervalSince1970: 1_700_000_000.123)
         let roundedPayloadDate = Date(timeIntervalSince1970: 1_700_000_000)
-        #expect(ScheduleCacheTimestamp.restored(
-            recordDate: preciseRecordDate,
-            payloadDate: roundedPayloadDate
-        ) == preciseRecordDate)
+        #expect(
+            ScheduleCacheTimestamp.restored(
+                recordDate: preciseRecordDate,
+                payloadDate: roundedPayloadDate
+            ) == preciseRecordDate)
         let serverDate = preciseRecordDate.addingTimeInterval(3)
-        #expect(ScheduleCacheTimestamp.restored(
-            recordDate: preciseRecordDate,
-            payloadDate: roundedPayloadDate,
-            serverDate: serverDate
-        ) == serverDate)
-        #expect(ScheduleCacheTimestamp.restored(
-            recordDate: preciseRecordDate.addingTimeInterval(2),
-            payloadDate: roundedPayloadDate
-        ) == nil)
+        #expect(
+            ScheduleCacheTimestamp.restored(
+                recordDate: preciseRecordDate,
+                payloadDate: roundedPayloadDate,
+                serverDate: serverDate
+            ) == serverDate)
+        #expect(
+            ScheduleCacheTimestamp.restored(
+                recordDate: preciseRecordDate.addingTimeInterval(2),
+                payloadDate: roundedPayloadDate
+            ) == nil)
     }
 
     private func makeCourse(id: String, term: String) -> CourseRecord {
@@ -306,22 +326,26 @@ struct ScheduleClassroomCoordinatorTests {
             await probe.beginDeadline()
             try await Task.sleep(for: .seconds(30))
         })
-        let value = try await coordinator.withAuthenticationThenTimeout {
+        let value = try await coordinator.withAuthTimeout {
             #expect(await probe.deadlineStarted() == false)
             await Task.yield()
             #expect(await probe.deadlineStarted() == false)
-        } operation: { 42 }
+        } operation: {
+            42
+        }
 
         #expect(value == 42)
     }
 
-    @Test("Classroom operation timeout remains enforced after authentication", .timeLimit(.minutes(1)))
+    @Test(
+        "Classroom operation timeout remains enforced after authentication", .timeLimit(.minutes(1))
+    )
     func operationTimeoutIsEnforced() async {
         let coordinator = ScheduleClassroomCoordinator(timeoutNanoseconds: 5_000_000)
         let cancellationProbe = CancellationProbe()
 
         do {
-            _ = try await coordinator.withAuthenticationThenTimeout {
+            _ = try await coordinator.withAuthTimeout {
             } operation: {
                 do {
                     try await Task.sleep(for: .seconds(30))
@@ -343,35 +367,46 @@ struct ScheduleClassroomCoordinatorTests {
 @Suite("Schedule authentication continuation")
 @MainActor
 struct ScheduleCourseSyncCoordinatorTests {
-    private func context() -> (ScheduleCourseSyncCoordinator, SemesterStartDateService, BITLoginAuthenticationChallenge) {
+    private func context() -> (
+        ScheduleCourseSyncCoordinator, SemesterStartDateService, BITLoginAuthenticationChallenge
+    ) {
         let service = SemesterStartDateService()
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "continuation") },
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "continuation") },
             load: { _ in .missing }, save: { _, _, _ in })
-        let challenge = BITLoginAuthenticationChallenge(challengeID: "continuation", accessToken: "token",
+        let challenge = BITLoginAuthenticationChallenge(
+            challengeID: "continuation", accessToken: "token",
             status: "waiting_sms", maskedPhone: "138****0000", expiresIn: 300)
-        return (ScheduleCourseSyncCoordinator(service: service, repository: repository, virtualNetworkLikely: { false }), service, challenge)
+        return (
+            ScheduleCourseSyncCoordinator(
+                service: service, repository: repository, virtualNetworkLikely: { false }), service,
+            challenge
+        )
     }
 
     @Test("Classroom SMS authentication keeps the selected challenge")
     func classroomAuthenticationContinuation() {
         let (coordinator, _, challenge) = context()
-        coordinator.waitForClassroomAuthentication(challenge)
+        coordinator.waitForClassroomAuth(challenge)
         #expect(coordinator.continuation == .classroomRefresh)
         #expect(coordinator.verificationChallenge?.challengeID == challenge.challengeID)
         #expect(coordinator.courseSyncTerm == nil)
-        coordinator.dismissVerificationChallenge()
+        coordinator.dismissChallenge()
         #expect(coordinator.verificationChallenge == nil)
     }
 
-    @Test("Service responses select the suspended operation and block overlapping requests", .timeLimit(.minutes(1)))
+    @Test(
+        "Service responses select the suspended operation and block overlapping requests",
+        .timeLimit(.minutes(1)))
     func recordsContinuationPurpose() async {
         let (coordinator, service, challenge) = context()
         service.authenticationChallenge = challenge
-        await coordinator.syncCourses(term: "2025-2026-2", selectTerm: { _ in }, applyPayload: { _ in })
+        await coordinator.syncCourses(
+            term: "2025-2026-2", selectTerm: { _ in }, applyPayload: { _ in })
         #expect(coordinator.continuation == .courseSync(term: "2025-2026-2"))
         await coordinator.loadAvailableTerms()
         #expect(coordinator.courseSyncTerm == "2025-2026-2")
-        coordinator.dismissVerificationChallenge()
+        coordinator.dismissChallenge()
         await coordinator.loadAvailableTerms()
         #expect(coordinator.continuation == .availableTerms)
         #expect(coordinator.courseSyncTerm == nil)

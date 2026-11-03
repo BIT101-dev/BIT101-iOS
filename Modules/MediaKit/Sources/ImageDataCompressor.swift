@@ -1,18 +1,23 @@
 import Foundation
 import TransportCore
+
 #if os(iOS)
 import UIKit
 import ImageIO
 #endif
 
 public enum ImageDataCompressor {
-    public static func importImages(from sources: [@MainActor () async throws -> Data?],
+    public static func importImages(
+        from sources: [@MainActor () async throws -> Data?],
         prepare: @MainActor (Data) async throws -> Data, isCurrent: @MainActor () -> Bool,
-        onPrepared: @MainActor (Data) -> Void, onFailure: @MainActor (any Error) -> Void) async {
+        onPrepared: @MainActor (Data) -> Void, onFailure: @MainActor (any Error) -> Void
+    ) async {
         for source in sources {
             guard isCurrent(), !Task.isCancelled else { return }
             do {
-                guard let data = try await source() else { throw URLError(.cannotDecodeContentData) }
+                guard let data = try await source() else {
+                    throw URLError(.cannotDecodeContentData)
+                }
                 try Task.checkCancellation()
                 let prepared = try await prepare(data)
                 guard isCurrent() else { return }
@@ -25,8 +30,10 @@ public enum ImageDataCompressor {
         }
     }
 
-#if os(iOS)
-    @concurrent public nonisolated static func prepare(_ data: Data, maximumBytes: Int) async throws -> Data {
+    #if os(iOS)
+    @concurrent public nonisolated static func prepare(_ data: Data, maximumBytes: Int)
+        async throws -> Data
+    {
         try Task.checkCancellation()
         let prepared = try compress(data, maximumBytes: maximumBytes)
         try Task.checkCancellation()
@@ -36,15 +43,16 @@ public enum ImageDataCompressor {
     public nonisolated static func compress(_ data: Data, maximumBytes: Int) throws -> Data {
         try Task.checkCancellation()
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(
-                  source,
-                  0,
-                  [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: 1600
-                  ] as CFDictionary
-              ) else {
+            let image = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1600,
+                ] as CFDictionary
+            )
+        else {
             throw CocoaError(.fileReadCorruptFile)
         }
 
@@ -79,12 +87,14 @@ public enum ImageDataCompressor {
         )
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        let data = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: quality) { context in
+        let data = UIGraphicsImageRenderer(size: size, format: format).jpegData(
+            withCompressionQuality: quality
+        ) { context in
             context.cgContext.interpolationQuality = .medium
             UIImage(cgImage: image).draw(in: CGRect(origin: .zero, size: size))
         }
         try Task.checkCancellation()
         return data
     }
-#endif
+    #endif
 }

@@ -33,8 +33,16 @@ public struct MineRootView: View {
     private let scene: MineRootViewScene
     private let identity: [ObjectIdentifier]
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void, requestedSettings: Binding<CommunitySettingsEntry?> = .constant(nil)) {
-        scene = MineRootViewScene(dependencies: dependencies, media: media, posters: posters, settings: settings, fallbackStudentID: fallbackStudentID, onLogout: onLogout, requestedSettings: requestedSettings)
+    public init(
+        dependencies: MineDependencies, media: MediaEnvironment,
+        posters: CommunityPosterDestination, settings: CommunitySettingsDestinations,
+        fallbackStudentID: String, onLogout: @escaping () -> Void,
+        requestedSettings: Binding<CommunitySettingsEntry?> = .constant(nil)
+    ) {
+        scene = MineRootViewScene(
+            dependencies: dependencies, media: media, posters: posters, settings: settings,
+            fallbackStudentID: fallbackStudentID, onLogout: onLogout,
+            requestedSettings: requestedSettings)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -56,7 +64,12 @@ private struct MineRootViewScene: View {
     /// “我的”主页状态机。
     @StateObject private var viewModel: MineViewModel
 
-    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, settings: CommunitySettingsDestinations, fallbackStudentID: String, onLogout: @escaping () -> Void, requestedSettings: Binding<CommunitySettingsEntry?>) {
+    init(
+        dependencies: MineDependencies, media: MediaEnvironment,
+        posters: CommunityPosterDestination, settings: CommunitySettingsDestinations,
+        fallbackStudentID: String, onLogout: @escaping () -> Void,
+        requestedSettings: Binding<CommunitySettingsEntry?>
+    ) {
         self.dependencies = dependencies
         self.media = media
         self.posters = posters
@@ -71,7 +84,7 @@ private struct MineRootViewScene: View {
     @State private var selectedUserID: Int?
     @Binding private var requestedSettings: CommunitySettingsEntry?
     private var settingsRoute: CommunitySettingsEntry? {
-        if case let .settings(entry)? = route { return entry }
+        if case .settings(let entry)? = route { return entry }
         return nil
     }
     /// 建议入口通过独立 sheet 呈现，设置入口使用设置导航路由。
@@ -110,7 +123,9 @@ private struct MineRootViewScene: View {
                         isLoadingMore: viewModel.followerState.isLoadingMore,
                         loadMoreError: viewModel.followerState.loadMoreError,
                         onRefresh: { await viewModel.refreshFollowers() },
-                        onLoadMore: { user in await viewModel.loadMoreFollowersIfNeeded(currentUser: user) },
+                        onLoadMore: { user in
+                            await viewModel.loadMoreFollowersIfNeeded(currentUser: user)
+                        },
                         onOpenUser: { selectedUserID = $0.id }
                     )
                 case .followings:
@@ -123,7 +138,9 @@ private struct MineRootViewScene: View {
                         isLoadingMore: viewModel.followingState.isLoadingMore,
                         loadMoreError: viewModel.followingState.loadMoreError,
                         onRefresh: { await viewModel.refreshFollowings() },
-                        onLoadMore: { user in await viewModel.loadMoreFollowingsIfNeeded(currentUser: user) },
+                        onLoadMore: { user in
+                            await viewModel.loadMoreFollowings(currentUser: user)
+                        },
                         onOpenUser: { selectedUserID = $0.id }
                     )
                 case .posters:
@@ -135,14 +152,19 @@ private struct MineRootViewScene: View {
                         isLoadingMore: viewModel.posterState.isLoadingMore,
                         loadMoreError: viewModel.posterState.loadMoreError,
                         onRefresh: { await viewModel.refreshPosters() },
-                        onLoadMore: { poster in await viewModel.loadMorePostersIfNeeded(currentPoster: poster) }
+                        onLoadMore: { poster in
+                            await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
+                        }
                     )
-                case let .settings(entry):
-                    destinations.settings(CommunitySettingsRequest(entry: entry, studentID: fallbackStudentID, onLogout: onLogout))
+                case .settings(let entry):
+                    destinations.settings(
+                        CommunitySettingsRequest(
+                            entry: entry, studentID: fallbackStudentID, onLogout: onLogout))
                 }
             }
             .navigationDestination(item: $selectedUserID) { userID in
-                UserProfileRootView(dependencies: dependencies, media: media, posters: posters, userID: userID)
+                UserProfileRootView(
+                    dependencies: dependencies, media: media, posters: posters, userID: userID)
             }
             .environment(dependencies)
             .environment(media)
@@ -163,8 +185,11 @@ private struct MineRootViewScene: View {
             guard settingsRoute == nil else { return }
             await viewModel.refreshOverview()
         }
-        .communityReadRecovery(networkPath: dependencies.networkPath,
-            isEnabled: route == nil && settingsRoute == nil && !isShowingSuggestion && selectedUserID == nil) {
+        .communityReadRecovery(
+            networkPath: dependencies.networkPath,
+            isEnabled: route == nil && settingsRoute == nil && !isShowingSuggestion
+                && selectedUserID == nil
+        ) {
             if viewModel.profileNeedsRefresh { await viewModel.refreshProfile() }
             if viewModel.posterState.needsRefresh { await viewModel.refreshPosters() }
         }
@@ -177,7 +202,7 @@ private struct MineRootViewScene: View {
         switch viewModel.profileStatus {
         case .idle, .loading:
             AppInlineLoadingState("正在加载个人信息")
-        case let .failed(message):
+        case .failed(let message):
             AppFailureState(
                 title: "个人信息加载失败",
                 systemImage: "person.crop.circle.badge.exclamationmark",
@@ -205,13 +230,16 @@ private struct MineRootViewScene: View {
     /// 设置入口进入 `SettingsRootView`，建议入口使用独立 sheet 呈现。
     private var settingsSection: some View {
         ForEach(destinations.settingsEntries) { route in
-            AppBrowserListRow(isSelected: self.route == .settings(route), action: {
-                if route.id == "suggestion" {
-                    isShowingSuggestion = true
-                } else {
-                    self.route = .settings(route)
+            AppBrowserListRow(
+                isSelected: self.route == .settings(route),
+                action: {
+                    if route.id == "suggestion" {
+                        isShowingSuggestion = true
+                    } else {
+                        self.route = .settings(route)
+                    }
                 }
-            }) {
+            ) {
                 Text(route.title)
             }
             .accessibilityIdentifier("settings.route.\(route.id)")
@@ -227,8 +255,12 @@ public struct UserProfileRootView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    public init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int) {
-        scene = UserProfileRootViewScene(dependencies: dependencies, media: media, posters: posters, userID: userID)
+    public init(
+        dependencies: MineDependencies, media: MediaEnvironment,
+        posters: CommunityPosterDestination, userID: Int
+    ) {
+        scene = UserProfileRootViewScene(
+            dependencies: dependencies, media: media, posters: posters, userID: userID)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = userID
     }
@@ -255,12 +287,55 @@ private struct UserProfileRootViewScene: View {
     @State private var isPosterRetryRequested = false
     @State private var pendingOperations = CommunityDetailTasks()
 
-    init(dependencies: MineDependencies, media: MediaEnvironment, posters: CommunityPosterDestination, userID: Int) {
+    init(
+        dependencies: MineDependencies, media: MediaEnvironment,
+        posters: CommunityPosterDestination, userID: Int
+    ) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = posters
         self.userID = userID
-        _viewModel = StateObject(wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
+        _viewModel = StateObject(
+            wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
+    }
+
+    private func posterRow(index: Int, poster: CommunityPoster, count: Int) -> some View {
+        AppFeedRow(isLast: index == count - 1) {
+            CommunityPosterCard(
+                poster: poster,
+                onOpenPoster: { selectedPoster = poster },
+                onOpenImage: { index, images in
+                    imageViewer = ImagePreviewRequest(
+                        remoteImages: images.map(\.previewImage),
+                        initialIndex: index)
+                },
+                onDelete: nil,
+                onReport: nil
+            )
+            .task(
+                id: viewModel.posterState.status == .loaded
+                    ? viewModel.posterState.nextPage : nil
+            ) {
+                await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
+            }
+        }
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
+    @ViewBuilder
+    private var posterPageFailure: some View {
+        if let message = viewModel.posterState.loadMoreError {
+            AppFailureState(
+                title: "加载更多失败", systemImage: "arrow.clockwise", message: message,
+                onRetry: {
+                    pendingOperations.enqueue {
+                        await viewModel.loadMorePostersIfNeeded(
+                            currentPoster: viewModel.posterState.items.last)
+                    }
+                })
+        }
     }
 
     var body: some View {
@@ -285,9 +360,11 @@ private struct UserProfileRootViewScene: View {
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
             if viewModel.profileNeedsRefresh { await viewModel.refreshProfile() }
-            if viewModel.posterState.needsRefresh { await viewModel.refreshPosters() }
-            else if viewModel.posterState.loadMoreError != nil {
-                await viewModel.loadMorePostersIfNeeded(currentPoster: viewModel.posterState.items.last)
+            if viewModel.posterState.needsRefresh {
+                await viewModel.refreshPosters()
+            } else if viewModel.posterState.loadMoreError != nil {
+                await viewModel.loadMorePostersIfNeeded(
+                    currentPoster: viewModel.posterState.items.last)
             }
         }
         .navigationTitle(navigationTitle)
@@ -309,8 +386,11 @@ private struct UserProfileRootViewScene: View {
         }
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                destinations.poster(.init(poster: poster,
-                    onUpdated: { isPosterRetryRequested = true }, onDeleted: { isPosterRetryRequested = true }))
+                destinations.poster(
+                    .init(
+                        poster: poster,
+                        onUpdated: { isPosterRetryRequested = true },
+                        onDeleted: { isPosterRetryRequested = true }))
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
@@ -325,7 +405,7 @@ private struct UserProfileRootViewScene: View {
         switch viewModel.profileStatus {
         case .idle, .loading:
             AppInlineLoadingState("正在加载主页")
-        case let .failed(message):
+        case .failed(let message):
             AppFailureState(
                 title: "主页加载失败",
                 systemImage: "person.crop.circle.badge.exclamationmark",
@@ -341,7 +421,8 @@ private struct UserProfileRootViewScene: View {
                     info: info,
                     posterCountText: viewModel.posterCountText,
                     onOpenAvatar: {
-                        imageViewer = ImagePreviewRequest(remoteImages: [info.user.avatar.previewImage], initialIndex: 0)
+                        imageViewer = ImagePreviewRequest(
+                            remoteImages: [info.user.avatar.previewImage], initialIndex: 0)
                     },
                     onFollow: {
                         pendingOperations.enqueue { await viewModel.followUser() }
@@ -358,7 +439,9 @@ private struct UserProfileRootViewScene: View {
 
         if isInitialPosterLoading {
             AppInlineLoadingState("正在加载帖子")
-        } else if case let .failed(message) = viewModel.posterState.status, visiblePosters.isEmpty {
+        } else if case .failed(let message) = viewModel.posterState.status,
+            visiblePosters.isEmpty
+        {
             AppFailureState(
                 title: "帖子加载失败",
                 systemImage: "text.bubble",
@@ -372,29 +455,10 @@ private struct UserProfileRootViewScene: View {
                 AppEmptyState(title: "暂无帖子", systemImage: "text.bubble")
             } else {
                 ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                    AppFeedRow(isLast: index == visiblePosters.count - 1) {
-                        CommunityPosterCard(
-                            poster: poster,
-                            onOpenPoster: { selectedPoster = poster },
-                            onOpenImage: { index, images in
-                                imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
-                            },
-                            onDelete: nil,
-                            onReport: nil
-                        )
-                        .task(id: viewModel.posterState.status == .loaded ? viewModel.posterState.nextPage : nil) {
-                            await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                    posterRow(index: index, poster: poster, count: visiblePosters.count)
                 }
 
-                if let message = viewModel.posterState.loadMoreError {
-                    AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: message,
-                        onRetry: { pendingOperations.enqueue { await viewModel.loadMorePostersIfNeeded(currentPoster: visiblePosters.last) } })
-                }
+                posterPageFailure
                 if viewModel.posterState.isLoadingMore {
                     AppInlineLoadingState()
                         .listRowSeparator(.hidden)
@@ -415,7 +479,9 @@ private struct UserProfileRootViewScene: View {
     }
 
     private var navigationTitle: String {
-        let nickname = viewModel.userInfo?.user.nickname.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let nickname =
+            viewModel.userInfo?.user.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? ""
         return nickname.isEmpty ? "主页" : nickname
     }
 }
@@ -454,6 +520,12 @@ private struct MineProfileCard: View {
     }
 
     /// 资料卡主体。
+    private var followTitle: String {
+        guard info.isViewerAuthenticated else { return "获取关注状态" }
+        guard info.following else { return "关注" }
+        return info.follower ? "互相关注" : "已关注"
+    }
+
     var body: some View {
         VStack(spacing: AppDesignSystem.Spacing.none) {
             if let onOpenAvatar {
@@ -483,21 +555,25 @@ private struct MineProfileCard: View {
             Spacer().frame(height: AppDesignSystem.Spacing.regular)
 
             HStack(spacing: AppDesignSystem.Spacing.section) {
-                MineStatButton(number: "\(info.followerNum)", title: "粉丝", action: onOpenFollowers)
-                MineStatButton(number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
+                MineStatButton(
+                    number: "\(info.followerNum)", title: "粉丝", action: onOpenFollowers)
+                MineStatButton(
+                    number: "\(info.followingNum)", title: "关注", action: onOpenFollowings)
                 MineStatButton(number: posterCountText, title: "帖子", action: onOpenPosters)
             }
 
             if let onFollow, !info.own {
                 Button(action: onFollow) {
-                    Text(info.isViewerAuthenticated ? (info.following ? (info.follower ? "互相关注" : "已关注") : "关注") : "获取关注状态")
+                    Text(followTitle)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isFollowRequestInFlight)
-                .accessibilityLabel(info.isViewerAuthenticated ? (info.following ? "取消关注" : "关注") : "获取关注状态")
+                .accessibilityLabel(
+                    info.isViewerAuthenticated ? (info.following ? "取消关注" : "关注") : "获取关注状态"
+                )
                 .padding(.top, AppDesignSystem.Spacing.regular)
-                    .accessibilityIdentifier("ui.mine-profile-card.follow")
+                .accessibilityIdentifier("ui.mine-profile-card.follow")
             }
         }
         .padding(.top, AppDesignSystem.Spacing.regular)
@@ -535,11 +611,79 @@ private struct MineUserListView: View {
     @State private var isRefreshRequested = false
     @State private var pendingOperations = CommunityDetailTasks()
 
+    private func userRow(_ user: CommunityUser) -> some View {
+        Button {
+            onOpenUser(user)
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.content) {
+                AppAvatarView(
+                    imageURL: user.avatar.thumbnailURL,
+                    fallbackImageURL: user.avatar.originalURL,
+                    size: AppDesignSystem.Size.Avatar.standard,
+                    tint: AppDesignSystem.Palette.Accent.primary
+                )
+
+                VStack(
+                    alignment: .leading, spacing: AppDesignSystem.Spacing.tiny
+                ) {
+                    HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                        Text(user.nickname)
+                            .font(AppDesignSystem.Typography.title)
+
+                        CommunityIdentityBadge(user.identity)
+                    }
+
+                    Text("UID：\(user.id)")
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(user.nickname.isEmpty ? "未命名用户" : user.nickname)
+        .accessibilityValue("UID \(user.id)")
+        .accessibilityHint("打开用户主页")
+        .task(id: status == .loaded ? nextPage : nil) {
+            await onLoadMore(user)
+        }
+        .appInteractiveListRow()
+        .accessibilityIdentifier("ui.mine-user-list-view.user")
+    }
+
+    private var userList: some View {
+        List {
+            ForEach(users) { user in
+                userRow(user)
+            }
+
+            if let loadMoreError {
+                AppFailureState(
+                    title: "加载更多失败", systemImage: "arrow.clockwise",
+                    message: loadMoreError,
+                    onRetry: {
+                        pendingOperations.enqueue { await onLoadMore(users.last) }
+                    })
+            }
+            if isLoadingMore {
+                AppInlineLoadingState()
+            }
+        }
+        .accessibilityIdentifier("interaction.MineUserListView.list")
+        .appGroupedListStyle()
+        .refreshable {
+            interactionEvidence?("interaction.MineUserListView.refreshable", "refresh")
+
+            await onRefresh()
+        }
+    }
+
     var body: some View {
         Group {
             if isInitialLoading {
                 AppLoadingState(title: "正在加载")
-            } else if case let .failed(message) = status, users.isEmpty {
+            } else if case .failed(let message) = status, users.isEmpty {
                 AppFailureState(
                     title: "用户列表加载失败",
                     systemImage: "person.2.slash",
@@ -549,61 +693,7 @@ private struct MineUserListView: View {
                     }
                 )
             } else {
-                List {
-                    ForEach(users) { user in
-                        Button {
-                            onOpenUser(user)
-                        } label: {
-                            HStack(spacing: AppDesignSystem.Spacing.content) {
-                                AppAvatarView(
-                                    imageURL: user.avatar.thumbnailURL,
-                                    fallbackImageURL: user.avatar.originalURL,
-                                    size: AppDesignSystem.Size.Avatar.standard,
-                                    tint: AppDesignSystem.Palette.Accent.primary
-                                )
-
-                                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                                    HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                                        Text(user.nickname)
-                                            .font(AppDesignSystem.Typography.title)
-
-                                        CommunityIdentityBadge(user.identity)
-                                    }
-
-                                    Text("UID：\(user.id)")
-                                        .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(user.nickname.isEmpty ? "未命名用户" : user.nickname)
-                        .accessibilityValue("UID \(user.id)")
-                        .accessibilityHint("打开用户主页")
-                        .task(id: status == .loaded ? nextPage : nil) {
-                            await onLoadMore(user)
-                        }
-                        .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.mine-user-list-view.user")
-                    }
-
-                    if let loadMoreError {
-                        AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
-                            onRetry: { pendingOperations.enqueue { await onLoadMore(users.last) } })
-                    }
-                    if isLoadingMore {
-                        AppInlineLoadingState()
-                    }
-                }
-                .accessibilityIdentifier("interaction.MineUserListView.list")
-                .appGroupedListStyle()
-                .refreshable {
-                    interactionEvidence?("interaction.MineUserListView.refreshable", "refresh")
-
-                    await onRefresh()
-                }
+                userList
             }
         }
         .task(id: isRefreshRequested) {
@@ -614,8 +704,11 @@ private struct MineUserListView: View {
             }
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
-            if needsRefresh { await onRefresh() }
-            else if loadMoreError != nil { await onLoadMore(users.last) }
+            if needsRefresh {
+                await onRefresh()
+            } else if loadMoreError != nil {
+                await onLoadMore(users.last)
+            }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -660,50 +753,76 @@ private struct MinePosterListView: View {
         posters.filter { !deletedPosterIDs.contains($0.id) }
     }
 
+    private func posterRow(index: Int, poster: CommunityPoster) -> some View {
+        AppFeedRow(isLast: index == visiblePosters.count - 1) {
+            CommunityPosterCard(
+                poster: poster,
+                onOpenPoster: { selectedPoster = poster },
+                onOpenImage: { index, images in
+                    imageViewer = ImagePreviewRequest(
+                        remoteImages: images.map(\.previewImage),
+                        initialIndex: index)
+                },
+                onDelete: { deletingPoster = poster },
+                onReport: nil
+            )
+            .task(id: status == .loaded ? nextPage : nil) {
+                await onLoadMore(poster)
+            }
+        }
+    }
+
+    private var posterList: some View {
+        Group {
+            LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+                ForEach(Array(visiblePosters.enumerated()), id: \.element.id) {
+                    index, poster in
+                    posterRow(index: index, poster: poster)
+                }
+
+                posterPageFailure
+                if isLoadingMore {
+                    AppInlineLoadingState()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var posterPageFailure: some View {
+        if let loadMoreError {
+            AppFailureState(
+                title: "加载更多失败", systemImage: "arrow.clockwise",
+                message: loadMoreError,
+                onRetry: {
+                    pendingOperations.enqueue {
+                        await onLoadMore(visiblePosters.last)
+                    }
+                })
+        }
+    }
+
     var body: some View {
         ScrollView {
             if isInitialLoading {
                 AppScrollStateContainer { AppLoadingState(title: "正在加载帖子") }
-            } else if case let .failed(message) = status, visiblePosters.isEmpty {
-                AppScrollStateContainer { AppFailureState(
-                    title: "帖子加载失败",
-                    systemImage: "text.bubble",
-                    message: message,
-                    onRetry: {
-                        isRefreshRequested = true
-                    }
-                ) }
-            } else if visiblePosters.isEmpty {
-                AppScrollStateContainer { AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble") }
-            } else {
-                Group {
-                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
-                            AppFeedRow(isLast: index == visiblePosters.count - 1) {
-                                CommunityPosterCard(
-                                    poster: poster,
-                                    onOpenPoster: { selectedPoster = poster },
-                                    onOpenImage: { index, images in
-                                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
-                                    },
-                                    onDelete: { deletingPoster = poster },
-                                    onReport: nil
-                                )
-                                .task(id: status == .loaded ? nextPage : nil) {
-                                    await onLoadMore(poster)
-                                }
-                            }
+            } else if case .failed(let message) = status, visiblePosters.isEmpty {
+                AppScrollStateContainer {
+                    AppFailureState(
+                        title: "帖子加载失败",
+                        systemImage: "text.bubble",
+                        message: message,
+                        onRetry: {
+                            isRefreshRequested = true
                         }
-
-                        if let loadMoreError {
-                            AppFailureState(title: "加载更多失败", systemImage: "arrow.clockwise", message: loadMoreError,
-                                onRetry: { pendingOperations.enqueue { await onLoadMore(visiblePosters.last) } })
-                        }
-                        if isLoadingMore {
-                            AppInlineLoadingState()
-                        }
-                    }
+                    )
                 }
+            } else if visiblePosters.isEmpty {
+                AppScrollStateContainer {
+                    AppEmptyState(title: "暂无可显示的帖子", systemImage: "text.bubble")
+                }
+            } else {
+                posterList
             }
         }
         .accessibilityIdentifier("interaction.MinePosterListView.scroll")
@@ -711,9 +830,15 @@ private struct MinePosterListView: View {
             interactionEvidence?("interaction.MinePosterListView.refreshable", "refresh")
             await onRefresh()
         }
-        .communityReadRecovery(networkPath: dependencies.networkPath, isEnabled: selectedPoster == nil && deletingPoster == nil) {
-            if needsRefresh { await onRefresh() }
-            else if loadMoreError != nil { await onLoadMore(visiblePosters.last) }
+        .communityReadRecovery(
+            networkPath: dependencies.networkPath,
+            isEnabled: selectedPoster == nil && deletingPoster == nil
+        ) {
+            if needsRefresh {
+                await onRefresh()
+            } else if loadMoreError != nil {
+                await onLoadMore(visiblePosters.last)
+            }
         }
         .task(id: isRefreshRequested) {
             if status == .idle || isRefreshRequested {
@@ -727,14 +852,15 @@ private struct MinePosterListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $selectedPoster) { poster in
             NavigationStack {
-                destinations.poster(.init(
-                    poster: poster,
-                    onUpdated: { isRefreshRequested = true },
-                    onDeleted: {
-                        deletedPosterIDs.insert(poster.id)
-                        isRefreshRequested = true
-                    }
-                ))
+                destinations.poster(
+                    .init(
+                        poster: poster,
+                        onUpdated: { isRefreshRequested = true },
+                        onDeleted: {
+                            deletedPosterIDs.insert(poster.id)
+                            isRefreshRequested = true
+                        }
+                    ))
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.hidden)
@@ -751,7 +877,7 @@ private struct MinePosterListView: View {
             Button("取消", role: .cancel) {
                 deletingPoster = nil
             }
-                .accessibilityIdentifier("ui.mine-poster-list-view.cancel")
+            .accessibilityIdentifier("ui.mine-poster-list-view.cancel")
             Button("删除", role: .destructive) {
                 deletingPoster = nil
                 pendingOperations.enqueue {
@@ -759,7 +885,7 @@ private struct MinePosterListView: View {
                 }
             }
             .disabled(deletingPosterIDs.contains(poster.id))
-                .accessibilityIdentifier("ui.mine-poster-list-view.delete")
+            .accessibilityIdentifier("ui.mine-poster-list-view.delete")
         } message: { poster in
             Text("确定删除“\(poster.title.isEmpty ? "未命名帖子" : poster.title)”吗？删除后无法恢复。")
         }
@@ -777,7 +903,9 @@ private struct MinePosterListView: View {
 
     /// 删除帖子后先本地移除，再请求上层刷新列表。
     private func deletePoster(_ poster: CommunityPoster) async {
-        guard !deletedPosterIDs.contains(poster.id), deletingPosterIDs.insert(poster.id).inserted else { return }
+        guard !deletedPosterIDs.contains(poster.id),
+            deletingPosterIDs.insert(poster.id).inserted
+        else { return }
         defer { deletingPosterIDs.remove(poster.id) }
         do {
             try await dependencies.deletePoster(poster.id)
@@ -807,13 +935,16 @@ private struct MineStatButton: View {
             if let action {
                 Button(action: action) {
                     content
-                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
+                        .frame(
+                            minWidth: AppDesignSystem.Size.Control.touchTarget,
+                            minHeight: AppDesignSystem.Size.Control.touchTarget
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(title)
                 .accessibilityValue(number)
-                    .accessibilityIdentifier("ui.mine-stat-button.destination")
+                .accessibilityIdentifier("ui.mine-stat-button.destination")
             } else {
                 content
                     .accessibilityElement(children: .combine)
@@ -832,6 +963,5 @@ private struct MineStatButton: View {
         }
     }
 }
-
 
 #endif

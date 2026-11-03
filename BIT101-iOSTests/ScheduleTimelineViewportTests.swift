@@ -1,49 +1,76 @@
-@testable import ScheduleFeature
-import Foundation
-import Testing
-import UIKit
-import SwiftUI
 import DesignSystemKit
-import StorageCore
-import TransportCore
+import Foundation
 import ScheduleDomain
+import StorageCore
+import SwiftUI
+import Testing
+import TransportCore
+import UIKit
+
 @testable import BIT101_iOS
+@testable import ScheduleFeature
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
-    @Test("Calendar entries keep the same rendered height across display frames", .serialized, .timeLimit(.minutes(1)), arguments: [
-        (false, DynamicTypeSize.large), (false, .xxxLarge), (false, .accessibility3), (true, .large)])
-    @MainActor func calendarEntryUsesOneSafeAreaProposal(fixture: (Bool, DynamicTypeSize)) async throws {
+    @Test(
+        "Calendar entries keep the same rendered height across display frames", .serialized,
+        .timeLimit(.minutes(1)),
+        arguments: [
+            (false, DynamicTypeSize.large), (false, .xxxLarge), (false, .accessibility3),
+            (true, .large),
+        ])
+    @MainActor func calendarEntryUsesOneSafeAreaProposal(fixture: (Bool, DynamicTypeSize))
+        async throws
+    {
         let (linear, textSize) = fixture
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         var cache = ScheduleCache()
         cache.currentTerm = "frame-fixture"
-        cache.courseData.store(.init(term: cache.currentTerm, firstDayString: "2026-09-07", courses: [], exams: [], updatedAt: .now))
-        let repository = ScheduleRepository(session: { .init(accountIdentifier: "calendar-frame-fixture") },
+        cache.courseData.store(
+            .init(
+                term: cache.currentTerm, firstDayString: "2026-09-07", courses: [], exams: [],
+                updatedAt: .now))
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "calendar-frame-fixture") },
             load: { _ in .loaded(cache) }, save: { _, _, _ in })
         let service = SemesterStartDateService()
-        let model = ScheduleViewModel(service: service, repository: repository, ddlService: service, classroomService: service,
-            platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { .init() })
+        let model = ScheduleViewModel(
+            service: service, repository: repository, ddlService: service,
+            classroomService: service,
+            platformActions: RecordingSchedulePlatformActions(), newCustomScheduleDraft: { .init() }
+        )
         await model.loadIfNeeded()
-        let destinations = ScheduleDestinations(appStoreURL: AppURL.required("https://example.invalid"),
-            academicCourse: { _, _ in AnyView(EmptyView()) }, openCourseLocation: { _ in false }, resolveCourseShare: { _ in nil })
+        let destinations = ScheduleDestinations(
+            appStoreURL: AppURL.required("https://example.invalid"),
+            academicCourse: { _, _ in AnyView(EmptyView()) }, openCourseLocation: { _ in false },
+            resolveCourseShare: { _ in nil })
         let layout = AppWindowLayout(size: CGSize(width: 390, height: 844), interfaceIdiom: .phone)
         let previousMode = UserDefaults.standard.object(forKey: "schedule.calendar.axisMode")
         defer {
-            if let previousMode { UserDefaults.standard.set(previousMode, forKey: "schedule.calendar.axisMode") }
-            else { UserDefaults.standard.removeObject(forKey: "schedule.calendar.axisMode") }
+            if let previousMode {
+                UserDefaults.standard.set(previousMode, forKey: "schedule.calendar.axisMode")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "schedule.calendar.axisMode")
+            }
         }
-        let schedule = CourseScheduleTabView(viewModel: model, resetSignal: 0, destinations: destinations)
-        schedule.storedCalendarAxisMode = (linear ? ScheduleCalendarAxisMode.linear : .quantized).rawValue
-        let host = UIHostingController(rootView: NavigationStack { schedule.frame(width: 390, height: 600) }
-            .environment(\.appWindowLayout, layout).environment(\.dynamicTypeSize, textSize))
+        let schedule = CourseScheduleTabView(
+            viewModel: model, resetSignal: 0, destinations: destinations)
+        schedule.storedCalendarAxisMode =
+            (linear ? ScheduleCalendarAxisMode.linear : .quantized).rawValue
+        let host = UIHostingController(
+            rootView: NavigationStack { schedule.frame(width: 390, height: 600) }
+                .environment(\.appWindowLayout, layout).environment(\.dynamicTypeSize, textSize))
         let tabs = UITabBarController()
         tabs.viewControllers = [host, UIViewController()]
         tabs.selectedIndex = 1
         window.rootViewController = tabs
         window.makeKeyAndVisible()
-        defer { window.isHidden = true; window.rootViewController = nil }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         func collection(in view: UIView) -> UICollectionView? {
             if let list = view as? UICollectionView, list.numberOfSections > 1 { return list }
             return view.subviews.lazy.compactMap { collection(in: $0) }.first
@@ -52,8 +79,9 @@ struct ScheduleTimelineViewportTests {
             tabs.selectedIndex = 0
             let sampler = ScheduleRenderedFrameSampler {
                 guard let list = collection(in: host.view), list.numberOfItems(inSection: 1) > 0,
-                      let cell = list.cellForItem(at: IndexPath(item: 0, section: 1)),
-                      let layer = cell.layer.presentation(), layer.bounds.height > 0 else { return nil }
+                    let cell = list.cellForItem(at: IndexPath(item: 0, section: 1)),
+                    let layer = cell.layer.presentation(), layer.bounds.height > 0
+                else { return nil }
                 return layer.bounds.size.height
             }
             let heights = await sampler.sample()
@@ -86,7 +114,8 @@ struct ScheduleTimelineViewportTests {
             currentMinute: 14 * 60 + 30
         )
 
-        let visibleCenterMinute = (viewport.offsetY + viewport.viewportHeight / 2)
+        let visibleCenterMinute =
+            (viewport.offsetY + viewport.viewportHeight / 2)
             / viewport.contentHeight * CGFloat(24 * 60)
         #expect(abs(visibleCenterMinute - CGFloat(14 * 60 + 30)) < 0.001)
     }
@@ -216,25 +245,38 @@ private final class ScheduleRenderedFrameSampler: NSObject {
 @MainActor
 @Suite("Schedule card location priority")
 struct ScheduleCardTextLayoutTests {
-    @Test func buildingAndRoomKeepTheirLinesAcrossCardHeights() throws {
+    @Test func building() throws {
         let location = "文萃楼A\n101"
-        for font in [UIFont.preferredFont(forTextStyle: .caption1), UIFont.preferredFont(forTextStyle: .title1)] {
+        for font in [
+            UIFont.preferredFont(forTextStyle: .caption1),
+            UIFont.preferredFont(forTextStyle: .title1),
+        ] {
             for height: CGFloat in [18, 40, 120] {
-                let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: height))
-                view.configure(title: String(repeating: "计算机网络与通信原理", count: 5), location: location,
+                let view = ScheduleCardTextView.AdaptiveCardTextView(
+                    frame: CGRect(x: 0, y: 0, width: 72, height: height))
+                view.configure(
+                    title: String(repeating: "计算机网络与通信原理", count: 5), location: location,
                     contentMode: .nameAndLocation, font: font, textColor: .label)
                 view.layoutIfNeeded()
                 let labels = view.subviews.compactMap { $0 as? UILabel }
-                let title = try #require(labels.first), room = try #require(labels.last)
+                let title = try #require(labels.first)
+                let room = try #require(labels.last)
                 #expect(!room.isHidden && room.text == location && room.numberOfLines >= 2)
                 let fullRoom = UILabel()
-                fullRoom.text = location; fullRoom.font = room.font; fullRoom.numberOfLines = 0
-                let requiredHeight = fullRoom.sizeThatFits(CGSize(width: room.bounds.width, height: .greatestFiniteMagnitude)).height
-                #expect(room.bounds.height >= requiredHeight - 0.5 && view.bounds.contains(room.frame))
+                fullRoom.text = location
+                fullRoom.font = room.font
+                fullRoom.numberOfLines = 0
+                let requiredHeight = fullRoom.sizeThatFits(
+                    CGSize(width: room.bounds.width, height: .greatestFiniteMagnitude)
+                ).height
+                #expect(
+                    room.bounds.height >= requiredHeight - 0.5 && view.bounds.contains(room.frame))
                 #expect(room.font.pointSize <= font.pointSize)
-                if title.isHidden { #expect(title.frame == .zero) }
-                else {
-                    #expect(title.font.pointSize == font.pointSize && view.bounds.contains(title.frame))
+                if title.isHidden {
+                    #expect(title.frame == .zero)
+                } else {
+                    #expect(
+                        title.font.pointSize == font.pointSize && view.bounds.contains(title.frame))
                     #expect(title.frame.maxY <= room.frame.minY)
                 }
                 #expect(view.accessibilityValue == "地点：\(location)")
@@ -242,13 +284,17 @@ struct ScheduleCardTextLayoutTests {
         }
     }
 
-    @Test func changingCourseNamePreservesTheRoomSpaceAndContentModes() throws {
-        let view = ScheduleCardTextView.AdaptiveCardTextView(frame: CGRect(x: 0, y: 0, width: 72, height: 100))
-        let font = UIFont.preferredFont(forTextStyle: .caption1), location = "文萃楼A\n101"
+    @Test func changingCourseNamePreservesRoomSpace() throws {
+        let view = ScheduleCardTextView.AdaptiveCardTextView(
+            frame: CGRect(x: 0, y: 0, width: 72, height: 100))
+        let font = UIFont.preferredFont(forTextStyle: .caption1)
+        let location = "文萃楼A\n101"
         let labels = view.subviews.compactMap { $0 as? UILabel }
-        let title = try #require(labels.first), room = try #require(labels.last)
+        let title = try #require(labels.first)
+        let room = try #require(labels.last)
         func configure(_ name: String, _ mode: ScheduleCardContentMode) {
-            view.configure(title: name, location: location, contentMode: mode, font: font, textColor: .label)
+            view.configure(
+                title: name, location: location, contentMode: mode, font: font, textColor: .label)
             view.layoutIfNeeded()
         }
         configure("高数", .nameAndLocation)
@@ -261,4 +307,3 @@ struct ScheduleCardTextLayoutTests {
         #expect(title.isHidden && !room.isHidden && room.numberOfLines >= 2)
     }
 }
-

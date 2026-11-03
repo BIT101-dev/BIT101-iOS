@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run source quality checks through the shared rule module."""
+
 import sys
 import importlib.util
+
 sys.dont_write_bytecode = True
 import json
 import subprocess
@@ -9,14 +11,28 @@ import traceback
 import time
 from command_output import show_report_lines
 from code_quality_rules import (
-    REPORT_PATH, ROOT, SCRIPT_ROOT, audit_wiring_findings, automatic_school_fetch_findings,
-    explanatory_text_report, relative, repository_script_paths, script_findings, source_findings,
-    static_audit_lock, swift_files, swift_syntax_index,
+    REPORT_PATH,
+    ROOT,
+    SCRIPT_ROOT,
+    audit_wiring_findings,
+    automatic_school_fetch_findings,
+    explanatory_text_report,
+    relative,
+    repository_script_paths,
+    script_findings,
+    source_findings,
+    static_audit_lock,
+    swift_files,
+    swift_syntax_index,
 )
 
-def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
+
+def main(
+    shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None
+) -> int:
     from code_quality_tests import checker_boundary_findings
     from validation_test_areas import inventory_findings, test_inventory
+
     if sys.argv[1:] == ["--swift-syntax-index"]:
         try:
             print(json.dumps(swift_syntax_index(swift_files()), ensure_ascii=False))
@@ -44,13 +60,17 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     else:
         syntax_index = shared_syntax
     source_errors, review = source_findings(syntax_index or None)
-    large_scripts = [relative(path) for path in repository_script_paths(ROOT, {'.sh', '.py', '.swift'})
-        if len(path.read_text().splitlines()) > 800]
-    if large_scripts: review.append('大型脚本候选：' + ', '.join(large_scripts))
+    large_scripts = [
+        relative(path)
+        for path in repository_script_paths(ROOT, {".sh", ".py", ".swift"})
+        if len(path.read_text().splitlines()) > 800
+    ]
+    if large_scripts:
+        review.append("大型脚本候选：" + ", ".join(large_scripts))
     errors.extend(source_errors)
     errors.extend(boundary_findings or [])
     errors.extend(script_findings())
-    errors.extend(inventory_findings({test.split('/', 1)[0] for test in test_inventory('all')}))
+    errors.extend(inventory_findings({test.split("/", 1)[0] for test in test_inventory("all")}))
     if syntax_index:
         errors.extend(automatic_school_fetch_findings(syntax_index))
     errors.extend(audit_wiring_findings())
@@ -70,13 +90,11 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
     report = "\n".join(report_lines)
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")
-    show_report_lines((line + '\n' for line in errors), REPORT_PATH, '代码质量检查')
+    show_report_lines((line + "\n" for line in errors), REPORT_PATH, "代码质量检查")
 
     if errors:
         return 1
     return 0
-
-
 
 
 def self_test_findings(checker) -> list[str]:
@@ -89,6 +107,7 @@ def self_test_findings(checker) -> list[str]:
 
 def combined_main() -> int:
     from code_quality_tests import checker_boundary_findings
+
     started = time.monotonic()
     try:
         syntax_index = swift_syntax_index(swift_files())
@@ -104,22 +123,35 @@ def combined_main() -> int:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     indexed = time.monotonic()
-    ui_status = module.main(syntax_index)
+    ui_syntax = {str(path): syntax_index[str(path)] for path in module.swift_files()}
+    ui_status = module.main(ui_syntax)
     ui_checked = time.monotonic()
     quality_status = main(syntax_index)
     explanatory_text_report()
     quality_checked = time.monotonic()
     test_rules = "--self-test" in sys.argv and ui_status == quality_status == 0
     quality_boundaries = self_test_findings(checker_boundary_findings) if test_rules else []
-    ui_boundaries = [finding for checker in (
-        module.ast_marker_boundary_findings, module.source_boundary_findings,
-        module.map_theme_color_contract_findings, module.interaction_inventory_boundary_findings,
-    ) for finding in self_test_findings(checker)] if test_rules else []
+    ui_boundaries = (
+        [
+            finding
+            for checker in (
+                module.ast_marker_boundary_findings,
+                module.source_boundary_findings,
+                module.map_theme_color_contract_findings,
+                module.interaction_inventory_boundary_findings,
+            )
+            for finding in self_test_findings(checker)
+        ]
+        if test_rules
+        else []
+    )
     if quality_boundaries or ui_boundaries:
-        print('\n'.join(quality_boundaries + ui_boundaries))
+        print("\n".join(quality_boundaries + ui_boundaries))
     tested = time.monotonic()
-    print(f'审计耗时：索引 {indexed - started:.1f} 秒 · UI {ui_checked - indexed:.1f} 秒 · '
-        f'代码 {quality_checked - ui_checked:.1f} 秒 · 规则自测 {tested - quality_checked:.1f} 秒')
+    print(
+        f"审计耗时：索引 {indexed - started:.1f} 秒 · UI {ui_checked - indexed:.1f} 秒 · "
+        f"代码 {quality_checked - ui_checked:.1f} 秒 · 规则自测 {tested - quality_checked:.1f} 秒"
+    )
     return int(ui_status != 0 or quality_status != 0 or bool(quality_boundaries or ui_boundaries))
 
 

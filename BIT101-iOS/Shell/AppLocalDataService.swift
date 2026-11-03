@@ -1,7 +1,7 @@
-import StorageCore
-import Foundation
 import Combine
+import Foundation
 import OSLog
+import StorageCore
 
 nonisolated struct AppCacheCleanupResult: Sendable {
     let reclaimedBytes: Int64
@@ -85,11 +85,14 @@ final class AppLocalDataService: ObservableObject {
         guard !isCleaning else { return AppCacheCleanupResult(reclaimedBytes: 0, succeeded: false) }
         isCleaning = true
         defer { isCleaning = false }
-        let originalBytes = await AppLocalFileCleanup.usedBytes(files: files, directories: cacheDirectories)
+        let originalBytes = await AppLocalFileCleanup.usedBytes(
+            files: files, directories: cacheDirectories)
         let succeeded = await actions.clearMedia()
         actions.clearURLCache()
-        let remainingBytes = await AppLocalFileCleanup.usedBytes(files: files, directories: cacheDirectories)
-        return AppCacheCleanupResult(reclaimedBytes: max(0, originalBytes - remainingBytes), succeeded: succeeded)
+        let remainingBytes = await AppLocalFileCleanup.usedBytes(
+            files: files, directories: cacheDirectories)
+        return AppCacheCleanupResult(
+            reclaimedBytes: max(0, originalBytes - remainingBytes), succeeded: succeeded)
     }
 
     /// 账号存储暂停后清理文稿与应用持有的存储目录。
@@ -101,7 +104,9 @@ final class AppLocalDataService: ObservableObject {
 
 nonisolated enum AppLocalFileCleanup {
     private static let logger = Logger(subsystem: "BIT101", category: "LocalDataCleanup")
-    @concurrent static func usedBytes(files: any AppFileService, directories: Set<URL>) async -> Int64 {
+    @concurrent static func usedBytes(files: any AppFileService, directories: Set<URL>) async
+        -> Int64
+    {
         directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
     }
 
@@ -109,7 +114,8 @@ nonisolated enum AppLocalFileCleanup {
         var succeeded = true
         if let support = files.directoryURL(.applicationSupportDirectory) {
             for name in ["BIT101-iOS", "ComposerDrafts", "NetworkSmoke"] {
-                succeeded = removeItem(files: files, url: support.appending(path: name)) && succeeded
+                succeeded =
+                    removeItem(files: files, url: support.appending(path: name)) && succeeded
             }
         }
         if let documents = files.directoryURL(.documentDirectory) {
@@ -132,12 +138,22 @@ nonisolated enum AppLocalFileCleanup {
     }
 
     private static func removeItem(files: any AppFileService, url: URL) -> Bool {
-        do { try files.removeItemIfPresent(at: url); return true }
-        catch { recordFailure(error, at: url); return false }
+        do {
+            try files.removeItemIfPresent(at: url)
+            return true
+        } catch {
+            recordFailure(error, at: url)
+            return false
+        }
     }
 
     private static func recordFailure(_ error: any Error, at url: URL) {
         let failure = error as NSError
-        logger.error("Local data removal failed: \(url.path, privacy: .private) domain=\(failure.domain, privacy: .public) code=\(failure.code)")
+        logger.error(
+            """
+            Local data removal failed: \(url.path, privacy: .private) domain=\
+            \(failure.domain, privacy: .public) code=\(failure.code)
+            """
+        )
     }
 }

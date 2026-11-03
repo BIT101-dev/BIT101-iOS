@@ -47,8 +47,11 @@ public struct ScheduleRootView: View {
     @State private var courseTabResetSignal = 0
     @State private var horizontalControlFrames: [CGRect] = []
 
-    public init(viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>, destinations: ScheduleDestinations,
-        showingClassrooms: Bool? = nil) {
+    public init(
+        viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>,
+        destinations: ScheduleDestinations,
+        showingClassrooms: Bool? = nil
+    ) {
         self.viewModel = viewModel
         _requestedSection = requestedSection
         self.destinations = destinations
@@ -59,11 +62,16 @@ public struct ScheduleRootView: View {
     public var body: some View {
         TimelineView(.everyMinute) { context in
             Group {
-                if displayedSection == .classroom { content }
-                else {
+                if displayedSection == .classroom {
+                    content
+                } else {
                     NavigationStack {
                         content
-                            .padding(.top, expandedNavigation ? layout.contentTopInset : AppDesignSystem.Spacing.none)
+                            .padding(
+                                .top,
+                                expandedNavigation
+                                    ? layout.contentTopInset : AppDesignSystem.Spacing.none
+                            )
                             .appBrowserNavigationBar()
                             .navigationBarTitleDisplayMode(.inline)
                     }
@@ -81,26 +89,33 @@ public struct ScheduleRootView: View {
                 if displayedSection == .classroom {
                     FreeClassroomTabView(viewModel: viewModel.classroom)
                         .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
-                }
-                else {
+                } else {
                     AppPairedPages(showsFirst: displayedSection == .courses) {
-                        CourseScheduleTabView(viewModel: viewModel, resetSignal: courseTabResetSignal, destinations: destinations)
+                        CourseScheduleTabView(
+                            viewModel: viewModel, resetSignal: courseTabResetSignal,
+                            destinations: destinations)
                     } second: {
                         DDLScheduleTabView(viewModel: viewModel.ddl)
-                            .safeAreaPadding(.bottom, layout.usesBottomTabBar
-                                ? AppDesignSystem.Spacing.none : layout.safeAreaInsets.bottom)
+                            .safeAreaPadding(
+                                .bottom,
+                                layout.usesBottomTabBar
+                                    ? AppDesignSystem.Spacing.none
+                                    : layout.safeAreaInsets.bottom)
                     }
                     .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
-            .onPreferenceChange(AppHorizontalControlFramesKey.self) { horizontalControlFrames = $0 }
+            .onPreferenceChange(AppHorizontalControlFramesKey.self) {
+                horizontalControlFrames = $0
+            }
             .simultaneousGesture(
                 sectionSwitchGesture(
-                    topDisabledY: proxy.frame(in: .global).minY + (viewModel.selectedSection == .courses
-                        ? proxy.size.height * 0.25
-                        : 0)
+                    topDisabledY: proxy.frame(in: .global).minY
+                        + (viewModel.selectedSection == .courses
+                            ? proxy.size.height * 0.25
+                            : 0)
                 )
             )
             .accessibilityElement(children: .contain)
@@ -108,38 +123,48 @@ public struct ScheduleRootView: View {
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation && displayedSection != .classroom { sectionTabs.padding(.top, layout.contentTopInset) }
+            if !expandedNavigation && displayedSection != .classroom {
+                sectionTabs.padding(.top, layout.contentTopInset)
+            }
         }
         .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
             // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。
             Color.clear
-                .frame(height: displayedSection == .courses
-                    ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
+                .frame(
+                    height: displayedSection == .courses
+                        ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
         }
         .allowsHitTesting(!viewModel.isLoadingCache)
         .overlay {
-            if viewModel.isLoadingCache { AppLoadingState(title: "正在读取日程").background(.regularMaterial) }
+            if viewModel.isLoadingCache {
+                AppLoadingState(title: "正在读取日程").background(.regularMaterial)
+            }
         }
         .task {
             await viewModel.loadIfNeeded()
         }
-        .task(id: isCurrentSectionVisible && displayedSection == .classroom && !viewModel.isLoadingCache) {
-            guard isCurrentSectionVisible, displayedSection == .classroom, !viewModel.isLoadingCache else { return }
+        .task(
+            id: isCurrentSectionVisible && displayedSection == .classroom
+                && !viewModel.isLoadingCache
+        ) {
+            guard isCurrentSectionVisible, displayedSection == .classroom,
+                !viewModel.isLoadingCache
+            else { return }
             // 每个自然日首次进入更新学校数据，其余进入复用当天缓存。
             viewModel.classroom.startClassroomPageRefresh()
         }
         .onAppear {
-            consumeRequestedSectionIfNeeded()
+            consumeSectionRequest()
         }
         .onChange(of: requestedSection) { _, _ in
-            consumeRequestedSectionIfNeeded()
+            consumeSectionRequest()
         }
         .sheet(
             item: Binding(
                 get: { isCurrentSectionVisible ? viewModel.verificationChallenge : nil },
                 set: { challenge in
                     if isCurrentSectionVisible, challenge == nil {
-                        viewModel.dismissVerificationChallenge()
+                        viewModel.dismissChallenge()
                     }
                 }
             )
@@ -149,14 +174,17 @@ public struct ScheduleRootView: View {
                 isSubmitting: viewModel.isSubmittingVerificationCode,
                 errorMessage: viewModel.verificationError,
                 submitTitle: "验证并继续",
-                onCancel: viewModel.dismissVerificationChallenge,
+                onCancel: viewModel.dismissChallenge,
                 onSubmit: { code in
                     await viewModel.submitVerificationCode(code)
                 },
                 isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
             )
         }
-        .scheduleSchoolVerification(viewModel: viewModel.ddl, isEnabled: isCurrentSectionVisible && displayedSection != .classroom)
+        .verifySchoolChallengeStep(
+            viewModel: viewModel.ddl,
+            isEnabled: isCurrentSectionVisible && displayedSection != .classroom
+        )
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if viewModel.hasPersistenceConflict {
                 SchedulePersistenceConflictView(repository: viewModel.repository)
@@ -174,13 +202,19 @@ public struct ScheduleRootView: View {
 
     @ViewBuilder private var sectionTabs: some View {
         if layout.isLandscape {
-            AppSegmentedPicker(title: "日程分区",
-                selection: Binding(get: { viewModel.selectedSection == .classroom },
-                    set: { viewModel.selectedSection = $0 ? .classroom : .courses })) {
-                Text("课表与 DDL").tag(false); Text("空教室").tag(true)
+            AppSegmentedPicker(
+                title: "日程分区",
+                selection: Binding(
+                    get: { viewModel.selectedSection == .classroom },
+                    set: { viewModel.selectedSection = $0 ? .classroom : .courses })
+            ) {
+                Text("课表与 DDL").tag(false)
+                Text("空教室").tag(true)
             }
         } else {
-            ScheduleSectionTabs(selectedSection: $viewModel.selectedSection, courseTitle: viewModel.activeCourseScheduleTitle)
+            ScheduleSectionTabs(
+                selectedSection: $viewModel.selectedSection,
+                courseTitle: viewModel.activeCourseScheduleTitle)
         }
     }
 
@@ -194,15 +228,22 @@ public struct ScheduleRootView: View {
                 let vertical = value.translation.height
                 guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
                 guard value.startLocation.y >= topDisabledY else { return }
-                guard !horizontalControlFrames.contains(where: { $0.contains(value.startLocation) }) else { return }
+                guard
+                    !horizontalControlFrames.contains(where: {
+                        $0.contains(value.startLocation)
+                    })
+                else { return }
                 switchSection(step: horizontal < 0 ? 1 : -1)
             }
     }
 
     /// 根据方向切换一级分区。
     private func switchSection(step: Int) {
-        let allSections: [ScheduleSection] = layout.isLandscape ? [.courses, .classroom] : ScheduleSection.allCases
-        let currentSection = layout.isLandscape && viewModel.selectedSection == .ddl ? ScheduleSection.courses : viewModel.selectedSection
+        let allSections: [ScheduleSection] =
+            layout.isLandscape ? [.courses, .classroom] : ScheduleSection.allCases
+        let currentSection =
+            layout.isLandscape && viewModel.selectedSection == .ddl
+            ? ScheduleSection.courses : viewModel.selectedSection
         guard let currentIndex = allSections.firstIndex(of: currentSection) else { return }
 
         let nextIndex = currentIndex + step
@@ -212,15 +253,15 @@ public struct ScheduleRootView: View {
     }
 
     /// 消费来自 App 壳层的深链跳转请求。
-    private func consumeRequestedSectionIfNeeded() {
+    private func consumeSectionRequest() {
         guard let requestedSection else { return }
 
         viewModel.selectedSection = requestedSection
         if requestedSection == .courses {
-                // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，
-                // 让课表分栏按正常 dismiss 路径收起当前 sheet。
-                courseTabResetSignal &+= 1
-                viewModel.showCurrentPrimarySchedule()
+            // 从小组件、锁屏组件或灵动岛回到课表时，发一个“回首页”信号，
+            // 让课表分栏按正常 dismiss 路径收起当前 sheet。
+            courseTabResetSignal &+= 1
+            viewModel.showPrimarySchedule()
         }
 
         self.requestedSection = nil
@@ -239,8 +280,9 @@ public struct ScheduleCacheRecoveryView: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             Text(repository.hasReadFailure ? "日程读取受阻" : "日程已部分恢复")
                 .font(AppDesignSystem.Typography.title)
-            Text(repository.hasReadFailure ? "原始数据已保留。请检查文件访问与 App 版本，再重试读取。" :
-                "可用日程继续展示。请核对恢复结果，确认后保存并继续编辑。")
+            Text(
+                repository.hasReadFailure
+                    ? "原始数据已保留。请检查文件访问与 App 版本，再重试读取。" : "可用日程继续展示。请核对恢复结果，确认后保存并继续编辑。")
             Button("重试读取") { Task { await repository.reload() } }
                 .accessibilityIdentifier("schedule.recovery.retry")
             if repository.canRebuildCache {
@@ -248,7 +290,7 @@ public struct ScheduleCacheRecoveryView: View {
                     rebuildGeneration = repository.accountGeneration
                     isConfirmingRebuild = true
                 }
-                    .accessibilityIdentifier("schedule.recovery.rebuild")
+                .accessibilityIdentifier("schedule.recovery.rebuild")
             }
             if repository.requiresRecoveryConfirmation && !repository.hasReadFailure {
                 Button("确认恢复结果") { Task { await repository.confirmRecovery() } }
@@ -262,7 +304,7 @@ public struct ScheduleCacheRecoveryView: View {
                 let generation = rebuildGeneration
                 Task { await repository.rebuildCache(expectedGeneration: generation) }
             }
-                .accessibilityIdentifier("schedule.recovery.rebuild.confirm")
+            .accessibilityIdentifier("schedule.recovery.rebuild.confirm")
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("schedule.recovery.rebuild.cancel")
         } message: {
@@ -281,9 +323,9 @@ public struct SchedulePersistenceConflictView: View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             Text("日程版本发生变化").font(AppDesignSystem.Typography.title)
             Text("本机与同步版本修改了相同内容。独立修改将共同保留，请选择冲突内容的版本。")
-            Button("保留本机冲突内容") { Task { await repository.resolvePersistenceConflict(.keepLocal) } }
+            Button("保留本机冲突内容") { Task { await repository.resolveStorageConflict(.keepLocal) } }
                 .accessibilityIdentifier("schedule.conflict.keep-local")
-            Button("采用同步冲突内容") { Task { await repository.resolvePersistenceConflict(.useCloud) } }
+            Button("采用同步冲突内容") { Task { await repository.resolveStorageConflict(.useCloud) } }
                 .accessibilityIdentifier("schedule.conflict.use-cloud")
         }
         .buttonStyle(.borderless)

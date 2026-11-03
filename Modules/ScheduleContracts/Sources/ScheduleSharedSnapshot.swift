@@ -7,7 +7,8 @@ extension Notification.Name {
     /// 当前进程的 Watch App 页面监听这条通知，在本地镜像更新后刷新视图；
     /// Widget 通过 `WidgetCenter` 刷新时间线。iPhone 与 Watch 的跨进程更新
     /// 通过 App Group 文件和 WatchConnectivity 传递。
-    public static let scheduleExternalSnapshotDidChange = Notification.Name("BIT101.ScheduleExternalSnapshotDidChange")
+    public static let scheduleExternalSnapshotDidChange = Notification.Name(
+        "BIT101.ScheduleExternalSnapshotDidChange")
 }
 
 /// 课表外部展示能力共用的 App Group 标识。
@@ -41,7 +42,10 @@ public nonisolated struct ScheduleExternalTimeSlotSnapshot: Codable, Hashable, S
 ///
 /// 共享模型包含计算当前课程与后续课程所需字段。
 public nonisolated struct ScheduleExternalCourseSnapshot: Codable, Hashable, Sendable {
-    public init(id: String, name: String, classroom: String, teacher: String, weeks: [Int], weekday: Int, startSection: Int, endSection: Int) {
+    public init(
+        id: String, name: String, classroom: String, teacher: String, weeks: [Int], weekday: Int,
+        startSection: Int, endSection: Int
+    ) {
         self.id = id
         self.name = name
         self.classroom = classroom
@@ -87,29 +91,42 @@ public nonisolated struct ScheduleExternalCustomScheduleSnapshot: Codable, Hasha
     public let beginTime: String
     public let endTime: String
 
-    public init(id: String, title: String, subtitle: String, dateStrings: [String], beginTime: String, endTime: String) {
-        self.id = id; self.title = title; self.subtitle = subtitle
-        self.dateStrings = dateStrings; self.beginTime = beginTime; self.endTime = endTime
+    public init(
+        id: String, title: String, subtitle: String, dateStrings: [String], beginTime: String,
+        endTime: String
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.dateStrings = dateStrings
+        self.beginTime = beginTime
+        self.endTime = endTime
     }
 
     public var hasValidRecord: Bool {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !dateStrings.isEmpty, dateStrings.count <= ScheduleExternalSnapshotCodec.maximumCourseCount,
-              Set(dateStrings).count == dateStrings.count,
-              ([id, title, subtitle, beginTime, endTime] + dateStrings).allSatisfy({ $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes })
+            !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !dateStrings.isEmpty,
+            dateStrings.count <= ScheduleExternalSnapshotCodec.maximumCourseCount,
+            Set(dateStrings).count == dateStrings.count,
+            ([id, title, subtitle, beginTime, endTime] + dateStrings).allSatisfy({
+                $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+            })
         else { return false }
         return dateStrings.allSatisfy { value in
             guard let day = ScheduleSharedDateCodec.parseDate(value),
-                  let start = ScheduleSharedDateCodec.combine(date: day, time: beginTime),
-                  let end = ScheduleSharedDateCodec.combine(date: day, time: endTime) else { return false }
+                let start = ScheduleSharedDateCodec.combine(date: day, time: beginTime),
+                let end = ScheduleSharedDateCodec.combine(date: day, time: endTime)
+            else { return false }
             return ScheduleSharedDateCodec.calendar.isDate(start, inSameDayAs: day) && end > start
         }
     }
 }
 
 /// DDL 小组件消费的最小待办摘要。
-public nonisolated struct ScheduleExternalDeadlineSnapshot: Codable, Hashable, Identifiable, Sendable {
+public nonisolated struct ScheduleExternalDeadlineSnapshot: Codable, Hashable, Identifiable,
+    Sendable
+{
     public let id: String
     public let title: String
     public let subtitle: String
@@ -128,7 +145,9 @@ public nonisolated struct ScheduleExternalDeadlineSnapshot: Codable, Hashable, I
         !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && dueAt.timeIntervalSince1970.isFinite
-            && [id, title, subtitle, sourceTitle].allSatisfy { $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes }
+            && [id, title, subtitle, sourceTitle].allSatisfy {
+                $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+            }
     }
 }
 
@@ -194,9 +213,11 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
     public func advancingRevision(after knownRevision: UInt64) -> ScheduleExternalSnapshot? {
         guard knownRevision >= revision else { return self }
         guard knownRevision < UInt64.max else { return nil }
-        return ScheduleExternalSnapshot(generatedAt: generatedAt, revision: knownRevision + 1,
+        return ScheduleExternalSnapshot(
+            generatedAt: generatedAt, revision: knownRevision + 1,
             isLoggedIn: isLoggedIn, studentID: studentID, firstDayString: firstDayString,
-            timeTable: timeTable, courses: courses, customSchedules: customSchedules, deadlines: deadlines, ddlAfterDay: ddlAfterDay)
+            timeTable: timeTable, courses: courses, customSchedules: customSchedules,
+            deadlines: deadlines, ddlAfterDay: ddlAfterDay)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -219,10 +240,18 @@ public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable 
         isLoggedIn = try container.decodeIfPresent(Bool.self, forKey: .isLoggedIn) ?? false
         studentID = try container.decodeIfPresent(String.self, forKey: .studentID) ?? ""
         firstDayString = try container.decodeIfPresent(String.self, forKey: .firstDayString) ?? ""
-        timeTable = try container.decodeIfPresent([ScheduleExternalTimeSlotSnapshot].self, forKey: .timeTable) ?? []
-        courses = try container.decodeIfPresent([ScheduleExternalCourseSnapshot].self, forKey: .courses) ?? []
-        customSchedules = try container.decodeIfPresent([ScheduleExternalCustomScheduleSnapshot].self, forKey: .customSchedules) ?? []
-        deadlines = try container.decodeIfPresent([ScheduleExternalDeadlineSnapshot].self, forKey: .deadlines) ?? []
+        timeTable =
+            try container.decodeIfPresent(
+                [ScheduleExternalTimeSlotSnapshot].self, forKey: .timeTable) ?? []
+        courses =
+            try container.decodeIfPresent([ScheduleExternalCourseSnapshot].self, forKey: .courses)
+            ?? []
+        customSchedules =
+            try container.decodeIfPresent(
+                [ScheduleExternalCustomScheduleSnapshot].self, forKey: .customSchedules) ?? []
+        deadlines =
+            try container.decodeIfPresent(
+                [ScheduleExternalDeadlineSnapshot].self, forKey: .deadlines) ?? []
         ddlAfterDay = try container.decodeIfPresent(Int.self, forKey: .ddlAfterDay) ?? 3
     }
 }
@@ -246,28 +275,45 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
 
     private static func validate(_ snapshot: ScheduleExternalSnapshot) throws {
         guard snapshot.revision < UInt64.max,
-              !snapshot.isLoggedIn || snapshot.courses.isEmpty || ScheduleOccurrenceResolver.hasValidCourses(snapshot),
-              snapshot.courses.count <= maximumCourseCount,
-              snapshot.customSchedules.count <= maximumCourseCount,
-              snapshot.customSchedules.allSatisfy(\.hasValidRecord),
-              Set(snapshot.customSchedules.map(\.id)).count == snapshot.customSchedules.count,
-              snapshot.deadlines.count <= maximumCourseCount,
-              snapshot.deadlines.allSatisfy(\.hasValidRecord),
-              Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count,
-              (0...30).contains(snapshot.ddlAfterDay),
-              snapshot.timeTable.count <= ScheduleCourseConstraints.maximumSection,
-              [snapshot.studentID, snapshot.firstDayString].allSatisfy({ $0.utf8.count <= maximumFieldBytes }),
-              snapshot.timeTable.allSatisfy({ $0.start.utf8.count <= maximumFieldBytes && $0.end.utf8.count <= maximumFieldBytes }),
-              snapshot.courses.allSatisfy({ course in
-                  course.weeks.count <= ScheduleCourseConstraints.maximumWeek * 2 &&
-                  [course.id, course.name, course.classroom, course.teacher].allSatisfy { $0.utf8.count <= maximumFieldBytes }
-              }) else { throw CocoaError(.coderInvalidValue) }
+            !snapshot.isLoggedIn || snapshot.courses.isEmpty
+                || ScheduleOccurrenceResolver.hasValidCourses(snapshot),
+            snapshot.courses.count <= maximumCourseCount,
+            snapshot.customSchedules.count <= maximumCourseCount,
+            snapshot.customSchedules.allSatisfy(\.hasValidRecord),
+            Set(snapshot.customSchedules.map(\.id)).count == snapshot.customSchedules.count,
+            snapshot.deadlines.count <= maximumCourseCount,
+            snapshot.deadlines.allSatisfy(\.hasValidRecord),
+            Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count,
+            (0...30).contains(snapshot.ddlAfterDay),
+            snapshot.timeTable.count <= ScheduleCourseConstraints.maximumSection,
+            [snapshot.studentID, snapshot.firstDayString].allSatisfy({
+                $0.utf8.count <= maximumFieldBytes
+            }),
+            snapshot.timeTable.allSatisfy({
+                $0.start.utf8.count <= maximumFieldBytes && $0.end.utf8.count <= maximumFieldBytes
+            }),
+            snapshot.courses.allSatisfy({ course in
+                course.weeks.count <= ScheduleCourseConstraints.maximumWeek * 2
+                    && [course.id, course.name, course.classroom, course.teacher].allSatisfy {
+                        $0.utf8.count <= maximumFieldBytes
+                    }
+            })
+        else { throw CocoaError(.coderInvalidValue) }
         var fields = [snapshot.studentID, snapshot.firstDayString]
         fields.append(contentsOf: snapshot.timeTable.flatMap { [$0.start, $0.end] })
-        fields.append(contentsOf: snapshot.courses.flatMap { [$0.id, $0.name, $0.classroom, $0.teacher] })
-        fields.append(contentsOf: snapshot.customSchedules.flatMap { [$0.id, $0.title, $0.subtitle, $0.beginTime, $0.endTime] + $0.dateStrings })
-        fields.append(contentsOf: snapshot.deadlines.flatMap { [$0.id, $0.title, $0.subtitle, $0.sourceTitle] })
-        guard fields.reduce(0, { $0 + $1.utf8.count }) <= maximumEncodedBytes else { throw CocoaError(.fileReadTooLarge) }
+        fields.append(
+            contentsOf: snapshot.courses.flatMap { [$0.id, $0.name, $0.classroom, $0.teacher] })
+        fields.append(
+            contentsOf: snapshot.customSchedules.flatMap {
+                [$0.id, $0.title, $0.subtitle, $0.beginTime, $0.endTime] + $0.dateStrings
+            })
+        fields.append(
+            contentsOf: snapshot.deadlines.flatMap {
+                [$0.id, $0.title, $0.subtitle, $0.sourceTitle]
+            })
+        guard fields.reduce(0, { $0 + $1.utf8.count }) <= maximumEncodedBytes else {
+            throw CocoaError(.fileReadTooLarge)
+        }
     }
 
     public nonisolated static func encode(
@@ -308,7 +354,8 @@ public enum WatchScheduleTransferProtocol {
     }
 
     public nonisolated static func knownRevision(from context: [String: Any]) -> UInt64? {
-        guard requestsLatestSnapshot(context), let value = context[knownRevisionKey] as? String else { return nil }
+        guard requestsLatestSnapshot(context), let value = context[knownRevisionKey] as? String
+        else { return nil }
         guard let revision = UInt64(value), revision < UInt64.max else { return nil }
         return revision
     }

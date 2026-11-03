@@ -52,7 +52,8 @@ python3 --version
 完整维护工具：
 
 ```sh
-brew install node gh ripgrep ruff
+brew install node gh ripgrep ruff prettier
+python3 -m pip install --break-system-packages -r Scripts/style-requirements.txt
 node --version
 npm --version
 gh --version

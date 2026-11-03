@@ -1,10 +1,10 @@
-import ScoreDomain
-import ScorePorts
 import CourseFeature
-import MediaKit
-import ScoreFeature
-import ScheduleDomain
 import DesignSystemKit
+import MediaKit
+import ScheduleDomain
+import ScoreDomain
+import ScoreFeature
+import ScorePorts
 import SwiftUI
 
 enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
@@ -28,10 +28,15 @@ struct ScoreRootView: View {
     private let scene: ScoreRootScene
     private let identity: ObjectIdentifier
 
-    init(courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
-         requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil), selection: Binding<ScoreSurface>? = nil,
-         showingCourses: Bool? = nil) {
-        scene = ScoreRootScene(courses: courses, transcriptService: transcriptService, requestedCourse: requestedCourse,
+    init(
+        courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
+        requestedCourse: Binding<CourseNavigationRequest?> = .constant(nil),
+        selection: Binding<ScoreSurface>? = nil,
+        showingCourses: Bool? = nil
+    ) {
+        scene = ScoreRootScene(
+            courses: courses, transcriptService: transcriptService,
+            requestedCourse: requestedCourse,
             selection: selection, showingCourses: showingCourses)
         identity = ObjectIdentifier(courses)
     }
@@ -52,8 +57,7 @@ private struct ScoreRootScene: View {
     private var selectedSurface: ScoreSurface {
         get { selection?.wrappedValue ?? localSurface }
         nonmutating set {
-            if let selection { selection.wrappedValue = newValue }
-            else { localSurface = newValue }
+            if let selection { selection.wrappedValue = newValue } else { localSurface = newValue }
         }
     }
     @Binding private var requestedCourse: CourseNavigationRequest?
@@ -75,41 +79,53 @@ private struct ScoreRootScene: View {
 
     var body: some View {
         pages
-        .accessibilityElement(children: .contain)
-        .appBrowserHeader(isPresented: !expandedNavigation) { surfaceTabs }
-        .background(AppDesignSystem.Palette.Background.grouped)
-        .task(id: requestedCourse?.id) {
-            guard displayedSurface == .course, let requestedCourse else { return }
-            selectedSurface = .course
-            if requestedCourse.isSearchRequest, let query = requestedCourse.searchQuery {
-                if requestedCourse.searchResults != nil { prepareCourseSurface(requestedCourse) }
-                else { await courseViewModel.search(for: query) }
-                if self.requestedCourse?.id == requestedCourse.id { self.requestedCourse = nil }
-            } else {
-                prepareCourseSurface(requestedCourse)
+            .accessibilityElement(children: .contain)
+            .appBrowserHeader(isPresented: !expandedNavigation) { surfaceTabs }
+            .background(AppDesignSystem.Palette.Background.grouped)
+            .task(id: requestedCourse?.id) {
+                guard displayedSurface == .course, let requestedCourse else { return }
+                selectedSurface = .course
+                if requestedCourse.isSearchRequest, let query = requestedCourse.searchQuery {
+                    if requestedCourse.searchResults != nil {
+                        prepareCourseSurface(requestedCourse)
+                    } else {
+                        await courseViewModel.search(for: query)
+                    }
+                    if self.requestedCourse?.id == requestedCourse.id { self.requestedCourse = nil }
+                } else {
+                    prepareCourseSurface(requestedCourse)
+                }
             }
-        }
     }
 
     @ViewBuilder private var pages: some View {
         if showingCourses == nil {
             AppPairedPages(showsFirst: selectedSurface == .score, pairsInLandscape: false) {
                 scorePage
-            } second: { coursePage }
-        } else if showingCourses == true { coursePage }
-        else { scorePage }
+            } second: {
+                coursePage
+            }
+        } else if showingCourses == true {
+            coursePage
+        } else {
+            scorePage
+        }
     }
 
     private var scorePage: some View {
-        ScoreListPage(viewModel: scoreViewModel, transcriptService: transcriptService,
-            onSurfaceStep: switchSurface, onSearchCourse: openCourseSearch)
-            .accessibilityElement(children: .contain).accessibilityIdentifier("home.score-surface")
+        ScoreListPage(
+            viewModel: scoreViewModel, transcriptService: transcriptService,
+            onSurfaceStep: switchSurface, onSearchCourse: openCourseSearch
+        )
+        .accessibilityElement(children: .contain).accessibilityIdentifier("home.score-surface")
     }
 
     private var coursePage: some View {
-        CourseBrowserPage(viewModel: courseViewModel, dependencies: courses, media: destinations.media,
-            profiles: destinations.profiles, selection: detailRequest, onSurfaceStep: switchSurface)
-            .accessibilityElement(children: .contain).accessibilityIdentifier("home.course-surface")
+        CourseBrowserPage(
+            viewModel: courseViewModel, dependencies: courses, media: destinations.media,
+            profiles: destinations.profiles, selection: detailRequest, onSurfaceStep: switchSurface
+        )
+        .accessibilityElement(children: .contain).accessibilityIdentifier("home.course-surface")
     }
 
     private var displayedSurface: ScoreSurface {
@@ -123,7 +139,8 @@ private struct ScoreRootScene: View {
     }
 
     private var detailRequest: Binding<CourseNavigationRequest?> {
-        Binding(get: { requestedCourse?.isSearchRequest == true ? nil : requestedCourse },
+        Binding(
+            get: { requestedCourse?.isSearchRequest == true ? nil : requestedCourse },
             set: { requestedCourse = $0 })
     }
 
@@ -135,7 +152,7 @@ private struct ScoreRootScene: View {
 
     private func prepareCourseSurface(_ request: CourseNavigationRequest) {
         guard let query = request.searchQuery,
-              let results = request.searchResults
+            let results = request.searchResults
         else { return }
         courseViewModel.applyPreparedSearch(query: query, items: results)
     }

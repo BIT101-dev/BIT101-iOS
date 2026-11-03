@@ -1,33 +1,36 @@
-import Combine
-import ScoreDomain
-import ScorePorts
-import ScheduleDomain
-import SchedulePorts
-@testable import ScoreInfrastructure
-import CommunityTransport
-import CommunityCore
-@testable import GalleryFeature
-@testable import CommunityUI
-@testable import ScheduleFeature
-@testable import MediaKit
-@testable import ScoreFeature
-import StorageCore
-import TransportCore
 import ClientCore
-import ScheduleContracts
-import ScheduleActivityContracts
+import Combine
+import CommunityCore
+import CommunityTransport
 import Foundation
 import Network
-import os
+import ScheduleActivityContracts
+import ScheduleContracts
+import ScheduleDomain
+import SchedulePorts
+import ScoreDomain
+import ScorePorts
 import Security
+import StorageCore
 import Testing
+import TransportCore
 import UIKit
 import XCTest
+import os
+
 @testable import BIT101_iOS
+@testable import CommunityUI
+@testable import GalleryFeature
+@testable import MediaKit
+@testable import ScheduleFeature
+@testable import ScoreFeature
+@testable import ScoreInfrastructure
 
 @Suite("Image cache disk quota")
 struct ImageCacheDiskQuotaTests {
-    @Test("Quota pruning evicts least-recently-used entries and protects active files", .timeLimit(.minutes(1)))
+    @Test(
+        "Quota pruning evicts least-recently-used entries and protects active files",
+        .timeLimit(.minutes(1)))
     func prunesOldestFilesAndProtectsActiveEntry() async throws {
         let files = AppFileDirectories.files
         let directory = files.temporaryDirectoryURL.appending(

@@ -8,7 +8,10 @@ public struct CommunityCommentReviewSection: View {
     private let actions: CommunityCommentReviewActions
     private let onSend: () -> Void
 
-    public init(submission: CommunityCommentSubmission, actions: CommunityCommentReviewActions, onSend: @escaping () -> Void) {
+    public init(
+        submission: CommunityCommentSubmission, actions: CommunityCommentReviewActions,
+        onSend: @escaping () -> Void
+    ) {
         self.submission = submission
         self.actions = actions
         self.onSend = onSend
@@ -24,8 +27,8 @@ public struct CommunityCommentReviewSection: View {
                     actions.acknowledge(submission)
                     onSend()
                 }
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("community.comment.review")
+                .appInteractiveListRow()
+                .accessibilityIdentifier("community.comment.review")
             }
         }
     }
@@ -36,7 +39,10 @@ public struct CommunityPublicationReviewSection: View {
     private let destination: AnyView
     private let onAcknowledge: () -> Void
 
-    public init(state: ComposerPublicationReviewState, destination: AnyView, onAcknowledge: @escaping () -> Void) {
+    public init(
+        state: ComposerPublicationReviewState, destination: AnyView,
+        onAcknowledge: @escaping () -> Void
+    ) {
         self.state = state
         self.destination = destination
         self.onAcknowledge = onAcknowledge
@@ -61,7 +67,8 @@ public struct CommunityPublicationReviewSection: View {
     private var message: String {
         switch state {
         case .ready: ""
-        case .pending(let attempt): "《\(attempt.content.title)》的发布结果待确认。请打开搜索，核对作者与内容后再决定是否继续发布。当前编辑内容会保留。"
+        case .pending(let attempt):
+            "《\(attempt.content.title)》的发布结果待确认。请打开搜索，核对作者与内容后再决定是否继续发布。当前编辑内容会保留。"
         case .requiresRecovery: "本机发布记录读取遇到问题。请先搜索并核对当前账号已发布的内容，确认后重建发布记录。编辑内容和草稿会保留。"
         }
     }

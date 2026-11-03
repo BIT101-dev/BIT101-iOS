@@ -1,12 +1,12 @@
-import ScheduleDomain
-import ScheduleContracts
 import DesignSystemKit
+import ScheduleContracts
+import ScheduleDomain
+import SwiftUI
+
 //
 //  ScheduleEditingSupport.swift
 //  BIT101-iOS
 //
-
-import SwiftUI
 
 enum CourseEditorMode: Equatable {
     case add
@@ -43,11 +43,15 @@ struct CourseArrangementDraft: Identifiable, Equatable {
 
     var title: String {
         let weekday = ["", "一", "二", "三", "四", "五", "六", "日"]
-        let weekdayText = weekday.indices.contains(original.weekday) ? weekday[original.weekday] : "?"
+        let weekdayText =
+            weekday.indices.contains(original.weekday) ? weekday[original.weekday] : "?"
         return "周\(weekdayText) · 第\(original.startSection)-\(original.endSection)节"
     }
 
-    init(id: String, original: CourseDraft, availableWeeks: [Int] = ScheduleCourseConstraints.validWeeks) {
+    init(
+        id: String, original: CourseDraft,
+        availableWeeks: [Int] = ScheduleCourseConstraints.validWeeks
+    ) {
         self.id = id
         self.original = original
         self.availableWeeks = availableWeeks
@@ -75,7 +79,7 @@ struct ScheduleDayAdjustmentContext: Identifiable {
 
     private var weekdayText: String {
         let titles = ["一", "二", "三", "四", "五", "六", "日"]
-        guard (1 ... titles.count).contains(weekday) else { return "?" }
+        guard (1...titles.count).contains(weekday) else { return "?" }
         return "周\(titles[weekday - 1])"
     }
 }
@@ -129,7 +133,9 @@ struct DayAdjustmentSheet: View {
                     }
 
                     if draft.mode == .transfer {
-                        DatePicker("调至", selection: $draft.targetDate, displayedComponents: .date)
+                        DatePicker(
+                            "调至", selection: $draft.targetDate, displayedComponents: .date
+                        )
                         .environment(\.calendar, ScheduleDateCodec.calendar)
                         .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
                         .accessibilityIdentifier("schedule.adjustment.date")
@@ -153,7 +159,7 @@ struct DayAdjustmentSheet: View {
                             targetDateText: ScheduleDateCodec.formatDate(draft.targetDate)
                         )
                     }
-                        .accessibilityIdentifier("ui.day-adjustment-sheet.confirm")
+                    .accessibilityIdentifier("ui.day-adjustment-sheet.confirm")
                 }
             }
             .alert(item: $pendingConfirmation) { confirmation in

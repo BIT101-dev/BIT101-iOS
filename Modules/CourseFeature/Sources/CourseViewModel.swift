@@ -1,14 +1,13 @@
-import CommunityCore
-import TransportCore
-import DesignSystemKit
-
 import Combine
+import CommunityCore
+import DesignSystemKit
 import Foundation
+import TransportCore
 
 /// 首屏刷新沿课程分页状态执行重置。
-private extension CoursePagedState {
+extension CoursePagedState {
     /// 开始首屏刷新并重置分页游标。
-    mutating func prepareForRefresh() {
+    fileprivate mutating func prepareForRefresh() {
         paginationError = nil
         status = .loading
         resetPagination()
@@ -35,7 +34,8 @@ public final class CourseListViewModel: ObservableObject {
         self.service = service
         resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
             guard let self else { return }
-            let needsRefresh = self.state.items.needsCommunityRefresh(for: metrics)
+            let needsRefresh =
+                self.state.items.needsCommunityRefresh(for: metrics)
                 || self.refreshPreviousState?.items.needsCommunityRefresh(for: metrics) == true
             if needsRefresh { self.cancelRefreshOperations() }
             var updated = self.state
@@ -44,16 +44,16 @@ public final class CourseListViewModel: ObservableObject {
         }
     }
 
-
     deinit {
         refreshTask?.cancel()
     }
 
     func cancelRefreshOperations() {
-        refreshTask?.cancel(); refreshTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
         refreshGeneration &+= 1
         if var previous = refreshPreviousState {
-            previous.items = previous.items.preservingCommunityMetrics(from: state.items)
+            previous.items = previous.items.preservingMetrics(from: state.items)
             state = previous
         }
         refreshPreviousState = nil
@@ -121,13 +121,18 @@ public final class CourseListViewModel: ObservableObject {
 
     func refresh() async {
         let task = enqueueRefresh()
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        await withTaskCancellationHandler(
+            operation: { await task.value }, onCancel: { task.cancel() })
     }
 
-    func retryAfterConnectivityRecovery() async {
-        if needsRefresh { await refresh() }
-        else if case .failed = state.status { await refresh() }
-        else if state.paginationError != nil { await loadMoreIfNeeded(currentCourse: state.items.last) }
+    func retryAfterReconnect() async {
+        if needsRefresh {
+            await refresh()
+        } else if case .failed = state.status {
+            await refresh()
+        } else if state.paginationError != nil {
+            await loadMoreIfNeeded(currentCourse: state.items.last)
+        }
     }
 
     private func performRefresh() async {
@@ -160,7 +165,7 @@ public final class CourseListViewModel: ObservableObject {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
                 var restoredState = previousState
-                restoredState.items = restoredState.items.preservingCommunityMetrics(from: state.items)
+                restoredState.items = restoredState.items.preservingMetrics(from: state.items)
                 restoredState.isLoadingMore = false
                 if !restoredState.items.isEmpty {
                     restoredState.status = .loaded
@@ -190,7 +195,9 @@ public final class CourseListViewModel: ObservableObject {
     func loadMoreIfNeeded(currentCourse: CourseSummary?) async {
         guard let currentCourse, let search = pageSearch else { return }
         let generation = refreshGeneration
-        guard state.status == .loaded, state.shouldLoadMore(currentID: currentCourse.id) else { return }
+        guard state.status == .loaded, state.shouldLoadMore(currentID: currentCourse.id) else {
+            return
+        }
 
         state.isLoadingMore = true
         defer {
@@ -201,9 +208,12 @@ public final class CourseListViewModel: ObservableObject {
 
         var request = CommunityPageRequest<Int>(sourcePage: state.nextPage)
         do {
-            guard let items = try await request.next(isCurrent: { self.refreshGeneration == generation },
-                knownIDs: { self.state.pagedItems.ids },
-                fetch: { try await self.service.fetchCourses(search: search, page: $0) }) else { return }
+            guard
+                let items = try await request.next(
+                    isCurrent: { self.refreshGeneration == generation },
+                    knownIDs: { self.state.pagedItems.ids },
+                    fetch: { try await self.service.fetchCourses(search: search, page: $0) })
+            else { return }
             var updated = state
             updated.nextPage = request.sourcePage
             updated.appendPage(items)

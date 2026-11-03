@@ -1,6 +1,6 @@
-import TransportCore
 import CommunityCore
 import Foundation
+import TransportCore
 
 /// 课程评价入口共用的课程匹配规则。
 ///
@@ -17,13 +17,20 @@ nonisolated enum CourseLookupMatcher {
         let expectedName = normalizedText(courseName)
         let expectedTeacher = teacher.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let sameNumber = expectedNumber.isEmpty ? [] : candidates.filter {
-            normalizedIdentifier($0.number) == expectedNumber
-        }
-        let sameName = expectedName.isEmpty ? [] : candidates.filter {
-            normalizedText($0.name) == expectedName
-        }
-        let hasConflictingUniqueIdentity = sameNumber.count == 1
+        let sameNumber =
+            expectedNumber.isEmpty
+            ? []
+            : candidates.filter {
+                normalizedIdentifier($0.number) == expectedNumber
+            }
+        let sameName =
+            expectedName.isEmpty
+            ? []
+            : candidates.filter {
+                normalizedText($0.name) == expectedName
+            }
+        let hasConflictingUniqueIdentity =
+            sameNumber.count == 1
             && sameName.count == 1
             && sameNumber[0].id != sameName[0].id
 
@@ -41,7 +48,7 @@ nonisolated enum CourseLookupMatcher {
 
             // 课程缺少教师字段时，课程号唯一且教师候选为空可直接确定匹配结果。
             if sameNumber.count == 1,
-               normalizedTeacher(sameNumber[0].teachersName).isEmpty
+                normalizedTeacher(sameNumber[0].teachersName).isEmpty
             {
                 return sameNumber[0]
             }
@@ -62,35 +69,44 @@ nonisolated enum CourseLookupMatcher {
         return sameIdentity.first
     }
 
-    static func exactMatch(courseNumber: String, courseName: String, teacher: String,
-        candidates: [CourseSummary]) -> CourseSummary? {
-        let number = normalizedIdentifier(courseNumber), name = normalizedText(courseName)
+    static func exactMatch(
+        courseNumber: String, courseName: String, teacher: String,
+        candidates: [CourseSummary]
+    ) -> CourseSummary? {
+        let number = normalizedIdentifier(courseNumber)
+        let name = normalizedText(courseName)
         guard !number.isEmpty, !name.isEmpty else { return nil }
         let teachers = teacherNames(teacher)
-        return bestMatch(courseNumber: courseNumber, courseName: courseName, teacher: teacher,
+        return bestMatch(
+            courseNumber: courseNumber, courseName: courseName, teacher: teacher,
             candidates: candidates.filter {
                 normalizedIdentifier($0.number) == number && normalizedText($0.name) == name
                     && (teachers.isEmpty || teacherNames($0.teachersName) == teachers)
             })
     }
 
-    private static func matchingTeacher(_ expected: String, candidates: [CourseSummary]) -> CourseSummary? {
+    private static func matchingTeacher(_ expected: String, candidates: [CourseSummary])
+        -> CourseSummary?
+    {
         let expectedNames = teacherNames(expected)
         let exact = candidates.filter { teacherNames($0.teachersName) == expectedNames }
         if exact.count == 1 { return exact[0] }
         if exact.count > 1 { return nil }
-        let partial = candidates.filter { !expectedNames.isDisjoint(with: teacherNames($0.teachersName)) }
+        let partial = candidates.filter {
+            !expectedNames.isDisjoint(with: teacherNames($0.teachersName))
+        }
         return partial.count == 1 ? partial[0] : nil
     }
 
     private static func teacherNames(_ value: String) -> Set<String> {
         let separators = CharacterSet(charactersIn: ",，、/&;；")
             .union(.whitespacesAndNewlines)
-        return Set(value
-            .replacingOccurrences(of: "老师", with: "")
-            .components(separatedBy: separators)
-            .map(normalizedText)
-            .filter { !$0.isEmpty })
+        return Set(
+            value
+                .replacingOccurrences(of: "老师", with: "")
+                .components(separatedBy: separators)
+                .map(normalizedText)
+                .filter { !$0.isEmpty })
     }
 
     private static func normalizedTeacher(_ value: String) -> String {
@@ -105,8 +121,10 @@ nonisolated enum CourseLookupMatcher {
     private static func normalizedText(_ value: String) -> String {
         let punctuation = CharacterSet.punctuationCharacters
         let whitespace = CharacterSet.whitespacesAndNewlines
-        return String(value.unicodeScalars.filter { !punctuation.contains($0) && !whitespace.contains($0) })
-            .lowercased()
+        return String(
+            value.unicodeScalars.filter { !punctuation.contains($0) && !whitespace.contains($0) }
+        )
+        .lowercased()
     }
 }
 
@@ -147,7 +165,10 @@ public struct CourseEvaluationResolver {
         waitForDeadline = { try await ContinuousClock().sleep(until: $0) }
     }
 
-    init(service: any CourseListServicing, waitForDeadline: @escaping @Sendable (ContinuousClock.Instant) async throws -> Void) {
+    init(
+        service: any CourseListServicing,
+        waitForDeadline: @escaping @Sendable (ContinuousClock.Instant) async throws -> Void
+    ) {
         self.service = service
         self.waitForDeadline = waitForDeadline
     }
@@ -161,13 +182,17 @@ public struct CourseEvaluationResolver {
         let number = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty || !number.isEmpty else { return nil }
 
-        let deadline = ContinuousClock.now.advanced(by: .seconds(URLSessionConfiguration.default.timeoutIntervalForRequest))
+        let deadline = ContinuousClock.now.advanced(
+            by: .seconds(URLSessionConfiguration.default.timeoutIntervalForRequest))
         let progress = SearchProgress()
         let operation: @MainActor @Sendable () async throws -> CourseEvaluationLookupResult? = {
-            try await lookup(name: name, number: number, teacher: teacher, deadline: deadline, progress: progress)
+            try await lookup(
+                name: name, number: number, teacher: teacher, deadline: deadline, progress: progress
+            )
         }
         do {
-            return try await withThrowingTaskGroup(of: CourseEvaluationLookupResult?.self) { group in
+            return try await withThrowingTaskGroup(of: CourseEvaluationLookupResult?.self) {
+                group in
                 group.addTask { try await operation() }
                 group.addTask { [waitForDeadline] in
                     try await waitForDeadline(deadline)
@@ -180,46 +205,62 @@ public struct CourseEvaluationResolver {
             }
         } catch {
             guard !Task.isCancelled, !TaskCancellation.matches(error),
-                  let query = [name, number].first(where: { progress.firstPages[$0]?.isEmpty == false }),
-                  let items = progress.firstPages[query] else { throw error }
+                let query = [name, number].first(where: {
+                    progress.firstPages[$0]?.isEmpty == false
+                }),
+                let items = progress.firstPages[query]
+            else { throw error }
             throw CourseEvaluationSearchRecovery(query: query, items: items, underlying: error)
         }
     }
 
-    private func lookup(name: String, number: String, teacher: String, deadline: ContinuousClock.Instant,
-        progress: SearchProgress) async throws -> CourseEvaluationLookupResult? {
+    private func lookup(
+        name: String, number: String, teacher: String, deadline: ContinuousClock.Instant,
+        progress: SearchProgress
+    ) async throws -> CourseEvaluationLookupResult? {
         var queries: [String] = []
-        for query in [number, name] where !query.isEmpty && !queries.contains(query) { queries.append(query) }
+        for query in [number, name] where !query.isEmpty && !queries.contains(query) {
+            queries.append(query)
+        }
         let load: @MainActor @Sendable (String) async throws -> Candidates = { query in
-            try await fetchCandidates(for: query, name: name, number: number, teacher: teacher, deadline: deadline, progress: progress)
+            try await fetchCandidates(
+                for: query, name: name, number: number, teacher: teacher, deadline: deadline,
+                progress: progress)
         }
         return try await withThrowingTaskGroup(of: SearchResult.self) { group in
             for query in queries {
                 group.addTask {
-                    do { return SearchResult(query: query, result: .success(try await load(query))) }
-                    catch { return SearchResult(query: query, result: .failure(error)) }
+                    do {
+                        return SearchResult(query: query, result: .success(try await load(query)))
+                    } catch { return SearchResult(query: query, result: .failure(error)) }
                 }
             }
             defer { group.cancelAll() }
-            var candidates: [CourseSummary] = [], firstPages: [String: [CourseSummary]] = [:]
+            var candidates: [CourseSummary] = []
+            var firstPages: [String: [CourseSummary]] = [:]
             var failures: [any Error] = []
             for try await search in group {
                 try Task.checkCancellation()
                 switch search.result {
-                case let .success(result):
+                case .success(let result):
                     firstPages[search.query] = result.firstPage
                     candidates = deduplicating(candidates + result.all)
-                    if let selected = CourseLookupMatcher.exactMatch(courseNumber: number, courseName: name,
-                        teacher: teacher, candidates: candidates) {
-                        return lookupResult(selected, name: name, number: number, firstPages: firstPages)
+                    if let selected = CourseLookupMatcher.exactMatch(
+                        courseNumber: number, courseName: name,
+                        teacher: teacher, candidates: candidates)
+                    {
+                        return lookupResult(
+                            selected, name: name, number: number, firstPages: firstPages)
                     }
-                case let .failure(error):
+                case .failure(let error):
                     if TaskCancellation.matches(error) { throw error }
                     failures.append(error)
                 }
             }
-            if let selected = CourseLookupMatcher.bestMatch(courseNumber: number, courseName: name,
-                teacher: teacher, candidates: candidates) {
+            if let selected = CourseLookupMatcher.bestMatch(
+                courseNumber: number, courseName: name,
+                teacher: teacher, candidates: candidates)
+            {
                 return lookupResult(selected, name: name, number: number, firstPages: firstPages)
             }
             if let failure = failures.first { throw failure }
@@ -227,20 +268,28 @@ public struct CourseEvaluationResolver {
         }
     }
 
-    private func lookupResult(_ selected: CourseSummary, name: String, number: String,
-        firstPages: [String: [CourseSummary]]) -> CourseEvaluationLookupResult {
+    private func lookupResult(
+        _ selected: CourseSummary, name: String, number: String,
+        firstPages: [String: [CourseSummary]]
+    ) -> CourseEvaluationLookupResult {
         let query = firstPages[name] == nil ? number : name
         var results = firstPages[query] ?? []
         if !results.contains(where: { $0.id == selected.id }) { results.insert(selected, at: 0) }
-        return CourseEvaluationLookupResult(selectedCourse: selected,
+        return CourseEvaluationLookupResult(
+            selectedCourse: selected,
             searchQuery: query, searchResults: results)
     }
 
-    private func fetchCandidates(for search: String, name: String, number: String, teacher: String,
-        deadline: ContinuousClock.Instant, progress: SearchProgress) async throws -> Candidates {
-        var results: [CourseSummary] = [], firstPage: [CourseSummary] = []
+    private func fetchCandidates(
+        for search: String, name: String, number: String, teacher: String,
+        deadline: ContinuousClock.Instant, progress: SearchProgress
+    ) async throws -> Candidates {
+        var results: [CourseSummary] = []
+        var firstPage: [CourseSummary] = []
         var candidateBytes = 0
-        var known = Set<Int>(), pageProgress = CommunityPageProgress<Int>(), page = 0
+        var known = Set<Int>()
+        var pageProgress = CommunityPageProgress<Int>()
+        var page = 0
         while true {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
@@ -248,17 +297,25 @@ public struct CourseEvaluationResolver {
             try Task.checkCancellation()
             guard ContinuousClock.now < deadline else { throw CourseEvaluationLookupLimit.reached }
             try pageProgress.record(incoming.map(\.id), knownIDs: known)
-            if page == 0 { firstPage = deduplicating(incoming); progress.firstPages[search] = firstPage }
+            if page == 0 {
+                firstPage = deduplicating(incoming)
+                progress.firstPages[search] = firstPage
+            }
             if incoming.isEmpty { return Candidates(firstPage: firstPage, all: results) }
             for course in incoming where known.insert(course.id).inserted {
-                let bytes = MemoryLayout<CourseSummary>.stride + course.name.utf8.count + course.number.utf8.count
+                let bytes =
+                    MemoryLayout<CourseSummary>.stride + course.name.utf8.count
+                    + course.number.utf8.count
                     + course.teachersName.utf8.count + course.teachersNumber.utf8.count
-                guard bytes <= HTTPResponseResourceLimits.maximumStructuredBytes - candidateBytes else { throw CourseEvaluationLookupLimit.reached }
+                guard bytes <= HTTPResponseResourceLimits.maximumStructuredBytes - candidateBytes
+                else { throw CourseEvaluationLookupLimit.reached }
                 candidateBytes += bytes
                 results.append(course)
             }
-            if CourseLookupMatcher.exactMatch(courseNumber: number, courseName: name,
-                teacher: teacher, candidates: results) != nil {
+            if CourseLookupMatcher.exactMatch(
+                courseNumber: number, courseName: name,
+                teacher: teacher, candidates: results) != nil
+            {
                 return Candidates(firstPage: firstPage, all: results)
             }
             page += 1
@@ -270,7 +327,6 @@ public struct CourseEvaluationResolver {
         return courses.filter { seen.insert($0.id).inserted }
     }
 }
-
 
 private enum CourseEvaluationLookupLimit: LocalizedError {
     case reached

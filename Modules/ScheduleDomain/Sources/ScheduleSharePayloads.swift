@@ -1,6 +1,6 @@
+import Compression
 import Foundation
 import ScheduleContracts
-import Compression
 
 /// 课表导出文件的精简载荷。
 ///
@@ -34,7 +34,8 @@ public nonisolated struct ScheduleExportPayload: Sendable {
 
     public func validate() throws {
         guard TimeSlot.isValidTable(timeTable),
-              courses.count <= ScheduleShareCodeCodec.maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+            courses.count <= ScheduleShareCodeCodec.maximumCourseCount
+        else { throw ScheduleShareCodeError.invalidFormat }
         let slots = Set(timeTable.map(\.id))
         try ScheduleShareCodeCodec.validateCourses(courses, slots: slots)
     }
@@ -236,7 +237,9 @@ nonisolated struct ScheduleExportCompactPayloadV2: Codable {
         var coursesContainer = try container.nestedUnkeyedContainer()
         var decodedCourses: [CompactCourse] = []
         while !coursesContainer.isAtEnd {
-            guard decodedCourses.count < ScheduleShareCodeCodec.maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+            guard decodedCourses.count < ScheduleShareCodeCodec.maximumCourseCount else {
+                throw ScheduleShareCodeError.invalidFormat
+            }
             var course = try coursesContainer.nestedUnkeyedContainer()
             decodedCourses.append(
                 CompactCourse(
@@ -385,7 +388,9 @@ nonisolated struct ScheduleExportCompactPayloadV3: Codable {
         var coursesContainer = try container.nestedUnkeyedContainer()
         var decodedCourses: [CompactCourse] = []
         while !coursesContainer.isAtEnd {
-            guard decodedCourses.count < ScheduleShareCodeCodec.maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+            guard decodedCourses.count < ScheduleShareCodeCodec.maximumCourseCount else {
+                throw ScheduleShareCodeError.invalidFormat
+            }
             decodedCourses.append(try coursesContainer.decode(CompactCourse.self))
         }
         guard container.isAtEnd else {
@@ -467,7 +472,7 @@ public nonisolated enum ScheduleShareCodeError: LocalizedError, Equatable {
         switch self {
         case .empty:
             "请输入或粘贴课表编码。"
-        case let .unsupportedNewerFormat(version):
+        case .unsupportedNewerFormat(let version):
             "该课表使用 BIT101SCH\(version) 格式，请更新 BIT101 后再导入。"
         case .invalidFormat:
             "课表编码格式不正确。"
@@ -483,14 +488,17 @@ public nonisolated enum ScheduleShareCodeError: LocalizedError, Equatable {
 
 /// 课表分享码统一由此编解码；导出入口使用 V3，导入兼容 V2 至 V4。
 public nonisolated enum ScheduleShareCodeCodec {
-    @concurrent public static func encodeForSharing(courses: [CourseRecord]) async throws -> String {
+    @concurrent public static func encodeForSharing(courses: [CourseRecord]) async throws -> String
+    {
         try Task.checkCancellation()
         let code = try encodeLatest(courses: courses)
         try Task.checkCancellation()
         return code
     }
 
-    @concurrent public static func decodeForImport(_ text: String, using cache: ScheduleCache) async throws -> ScheduleExportPayload {
+    @concurrent public static func decodeForImport(_ text: String, using cache: ScheduleCache)
+        async throws -> ScheduleExportPayload
+    {
         try Task.checkCancellation()
         let payload = try decode(text, using: cache)
         try Task.checkCancellation()
@@ -500,14 +508,22 @@ public nonisolated enum ScheduleShareCodeCodec {
     public static let maximumDecodedBytes = ScheduleExternalSnapshotCodec.maximumEncodedBytes
     public static let maximumEncodedBytes = maximumDecodedBytes * 4 / 3 + 128
     public static let maximumCourseCount = ScheduleExternalSnapshotCodec.maximumCourseCount
-    fileprivate static func validateCourses(_ courses: [CourseRecord], slots: Set<Int>? = nil) throws {
-        guard courses.count <= maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+    fileprivate static func validateCourses(_ courses: [CourseRecord], slots: Set<Int>? = nil)
+        throws
+    {
+        guard courses.count <= maximumCourseCount else {
+            throw ScheduleShareCodeError.invalidFormat
+        }
         for course in courses {
-            guard !course.weeks.isEmpty, course.weeks.count <= ScheduleCourseConstraints.maximumWeek * 2,
-                  course.weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek), (1...7).contains(course.weekday),
-                  course.startSection > 0, course.endSection >= course.startSection,
-                  course.endSection <= ScheduleCourseConstraints.maximumSection,
-                  slots.map({ available in (course.startSection...course.endSection).allSatisfy(available.contains) }) ?? true
+            guard !course.weeks.isEmpty,
+                course.weeks.count <= ScheduleCourseConstraints.maximumWeek * 2,
+                course.weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek),
+                (1...7).contains(course.weekday),
+                course.startSection > 0, course.endSection >= course.startSection,
+                course.endSection <= ScheduleCourseConstraints.maximumSection,
+                slots.map({ available in
+                    (course.startSection...course.endSection).allSatisfy(available.contains)
+                }) ?? true
             else { throw ScheduleShareCodeError.invalidFormat }
         }
     }
@@ -524,12 +540,16 @@ public nonisolated enum ScheduleShareCodeCodec {
     }
 
     public static func encodeLatest(courses: [CourseRecord]) throws -> String {
-        guard courses.count <= maximumCourseCount else { throw ScheduleShareCodeError.invalidFormat }
+        guard courses.count <= maximumCourseCount else {
+            throw ScheduleShareCodeError.invalidFormat
+        }
         let scheduledCourses = courses.filter { !($0.hasValidPlacement && $0.weeks.isEmpty) }
         try validateCourses(scheduledCourses)
         let payload = ScheduleExportCompactPayloadV3(courses: scheduledCourses)
         let jsonData = try JSONEncoder().encode(payload)
-        guard jsonData.count <= maximumDecodedBytes else { throw ScheduleShareCodeError.invalidFormat }
+        guard jsonData.count <= maximumDecodedBytes else {
+            throw ScheduleShareCodeError.invalidFormat
+        }
         let compressedData: Data
         do {
             guard let data = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
@@ -544,14 +564,18 @@ public nonisolated enum ScheduleShareCodeCodec {
         return "BIT101SCH\(latestExportVersion):\(compressedData.base64EncodedString())"
     }
 
-    public static func decode(_ text: String, using cache: ScheduleCache) throws -> ScheduleExportPayload {
-        guard text.utf8.count <= maximumEncodedBytes else { throw ScheduleShareCodeError.invalidFormat }
+    public static func decode(_ text: String, using cache: ScheduleCache) throws
+        -> ScheduleExportPayload
+    {
+        guard text.utf8.count <= maximumEncodedBytes else {
+            throw ScheduleShareCodeError.invalidFormat
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw ScheduleShareCodeError.empty }
 
         if !supportedPrefixes.contains(where: trimmed.hasPrefix),
-           let version = declaredVersion(in: trimmed),
-           version > latestSupportedVersion
+            let version = declaredVersion(in: trimmed),
+            version > latestSupportedVersion
         {
             throw ScheduleShareCodeError.unsupportedNewerFormat(version)
         }
@@ -567,11 +591,15 @@ public nonisolated enum ScheduleShareCodeCodec {
         let decodedCount = jsonData.withUnsafeMutableBytes { output in
             compressedData.withUnsafeBytes { input -> Int in
                 guard let destination = output.bindMemory(to: UInt8.self).baseAddress,
-                      let source = input.bindMemory(to: UInt8.self).baseAddress else { return 0 }
-                return compression_decode_buffer(destination, output.count, source, input.count, nil, COMPRESSION_LZFSE)
+                    let source = input.bindMemory(to: UInt8.self).baseAddress
+                else { return 0 }
+                return compression_decode_buffer(
+                    destination, output.count, source, input.count, nil, COMPRESSION_LZFSE)
             }
         }
-        guard decodedCount > 0, decodedCount <= maximumDecodedBytes else { throw ScheduleShareCodeError.decompressionFailed }
+        guard decodedCount > 0, decodedCount <= maximumDecodedBytes else {
+            throw ScheduleShareCodeError.decompressionFailed
+        }
         jsonData.count = decodedCount
 
         let decoder = JSONDecoder()
@@ -604,6 +632,6 @@ public nonisolated enum ScheduleShareCodeCodec {
         guard code.hasPrefix(marker), let colon = code.firstIndex(of: ":") else { return nil }
         let start = code.index(code.startIndex, offsetBy: marker.count)
         guard start < colon else { return nil }
-        return Int(code[start ..< colon])
+        return Int(code[start..<colon])
     }
 }

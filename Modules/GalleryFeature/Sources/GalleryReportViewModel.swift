@@ -1,7 +1,7 @@
+import CommunityTransport
 import Foundation
 import Observation
 import TransportCore
-import CommunityTransport
 
 /// 举报状态和在途任务归当前弹层实例维护。
 @MainActor @Observable
@@ -21,12 +21,17 @@ final class GalleryReportViewModel {
 
     init(service: any GalleryReportServicing) { self.service = service }
 
-    deinit { loadTask?.cancel(); submissionTask?.cancel() }
+    deinit {
+        loadTask?.cancel()
+        submissionTask?.cancel()
+    }
 
     func cancel() {
         generation &+= 1
-        loadTask?.cancel(); loadTask = nil
-        submissionTask?.cancel(); submissionTask = nil
+        loadTask?.cancel()
+        loadTask = nil
+        submissionTask?.cancel()
+        submissionTask = nil
         isLoading = false
         isSubmitting = false
     }
@@ -39,9 +44,18 @@ final class GalleryReportViewModel {
         let service = service
         let task = Task { try await service.fetchReportTypes() }
         loadTask = task
-        defer { if generation == operation { loadTask = nil; isLoading = false } }
+        defer {
+            if generation == operation {
+                loadTask = nil
+                isLoading = false
+            }
+        }
         do {
-            let types = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            let types = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             try Task.checkCancellation()
             guard generation == operation else { return }
             reportTypes = GalleryReportType.usableOptions(types)
@@ -56,17 +70,29 @@ final class GalleryReportViewModel {
 
     func submit(objectID: String) async -> Bool {
         guard !isLoading, !resultNeedsReview, submissionTask == nil, let selectedTypeID,
-              reportTypes.contains(where: { $0.id == selectedTypeID }) else { return false }
+            reportTypes.contains(where: { $0.id == selectedTypeID })
+        else { return false }
         let operation = generation
         let service = service
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         isSubmitting = true
         errorMessage = nil
-        let task = Task { try await service.report(objectID: objectID, typeID: selectedTypeID, text: text) }
+        let task = Task {
+            try await service.report(objectID: objectID, typeID: selectedTypeID, text: text)
+        }
         submissionTask = task
-        defer { if generation == operation { submissionTask = nil; isSubmitting = false } }
+        defer {
+            if generation == operation {
+                submissionTask = nil
+                isSubmitting = false
+            }
+        }
         do {
-            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             try Task.checkCancellation()
             return generation == operation
         } catch {
@@ -74,7 +100,9 @@ final class GalleryReportViewModel {
                 if error is CommunityCreateOutcomeUnknown {
                     resultNeedsReview = true
                     errorMessage = CommunityCreateOutcomeUnknown.reportReviewMessage
-                } else if !TaskCancellation.matches(error) { errorMessage = error.localizedDescription }
+                } else if !TaskCancellation.matches(error) {
+                    errorMessage = error.localizedDescription
+                }
             }
             return false
         }

@@ -1,15 +1,15 @@
 import Combine
-import CommunityTransport
 import CommunityCore
+import CommunityTransport
+import Foundation
+import TransportCore
+
 //
 //  GalleryService.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import Foundation
-import TransportCore
 
 nonisolated enum GalleryWebRequestFactory {
     static func isTrustedPage(_ url: URL?) -> Bool {
@@ -50,7 +50,8 @@ extension GalleryServiceError: CommunityAPIServiceError {
     public static var communityInvalidResponse: Self { .invalidResponse }
     public static func communityResourceFailure(path: String, message: String?) -> Self? {
         let parts = path.split(separator: "/")
-        return parts.count == 2 && parts[0] == "posters" && Int(parts[1]) != nil && message == "帖子不存在Orz" ? .missingPoster : nil
+        return parts.count == 2 && parts[0] == "posters" && Int(parts[1]) != nil
+            && message == "帖子不存在Orz" ? .missingPoster : nil
     }
 }
 
@@ -79,8 +80,12 @@ nonisolated struct GalleryCommentFilter: Equatable, Sendable {
 
     func apply(_ comments: [CommunityComment]) -> [CommunityComment] {
         comments.compactMap { comment in
-            guard !GalleryContentFilter.shouldHideComment(authorID: comment.user.id, replyTargetID: comment.replyUser.id,
-                isAnonymous: comment.anonymous, hiddenUserIDs: hiddenUserIDs, hideAnonymousContent: hideAnonymous) else { return nil }
+            guard
+                !GalleryContentFilter.shouldHideComment(
+                    authorID: comment.user.id, replyTargetID: comment.replyUser.id,
+                    isAnonymous: comment.anonymous, hiddenUserIDs: hiddenUserIDs,
+                    hideAnonymousContent: hideAnonymous)
+            else { return nil }
             return comment.replacingSubComments(apply(comment.sub))
         }
     }
@@ -91,7 +96,8 @@ public nonisolated enum GalleryPaging {
     public static let maximumSourcePages = 5
 }
 
-public nonisolated struct GalleryPageBatch<Element: Identifiable & Sendable>: Sendable where Element.ID == Int {
+public nonisolated struct GalleryPageBatch<Element: Identifiable & Sendable>: Sendable
+where Element.ID == Int {
     public init(items: [Element], nextSourcePage: Int, canLoadMore: Bool, sourceIDs: [Int]? = nil) {
         self.items = items
         self.nextSourcePage = nextSourcePage
@@ -123,7 +129,9 @@ public struct GalleryService {
     private let api: CommunityAPIClient<GalleryServiceError>
     private let session: CommunitySession
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+        resourceUpdates.changes
+    }
 
     private let preferences: () -> CommunityPreferenceSnapshot
 
@@ -170,10 +178,13 @@ public struct GalleryService {
     ///
     /// 话廊请求沿 CommunitySession 的凭据快照提供 fake-cookie，
     /// CommunityAPIClient 在请求层显式关闭自动 Cookie 处理。
-    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
-        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+    public init(
+        session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil
+    ) {
         self.session = session
-        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
+        self.resourceUpdates =
+            resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Gallery")
         self.preferences = preferences
     }
@@ -181,7 +192,9 @@ public struct GalleryService {
     /// 拉取某个 feed 的帖子列表。
     ///
     /// 普通 feed 直接映射到后端帖子接口；机器人 feed 走本地标签分页逻辑。
-    public func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
+    public func fetchFeed(kind: GalleryFeedKind, page: Int?) async throws -> GalleryPageBatch<
+        CommunityPoster
+    > {
         if kind.isBotFeed {
             return try await fetchBotFeed(startPage: page ?? 0)
         }
@@ -201,7 +214,9 @@ public struct GalleryService {
     /// 拉取推荐流的单个源页。
     ///
     /// 服务保留原始源游标，首屏过滤空页由 ViewModel 继续读取，后续页面沿后台预取准备。
-    public func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<CommunityPoster> {
+    public func fetchRecommendPage(sourcePage: Int) async throws -> GalleryPageBatch<
+        CommunityPoster
+    > {
         let hideBot = preferences().galleryHideBotPosterInSearch
         let rawPosters = try await fetchRawPosters(
             mode: nil,
@@ -225,7 +240,9 @@ public struct GalleryService {
     /// 根据搜索关键词和排序条件查询帖子。
     ///
     /// 搜索页与其它普通帖子页面共用机器人隐藏设置。
-    public func searchPosters(query: GallerySearchQuery, page: Int?) async throws -> GalleryPageBatch<CommunityPoster> {
+    public func searchPosters(query: GallerySearchQuery, page: Int?) async throws
+        -> GalleryPageBatch<CommunityPoster>
+    {
         let hideBot = preferences().galleryHideBotPosterInSearch
         return try await fetchPosters(
             mode: "search",
@@ -261,13 +278,19 @@ public struct GalleryService {
                     page: sourcePage == 0 ? nil : sourcePage, hideBot: false
                 )
             } catch {
-                guard !Task.isCancelled, !TaskCancellation.matches(error), !collected.isEmpty else { throw error }
+                guard !Task.isCancelled, !TaskCancellation.matches(error), !collected.isEmpty else {
+                    throw error
+                }
                 break
             }
             let visible = applyGalleryFilters(rawPosters)
             try progress.record(rawPosters.map(\.id))
             sourceIDs.append(contentsOf: rawPosters.map(\.id))
-            collected.append(contentsOf: visible.filter { GalleryBotClassifier.matches(tags: $0.tags) && collectedIDs.insert($0.id).inserted })
+            collected.append(
+                contentsOf: visible.filter {
+                    GalleryBotClassifier.matches(tags: $0.tags)
+                        && collectedIDs.insert($0.id).inserted
+                })
             canLoadMore = !rawPosters.isEmpty
             sourcePage += 1
             scanned += 1
@@ -281,7 +304,9 @@ public struct GalleryService {
         )
     }
 
-    private func applyBotFilterIfNeeded(_ posters: [CommunityPoster], hideBot: Bool) -> [CommunityPoster] {
+    private func applyBotFilterIfNeeded(_ posters: [CommunityPoster], hideBot: Bool)
+        -> [CommunityPoster]
+    {
         guard hideBot else { return posters }
         return posters.filter { !GalleryBotClassifier.matches(tags: $0.tags) }
     }
@@ -308,18 +333,26 @@ public struct GalleryService {
     }
 
     public func fetchSubscriptions(page: Int) async throws -> [GallerySubscription] {
-        try await api.request(path: "subscriptions", queryItems: [URLQueryItem(name: "page", value: String(page))])
+        try await api.request(
+            path: "subscriptions", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
     public func setSubscription(objectID: String, level: GallerySubscriptionLevel) async throws {
-        struct Request: Encodable { let obj: String; let level: GallerySubscriptionLevel }
-        try await api.requestVoid(path: "subscriptions", method: "POST", body: api.encode(Request(obj: objectID, level: level)))
+        struct Request: Encodable {
+            let obj: String
+            let level: GallerySubscriptionLevel
+        }
+        try await api.requestVoid(
+            path: "subscriptions", method: "POST",
+            body: api.encode(Request(obj: objectID, level: level)))
     }
 
     /// 上传一张发帖图片，返回服务端生成的图片资源对象。
     ///
     /// 图片上传返回服务端资源对象；发帖请求通过 `image_mids` 引用该资源。
-    public func uploadImage(data: Data, filename: String = "poster.jpg") async throws -> CommunityImage {
+    public func uploadImage(data: Data, filename: String = "poster.jpg") async throws
+        -> CommunityImage
+    {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
         return try await api.request(
             path: "upload/image",
@@ -374,10 +407,16 @@ public struct GalleryService {
         let identity = session.currentCredentials.identity
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
-        let response: CommunityAPIResponse<GalleryPosterDetail> = try await api.response(path: "posters/\(id)", validate: { detail in
-            guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else { throw GalleryServiceError.invalidResponse }
-        })
-        if let issue = response.value.imageRecoveryIssue { await response.reportValidationFailure(issue) }
+        let response: CommunityAPIResponse<GalleryPosterDetail> = try await api.response(
+            path: "posters/\(id)",
+            validate: { detail in
+                guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else {
+                    throw GalleryServiceError.invalidResponse
+                }
+            })
+        if let issue = response.value.imageRecoveryIssue {
+            await response.reportValidationFailure(issue)
+        }
         try Task.checkCancellation()
         guard session.currentCredentials.identity == identity else { throw CancellationError() }
         return resourceUpdates.resolve(response.value, since: revision)
@@ -402,40 +441,43 @@ public struct GalleryService {
         isPublic: Bool
     ) async throws {
         let identity = session.currentCredentials.identity
-        do { try await api.requestVoid(
-            path: "posters/\(id)",
-            method: "PUT",
-            body: try api.encode(
-                PosterMutationRequest(
-                    title: title,
-                    text: text,
-                    imageMids: imageMids,
-                    plugins: plugins,
-                    anonymous: anonymous,
-                    tags: tags,
-                    claimID: claimID,
-                    public: isPublic
-                )
-            ), mutation: .update
-        ) } catch let failure as CommunityUpdateOutcomeUnknown {
+        do {
+            try await api.requestVoid(
+                path: "posters/\(id)",
+                method: "PUT",
+                body: try api.encode(
+                    PosterMutationRequest(
+                        title: title,
+                        text: text,
+                        imageMids: imageMids,
+                        plugins: plugins,
+                        anonymous: anonymous,
+                        tags: tags,
+                        claimID: claimID,
+                        public: isPublic
+                    )
+                ), mutation: .update
+            )
+        } catch let failure as CommunityUpdateOutcomeUnknown {
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             let latest: GalleryPosterDetail
-            do { latest = try await fetchPoster(id: id) }
-            catch {
+            do { latest = try await fetchPoster(id: id) } catch {
                 if TaskCancellation.matches(error) { throw error }
                 throw failure
             }
             try Task.checkCancellation()
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             guard latest.title == title, latest.text == text, latest.images.map(\.mid) == imageMids,
-                  latest.plugins == plugins, latest.anonymous == anonymous, latest.tags == tags,
-                  latest.claim.id == claimID, latest.public == isPublic else { throw failure }
+                latest.plugins == plugins, latest.anonymous == anonymous, latest.tags == tags,
+                latest.claim.id == claimID, latest.public == isPublic
+            else { throw failure }
         }
     }
 
     /// 获取社区内容举报类型。
     public func fetchReportTypes() async throws -> [GalleryReportType] {
-        let types: [GalleryReportType] = try await api.request(path: "manage/report_types", authentication: .none)
+        let types: [GalleryReportType] = try await api.request(
+            path: "manage/report_types", authentication: .none)
         return GalleryReportType.usableOptions(types)
     }
 
@@ -444,7 +486,8 @@ public struct GalleryService {
         try await api.requestVoid(
             path: "manage/reports",
             method: "POST",
-            body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID)), mutation: .creation
+            body: try api.encode(ReportRequest(obj: objectID, text: text, typeID: typeID)),
+            mutation: .creation
         )
     }
 
@@ -461,19 +504,26 @@ public struct GalleryService {
         var sourceIDs: [Int] = []
         while true {
             try Task.checkCancellation()
-            let raw = try await fetchRawComments(objectID: objectID, order: order, page: sourcePage == 0 ? nil : sourcePage)
+            let raw = try await fetchRawComments(
+                objectID: objectID, order: order, page: sourcePage == 0 ? nil : sourcePage)
             try progress.record(raw.map(\.id))
             sourceIDs.append(contentsOf: raw.map(\.id))
             let visible = applyGalleryFilters(raw)
             sourcePage += 1
-            if !visible.isEmpty || raw.isEmpty || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages {
-                return GalleryPageBatch(items: visible, nextSourcePage: sourcePage, canLoadMore: !raw.isEmpty, sourceIDs: sourceIDs)
+            if !visible.isEmpty || raw.isEmpty
+                || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages
+            {
+                return GalleryPageBatch(
+                    items: visible, nextSourcePage: sourcePage, canLoadMore: !raw.isEmpty,
+                    sourceIDs: sourceIDs)
             }
         }
     }
 
     /// 清理验收内容时按服务端原始评论列表恢复创建标识。
-    public func fetchRawComments(objectID: String, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+    public func fetchRawComments(objectID: String, order: CommunityCommentOrder, page: Int?)
+        async throws -> [CommunityComment]
+    {
         var queryItems = [
             URLQueryItem(name: "obj", value: objectID),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -481,9 +531,13 @@ public struct GalleryService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems, validate: { comments in
-            guard CommunityComment.validatesResponse(comments, for: objectID) else { throw GalleryServiceError.invalidResponse }
-        })
+        return try await api.request(
+            path: "reaction/comments", queryItems: queryItems,
+            validate: { comments in
+                guard CommunityComment.validatesResponse(comments, for: objectID) else {
+                    throw GalleryServiceError.invalidResponse
+                }
+            })
     }
 
     /// 对帖子或评论执行点赞操作。
@@ -550,18 +604,26 @@ public struct GalleryService {
     /// 拉取某个消息分类的列表。
     ///
     /// `last_id` 为 0 时读取最新记录并清零该分类未读数；正值用于历史分页。
-    public func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+    public func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws
+        -> [GalleryMessage]
+    {
         var queryItems = [URLQueryItem(name: "type", value: type.rawValue)]
         if let lastID {
             queryItems.append(URLQueryItem(name: "last_id", value: String(lastID)))
         }
         let cursor = lastID.flatMap { $0 > 0 ? $0 : nil }
-        return try await api.request(path: "messages", queryItems: queryItems, validate: { messages in
-            guard messages.allSatisfy({ message in message.id > 0 && (cursor.map { message.id < $0 } ?? true) }),
-                  zip(messages, messages.dropFirst()).allSatisfy({ $0.id > $1.id }) else {
-                throw GalleryServiceError.invalidResponse
-            }
-        })
+        return try await api.request(
+            path: "messages", queryItems: queryItems,
+            validate: { messages in
+                guard
+                    messages.allSatisfy({ message in
+                        message.id > 0 && (cursor.map { message.id < $0 } ?? true)
+                    }),
+                    zip(messages, messages.dropFirst()).allSatisfy({ $0.id > $1.id })
+                else {
+                    throw GalleryServiceError.invalidResponse
+                }
+            })
     }
 
     /// 统一拼装帖子流接口参数。
@@ -580,14 +642,19 @@ public struct GalleryService {
         var sourceIDs: [Int] = []
         while true {
             try Task.checkCancellation()
-            let rawPosters = try await fetchRawPosters(mode: mode, order: order, search: search, uid: uid,
+            let rawPosters = try await fetchRawPosters(
+                mode: mode, order: order, search: search, uid: uid,
                 page: sourcePage == 0 ? nil : sourcePage, hideBot: hideBot)
             try progress.record(rawPosters.map(\.id))
             sourceIDs.append(contentsOf: rawPosters.map(\.id))
             let visible = applyGalleryFilters(applyBotFilterIfNeeded(rawPosters, hideBot: hideBot))
             sourcePage += 1
-            if !visible.isEmpty || rawPosters.isEmpty || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages {
-                return GalleryPageBatch<CommunityPoster>(items: visible, nextSourcePage: sourcePage, canLoadMore: !rawPosters.isEmpty, sourceIDs: sourceIDs)
+            if !visible.isEmpty || rawPosters.isEmpty
+                || sourcePage - (page ?? 0) >= GalleryPaging.maximumSourcePages
+            {
+                return GalleryPageBatch<CommunityPoster>(
+                    items: visible, nextSourcePage: sourcePage, canLoadMore: !rawPosters.isEmpty,
+                    sourceIDs: sourceIDs)
             }
         }
     }
@@ -630,12 +697,16 @@ public struct GalleryService {
             queryItems.append(URLQueryItem(name: "hide_bot", value: "true"))
         }
 
-        let response: CommunityAPIResponse<[CommunityPoster]> = try await api.response(path: "posters", queryItems: queryItems, validate: { posters in
-            guard posters.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else {
-                throw GalleryServiceError.invalidResponse
-            }
-        })
-        if let issue = response.value.compactMap(\.imageRecoveryIssue).first { await response.reportValidationFailure(issue) }
+        let response: CommunityAPIResponse<[CommunityPoster]> = try await api.response(
+            path: "posters", queryItems: queryItems,
+            validate: { posters in
+                guard posters.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else {
+                    throw GalleryServiceError.invalidResponse
+                }
+            })
+        if let issue = response.value.compactMap(\.imageRecoveryIssue).first {
+            await response.reportValidationFailure(issue)
+        }
         try Task.checkCancellation()
         guard session.currentCredentials.identity == identity else { throw CancellationError() }
         return resourceUpdates.resolve(response.value, since: revision)

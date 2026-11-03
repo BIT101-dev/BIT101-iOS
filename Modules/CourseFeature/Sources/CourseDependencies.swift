@@ -1,6 +1,6 @@
 import CommunityCore
-import TransportCore
 import Observation
+import TransportCore
 
 /// 课程页面消费列表、详情、课程偏好与学分查询。
 @MainActor
@@ -34,4 +34,3 @@ public final class CourseDependencies {
         self.loadCourseCredits = loadCourseCredits
     }
 }
-

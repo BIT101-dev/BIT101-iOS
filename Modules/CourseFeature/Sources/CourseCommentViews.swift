@@ -32,7 +32,7 @@ struct CourseCommentsSection: View {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 AppInlineLoadingState("正在加载评论")
 
-            case let .failed(message) where comments.isEmpty:
+            case .failed(let message) where comments.isEmpty:
                 AppFailureState(
                     title: "加载评论失败",
                     systemImage: "bubble.right.fill",
@@ -49,7 +49,8 @@ struct CourseCommentsSection: View {
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
+                        ForEach(Array(comments.enumerated()), id: \.element.id) {
+                            index, comment in
                             VStack(spacing: AppDesignSystem.Spacing.none) {
                                 CourseCommentRow(
                                     comment: comment,
@@ -70,8 +71,10 @@ struct CourseCommentsSection: View {
                             }
                         }
 
-                        CommunityPaginationFooter(isLoading: isLoadingMore,
-                            errorMessage: paginationError) { onLoadMore(comments.last) }
+                        CommunityPaginationFooter(
+                            isLoading: isLoadingMore,
+                            errorMessage: paginationError
+                        ) { onLoadMore(comments.last) }
                     }
                     .appCommentSectionStyle()
                 }
@@ -79,7 +82,6 @@ struct CourseCommentsSection: View {
         }
     }
 }
-
 
 private struct CourseCommentRow: View {
     let comment: CommunityComment
@@ -90,7 +92,8 @@ private struct CourseCommentRow: View {
     let onOpenUser: (CommunityUser) -> Void
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) {
+            comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
     }
@@ -110,7 +113,8 @@ private struct CourseCommentRow: View {
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname,
+                nickname: comment.anonymous
+                    ? AppUserPresentation.anonymousName : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.relativeText(from: comment.createTime, fallback: "未知时间"),
                 onOpenProfile: canOpenUserProfile(comment) ? { onOpenUser(comment.user) } : nil
@@ -142,7 +146,6 @@ private struct CourseCommentRow: View {
         !comment.anonymous && comment.user.id > 0
     }
 
-
 }
 
 struct CourseCommentComposerSheet: View {
@@ -162,17 +165,25 @@ struct CourseCommentComposerSheet: View {
     }
 
     var body: some View {
-        let submission = CommunityCommentSubmission(objectID: target.objectID, text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            anonymous: anonymous, replyObjectID: target.replyObjectID, replyUID: target.replyUID, rate: rawRating)
+        let submission = CommunityCommentSubmission(
+            objectID: target.objectID,
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            anonymous: anonymous, replyObjectID: target.replyObjectID,
+            replyUID: target.replyUID, rate: rawRating)
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
-                    TextField("", text: $text, prompt: AppInputPrompt.text(target.placeholder), axis: .vertical)
-                        .lineLimit(5, reservesSpace: true)
-                        .accessibilityIdentifier("ui.course-comment-composer-sheet.input")
+                    TextField(
+                        "", text: $text, prompt: AppInputPrompt.text(target.placeholder),
+                        axis: .vertical
+                    )
+                    .lineLimit(5, reservesSpace: true)
+                    .accessibilityIdentifier("ui.course-comment-composer-sheet.input")
                 }
 
-                CommunityCommentReviewSection(submission: submission, actions: review) { isSubmissionRequested = true }
+                CommunityCommentReviewSection(submission: submission, actions: review) {
+                    isSubmissionRequested = true
+                }
                 if supportsCourseRating {
                     Section("评分") {
                         Stepper(value: $rating, in: 0...10) {
@@ -185,14 +196,24 @@ struct CourseCommentComposerSheet: View {
                                             .accessibilityHidden(true)
                                     }
                                 }
-                                Text(rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分"))
-                                    .font(AppDesignSystem.Typography.bodyEmphasis)
-                                    .foregroundStyle(rating == 0 ? AppDesignSystem.Foreground.secondaryColor : AppDesignSystem.Course.accent)
+                                Text(
+                                    rating == 0
+                                        ? "请选择评分"
+                                        : CourseRatingText.text(from: rating, empty: "请选择评分")
+                                )
+                                .font(AppDesignSystem.Typography.bodyEmphasis)
+                                .foregroundStyle(
+                                    rating == 0
+                                        ? AppDesignSystem.Foreground.secondaryColor
+                                        : AppDesignSystem.Course.accent)
                             }
                         }
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                         .accessibilityLabel("课程评分")
-                        .accessibilityValue(rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分"))
+                        .accessibilityValue(
+                            rating == 0
+                                ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分")
+                        )
                         .accessibilityIdentifier("ui.course-comment-composer-sheet.rating")
                     }
                 }
@@ -212,7 +233,8 @@ struct CourseCommentComposerSheet: View {
                 AppComposerToolbar(
                     isSubmitting: isSubmitting || isSubmissionRequested,
                     submitTitle: "发送",
-                    isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (supportsCourseRating && rating == 0),
+                    isSubmitDisabled: text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty || (supportsCourseRating && rating == 0),
                     confirmDiscard: hasDraftContent,
                     onCancel: {
                         dismiss()

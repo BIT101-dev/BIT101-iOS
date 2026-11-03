@@ -17,6 +17,7 @@ if [[ $# -ne 1 || "$1" != --disable ]]; then
   [[ "$1" == <-> ]] || { echo 'Build 必须是非负整数。' >&2; exit 64; }
   python3 - "$@" <<'VALIDATE'
 import sys
+
 maximum_build, title, message = sys.argv[1:]
 if int(maximum_build) > 9007199254740991 or not title.strip() or not message.strip():
     print("Build 应在 JSON 精确整数范围内，标题及正文应包含有效内容。", file=sys.stderr)
@@ -24,7 +25,8 @@ if int(maximum_build) > 9007199254740991 or not title.strip() or not message.str
 VALIDATE
 fi
 
-bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/emergency-publish.lock" BIT101_EMERGENCY_PUBLISH_LOCK_HELD "$0" "$@"
+bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/emergency-publish.lock" \
+  BIT101_EMERGENCY_PUBLISH_LOCK_HELD "$0" "$@"
 if [[ $# -eq 1 && "$1" == --disable ]]; then
   cd "$ROOT_DIR"
   "$WRANGLER" kv key put emergency-update --binding EMERGENCY_CONFIG \
@@ -52,7 +54,12 @@ payload = {
     "message": message,
     "update_url": "https://apps.apple.com/cn/app/bit101/id6761147125",
 }
-payload["notice_id"] = "notice-" + sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+payload["notice_id"] = (
+    "notice-"
+    + sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+)
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(payload, stream, ensure_ascii=False, indent=2)
     stream.write("\n")

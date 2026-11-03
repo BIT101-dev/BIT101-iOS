@@ -1,13 +1,14 @@
+import EventKit
+import Foundation
+import ScheduleContracts
 import SchedulePorts
+import Testing
+
+@testable import BIT101_iOS
 @testable import CourseFeature
+@testable import ScheduleDomain
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
-@testable import ScheduleDomain
-import ScheduleContracts
-import Foundation
-import EventKit
-import Testing
-@testable import BIT101_iOS
 
 private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
     var calendar = Calendar(identifier: .gregorian)
@@ -25,18 +26,24 @@ private func shanghaiDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
 struct ScheduleSystemCalendarEventBuilderTests {
     @Test("Calendar export applies the shared week bounds before date arithmetic")
     func calendarExportKeepsValidWeekBoundaries() throws {
-        let original = try #require(ScheduleCourseEditor.adding(
-            CourseDraft(title: "周次边界", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
-            to: [], term: "2026-2027-1", id: "boundary"
-        ).first)
+        let original = try #require(
+            ScheduleCourseEditor.adding(
+                CourseDraft(
+                    title: "周次边界", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
+                to: [], term: "2026-2027-1", id: "boundary"
+            ).first)
         let course = original.replacingWeeks([Int.min, -54, -53, -1, 0, 1, 53, 54, Int.max])
         let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
             courses: [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default
         )
-        #expect(drafts.map(\.markerID) == ["boundary-w-53", "boundary-w-1", "boundary-w1", "boundary-w53"])
-        #expect(drafts.map { ScheduleDateCodec.formatDate($0.startDate) } == [
-            "2025-09-01", "2026-08-31", "2026-09-07", "2027-09-06"
-        ])
+        #expect(
+            drafts.map(\.markerID) == [
+                "boundary-w-53", "boundary-w-1", "boundary-w1", "boundary-w53",
+            ])
+        #expect(
+            drafts.map { ScheduleDateCodec.formatDate($0.startDate) } == [
+                "2025-09-01", "2026-08-31", "2026-09-07", "2027-09-06",
+            ])
     }
 
     @Test("Course weeks expand into exact class dates and timetable bounds")
@@ -70,21 +77,28 @@ struct ScheduleSystemCalendarEventBuilderTests {
         let selectedContent = ScheduleSystemCalendarContent.courses(
             [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default, week: 1
         )
-        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: selectedContent).map(\.markerID) == ["course-a-w1"])
+        #expect(
+            try ScheduleSystemCalendarEventBuilder.makeDrafts(for: selectedContent).map(\.markerID)
+                == ["course-a-w1"])
         let previousWeekContent = ScheduleSystemCalendarContent.courses(
             [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default, week: -1
         )
-        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: previousWeekContent).map(\.markerID) == ["course-a-w-1"])
+        #expect(
+            try ScheduleSystemCalendarEventBuilder.makeDrafts(for: previousWeekContent).map(
+                \.markerID) == ["course-a-w-1"])
         let wholeCourseContent = ScheduleSystemCalendarContent.courses(
             [course], firstDay: shanghaiDate(2026, 9, 7), timeTable: TimeSlot.default
         )
-        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: wholeCourseContent) == drafts)
+        #expect(
+            try ScheduleSystemCalendarEventBuilder.makeDrafts(for: wholeCourseContent) == drafts)
         #expect(drafts.count == 3)
         #expect(ScheduleDateCodec.formatDate(drafts[0].startDate) == "2026-09-02")
         #expect(ScheduleDateCodec.formatDate(drafts[1].startDate) == "2026-09-09")
         #expect(ScheduleDateCodec.formatDate(drafts[2].startDate) == "2026-09-23")
-        let startComponents = ScheduleSharedDateCodec.calendar.dateComponents([.hour, .minute], from: drafts[1].startDate)
-        let endComponents = ScheduleSharedDateCodec.calendar.dateComponents([.hour, .minute], from: drafts[1].endDate)
+        let startComponents = ScheduleSharedDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: drafts[1].startDate)
+        let endComponents = ScheduleSharedDateCodec.calendar.dateComponents(
+            [.hour, .minute], from: drafts[1].endDate)
         #expect(startComponents.hour == 9 && startComponents.minute == 55)
         #expect(endComponents.hour == 11 && endComponents.minute == 30)
         #expect(drafts[1].location == "良乡校区 · 综教A101")
@@ -139,8 +153,9 @@ struct ScheduleSystemCalendarEventBuilderTests {
     }
 
     @Test(arguments: ["文萃楼F404", "文萃F404", "良乡校区文萃楼F404"])
-    func calendarLocationKeepsWencuiRoomAndCampusCoordinates(classroom: String) throws {
-        let schedule = CustomScheduleRecord(id: "wencui", title: "课程", subtitle: classroom,
+    func calendarLocationKeepsWencuiRoom(classroom: String) throws {
+        let schedule = CustomScheduleRecord(
+            id: "wencui", title: "课程", subtitle: classroom,
             description: "", dateString: "2026-09-07", beginTime: "08:00", endTime: "09:35")
         let draft = try #require(ScheduleSystemCalendarEventBuilder.makeDraft(for: schedule))
         let event = EKEvent(eventStore: EKEventStore())
@@ -151,9 +166,11 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(event.structuredLocation?.geoLocation?.coordinate.longitude == 116.173821)
     }
 
-    @Test func calendarLocationKeepsUnmappedTextWithoutAssigningCoordinates() {
-        let draft = ScheduleSystemCalendarEventDraft(markerID: "custom", title: "组会", location: "体育馆",
-            structuredLocation: nil, notes: "", startDate: Date(), endDate: Date().addingTimeInterval(3_600))
+    @Test func calendarLocationKeepsUnmappedCoordinates() {
+        let draft = ScheduleSystemCalendarEventDraft(
+            markerID: "custom", title: "组会", location: "体育馆",
+            structuredLocation: nil, notes: "", startDate: Date(),
+            endDate: Date().addingTimeInterval(3_600))
         let event = EKEvent(eventStore: EKEventStore())
         event.structuredLocation = draft.calendarLocation
         #expect(event.location == "体育馆")
@@ -187,9 +204,12 @@ struct ScheduleSystemCalendarEventBuilderTests {
 
         let examDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam)
         let customDraft = ScheduleSystemCalendarEventBuilder.makeDraft(for: custom)
-        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .exam(exam)) == [examDraft].compactMap { $0 })
-        #expect(try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(custom)) == [customDraft].compactMap { $0 })
-
+        #expect(
+            try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .exam(exam))
+                == [examDraft].compactMap { $0 })
+        #expect(
+            try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(custom))
+                == [customDraft].compactMap { $0 })
 
         #expect(examDraft?.markerID == "exam-exam-1")
         #expect(examDraft?.title == "[考试] 软件工程导论")
@@ -201,18 +221,26 @@ struct ScheduleSystemCalendarEventBuilderTests {
         #expect(customDraft?.notes == "准备周报")
     }
 
-    @Test func recurringCustomSchedulesExportEveryDateWithStableCalendarMarkers() throws {
-        let schedule = CustomScheduleRecord(id: "weekly", title: "组会", subtitle: "地点", description: "描述",
+    @Test func recurringCustomSchedulesMarkers() throws {
+        let schedule = CustomScheduleRecord(
+            id: "weekly", title: "组会", subtitle: "地点", description: "描述",
             dateString: "2026-09-09", beginTime: "12:10", endTime: "12:40",
             additionalDateStrings: ["2026-09-16", "2026-09-23", "2026-09-16"])
-        let drafts = try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(schedule))
-        #expect(drafts.map(\.markerID) == ["custom-weekly-2026-09-09", "custom-weekly-2026-09-16", "custom-weekly-2026-09-23"])
-        #expect(drafts.map { ScheduleDateCodec.formatDate($0.startDate) } == schedule.occurrenceDateStrings)
+        let drafts = try ScheduleSystemCalendarEventBuilder.makeDrafts(
+            for: .customSchedule(schedule))
+        #expect(
+            drafts.map(\.markerID) == [
+                "custom-weekly-2026-09-09", "custom-weekly-2026-09-16", "custom-weekly-2026-09-23",
+            ])
+        #expect(
+            drafts.map { ScheduleDateCodec.formatDate($0.startDate) }
+                == schedule.occurrenceDateStrings)
         #expect(drafts.allSatisfy { $0.endDate.timeIntervalSince($0.startDate) == 1_800 })
         var edited = schedule
         edited.dateString = "2026-09-16"
         edited.additionalDateStrings = ["2026-09-23"]
-        let current = try ScheduleSystemCalendarEventBuilder.makeDrafts(for: .customSchedule(edited))
+        let current = try ScheduleSystemCalendarEventBuilder.makeDrafts(
+            for: .customSchedule(edited))
         #expect(current.map(\.markerID) == Array(drafts.dropFirst()).map(\.markerID))
         let selection = ScheduleSystemCalendarEventMarker.Selection(Set(current.map(\.markerID)))
         #expect(drafts.allSatisfy { selection.contains($0.markerID) })
@@ -242,36 +270,41 @@ struct ScheduleSystemCalendarEventBuilderTests {
             department: ""
         )
 
-        #expect(ScheduleSystemCalendarEventBuilder.makeDrafts(
-            courses: [course],
-            firstDay: shanghaiDate(2026, 9, 7),
-            timeTable: TimeSlot.default
-        ).isEmpty)
+        #expect(
+            ScheduleSystemCalendarEventBuilder.makeDrafts(
+                courses: [course],
+                firstDay: shanghaiDate(2026, 9, 7),
+                timeTable: TimeSlot.default
+            ).isEmpty)
     }
 
     @Test("Numeric course numbers retain their course identity")
     func preventsCourseNumberPhoneDetection() throws {
         let rawNumber = "10001234567"
-        let protectedNumber = ScheduleSystemCalendarEventBuilder.dataDetectorSafeCourseNumber(rawNumber)
+        let protectedNumber = ScheduleSystemCalendarEventBuilder.escapedCourseNumber(rawNumber)
         #expect(protectedNumber.replacingOccurrences(of: "\u{2060}", with: "") == rawNumber)
 
         let notes = "课程编号：\(protectedNumber)"
         let detector = try NSDataDetector(
             types: NSTextCheckingResult.CheckingType.phoneNumber.rawValue
         )
-        #expect(detector.matches(
-            in: notes,
-            range: NSRange(notes.startIndex..., in: notes)
-        ).isEmpty)
+        #expect(
+            detector.matches(
+                in: notes,
+                range: NSRange(notes.startIndex..., in: notes)
+            ).isEmpty)
     }
 }
 
 @Suite("Schedule calendar layer ordering")
 struct ScheduleCalendarLayerOrderingTests {
-    @Test func quantizedAxisRetainsOffHoursAndShortEventsInItsOutsideGroup() {
-        let entries = [("course", CGFloat(0), CGFloat(2), ScheduleCalendarKind.course),
-            ("lunch", 4, 4, .exam), ("evening", 12, 12, .custom), ("short", 2, 2.01, .custom)].map {
-            ScheduleCalendarEntry(id: $0.0, sourceID: $0.0, sourceIDs: [$0.0], dayOfWeek: 1,
+    @Test func quantizedAxisRetainsOffHours() {
+        let entries = [
+            ("course", CGFloat(0), CGFloat(2), ScheduleCalendarKind.course),
+            ("lunch", 4, 4, .exam), ("evening", 12, 12, .custom), ("short", 2, 2.01, .custom),
+        ].map {
+            ScheduleCalendarEntry(
+                id: $0.0, sourceID: $0.0, sourceIDs: [$0.0], dayOfWeek: 1,
                 startSection: $0.1, endSection: $0.2, startMinutes: 720, endMinutes: 730,
                 title: $0.0, subtitle: "", detailLines: ["原始时间"], kind: $0.3)
         }
@@ -282,15 +315,21 @@ struct ScheduleCalendarLayerOrderingTests {
         #expect(groups.outside.allSatisfy { $0.startMinutes == 720 && $0.endMinutes == 730 })
     }
 
-    @Test func weeklyConflictsPreserveEveryKindAndItsOriginalCoordinates() {
-        func entry(_ id: String, _ kind: ScheduleCalendarKind, _ start: CGFloat, _ end: CGFloat, day: Int = 1) -> ScheduleCalendarEntry {
-            ScheduleCalendarEntry(id: id, sourceID: id, sourceIDs: [id], dayOfWeek: day,
+    @Test func weeklyConflictsPreserveEveryKind() {
+        func entry(
+            _ id: String, _ kind: ScheduleCalendarKind, _ start: CGFloat, _ end: CGFloat,
+            day: Int = 1
+        ) -> ScheduleCalendarEntry {
+            ScheduleCalendarEntry(
+                id: id, sourceID: id, sourceIDs: [id], dayOfWeek: day,
                 startSection: start, endSection: end, startMinutes: 480, endMinutes: 600,
                 title: id, subtitle: "地点", detailLines: ["详情"], kind: kind)
         }
-        let entries = [entry("course", .course, 0, 3), entry("exam", .exam, 1, 2),
+        let entries = [
+            entry("course", .course, 0, 3), entry("exam", .exam, 1, 2),
             entry("custom", .custom, 1.5, 2.5), entry("partial", .course, 2, 4),
-            entry("next", .course, 4, 5), entry("other-day", .exam, 1, 2, day: 2)]
+            entry("next", .course, 4, 5), entry("other-day", .exam, 1, 2, day: 2),
+        ]
         let placements = calendarPlacements(entries: entries.reversed())
         #expect(Set(placements.map(\.id)) == Set(entries.map(\.id)))
         for placement in placements {
@@ -304,13 +343,19 @@ struct ScheduleCalendarLayerOrderingTests {
         #expect(placements.first { $0.id == "next" }?.columnCount == 1)
         #expect(placements.first { $0.id == "other-day" }?.columnCount == 1)
         for lhs in placements {
-            for rhs in placements where lhs.id != rhs.id && lhs.entry.dayOfWeek == rhs.entry.dayOfWeek
-                && lhs.entry.startSection < rhs.entry.endSection && rhs.entry.startSection < lhs.entry.endSection {
+            for rhs in placements
+            where lhs.id != rhs.id && lhs.entry.dayOfWeek == rhs.entry.dayOfWeek
+                && lhs.entry.startSection < rhs.entry.endSection
+                && rhs.entry.startSection < lhs.entry.endSection
+            {
                 #expect(lhs.column != rhs.column)
             }
         }
         #expect(calendarPlacements(entries: entries).map(\.id) == placements.map(\.id))
-        #expect(calendarPlacements(entries: entries, separateOverlaps: false).allSatisfy { $0.columnCount == 1 })
+        #expect(
+            calendarPlacements(entries: entries, separateOverlaps: false).allSatisfy {
+                $0.columnCount == 1
+            })
     }
 
     @Test("Earlier course center is rendered above later course center")
@@ -328,7 +373,7 @@ struct ScheduleCalendarLayerOrderingTests {
             kind: .course,
             backgroundLayers: [
                 ScheduleCalendarLayer(id: "first", startSection: 0, endSection: 3),
-                ScheduleCalendarLayer(id: "second", startSection: 2, endSection: 5)
+                ScheduleCalendarLayer(id: "second", startSection: 2, endSection: 5),
             ]
         )
 
@@ -345,8 +390,8 @@ struct SmallTermWeekNormalizerTests {
     @Test("First-semester small terms shift dates and labels together")
     func normalizesFirstSemester() {
         let courses = [
-            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
-            makeCourse(id: "b", description: "7-12周 星期一", weeks: Array(10 ... 15)),
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4...8)),
+            makeCourse(id: "b", description: "7-12周 星期一", weeks: Array(10...15)),
         ]
         let result = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-1",
@@ -356,13 +401,13 @@ struct SmallTermWeekNormalizerTests {
 
         #expect(result.offset == 3)
         #expect(result.firstDayString == "2026-09-21")
-        #expect(result.courses[0].weeks == Array(1 ... 5))
-        #expect(result.courses[1].weeks == Array(7 ... 12))
+        #expect(result.courses[0].weeks == Array(1...5))
+        #expect(result.courses[1].weeks == Array(7...12))
     }
 
     @Test("Second semester preserves its original week offset")
     func leavesSecondSemesterUnchanged() {
-        let course = makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8))
+        let course = makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4...8))
         let result = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-2",
             firstDayString: "2027-03-01",
@@ -377,8 +422,8 @@ struct SmallTermWeekNormalizerTests {
     @Test("Conflicting evidence fails closed")
     func rejectsMixedOffsets() {
         let courses = [
-            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
-            makeCourse(id: "b", description: "1-5周 星期二", weeks: Array(1 ... 5)),
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4...8)),
+            makeCourse(id: "b", description: "1-5周 星期二", weeks: Array(1...5)),
         ]
         let result = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-1",
@@ -394,9 +439,9 @@ struct SmallTermWeekNormalizerTests {
     @Test("Common week offset survives pre-start outliers")
     func ignoresPreStartOutliers() {
         let courses = [
-            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4 ... 8)),
-            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(10 ... 15)),
-            makeCourse(id: "c", description: "-2周 星期三,-1周 星期四", weeks: [1, 2])
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(4...8)),
+            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(10...15)),
+            makeCourse(id: "c", description: "-2周 星期三,-1周 星期四", weeks: [1, 2]),
         ]
         let result = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-1",
@@ -406,15 +451,15 @@ struct SmallTermWeekNormalizerTests {
 
         #expect(result.offset == 3)
         #expect(result.firstDayString == "2026-09-21")
-        #expect(result.courses[0].weeks == Array(1 ... 5))
+        #expect(result.courses[0].weeks == Array(1...5))
         #expect(result.courses[2].weeks == [-2, -1])
     }
 
     @Test("Offsets other than three weeks leave every course unchanged")
     func rejectsNonThreeWeekOffset() {
         let courses = [
-            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(3 ... 7)),
-            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(9 ... 14))
+            makeCourse(id: "a", description: "1-5周 星期一", weeks: Array(3...7)),
+            makeCourse(id: "b", description: "7-12周 星期二", weeks: Array(9...14)),
         ]
         let result = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-1",
@@ -458,15 +503,21 @@ struct CourseScheduleRowParserTests {
         ("1-16(单周)", [1, 3, 5, 7, 9, 11, 13, 15]),
         ("1-16（双）周", [2, 4, 6, 8, 10, 12, 14, 16]),
         ("1-16周 双周", [2, 4, 6, 8, 10, 12, 14, 16]),
-        ("1-8周(单),10-16周(双)", [1, 3, 5, 7, 10, 12, 14, 16])
+        ("1-8周(单),10-16周(双)", [1, 3, 5, 7, 10, 12, 14, 16]),
     ])
-    func schoolRowsAndDescriptionsPreserveOddAndEvenWeeks(fixture: (String, [Int])) throws {
+    func schoolRowsAndDescriptionsPreserveOdd(fixture: (String, [Int])) throws {
         let (text, expected) = fixture
-        let row: [String: Any] = ["XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
+        let row: [String: Any] = [
+            "XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
             "JASMC": "文萃楼M227", "SKXQ": 4, "KSJC": 6, "JSJC": 9,
-            "SKZC": String(repeating: "1", count: 16), "ZCMC": text, "YPSJDD": text + " 星期四 6-9节 文萃楼M227"]
-        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": [row]]]])
-        let course = try #require(JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
+            "SKZC": String(repeating: "1", count: 16), "ZCMC": text,
+            "YPSJDD": text + " 星期四 6-9节 文萃楼M227",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: [
+            "datas": ["cxxszhxqkb": ["rows": [row]]]
+        ])
+        let course = try #require(
+            JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
         #expect(course.weeks == expected)
         let stale = course.replacingWeeks(Array(1...16))
         #expect(CourseScheduleRowParser.narrowedCourses([stale]).first?.weeks == expected)
@@ -474,85 +525,107 @@ struct CourseScheduleRowParserTests {
     }
 
     @Test(arguments: [false, true])
-    func sparseSchoolFlagsAndCachedParityRulesRemainIntact(even: Bool) throws {
+    func sparseSchoolFlags(even: Bool) throws {
         let expected = Array(1...16).filter { $0.isMultiple(of: 2) == even }
-        let row: [String: Any] = ["XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
+        let row: [String: Any] = [
+            "XNXQDM": "term", "KCM": "单双周课程", "KCH": "parity",
             "JASMC": "文萃楼M227", "SKXQ": 4, "KSJC": 6, "JSJC": 9,
             "SKZC": (1...16).map { expected.contains($0) ? "1" : "0" }.joined(), "ZCMC": "1-16周",
-            "YPSJDD": "1-16周(\(even ? "双" : "单")) 星期四 6-9节 文萃楼M227"]
-        let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxxszhxqkb": ["rows": [row]]]])
-        let course = try #require(JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
+            "YPSJDD": "1-16周(\(even ? "双" : "单")) 星期四 6-9节 文萃楼M227",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: [
+            "datas": ["cxxszhxqkb": ["rows": [row]]]
+        ])
+        let course = try #require(
+            JSONDecoder().decode(CourseResponse.self, from: data).courseRecords.first)
         #expect(course.weeks == expected)
         let stale = course.replacingWeeks(Array(1...16))
         var cache = ScheduleCache()
         cache.currentTerm = "term"
-        cache.courseData.store(TermScheduleSnapshot(term: "term", firstDayString: "2026-09-07",
-            courses: [stale], exams: [], updatedAt: .distantPast))
-        let replacement = try ScheduleCourseEditor.updatingArrangements([(stale.id, CourseDraft(title: "手动调课", weekday: 2, startSection: 6, endSection: 9, weeksText: even ? "2,4" : "1,3"))], in: [stale])
-        ScheduleCourseEditor.updateCacheForManualCourseChange(in: &cache, previousCourses: [stale], currentCourses: replacement)
-        let restored = try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(cache))
+        cache.courseData.store(
+            TermScheduleSnapshot(
+                term: "term", firstDayString: "2026-09-07",
+                courses: [stale], exams: [], updatedAt: .distantPast))
+        let replacement = try ScheduleCourseEditor.updatingArrangements(
+            [
+                (
+                    stale.id,
+                    CourseDraft(
+                        title: "手动调课", weekday: 2, startSection: 6, endSection: 9,
+                        weeksText: even ? "2,4" : "1,3")
+                )
+            ], in: [stale])
+        ScheduleCourseEditor.updateCourseEditCache(
+            in: &cache, previousCourses: [stale], currentCourses: replacement)
+        let restored = try JSONDecoder().decode(
+            ScheduleCache.self, from: JSONEncoder().encode(cache))
         #expect(restored.courseData.schoolCourses(for: "term").first?.weeks == expected)
         #expect(restored.courses == replacement)
-        #expect(restored.manualCourseRulesByTerm["term"]?.first?.sourceCourses.first?.weeks == expected)
-        #expect(try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(restored)).courseData == restored.courseData)
+        #expect(
+            restored.manualCourseRulesByTerm["term"]?.first?.sourceCourses.first?.weeks == expected)
+        #expect(
+            try JSONDecoder().decode(ScheduleCache.self, from: JSONEncoder().encode(restored))
+                .courseData == restored.courseData)
     }
 
     @Test("School row weeks and identities come from ZCMC")
     func decodesRowSpecificWeeksFromCourseResponse() throws {
-        let data = Data("""
-        {
-            "datas": {
-                "cxxszhxqkb": {
-                    "rows": [
-                        {
-                            "XNXQDM": "2026-2027-1",
-                            "KCM": "文献检索",
-                            "KCH": "100960001",
-                            "JASMC": "文萃楼M227",
-                            "SKXQ": 4,
-                            "KSJC": 6,
-                            "JSJC": 9,
-                            "SKZC": "001000000000000000000",
-                            "ZCMC": "-1周",
-                            "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
-                        },
-                        {
-                            "XNXQDM": "2026-2027-1",
-                            "KCM": "文献检索",
-                            "KCH": "100960001",
-                            "JASMC": "文萃楼M227",
-                            "SKXQ": 4,
-                            "KSJC": 6,
-                            "JSJC": 9,
-                            "SKZC": "010000000000000000000",
-                            "ZCMC": "-2周",
-                            "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
-                        }
-                    ]
+        let data = Data(
+            """
+            {
+                "datas": {
+                    "cxxszhxqkb": {
+                        "rows": [
+                            {
+                                "XNXQDM": "2026-2027-1",
+                                "KCM": "文献检索",
+                                "KCH": "100960001",
+                                "JASMC": "文萃楼M227",
+                                "SKXQ": 4,
+                                "KSJC": 6,
+                                "JSJC": 9,
+                                "SKZC": "001000000000000000000",
+                                "ZCMC": "-1周",
+                                "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
+                            },
+                            {
+                                "XNXQDM": "2026-2027-1",
+                                "KCM": "文献检索",
+                                "KCH": "100960001",
+                                "JASMC": "文萃楼M227",
+                                "SKXQ": 4,
+                                "KSJC": 6,
+                                "JSJC": 9,
+                                "SKZC": "010000000000000000000",
+                                "ZCMC": "-2周",
+                                "YPSJDD": "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227"
+                            }
+                        ]
+                    }
                 }
             }
-        }
-        """.utf8)
+            """.utf8)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         let courses = response.courseRecords
 
         #expect(courses.map(\.weeks) == [[-1], [-2]])
         #expect(Set(courses.map(\.id)).count == 2)
 
-        let evidenceCourses = courses + [
-            makeCourse(
-                id: "evidence-a",
-                description: "1-2周 星期一",
-                weeks: [1, 2],
-                weekday: 1
-            ),
-            makeCourse(
-                id: "evidence-b",
-                description: "1-2周 星期二",
-                weeks: [1, 2],
-                weekday: 2
-            )
-        ]
+        let evidenceCourses =
+            courses + [
+                makeCourse(
+                    id: "evidence-a",
+                    description: "1-2周 星期一",
+                    weeks: [1, 2],
+                    weekday: 1
+                ),
+                makeCourse(
+                    id: "evidence-b",
+                    description: "1-2周 星期二",
+                    weeks: [1, 2],
+                    weekday: 2
+                ),
+            ]
         let normalized = SmallTermWeekNormalizer.normalize(
             term: "2026-2027-1",
             firstDayString: "2026-08-31",
@@ -567,7 +640,8 @@ struct CourseScheduleRowParserTests {
 
     @Test("Aggregated descriptions keep only the row's matching weeks")
     func narrowsWeeksToMatchingRow() {
-        let description = "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227,-1周 星期二 6-9节 文萃楼M227,-1周 星期五 6-9节 文萃楼M227"
+        let description =
+            "-2周 星期四 6-9节 文萃楼M227,-1周 星期四 6-9节 文萃楼M227,-1周 星期二 6-9节 文萃楼M227,-1周 星期五 6-9节 文萃楼M227"
         let courses = [
             makeCourse(id: "tue", description: description, weeks: [-2, -1], weekday: 2),
             makeCourse(id: "thu", description: description, weeks: [-2, -1], weekday: 4),
@@ -670,12 +744,13 @@ struct ScheduleCourseEditorTests {
             try ScheduleCourseEditor.resolve(CourseDraft(title: "课程", weekday: 8, weeksText: "1"))
         }
         #expect(throws: Error.self) {
-            try ScheduleCourseEditor.resolve(CourseDraft(
-                title: "课程",
-                startSection: 3,
-                endSection: 2,
-                weeksText: "1"
-            ))
+            try ScheduleCourseEditor.resolve(
+                CourseDraft(
+                    title: "课程",
+                    startSection: 3,
+                    endSection: 2,
+                    weeksText: "1"
+                ))
         }
     }
 
@@ -812,28 +887,32 @@ struct ScheduleShareCodeCodecTests {
     func v3RoundTrip() throws {
         var cache = ScheduleCache()
         cache.currentTerm = "2025-2026-2"
-        let courses = [CourseRecord(
-            id: "course-1",
-            term: cache.currentTerm,
-            name: "编译原理",
-            teacher: "教师",
-            classroom: "综教A101",
-            description: "",
-            weeks: [1, 2, 3],
-            weekday: 3,
-            startSection: 3,
-            endSection: 5,
-            campus: "良乡",
-            number: "100001",
-            credit: 4,
-            hour: 48,
-            type: "专业课",
-            category: "必修",
-            department: "计算机学院"
-        )]
+        let courses = [
+            CourseRecord(
+                id: "course-1",
+                term: cache.currentTerm,
+                name: "编译原理",
+                teacher: "教师",
+                classroom: "综教A101",
+                description: "",
+                weeks: [1, 2, 3],
+                weekday: 3,
+                startSection: 3,
+                endSection: 5,
+                campus: "良乡",
+                number: "100001",
+                credit: 4,
+                hour: 48,
+                type: "专业课",
+                category: "必修",
+                department: "计算机学院"
+            )
+        ]
 
-        cache.courseData.store(TermScheduleSnapshot(term: cache.currentTerm, firstDayString: "2026-03-02",
-            courses: courses, exams: [], updatedAt: .distantPast))
+        cache.courseData.store(
+            TermScheduleSnapshot(
+                term: cache.currentTerm, firstDayString: "2026-03-02",
+                courses: courses, exams: [], updatedAt: .distantPast))
         let code = try ScheduleShareCodeCodec.encodeLatest(cache: cache)
         let decoded = try ScheduleShareCodeCodec.decode(code, using: cache)
         let coursesCode = try ScheduleShareCodeCodec.encodeLatest(courses: cache.courses)
@@ -857,7 +936,8 @@ struct ScheduleShareCodeCodecTests {
         #expect(payload.exportedAt == expectedTime)
 
         let jsonData = try JSONEncoder().encode(payload)
-        guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data? else {
+        guard let compressedData = try (jsonData as NSData).compressed(using: .lzfse) as Data?
+        else {
             throw ScheduleShareCodeError.compressionFailed
         }
         let code = "BIT101SCH4:\(compressedData.base64EncodedString())"
@@ -878,8 +958,9 @@ struct ScheduleShareCodeCodecTests {
     @Test("Older imported schedules keep a missing share time optional")
     func decodesLegacySharedSchedule() throws {
         let json = """
-        {"id":"legacy","title":"旧课表","importedAt":0,"currentTerm":"2025-2026-2","firstDayString":"2026-03-02","timeTable":[],"courses":[]}
-        """
+            {"id":"legacy","title":"旧课表","importedAt":0,"currentTerm":"2025-2026-2","firstDayString\
+            ":"2026-03-02","timeTable":[],"courses":[]}
+            """
         let record = try JSONDecoder().decode(SharedScheduleRecord.self, from: Data(json.utf8))
         #expect(record.sharedAt == nil)
     }

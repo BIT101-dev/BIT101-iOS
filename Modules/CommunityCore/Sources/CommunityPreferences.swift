@@ -8,7 +8,10 @@ public struct CommunityPreferenceSnapshot: Equatable, Hashable {
     public var galleryUseWebView: Bool
     public var hidesCourseHistoryMakeupOutliers: Bool
 
-    public init(hideBots: Bool, hiddenUserIDs: [Int], hideAnonymous: Bool, useWebView: Bool, hideMakeupOutliers: Bool) {
+    public init(
+        hideBots: Bool, hiddenUserIDs: [Int], hideAnonymous: Bool, useWebView: Bool,
+        hideMakeupOutliers: Bool
+    ) {
         galleryHideBotPosterInSearch = hideBots
         galleryHiddenUserIDs = hiddenUserIDs
         galleryHideAnonymousContent = hideAnonymous
@@ -29,7 +32,7 @@ public final class CommunityPreferences: ObservableObject {
     public func apply(_ snapshot: CommunityPreferenceSnapshot) { self.snapshot = snapshot }
     public var galleryUseWebView: Bool { snapshot.galleryUseWebView }
     public var hidesCourseHistoryMakeupOutliers: Bool { snapshot.hidesCourseHistoryMakeupOutliers }
-    public func setHidesCourseHistoryMakeupOutliers(_ enabled: Bool) { saveMakeupFilter(enabled) }
+    public func setHideMakeupOutliers(_ enabled: Bool) { saveMakeupFilter(enabled) }
 }
 
 /// 课程详情用于学分展示的学校课程摘要。
@@ -44,4 +47,3 @@ public nonisolated struct CommunityCourseCredit: Sendable {
         self.credit = credit
     }
 }
-

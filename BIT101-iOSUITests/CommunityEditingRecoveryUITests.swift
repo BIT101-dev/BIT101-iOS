@@ -2,7 +2,7 @@ import XCTest
 
 nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
-    @objc func testDDLPhotosSurviveRelaunchAndSupportPreviewRemoval() {
+    @objc func testDdlPhotosSurviveRelaunch() {
         XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, animations: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
@@ -22,7 +22,9 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         photo.tapBriefly()
         assertUI(waitForImagePreview(visible: true, timeout: 15), "待办图片应打开系统预览。")
         closeImagePreview()
-        let title = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ddl.open.")).firstMatch
+        let title = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "ddl.open.")
+        ).firstMatch
         title.tap()
         assertUI(app.navigationBars["DDL 详情"].appears(timeout: 5), "关闭预览后应继续打开待办详情。")
         let edit = app.buttons["ui.ddl-event-detail-sheet.edit"]
@@ -36,8 +38,10 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testPosterImageWhitespaceOpensDetailsAndImageKeepsPreview() {
-        app = configureApp(resetStorage: true, content: true, media: true, portraitMedia: true, initialTab: "gallery")
+    @objc func testPosterImageWhitespaceOpensDetails() {
+        app = configureApp(
+            resetStorage: true, content: true, media: true, portraitMedia: true,
+            initialTab: "gallery")
         let image = app.buttons["查看第1张图片"]
         assertUI(image.appears(timeout: 5), "话题卡片应展示图片。")
         let imageFrame = image.frame
@@ -54,11 +58,13 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testPosterCommentsRetryInPlaceAfterInitialFailure() {
+    @objc func testPosterCommentsRetryInPlace() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         assertUI(textElement("自动化测试话题").appears(timeout: 5), "话廊应先展示话题入口。")
-        assertUI(UITestControlClient.request(["command": "fail-request", "key": "reaction/comments"]) == "queued",
-                 "场景应准备评论首屏读取故障。")
+        assertUI(
+            UITestControlClient.request(["command": "fail-request", "key": "reaction/comments"])
+                == "queued",
+            "场景应准备评论首屏读取故障。")
         tap("自动化测试话题")
         assertUI(app.alerts["加载评论失败"].appears(timeout: 5), "评论故障应保留话题正文并呈现提示。")
         closeAlertIfPresent()
@@ -68,7 +74,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCommentEditorsProtectInputUntilConfirmedDiscard() {
+    @objc func testCommentEditorsProtectDiscard() {
         for kind in ["poster", "course", "paper"] {
             openDetail(kind)
             tap(kind == "poster" ? "评论帖子" : kind == "course" ? "评论课程" : "评论文章")
@@ -93,12 +99,14 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCommentBodiesShareLinksImagesAndNativePreview() {
+    @objc func testCommentBodiesShareLinksImages() {
         for kind in ["poster", "course", "paper"] {
             openDetail(kind, mediaLinks: true)
-            let like = app.buttons.matching(NSPredicate(format: "label IN %@", ["点赞评论", "取消评论点赞"])).firstMatch
+            let like = app.buttons.matching(NSPredicate(format: "label IN %@", ["点赞评论", "取消评论点赞"]))
+                .firstMatch
             reveal(like, description: "评论操作")
-            assertUI(like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
+            assertUI(
+                like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
                 "评论点赞应提供完整触控区域：\(like.frame)。")
             like.native.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
             assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "触控区域边缘应执行评论点赞。")
@@ -113,12 +121,15 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testCourseCommentsRecoverWhileHistoryLoadsIndependently() {
-        app = configureApp(resetStorage: true, content: true, courseCommentRecovery: true, initialTab: "home")
+    @objc func testCourseCommentsRecover() {
+        app = configureApp(
+            resetStorage: true, content: true, courseCommentRecovery: true, initialTab: "home")
         tapHeader(app.segmentedControls.buttons["课程"])
         tap("自动化测试课程")
         waitForRequest("course-comments")
-        assertUI(app.descendants(matching: .any)["course.history.chart"].appears(timeout: 5), "慢评论请求期间应展示已取得的历史成绩。")
+        assertUI(
+            app.descendants(matching: .any)["course.history.chart"].appears(timeout: 5),
+            "慢评论请求期间应展示已取得的历史成绩。")
         reveal(textElement("正在加载评论"))
         releaseRequest("course-comments")
         assertUI(app.alerts["加载评论失败"].appears(timeout: 5), "评论读取失败应保留错误原因。")
@@ -131,11 +142,13 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testFailedPaperSortKeepsTheDisplayedConditionVisible() {
+    @objc func testFailedPaperSortKeepsDisplayedVisible() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         assertUI(textElement("自动化测试文章").appears(timeout: 5), "文章首屏应完成加载。")
-        assertUI(UITestControlClient.request(["command": "fail-request", "key": "papers"]) == "queued", "场景应准备下一次文章读取故障。")
+        assertUI(
+            UITestControlClient.request(["command": "fail-request", "key": "papers"]) == "queued",
+            "场景应准备下一次文章读取故障。")
         tapHeader(app.segmentedControls.buttons["高赞"])
         assertUI(app.alerts["刷新文章失败"].appears(timeout: 5), "切换排序失败应保留已加载的文章。")
         closeAlertIfPresent()
@@ -146,7 +159,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testUploadedCommentImageCanBePreviewedAndRemoved() {
+    @objc func testUploadedCommentImageCanBePreviewed() {
         openDetail("poster", mediaLinks: true)
         tap("评论帖子")
         replaceText("移除误选评论图片", in: app.textFields.firstMatch)
@@ -174,7 +187,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testSuggestionSaveWaitsForSelectedImageImport() {
+    @objc func testSuggestionSaveWaitsSelectedImageImport() {
         app = configureApp(resetStorage: true, content: true, imageImportHold: true)
         openSettings("suggestion")
         replaceText("等待图片导入的建议", in: app.textFields["建议内容"])
@@ -198,7 +211,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testReportEditingAndSubmissionKeepTheirSheet() {
+    @objc func testReportEditing() {
         openDetail("poster")
         func openReport() {
             let comment = textElement("自动化测试评论")
@@ -210,17 +223,23 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         replaceText("保留举报说明", in: app.textFields["gallery.report.reason"])
         dismissKeyboard()
         swipeSheetHeader(app.navigationBars["举报评论"])
-        assertUI(app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "下滑应保留当前举报说明。")
+        assertUI(
+            app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "下滑应保留当前举报说明。")
         tap("取消")
         tap("继续编辑")
-        assertUI(app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "继续编辑应保留举报载荷。")
+        assertUI(
+            app.textFields["gallery.report.reason"].value as? String == "保留举报说明", "继续编辑应保留举报载荷。")
         tap("取消")
         tap("放弃输入")
         openReport()
         replaceText("等待举报回执", in: app.textFields["gallery.report.reason"])
         dismissKeyboard()
-        assertUI(UITestControlClient.request(["command": "hold-request", "key": "manage/reports"]) == "queued", "举报提交应进入受控等待。")
-        defer { _ = UITestControlClient.request(["command": "release-request", "key": "manage/reports"]) }
+        assertUI(
+            UITestControlClient.request(["command": "hold-request", "key": "manage/reports"])
+                == "queued", "举报提交应进入受控等待。")
+        defer {
+            _ = UITestControlClient.request(["command": "release-request", "key": "manage/reports"])
+        }
         tap("提交举报")
         waitForRequest("manage/reports")
         swipeSheetHeader(app.navigationBars["举报评论"])
@@ -232,9 +251,10 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testContentControlsRemainAvailableAtAccessibilityTextSizes() {
+    @objc func testContentControlsRemainSizes() {
         for style in ["Light", "Dark"] {
-            app = configureApp(resetStorage: true, accessibilityTextSize: true, userInterfaceStyle: style,
+            app = configureApp(
+                resetStorage: true, accessibilityTextSize: true, userInterfaceStyle: style,
                 content: true, media: true, longTags: true, initialTab: "home")
             tapHeader(app.segmentedControls.buttons["课程"])
             let course = textElement("自动化测试课程")
@@ -242,32 +262,46 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
             tap("自动化测试课程")
             let like = app.buttons.matching(identifier: "ui.app-comment-action-bar.like").firstMatch
             reveal(like, description: "大字号评论操作")
-            assertUI(like.isHittable && like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
+            assertUI(
+                like.isHittable && like.frame.width.rounded() >= 44
+                    && like.frame.height.rounded() >= 44,
                 "大字号评论操作应保持完整触控区域：\(like.frame)。")
-            let author = app.buttons.matching(NSPredicate(format: "label == %@", "自动化测试用户")).firstMatch
+            let author = app.buttons.matching(NSPredicate(format: "label == %@", "自动化测试用户"))
+                .firstMatch
             reveal(author, description: "大字号评论作者")
-            assertUI(author.frame.height.rounded() >= 44 && author.isHittable, "评论昵称应保持原生触控尺寸：\(author.frame)。")
+            assertUI(
+                author.frame.height.rounded() >= 44 && author.isHittable,
+                "评论昵称应保持原生触控尺寸：\(author.frame)。")
             author.tapBriefly()
             assertUI(app.buttons["关注"].appears(timeout: 5), "昵称操作应进入含头像与统计的作者主页。")
             back()
             back()
             app.mainTab("我的").tapBriefly()
-            let followers = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@",
-                "ui.mine-stat-button.destination", "粉丝")).firstMatch
+            let followers = app.buttons.matching(
+                NSPredicate(
+                    format: "identifier == %@ AND label == %@",
+                    "ui.mine-stat-button.destination", "粉丝")
+            ).firstMatch
             reveal(followers, description: "大字号主页统计")
-            assertUI(followers.isHittable && followers.frame.height.rounded() >= 44,
+            assertUI(
+                followers.isHittable && followers.frame.height.rounded() >= 44,
                 "头像统计区域应提供可触达的粉丝入口：\(followers.frame)。")
             followers.tapBriefly()
             assertUI(app.navigationBars["我的粉丝"].appears(timeout: 5), "大字号统计入口应打开对应列表。")
             back()
             app.mainTab("话廊").tapBriefly()
             tapHeader(app.segmentedControls.buttons["最新"])
-            let tags = app.scrollViews.matching(identifier: "interaction.CommunityPosterCard.scroll").firstMatch
+            let tags = app.scrollViews.matching(
+                identifier: "interaction.CommunityPosterCard.scroll"
+            ).firstMatch
             reveal(tags, description: "大字号长标签")
             tags.native.swipeLeft(velocity: .slow)
-            assertUI(app.segmentedControls.buttons["最新"].isSelected && app.sectionTab("话题").isSelected,
+            assertUI(
+                app.segmentedControls.buttons["最新"].isSelected && app.sectionTab("话题").isSelected,
                 "横向标签滚动应保持当前信息流分区。")
-            let posterBody = app.descendants(matching: .any).matching(identifier: "community.poster.1").firstMatch
+            let posterBody = app.descendants(matching: .any).matching(
+                identifier: "community.poster.1"
+            ).firstMatch
             reveal(posterBody, description: "话题正文横滑区域")
             posterBody.swipeLeft()
             assertUI(!app.segmentedControls.buttons["最新"].isSelected, "标签区域外应继续支持分区切换。")
@@ -276,7 +310,8 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
 
     @MainActor
     private func openDetail(_ kind: String, mediaLinks: Bool = false) {
-        app = configureApp(resetStorage: true, content: true, animations: true, media: mediaLinks,
+        app = configureApp(
+            resetStorage: true, content: true, animations: true, media: mediaLinks,
             commentMediaLinks: mediaLinks, initialTab: kind == "course" ? "home" : "gallery")
         if kind == "course" { tapHeader(app.sectionTab("课程")) }
         if kind == "paper" { tapHeader(app.sectionTab("文章")) }
@@ -286,10 +321,13 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
     private func selectFirstPhoto() {
         let platform = UIElement(app.native)
-        let first = UIElement(app.native.images.matching(identifier: "PXGGridLayout-Info").firstMatch)
+        let first = UIElement(
+            app.native.images.matching(identifier: "PXGGridLayout-Info").firstMatch)
         assertUI(first.appears(timeout: 30), "照片选择器应展示固定测试图片。")
         first.tapBriefly()
-        let add = platform.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@", "Add", ["添加", "完成", "Done"])).firstMatch
+        let add = platform.buttons.matching(
+            NSPredicate(format: "identifier == %@ OR label IN %@", "Add", ["添加", "完成", "Done"])
+        ).firstMatch
         assertUI(add.appears(timeout: 5), "选择图片后应提供添加操作。")
         add.tapBriefly()
         assertUI(first.disappears(timeout: 5), "确认选择应返回编辑器。")

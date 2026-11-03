@@ -15,4 +15,3 @@ public protocol UserProfileServicing: CommunityResourceObserving {
 }
 
 extension MineService: MineOverviewServicing, UserProfileServicing {}
-

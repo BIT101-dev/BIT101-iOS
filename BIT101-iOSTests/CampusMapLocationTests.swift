@@ -1,11 +1,12 @@
-@testable import ScheduleFeature
-@testable import MapFeature
-import ScheduleContracts
-import Foundation
-import Testing
 import CoreLocation
+import Foundation
 import MapKit
+import ScheduleContracts
+import Testing
+
 @testable import BIT101_iOS
+@testable import MapFeature
+@testable import ScheduleFeature
 
 private final class CampusMapFixtureBundleToken {}
 
@@ -32,9 +33,15 @@ private final class MapViewLocationFixture: MKMapView {
         get { displayingLocation }
         set { displayingLocation = newValue }
     }
-    override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) { centered = coordinate }
-    override func setUserTrackingMode(_ mode: MKUserTrackingMode, animated: Bool) { tracking = mode }
-    override func setCamera(_ camera: MKMapCamera, animated: Bool) { cameraAnimations.append(animated) }
+    override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) {
+        centered = coordinate
+    }
+    override func setUserTrackingMode(_ mode: MKUserTrackingMode, animated: Bool) {
+        tracking = mode
+    }
+    override func setCamera(_ camera: MKMapCamera, animated: Bool) {
+        cameraAnimations.append(animated)
+    }
 }
 
 private struct CampusMapLocationFixture: Decodable {
@@ -48,8 +55,10 @@ private struct CampusMapLocationFixture: Decodable {
 @Suite("Campus map location matching")
 struct CampusMapLocationTests {
     @Test(.timeLimit(.minutes(1)))
-    @MainActor func hiddenMapStopsLocationAndIgnoresLateUpdates() {
-        let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator(), request = UUID()
+    @MainActor func hiddenMapStopsLocation() {
+        let map = MapViewLocationFixture()
+        let coordinator = CampusNativeMapView.Coordinator()
+        let request = UUID()
         coordinator.updateLocation(in: map, active: true, requestID: request)
         #expect(map.showsUserLocation && map.tracking == .follow)
         coordinator.updateLocation(in: map, active: false, requestID: request)
@@ -64,18 +73,22 @@ struct CampusMapLocationTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    @MainActor func directionsHandoffRetainsDestinationAndOffersRetry(opened: Bool) throws {
+    @MainActor func directionsHandoffRetainsDestination(opened: Bool) throws {
         let controller = CampusLocationController(manager: MapLocationManagerFixture())
-        let place = try #require(CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
+        let place = try #require(
+            CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
         controller.openDirections(to: place) { destination, options in
             #expect(destination.name == place.name)
             #expect(destination.placemark.coordinate.latitude == place.coordinate.latitude)
             #expect(destination.placemark.coordinate.longitude == place.coordinate.longitude)
-            #expect(options[MKLaunchOptionsDirectionsModeKey] as? String == MKLaunchOptionsDirectionsModeWalking)
+            #expect(
+                options[MKLaunchOptionsDirectionsModeKey] as? String
+                    == MKLaunchOptionsDirectionsModeWalking)
             return opened
         }
-        if opened { #expect(controller.notice == nil) }
-        else {
+        if opened {
+            #expect(controller.notice == nil)
+        } else {
             let notice = try #require(controller.notice)
             #expect(notice.message.contains("再次点按步行导航"))
             #expect(!notice.allowsDiagnostics && !notice.showsRecoveryLinks)
@@ -86,8 +99,10 @@ struct CampusMapLocationTests {
 
     @Test(arguments: [false, true])
     @MainActor func cameraRequestsRespectReducedMotion(reduced: Bool) throws {
-        let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()
-        let place = try #require(CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
+        let map = MapViewLocationFixture()
+        let coordinator = CampusNativeMapView.Coordinator()
+        let place = try #require(
+            CampusMapPlaceCatalog.place(campusName: "良乡校区", classroom: "良乡体育馆篮球场"))
         coordinator.reduceMotion = reduced
         map.cameraAnimations = []
         coordinator.focus(on: CampusPreset.liangxiang, in: map, animated: true)
@@ -100,14 +115,14 @@ struct CampusMapLocationTests {
     @MainActor func authorizationAndRevocation() throws {
         let manager = MapLocationManagerFixture()
         let controller = CampusLocationController(manager: manager)
-        controller.requestAuthorizationIfNeeded()
+        controller.authorizeIfNeeded()
         #expect(manager.authorizationRequests == 1)
         #expect(!controller.isAuthorized)
         for status in [CLAuthorizationStatus.authorizedWhenInUse, .authorizedAlways] {
             manager.status = status
             controller.locationManagerDidChangeAuthorization(manager)
             #expect(controller.isAuthorized)
-            controller.requestAuthorizationIfNeeded()
+            controller.authorizeIfNeeded()
             #expect(manager.authorizationRequests == 1)
             #expect(controller.notice == nil)
         }
@@ -115,7 +130,7 @@ struct CampusMapLocationTests {
             manager.status = status
             controller.locationManagerDidChangeAuthorization(manager)
             #expect(!controller.isAuthorized)
-            controller.requestAuthorizationIfNeeded()
+            controller.authorizeIfNeeded()
             let notice = try #require(controller.notice)
             #expect(notice.title == "定位不可用")
             #expect(notice.recoveryAction == .openAppSettings)
@@ -124,10 +139,13 @@ struct CampusMapLocationTests {
         }
     }
 
-    @Test("Available precise and approximate positions center the native map", arguments: [0.0, 3_000.0])
+    @Test(
+        "Available precise and approximate positions center the native map",
+        arguments: [0.0, 3_000.0])
     @MainActor func availablePositionCentersMap(accuracy: Double) throws {
         let map = MapViewLocationFixture()
-        map.position.position = CLLocation(coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
+        map.position.position = CLLocation(
+            coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
             horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: Date())
         let coordinator = CampusNativeMapView.Coordinator()
         coordinator.centerOnUser(in: map, requestID: UUID())
@@ -139,9 +157,12 @@ struct CampusMapLocationTests {
     @Test("A fresh usable position completes a request after stale or invalid fixes")
     @MainActor func staleAndInvalidPositionsWaitForANewFix() {
         for (age, accuracy) in [(-3_600.0, 20.0), (0.0, -1.0)] {
-            let map = MapViewLocationFixture(), coordinator = CampusNativeMapView.Coordinator()
-            let stale = CLLocation(coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
-                horizontalAccuracy: accuracy, verticalAccuracy: 0, timestamp: Date().addingTimeInterval(age))
+            let map = MapViewLocationFixture()
+            let coordinator = CampusNativeMapView.Coordinator()
+            let stale = CLLocation(
+                coordinate: .init(latitude: 39.7, longitude: 116.2), altitude: 0,
+                horizontalAccuracy: accuracy, verticalAccuracy: 0,
+                timestamp: Date().addingTimeInterval(age))
             map.position.position = stale
             coordinator.centerOnUser(in: map, requestID: UUID())
             coordinator.mapView(map, didUpdate: map.position)
@@ -198,11 +219,12 @@ struct CampusMapLocationTests {
     @Test("All retained timetable locations match their calibrated map place")
     func matchesRealTimetableLocations() throws {
         let bundle = Bundle(for: CampusMapFixtureBundleToken.self)
-        let fixtureURL = bundle.url(
-            forResource: "campus-map-locations",
-            withExtension: "json",
-            subdirectory: "Fixtures"
-        ) ?? bundle.url(forResource: "campus-map-locations", withExtension: "json")
+        let fixtureURL =
+            bundle.url(
+                forResource: "campus-map-locations",
+                withExtension: "json",
+                subdirectory: "Fixtures"
+            ) ?? bundle.url(forResource: "campus-map-locations", withExtension: "json")
         let url = try #require(fixtureURL)
         let fixtures = try JSONDecoder().decode(
             [CampusMapLocationFixture].self,
@@ -212,7 +234,9 @@ struct CampusMapLocationTests {
         #expect(!fixtures.isEmpty)
         #expect(Set(fixtures.map { [$0.campus, $0.classroom] }).count == fixtures.count)
         for fixture in fixtures {
-            try #require(fixture.review != .pending, "Awaiting location review: \(fixture.campus) / \(fixture.classroom)")
+            try #require(
+                fixture.review != .pending,
+                "Awaiting location review: \(fixture.campus) / \(fixture.classroom)")
             let parsed = ScheduleDisplayNormalizer.compactLocation(for: fixture.classroom)
             #expect(
                 !parsed.lightText.isEmpty,
@@ -233,7 +257,10 @@ struct CampusMapLocationTests {
                 #expect(fixture.expected == nil)
                 #expect(
                     place == nil,
-                    "Excluded location unexpectedly created a pin: \(fixture.campus) / \(fixture.classroom)"
+                    """
+                    Excluded location unexpectedly created a pin: \(fixture.campus) / \
+                    \(fixture.classroom)
+                    """
                 )
             }
         }
@@ -241,14 +268,16 @@ struct CampusMapLocationTests {
 
     @Test("Same display name remains isolated by campus")
     func separatesSameNamedPlacesByCampus() throws {
-        let zhongguancun = try #require(CampusMapPlaceCatalog.place(
-            campusName: "中关村校区",
-            classroom: "中关村体育馆北厅140"
-        ))
-        let liangxiang = try #require(CampusMapPlaceCatalog.place(
-            campusName: "良乡校区",
-            classroom: "良乡体育馆篮球场"
-        ))
+        let zhongguancun = try #require(
+            CampusMapPlaceCatalog.place(
+                campusName: "中关村校区",
+                classroom: "中关村体育馆北厅140"
+            ))
+        let liangxiang = try #require(
+            CampusMapPlaceCatalog.place(
+                campusName: "良乡校区",
+                classroom: "良乡体育馆篮球场"
+            ))
 
         #expect(zhongguancun.name == "体育馆")
         #expect(liangxiang.name == "体育馆")
@@ -263,10 +292,11 @@ struct CampusMapLocationTests {
         for (classroom, expected) in [
             ("理科教学楼201", "理教楼"), ("理教201", "理教楼"),
             ("工科实训楼101", "工训楼"), ("良乡实训楼101", "工训楼"),
-            ("实训楼101", "工训楼"), ("工程训练中心101", "工训楼"), ("工训101", "工训楼")
+            ("实训楼101", "工训楼"), ("工程训练中心101", "工训楼"), ("工训101", "工训楼"),
         ] {
             for campusName in ["良乡校区", ""] {
-                let place = try #require(CampusMapPlaceCatalog.place(campusName: campusName, classroom: classroom))
+                let place = try #require(
+                    CampusMapPlaceCatalog.place(campusName: campusName, classroom: classroom))
                 #expect(place.campus == .liangxiang && place.name == expected)
             }
             #expect(CampusMapPlaceCatalog.place(campusName: "中关村校区", classroom: classroom) == nil)

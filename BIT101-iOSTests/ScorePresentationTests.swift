@@ -1,38 +1,43 @@
-import Combine
-import ScoreDomain
-import ScorePorts
-import ScheduleDomain
-import SchedulePorts
-@testable import ScoreInfrastructure
-import CommunityTransport
-import CommunityCore
-@testable import GalleryFeature
-@testable import CommunityUI
-@testable import ScheduleFeature
-@testable import MediaKit
-@testable import ScoreFeature
-import StorageCore
-import TransportCore
 import ClientCore
-import ScheduleContracts
-import ScheduleActivityContracts
+import Combine
+import CommunityCore
+import CommunityTransport
+import DesignSystemKit
 import Foundation
 import Network
-import os
+import ScheduleActivityContracts
+import ScheduleContracts
+import ScheduleDomain
+import SchedulePorts
+import ScoreDomain
+import ScorePorts
 import Security
+import StorageCore
+import SwiftUI
 import Testing
+import TransportCore
 import UIKit
 import XCTest
-import SwiftUI
-import DesignSystemKit
+import os
+
 @testable import BIT101_iOS
+@testable import CommunityUI
+@testable import GalleryFeature
+@testable import MediaKit
+@testable import ScheduleFeature
+@testable import ScoreFeature
+@testable import ScoreInfrastructure
 
 @Suite("Score presentation logic", .serialized)
 struct ScorePresentationTests {
     @Test func serviceFailuresProvidePresentationDetails() {
-        let challenge = BITLoginAuthenticationChallenge(challengeID: "fixture", accessToken: "token",
+        let challenge = BITLoginAuthenticationChallenge(
+            challengeID: "fixture", accessToken: "token",
             status: "sms_required", maskedPhone: nil, expiresIn: 120)
-        for error in [ScoreServiceError.missingCredentials, .invalidResponse, .requestTimedOut, .secondFactorRequired(challenge)] {
+        for error in [
+            ScoreServiceError.missingCredentials, .invalidResponse, .requestTimedOut,
+            .secondFactorRequired(challenge),
+        ] {
             #expect(error.errorDescription?.isEmpty == false)
         }
         #expect(ScoreServiceError.challengeInvalid("认证上下文已变化").errorDescription == "认证上下文已变化")
@@ -61,22 +66,27 @@ struct ScorePresentationTests {
 @Suite("Adaptive page lifetime")
 struct AdaptivePageLifetimeTests {
     @Test(.timeLimit(.minutes(1)))
-    func switchingSectionsPreservesDraftsAndInheritedVisibility() async throws {
+    func switchingSectionsPreservesDrafts() async throws {
         let probe = Probe()
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: Host(probe: probe, showsFirst: true, isVisible: true))
+        let controller = UIHostingController(
+            rootView: Host(probe: probe, showsFirst: true, isVisible: true))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
         defer {
-            window.isHidden = true; window.rootViewController = nil
+            window.isHidden = true
+            window.rootViewController = nil
             previousWindow?.makeKeyAndVisible()
         }
         func wait(_ phase: String, _ condition: () -> Bool) async throws {
-            do { try await waitForTestEvent { condition() } }
-            catch { Issue.record("\(phase)：可见性 \(probe.visibility)，草稿页 \(probe.drafts.keys.sorted())"); throw error }
+            do { try await waitForTestEvent { condition() } } catch {
+                Issue.record("\(phase)：可见性 \(probe.visibility)，草稿页 \(probe.drafts.keys.sorted())")
+                throw error
+            }
         }
         func display(_ showsFirst: Bool, _ isVisible: Bool = true) {
             controller.rootView = Host(probe: probe, showsFirst: showsFirst, isVisible: isVisible)
@@ -86,17 +96,23 @@ struct AdaptivePageLifetimeTests {
         let score = try #require(probe.drafts["score"])
         score.wrappedValue = "成绩阅读草稿"
         display(false)
-        try await wait("切换课程") { probe.visibility["course"] == true && probe.visibility["score"] == false }
+        try await wait("切换课程") {
+            probe.visibility["course"] == true && probe.visibility["score"] == false
+        }
         let course = try #require(probe.drafts["course"])
         course.wrappedValue = "课程阅读草稿"
         display(true)
-        try await wait("返回成绩") { probe.visibility["score"] == true && probe.visibility["course"] == false }
+        try await wait("返回成绩") {
+            probe.visibility["score"] == true && probe.visibility["course"] == false
+        }
         #expect(probe.drafts["score"]?.wrappedValue == "成绩阅读草稿")
         #expect(probe.drafts["course"]?.wrappedValue == "课程阅读草稿")
         display(true, false)
         try await wait("隐藏父页") { probe.visibility.values.allSatisfy { !$0 } }
         display(true)
-        try await wait("恢复父页") { probe.visibility["score"] == true && probe.visibility["course"] == false }
+        try await wait("恢复父页") {
+            probe.visibility["score"] == true && probe.visibility["course"] == false
+        }
         #expect(probe.drafts["score"]?.wrappedValue == "成绩阅读草稿")
         #expect(probe.drafts["course"]?.wrappedValue == "课程阅读草稿")
     }
@@ -112,8 +128,13 @@ struct AdaptivePageLifetimeTests {
         var body: some View {
             AppPairedPages(showsFirst: showsFirst, pairsInLandscape: false) {
                 Page(name: "score", probe: probe)
-            } second: { Page(name: "course", probe: probe) }
-            .environment(\.appWindowLayout, AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true))
+            } second: {
+                Page(name: "course", probe: probe)
+            }
+            .environment(
+                \.appWindowLayout,
+                AppWindowLayout(size: CGSize(width: 1_194, height: 834), isRegularWidth: true)
+            )
             .environment(\.appPageIsVisible, isVisible)
         }
     }
@@ -125,15 +146,17 @@ struct AdaptivePageLifetimeTests {
         var body: some View {
             TextField("阅读草稿", text: $draft)
                 .onAppear { probe.drafts[name] = $draft }
-                .onChange(of: isVisible, initial: true) { _, value in probe.visibility[name] = value }
+                .onChange(of: isVisible, initial: true) { _, value in probe.visibility[name] = value
+                }
         }
     }
 }
 
 nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {
     @MainActor
-    func testAccessoryActionSurvivesCoordinatorReplacement() async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    func testAccessoryActionSurvivesReplacement() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIViewController()
@@ -151,11 +174,15 @@ nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {
             var owner: KeyboardBackgroundTapInstaller.Coordinator? = .init()
             owner?.attach(to: window)
             window.addSubview(input)
-            defer { input.resignFirstResponder(); input.removeFromSuperview() }
+            defer {
+                input.resignFirstResponder()
+                input.removeFromSuperview()
+            }
             XCTAssertTrue(input.becomeFirstResponder())
             try await waitForTestEvent { input.inputAccessoryView is UIToolbar }
             let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
-            let button = try XCTUnwrap(toolbar.items?.first { $0.accessibilityIdentifier == "keyboard.dismiss" })
+            let button = try XCTUnwrap(
+                toolbar.items?.first { $0.accessibilityIdentifier == "keyboard.dismiss" })
             owner?.detach()
             owner = nil
             var replacement: KeyboardBackgroundTapInstaller.Coordinator? = .init()
@@ -201,10 +228,12 @@ nonisolated final class KeyboardAccessoryOwnershipTests: XCTestCase {
             try await waitForTestEvent { input.inputAccessoryView is UIToolbar }
             let toolbar = try XCTUnwrap(input.inputAccessoryView as? UIToolbar)
             XCTAssertTrue(toolbar === original, "键盘附件恢复应保留原控件及其动作身份。")
-            NotificationCenter.default.post(name: UIResponder.keyboardDidShowNotification, object: nil)
+            NotificationCenter.default.post(
+                name: UIResponder.keyboardDidShowNotification, object: nil)
             await Task.yield()
             XCTAssertTrue(input.inputAccessoryView === toolbar, "键盘显示周期应保留已安装的附件。")
-            let buttons = toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" } ?? []
+            let buttons =
+                toolbar.items?.filter { $0.accessibilityIdentifier == "keyboard.dismiss" } ?? []
             XCTAssertEqual(buttons.count, 1)
             let button = try XCTUnwrap(buttons.first)
             try XCTUnwrap(button.customView as? UIButton).sendActions(for: .touchUpInside)

@@ -1,4 +1,5 @@
 import SchedulePorts
+
 #if os(iOS)
 import ClientCore
 import TransportCore
@@ -47,7 +48,8 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
 
     @ObservedObject private var viewModel: ScheduleViewModel
     @Environment(\.appInteractionEvidence) private var interactionEvidence
-    @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
+    @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode =
+        ScheduleCalendarAxisMode.quantized.rawValue
     @State private var isShowingTimeTableEditor = false
     @State private var timeTableText = ""
     @State private var isShowingSemesterStartDatePicker = false
@@ -69,15 +71,19 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     @State private var renamingScheduleTarget: RenamingScheduleTarget?
 
     private var normalizedLeadMinutes: Int {
-        SchedulePresentationPreferences.normalizedLeadMinutes(viewModel.settingsSnapshot.courseLiveActivityLeadMinutes)
+        SchedulePresentationPreferences.normalizedLeadMinutes(
+            viewModel.settingsSnapshot.courseLiveActivityLeadMinutes)
     }
 
     private var iCloudSyncSection: some View {
         Section {
-            Toggle("iCloud 多端同步", isOn: Binding(
-                get: { viewModel.settingsSnapshot.iCloudSyncEnabled },
-                set: { viewModel.setICloudSyncEnabled($0) }
-            ))
+            Toggle(
+                "iCloud 多端同步",
+                isOn: Binding(
+                    get: { viewModel.settingsSnapshot.iCloudSyncEnabled },
+                    set: { viewModel.setICloudSyncEnabled($0) }
+                )
+            )
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.iCloudSyncEnabled)
             .appInteractiveListRow()
             .disabled(!viewModel.isCacheWritable)
@@ -93,8 +99,11 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 ScheduleTermPickerPage(viewModel: viewModel)
             } label: {
                 LabeledContent {
-                    Text(viewModel.settingsSnapshot.currentTerm.isEmpty ? "未设置" : viewModel.settingsSnapshot.currentTerm)
-                        .foregroundStyle(.tint)
+                    Text(
+                        viewModel.settingsSnapshot.currentTerm.isEmpty
+                            ? "未设置" : viewModel.settingsSnapshot.currentTerm
+                    )
+                    .foregroundStyle(.tint)
                 } label: {
                     Text("当前学期")
                 }
@@ -106,9 +115,11 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 } label: {
                     LabeledContent("学期起始日期", value: viewModel.settingsSnapshot.firstDayString)
                 }
-                .disabled(viewModel.settingsSnapshot.currentTerm.isEmpty || !viewModel.isCacheWritable)
+                .disabled(
+                    viewModel.settingsSnapshot.currentTerm.isEmpty || !viewModel.isCacheWritable
+                )
                 .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.calendar-settings-page.学期起始日期")
+                .accessibilityIdentifier("ui.calendar-settings-page.学期起始日期")
             }
             Button("时间表") {
                 timeTableText = viewModel.settingsSnapshot.timeTableText
@@ -122,7 +133,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             .appInteractiveListRow()
 
             Button("导入课表") {
-                presentImportGuideIfNeeded(openImportAfterGuide: true)
+                presentImportGuide(openImportAfterGuide: true)
             }
             .appInteractiveListRow()
 
@@ -131,7 +142,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .disabled(isUpdatingSystemCalendar)
             .appInteractiveListRow()
-                .accessibilityIdentifier("ui.calendar-settings-page.导入到系统日历")
+            .accessibilityIdentifier("ui.calendar-settings-page.导入到系统日历")
 
             Button("删除已导入的日历", role: .destructive) {
                 isShowingSystemCalendarDeleteConfirmation = true
@@ -187,12 +198,16 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
 
     private var displaySettingsSection: some View {
         Section {
-            Picker(selection: Binding(
-                get: { ScheduleCalendarAxisMode(rawValue: storedCalendarAxisMode) ?? .quantized },
-                set: {
-                    storedCalendarAxisMode = $0.rawValue
-                }
-            )) {
+            Picker(
+                selection: Binding(
+                    get: {
+                        ScheduleCalendarAxisMode(rawValue: storedCalendarAxisMode) ?? .quantized
+                    },
+                    set: {
+                        storedCalendarAxisMode = $0.rawValue
+                    }
+                )
+            ) {
                 ForEach(ScheduleCalendarAxisMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -202,10 +217,12 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             .appSelectionFeedback(trigger: storedCalendarAxisMode)
             .appInteractiveListRow()
 
-            Picker(selection: Binding(
-                get: { viewModel.settingsSnapshot.scheduleDisplayMode },
-                set: { viewModel.setScheduleDisplayMode($0) }
-            )) {
+            Picker(
+                selection: Binding(
+                    get: { viewModel.settingsSnapshot.scheduleDisplayMode },
+                    set: { viewModel.setScheduleDisplayMode($0) }
+                )
+            ) {
                 ForEach(ScheduleDisplayMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -214,10 +231,12 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleDisplayMode)
             .appInteractiveListRow()
-            Picker(selection: Binding(
-                get: { viewModel.settingsSnapshot.scheduleCardContentMode },
-                set: { viewModel.setScheduleCardContentMode($0) }
-            )) {
+            Picker(
+                selection: Binding(
+                    get: { viewModel.settingsSnapshot.scheduleCardContentMode },
+                    set: { viewModel.setCardContentMode($0) }
+                )
+            ) {
                 ForEach(ScheduleCardContentMode.allCases) { mode in
                     Text(mode.title).tag(mode)
                 }
@@ -226,26 +245,46 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleCardContentMode)
             .appInteractiveListRow()
-            Toggle("显示周六", isOn: Binding(get: { viewModel.settingsSnapshot.showSaturday }, set: viewModel.setShowSaturday))
-                .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSaturday)
+            Toggle(
+                "显示周六",
+                isOn: Binding(
+                    get: { viewModel.settingsSnapshot.showSaturday },
+                    set: viewModel.setShowSaturday)
+            )
+            .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSaturday)
             .appInteractiveListRow()
-            Toggle("显示周日", isOn: Binding(get: { viewModel.settingsSnapshot.showSunday }, set: viewModel.setShowSunday))
-                .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSunday)
+            Toggle(
+                "显示周日",
+                isOn: Binding(
+                    get: { viewModel.settingsSnapshot.showSunday }, set: viewModel.setShowSunday
+                )
+            )
+            .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showSunday)
             .appInteractiveListRow()
-            Toggle("显示考试安排", isOn: Binding(get: { viewModel.settingsSnapshot.showExamInfo }, set: viewModel.setShowExamInfo))
-                .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showExamInfo)
+            Toggle(
+                "显示考试安排",
+                isOn: Binding(
+                    get: { viewModel.settingsSnapshot.showExamInfo },
+                    set: viewModel.setShowExamInfo)
+            )
+            .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showExamInfo)
             .appInteractiveListRow()
-            Toggle("显示灵动岛提醒（实验性）", isOn: Binding(
-                get: { viewModel.settingsSnapshot.showCourseLiveActivityReminder },
-                set: { enabled in
-                    if enabled {
-                        isShowingLiveActivityExperimentalWarning = true
-                    } else {
-                        viewModel.setShowCourseLiveActivityReminder(false)
+            Toggle(
+                "显示灵动岛提醒（实验性）",
+                isOn: Binding(
+                    get: { viewModel.settingsSnapshot.showCourseLiveActivityReminder },
+                    set: { enabled in
+                        if enabled {
+                            isShowingLiveActivityExperimentalWarning = true
+                        } else {
+                            viewModel.setActivityReminder(false)
+                        }
                     }
-                }
-            ))
-            .appSelectionFeedback(trigger: viewModel.settingsSnapshot.showCourseLiveActivityReminder)
+                )
+            )
+            .appSelectionFeedback(
+                trigger: viewModel.settingsSnapshot.showCourseLiveActivityReminder
+            )
             .appInteractiveListRow()
             Button {
                 guard viewModel.settingsSnapshot.showCourseLiveActivityReminder else { return }
@@ -261,11 +300,13 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .buttonStyle(.plain)
             .disabled(!viewModel.settingsSnapshot.showCourseLiveActivityReminder)
-            .opacity(viewModel.settingsSnapshot.showCourseLiveActivityReminder
-                ? AppDesignSystem.Opacity.full
-                : AppDesignSystem.Schedule.reminderDisabledOpacity)
+            .opacity(
+                viewModel.settingsSnapshot.showCourseLiveActivityReminder
+                    ? AppDesignSystem.Opacity.full
+                    : AppDesignSystem.Schedule.reminderDisabledOpacity
+            )
             .appInteractiveListRow()
-                .accessibilityIdentifier("ui.calendar-settings-page.提前显示阈值")
+            .accessibilityIdentifier("ui.calendar-settings-page.提前显示阈值")
         } header: {
             AppListSectionHeader("显示设置")
         }
@@ -296,7 +337,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         .task {
             await viewModel.loadIfNeeded()
             if viewModel.settingsSnapshot.courseLiveActivityLeadMinutes != normalizedLeadMinutes {
-                viewModel.setCourseLiveActivityLeadMinutes(normalizedLeadMinutes)
+                viewModel.setActivityLeadMinutes(normalizedLeadMinutes)
             }
         }
         .sheet(isPresented: $isShowingTimeTableEditor) {
@@ -307,7 +348,8 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                         try viewModel.setTimeTable(from: timeTableText)
                         isShowingTimeTableEditor = false
                     } catch {
-                        viewModel.notice = ScheduleNotice.userInput(title: "设置失败", message: error.localizedDescription)
+                        viewModel.notice = ScheduleNotice.userInput(
+                            title: "设置失败", message: error.localizedDescription)
                     }
                 }
             )
@@ -328,7 +370,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 CourseLiveActivityLeadMinutesPickerPage(
                     value: Binding(
                         get: { normalizedLeadMinutes },
-                        set: viewModel.setCourseLiveActivityLeadMinutes
+                        set: viewModel.setActivityLeadMinutes
                     )
                 )
             }
@@ -336,12 +378,16 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         .sheet(item: $exportedScheduleCode) { payload in
             ScheduleExportCodeSheet(code: payload.code)
         }
-        .sheet(item: $importSheetPresentation, onDismiss: {
-            if didImportSchedule {
-                didImportSchedule = false
-                viewModel.notice = ScheduleNotice.informational(title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+        .sheet(
+            item: $importSheetPresentation,
+            onDismiss: {
+                if didImportSchedule {
+                    didImportSchedule = false
+                    viewModel.notice = ScheduleNotice.informational(
+                        title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+                }
             }
-        }) { _ in
+        ) { _ in
             ScheduleImportCodeSheet(
                 initialText: "",
                 appStoreURL: appStoreURL,
@@ -358,7 +404,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 switch target.kind {
                 case .primary:
                     try viewModel.renamePrimarySchedule(to: newName)
-                case let .shared(id):
+                case .shared(let id):
                     try viewModel.renameSharedSchedule(id: id, to: newName)
                 }
             }
@@ -368,7 +414,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissVerificationChallenge()
+                        viewModel.dismissChallenge()
                     }
                 }
             )
@@ -378,7 +424,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 isSubmitting: viewModel.isSubmittingVerificationCode,
                 errorMessage: viewModel.verificationError,
                 submitTitle: "验证并同步课表",
-                onCancel: viewModel.dismissVerificationChallenge,
+                onCancel: viewModel.dismissChallenge,
                 onSubmit: { code in
                     await viewModel.submitVerificationCode(code)
                 },
@@ -397,7 +443,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             isShowingCalendarHistoryRecoveryConfirmation = false
         }
         .alert("重建日历导入记录？", isPresented: $isShowingCalendarHistoryRecoveryConfirmation) {
-            Button("重建") { rebuildCalendarImportHistory() }
+            Button("重建") { rebuildCalendarHistory() }
                 .accessibilityIdentifier("schedule.calendar.recover-history.confirm")
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("schedule.calendar.recover-history.cancel")
@@ -410,7 +456,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             Button("确定") {
                 exportScheduleCode(allowEmptyCourseData: true)
             }
-                .accessibilityIdentifier("ui.calendar-settings-page.confirm")
+            .accessibilityIdentifier("ui.calendar-settings-page.confirm")
         } message: {
             Text("当前课表为空，仍要分享？")
         }
@@ -418,14 +464,14 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("schedule.reminder-warning.cancel")
             Button("继续打开") {
-                viewModel.setShowCourseLiveActivityReminder(true)
+                viewModel.setActivityReminder(true)
             }
         } message: {
             Text("灵动岛提醒使用多重保护逻辑，并遵循系统唤醒条件；部分课程提醒可能延后或缺失。继续打开表示你已了解这项限制。")
         }
         .alert("导入当前学期到系统日历？", isPresented: $isShowingSystemCalendarImportConfirmation) {
             Button("导入并替换本学期旧事件") {
-                importCurrentTermToSystemCalendar()
+                importTermToCalendar()
             }
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("schedule.calendar-import.cancel")
@@ -434,9 +480,9 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         }
         .alert("删除 BIT101 导入的日历事件？", isPresented: $isShowingSystemCalendarDeleteConfirmation) {
             Button("删除", role: .destructive) {
-                deleteImportedSystemCalendarEvents()
+                deleteImportedEvents()
             }
-                .accessibilityIdentifier("ui.calendar-settings-page.delete")
+            .accessibilityIdentifier("ui.calendar-settings-page.delete")
             Button("取消", role: .cancel) {}
                 .accessibilityIdentifier("schedule.calendar-delete.cancel")
         } message: {
@@ -450,11 +496,11 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 }
                 shouldOpenImportSheetAfterGuide = false
             }
-                .accessibilityIdentifier("ui.calendar-settings-page.知道了")
+            .accessibilityIdentifier("ui.calendar-settings-page.知道了")
             Button("取消", role: .cancel) {
                 shouldOpenImportSheetAfterGuide = false
             }
-                .accessibilityIdentifier("schedule.import-guide.cancel")
+            .accessibilityIdentifier("schedule.import-guide.cancel")
         } message: {
             Text("单击课表名称可改名，左滑可删除；在日程界面上下滑可循环切换课表；每个小组件使用自己的课表作为数据源。")
         }
@@ -466,8 +512,10 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         isUpdatingSystemCalendar = false
     }
 
-    private func performCalendarMutation(failureTitle: String,
-        operation: @escaping @MainActor () async throws -> ScheduleNotice) {
+    private func performCalendarMutation(
+        failureTitle: String,
+        operation: @escaping @MainActor () async throws -> ScheduleNotice
+    ) {
         cancelCalendarMutation()
         let account = viewModel.accountGeneration
         let generation = calendarMutationGeneration
@@ -484,8 +532,10 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
                 if let calendarError = error as? ScheduleSystemCalendarError {
-                    viewModel.notice = ScheduleNotice.userInput(title: failureTitle, message: calendarError.localizedDescription,
-                        recoveryAction: calendarError.requiresCalendarSettings ? .openAppSettings : nil)
+                    viewModel.notice = ScheduleNotice.userInput(
+                        title: failureTitle, message: calendarError.localizedDescription,
+                        recoveryAction: calendarError.requiresCalendarSettings
+                            ? .openAppSettings : nil)
                 } else {
                     viewModel.notice = ScheduleNotice(title: failureTitle, error: error)
                 }
@@ -493,27 +543,31 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         }
     }
 
-    private func importCurrentTermToSystemCalendar() {
+    private func importTermToCalendar() {
         performCalendarMutation(failureTitle: "导入失败") {
-            let count = try await viewModel.importCurrentTermToSystemCalendar()
-            return ScheduleNotice.informational(title: "导入成功", message: "已向“BIT101 课表”日历写入 \(count) 节课程。")
+            let count = try await viewModel.importTermToCalendar()
+            return ScheduleNotice.informational(
+                title: "导入成功", message: "已向“BIT101 课表”日历写入 \(count) 节课程。")
         }
     }
 
-    private func rebuildCalendarImportHistory() {
+    private func rebuildCalendarHistory() {
         performCalendarMutation(failureTitle: "重建导入记录失败") {
-            let count = try await viewModel.rebuildSystemCalendarImportHistory()
-            return ScheduleNotice.userInput(title: "导入记录已恢复", message: "已从系统日历恢复 \(count) 条 BIT101 事件记录。")
+            let count = try await viewModel.rebuildSystemHistory()
+            return ScheduleNotice.userInput(
+                title: "导入记录已恢复", message: "已从系统日历恢复 \(count) 条 BIT101 事件记录。")
         }
     }
 
-    private func deleteImportedSystemCalendarEvents() {
+    private func deleteImportedEvents() {
         performCalendarMutation(failureTitle: "删除失败") {
-            switch try await viewModel.deleteImportedSystemCalendarEvents() {
-            case let .changed(count):
-                return ScheduleNotice.informational(title: "删除成功", message: "已删除 \(count) 条由 BIT101 导入的日历事件。")
+            switch try await viewModel.deleteImportedEvents() {
+            case .changed(let count):
+                return ScheduleNotice.informational(
+                    title: "删除成功", message: "已删除 \(count) 条由 BIT101 导入的日历事件。")
             case .noOp:
-                return ScheduleNotice.informational(title: "无需删除", message: "系统日历中没有由 BIT101 导入的事件。")
+                return ScheduleNotice.informational(
+                    title: "无需删除", message: "系统日历中没有由 BIT101 导入的事件。")
             }
         }
     }
@@ -536,7 +590,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             do {
                 let code = try await viewModel.exportScheduleCode()
                 exportedScheduleCode = ExportedScheduleCode(code: code)
-            } catch where TaskCancellation.matches(error) {
+            } catch  where TaskCancellation.matches(error) {
                 return
             } catch {
                 viewModel.notice = ScheduleNotice(title: "导出失败", error: error)
@@ -545,7 +599,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
     }
 
     /// 导入前展示一次使用提示。
-    private func presentImportGuideIfNeeded(openImportAfterGuide: Bool) {
+    private func presentImportGuide(openImportAfterGuide: Bool) {
         shouldOpenImportSheetAfterGuide = openImportAfterGuide
 
         if !hasSeenSharedScheduleImportGuide {

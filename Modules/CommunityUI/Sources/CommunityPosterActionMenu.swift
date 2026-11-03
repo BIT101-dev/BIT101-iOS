@@ -23,19 +23,21 @@ public struct CommunityPosterActionMenu: View {
                 } label: {
                     menuLabel
                 }
-                    .accessibilityIdentifier("ui.community-poster-action-menu.menu")
+                .accessibilityIdentifier("ui.community-poster-action-menu.menu")
             } else {
                 Button {
                     isPresentingFallbackActions = true
                 } label: {
                     menuLabel
                 }
-                .confirmationDialog("", isPresented: $isPresentingFallbackActions, titleVisibility: .hidden) {
+                .confirmationDialog(
+                    "", isPresented: $isPresentingFallbackActions, titleVisibility: .hidden
+                ) {
                     menuActions
                     Button("取消", role: .cancel) {}
                         .accessibilityIdentifier("ui.community-poster-action-menu.cancel")
                 }
-                    .accessibilityIdentifier("ui.community-poster-action-menu.actions")
+                .accessibilityIdentifier("ui.community-poster-action-menu.actions")
             }
         }
         .buttonStyle(.plain)
@@ -59,10 +61,12 @@ public struct CommunityPosterActionMenu: View {
         Image(systemName: "ellipsis.circle")
             .font(AppDesignSystem.Typography.title)
             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            .frame(width: AppDesignSystem.Size.Control.touchTarget, height: AppDesignSystem.Size.Control.touchTarget)
+            .frame(
+                width: AppDesignSystem.Size.Control.touchTarget,
+                height: AppDesignSystem.Size.Control.touchTarget
+            )
             .accessibilityLabel("更多操作")
     }
 }
-
 
 #endif

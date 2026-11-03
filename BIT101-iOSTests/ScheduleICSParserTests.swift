@@ -1,10 +1,11 @@
+import Foundation
+import ScheduleDomain
 import SchedulePorts
+import Testing
+
+@testable import BIT101_iOS
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
-import ScheduleDomain
-import Foundation
-import Testing
-@testable import BIT101_iOS
 
 @Suite("Schedule iCalendar parsing")
 struct ScheduleICSParserTests {
@@ -16,8 +17,9 @@ struct ScheduleICSParserTests {
         "UID:first\nDTSTART;VALUE=DATE;value=DATE-TIME:20260810",
         "UID:first\nDTSTART:20260810T120000\nDESCRIPTION:a\nDESCRIPTION:b",
     ])
-    func rejectsAmbiguousEventPropertiesAndParameters(_ properties: String) {
-        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:作业\n\(properties)\nEND:VEVENT\nEND:VCALENDAR"
+    func rejectsAmbiguousEventProperties(_ properties: String) {
+        let ics =
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:作业\n\(properties)\nEND:VEVENT\nEND:VCALENDAR"
         #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
     }
 
@@ -36,43 +38,48 @@ struct ScheduleICSParserTests {
     }
 
     @Test("Teaching center falls back for DNS and transient authentication failures")
-    func recognizesDirectTeachingCenterFallbackErrors() {
+    func recognizesDirectTeachingErrors() {
         let service = ScheduleServiceFactory.make()
 
-        #expect(service.shouldAttemptDirectTeachingCenterFallback(for: URLError(.cannotFindHost)))
-        #expect(service.shouldAttemptDirectTeachingCenterFallback(
-            for: ScheduleServiceError.authenticationFailed("统一身份认证请求超时，请稍后重试")
-        ))
-        #expect(service.shouldAttemptDirectTeachingCenterFallback(
-            for: ScheduleServiceError.authenticationFailed("jxzxehall: 解析 service url 失败")
-        ))
-        #expect(!service.shouldAttemptDirectTeachingCenterFallback(
-            for: ScheduleServiceError.authenticationFailed("用户名或密码错误")
-        ))
-        #expect(!service.shouldAttemptDirectTeachingCenterFallback(
-            for: ScheduleServiceError.authenticationFailed("账号被锁定 (code:1030028) [risk=ustc-token, flow=replaced]")
-        ))
+        #expect(service.shouldTryDirectFallback(for: URLError(.cannotFindHost)))
+        #expect(
+            service.shouldTryDirectFallback(
+                for: ScheduleServiceError.authenticationFailed("统一身份认证请求超时，请稍后重试")
+            ))
+        #expect(
+            service.shouldTryDirectFallback(
+                for: ScheduleServiceError.authenticationFailed("jxzxehall: 解析 service url 失败")
+            ))
+        #expect(
+            !service.shouldTryDirectFallback(
+                for: ScheduleServiceError.authenticationFailed("用户名或密码错误")
+            ))
+        #expect(
+            !service.shouldTryDirectFallback(
+                for: ScheduleServiceError.authenticationFailed(
+                    "账号被锁定 (code:1030028) [risk=ustc-token, flow=replaced]")
+            ))
     }
 
     @Test("Events are unfolded, decoded and sorted")
     func parsesEvents() throws {
         let ics = """
-        BEGIN:VCALENDAR\r
-        BEGIN:VEVENT\r
-        UID:later\r
-        SUMMARY:实验\\,报告\r
-        DTSTART;TZID=Asia/Shanghai:20260810T120000\r
-        CATEGORIES:编译原理\r
-        DESCRIPTION:第一行\\n第二行很\r
-         长\r
-        END:VEVENT\r
-        BEGIN:VEVENT\r
-        UID:earlier\r
-        SUMMARY:作业\r
-        DTSTART:20260810T010000Z\r
-        END:VEVENT\r
-        END:VCALENDAR
-        """
+            BEGIN:VCALENDAR\r
+            BEGIN:VEVENT\r
+            UID:later\r
+            SUMMARY:实验\\,报告\r
+            DTSTART;TZID=Asia/Shanghai:20260810T120000\r
+            CATEGORIES:编译原理\r
+            DESCRIPTION:第一行\\n第二行很\r
+             长\r
+            END:VEVENT\r
+            BEGIN:VEVENT\r
+            UID:earlier\r
+            SUMMARY:作业\r
+            DTSTART:20260810T010000Z\r
+            END:VEVENT\r
+            END:VCALENDAR
+            """
 
         let events = try ScheduleICSParser.parse(ics)
         let later = try #require(events.first { $0.id == "later" })
@@ -95,11 +102,14 @@ struct ScheduleICSParserTests {
         #expect(components.hour == 0)
     }
 
-    @Test("Quoted URI parameters preserve delimiters and folded descriptions", arguments: [
-        "cid:part1@example.org", "https://example.org/task;part=1?view=details"
-    ])
+    @Test(
+        "Quoted URI parameters preserve delimiters and folded descriptions",
+        arguments: [
+            "cid:part1@example.org", "https://example.org/task;part=1?view=details",
+        ])
     func parsesQuotedParameters(_ alternate: String) throws {
-        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:quoted\nSUMMARY:作业\n"
+        let ics =
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:quoted\nSUMMARY:作业\n"
             + "DTSTART;TZID=\"Asia/Shanghai\":20260810T120000\n"
             + "DESCRIPTION;ALTREP=\"\(alternate)\":提交作业\\n第一\n 行:详情\nEND:VEVENT\nEND:VCALENDAR"
         let event = try #require(ScheduleICSParser.parse(ics).first)
@@ -109,16 +119,24 @@ struct ScheduleICSParserTests {
 
     @Test("An unterminated quoted parameter rejects the calendar")
     func rejectsUnterminatedParameter() {
-        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:broken\nSUMMARY:作业\n"
-            + "DTSTART:20260810T120000\nDESCRIPTION;ALTREP=\"cid:part1:提交作业\nEND:VEVENT\nEND:VCALENDAR"
+        let ics =
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:broken\nSUMMARY:作业\n"
+                + """
+                DTSTART:20260810T120000\nDESCRIPTION;ALTREP=\"cid:part1:提交作业\nEND:VEVENT\nEND:VCALE\
+                NDAR
+                """
         #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
     }
 
-    @Test("Recurrence data requires a complete source implementation", arguments: [
-        "RRULE:FREQ=DAILY;COUNT=2", "RDATE:20260811T120000", "EXDATE:20260810T120000", "RECURRENCE-ID:20260811T120000"
-    ])
+    @Test(
+        "Recurrence data requires a complete source implementation",
+        arguments: [
+            "RRULE:FREQ=DAILY;COUNT=2", "RDATE:20260811T120000", "EXDATE:20260810T120000",
+            "RECURRENCE-ID:20260811T120000",
+        ])
     func rejectsUnsupportedRecurrence(_ property: String) {
-        let ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:recurring\nSUMMARY:作业\n"
+        let ics =
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:recurring\nSUMMARY:作业\n"
             + "DTSTART:20260810T120000\n\(property)\nEND:VEVENT\nEND:VCALENDAR"
         #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse(ics) }
     }
@@ -128,15 +146,21 @@ struct ScheduleICSParserTests {
         func event(_ title: String) -> String {
             "BEGIN:VEVENT\nUID:shared\nSUMMARY:\(title)\nDTSTART:20260810T120000\nEND:VEVENT\n"
         }
-        #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\n" + event("A") + event("A") + "END:VCALENDAR").count == 1)
+        #expect(
+            try ScheduleICSParser.parse(
+                "BEGIN:VCALENDAR\n" + event("A") + event("A") + "END:VCALENDAR"
+            ).count == 1)
         #expect(throws: ScheduleICSParser.ParseError.self) {
-            try ScheduleICSParser.parse("BEGIN:VCALENDAR\n" + event("A") + event("B") + "END:VCALENDAR")
+            try ScheduleICSParser.parse(
+                "BEGIN:VCALENDAR\n" + event("A") + event("B") + "END:VCALENDAR")
         }
     }
 
     @Test("Valid empty calendars are accepted while non-calendar responses are rejected")
     func handlesEmptyAndInvalidCalendars() throws {
         #expect(try ScheduleICSParser.parse("BEGIN:VCALENDAR\nEND:VCALENDAR").isEmpty)
-        #expect(throws: ScheduleICSParser.ParseError.self) { try ScheduleICSParser.parse("<html>login</html>") }
+        #expect(throws: ScheduleICSParser.ParseError.self) {
+            try ScheduleICSParser.parse("<html>login</html>")
+        }
     }
 }

@@ -2,40 +2,49 @@ import BIT101TestSupport
 import CommunityCore
 import CommunityPersistence
 import Foundation
-@testable import GalleryFeature
 import StorageCore
 import Testing
+
+@testable import GalleryFeature
 
 @MainActor
 struct GalleryMessageAvailabilityTests {
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
-    func messagesArrivingDuringConfirmationKeepAContinuousHistory(browseHistory: Bool) async throws {
+    func messagesArrivingDuringHistory(browseHistory: Bool) async throws {
         let domain = "BIT101Tests.message-page-continuity"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let account = AppStorageSession(accountIdentifier: domain)
-        let store = GalleryMessageReadStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-page-continuity"),
+        let store = GalleryMessageReadStore(
+            files: ModuleScoreFiles(),
+            storageRoot: URL(fileURLWithPath: "/message-page-continuity"),
             defaults: defaults, session: { account })
         let service = ArrivingMessages()
         let model = GalleryMessageViewModel(service: service, readStore: store)
         service.beforeAcknowledgement = {
-            if browseHistory { await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last) }
+            if browseHistory {
+                await model.loadMoreIfNeeded(
+                    for: .comment, currentMessage: model.state(for: .comment).items.last)
+            }
             service.identifiers = Array((1...12).reversed())
         }
         await model.refreshUnreadCounts()
         await model.refresh(type: .comment)
-        #expect(model.state(for: .comment).items.map(\.id) == (browseHistory ? [12, 11, 6, 5, 4, 3] : [12, 11, 6, 5]))
+        #expect(
+            model.state(for: .comment).items.map(\.id)
+                == (browseHistory ? [12, 11, 6, 5, 4, 3] : [12, 11, 6, 5]))
         for _ in 0...service.identifiers.count {
             guard model.state(for: .comment).canLoadMore else { break }
-            await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+            await model.loadMoreIfNeeded(
+                for: .comment, currentMessage: model.state(for: .comment).items.last)
         }
         #expect(model.state(for: .comment).items.map(\.id) == Array((1...12).reversed()))
         #expect(!model.state(for: .comment).canLoadMore && store.unreadCount(for: .comment) == 11)
         #expect(service.cursors.filter { $0 == nil }.count == 1)
     }
 
-    @Test func laterMessageWindowsPreserveTheCursorOfAnInFlightPage() throws {
+    @Test func messageWindowsPreserveCursorInFlightPage() throws {
         var state = GalleryMessageListState()
         state.applyFirstCursorPage(try ArrivingMessages.messages([6, 5]))
         state.appendMessagePage(try ArrivingMessages.messages([4, 3]), after: 5)
@@ -59,17 +68,31 @@ struct GalleryMessageAvailabilityTests {
         var unread = 5
         var cursors: [Int?] = []
         var beforeAcknowledgement: (() async -> Void)?
-        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts { .init(comment: unread) }
-        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+        func fetchMessageUnreadCounts() async throws -> GalleryMessageUnreadCounts {
+            .init(comment: unread)
+        }
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage]
+        {
             cursors.append(lastID)
-            if lastID == nil { await beforeAcknowledgement?(); unread = 0 }
-            return try Self.messages(Array(identifiers.filter { $0 < (lastID ?? Int.max) }.prefix(2)))
+            if lastID == nil {
+                await beforeAcknowledgement?()
+                unread = 0
+            }
+            return try Self.messages(
+                Array(identifiers.filter { $0 < (lastID ?? Int.max) }.prefix(2)))
         }
         static func messages(_ ids: [Int]) throws -> [GalleryMessage] {
-            let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode([GalleryMessage].self, from: JSONSerialization.data(withJSONObject: ids.map {
-                ["from_user": [:], "id": $0, "link_obj": "", "obj": "", "text": "正文", "update_time": ""] as [String: Any]
-            }))
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            return try decoder.decode(
+                [GalleryMessage].self,
+                from: JSONSerialization.data(
+                    withJSONObject: ids.map {
+                        [
+                            "from_user": [:], "id": $0, "link_obj": "", "obj": "", "text": "正文",
+                            "update_time": "",
+                        ] as [String: Any]
+                    }))
         }
     }
 
@@ -91,57 +114,76 @@ struct GalleryMessageAvailabilityTests {
             return .init(comment: unread)
         }
 
-        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage] {
+        func fetchMessages(type: GalleryMessageType, lastID: Int?) async throws -> [GalleryMessage]
+        {
             cursors.append(lastID)
             if lastID == 42, pageFails { throw URLError(.notConnectedToInternet) }
             if lastID == 42, delayHistory { await withCheckedContinuation { pendingHistory = $0 } }
             if lastID == 41 { return [] }
             if lastID == nil {
                 if acknowledgementFails { throw URLError(.networkConnectionLost) }
-                beforeAcknowledgement?(); unread = 0
+                beforeAcknowledgement?()
+                unread = 0
             }
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             let id = lastID == 42 ? 41 : 42
-            return try decoder.decode([GalleryMessage].self, from: Data(
-                #"[{"from_user":{},"id":\#(id),"link_obj":"","obj":"","text":"首屏正文","update_time":""}]"#.utf8))
+            return try decoder.decode(
+                [GalleryMessage].self,
+                from: Data(
+                    #"""
+                    [{"from_user":{},"id":\#(id),"link_obj":"","obj":"","text":"首屏正文","update_\#
+                    time":""}]
+                    """#
+                    .utf8))
         }
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
-    func readingDuringUnreadRecoveryPreservesHistoryAndReadIntent(markAll: Bool) async throws {
+    func readingPreservesHistory(markAll: Bool) async throws {
         let domain = "BIT101Tests.message-active-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let account = AppStorageSession(accountIdentifier: domain)
-        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/message-active-recovery")
-        let store = GalleryMessageReadStore(files: files, storageRoot: root,
+        let files = ModuleScoreFiles()
+        let root = URL(fileURLWithPath: "/message-active-recovery")
+        let store = GalleryMessageReadStore(
+            files: files, storageRoot: root,
             defaults: defaults, session: { account })
         let service = DeferredSummaryService()
-        service.delay = false; service.unread = 2
+        service.delay = false
+        service.unread = 2
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshUnreadCounts()
         if markAll { service.delayHistory = true } else { service.delay = true }
         let refresh = Task { await model.refreshSelectedType() }
-        try await waitForTestEvent { markAll ? service.pendingHistory != nil : service.pending != nil }
+        try await waitForTestEvent {
+            markAll ? service.pendingHistory != nil : service.pending != nil
+        }
         if markAll {
             await model.markCurrentTypeAsRead()
             service.delayHistory = false
-            service.pendingHistory?.resume(); service.pendingHistory = nil
+            service.pendingHistory?.resume()
+            service.pendingHistory = nil
         } else {
             #expect(model.state(for: .comment).isLoadingMore == false)
-            await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+            await model.loadMoreIfNeeded(
+                for: .comment, currentMessage: model.state(for: .comment).items.last)
             #expect(model.state(for: .comment).items.map(\.id) == [42, 41])
             service.delay = false
-            service.pending?.resume(returning: .init(comment: 2)); service.pending = nil
+            service.pending?.resume(returning: .init(comment: 2))
+            service.pending = nil
         }
         await refresh.value
         if markAll {
             #expect(store.unreadCount(for: .comment) == 0 && !store.isUnread(id: 41, for: .comment))
-            let reopened = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { account })
+            let reopened = GalleryMessageReadStore(
+                files: files, storageRoot: root, defaults: defaults, session: { account })
             #expect(await reopened.prepareSnapshot())
-            #expect(!reopened.isUnread(id: 41, for: .comment) && !reopened.isUnread(id: 42, for: .comment))
+            #expect(
+                !reopened.isUnread(id: 41, for: .comment)
+                    && !reopened.isUnread(id: 42, for: .comment))
             #expect(await store.replaceLatestIDs([43], unreadCount: 1, for: .comment))
             #expect(store.isUnread(id: 43, for: .comment))
         } else {
@@ -149,41 +191,54 @@ struct GalleryMessageAvailabilityTests {
         }
     }
 
-    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["{}", "{\"schemaVersion\":999,\"latestIDsByType\":{},\"seenIDsByType\":{}}"])
-    func invalidMessageDocumentsStayIntactUntilRecovery(document: String) async throws {
+    @Test(
+        .serialized, .timeLimit(.minutes(1)),
+        arguments: ["{}", "{\"schemaVersion\":999,\"latestIDsByType\":{},\"seenIDsByType\":{}}"])
+    func invalidMessageDocumentsRecovery(document: String) async throws {
         let domain = "BIT101Tests.message-document-contract"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let account = AppStorageSession(accountIdentifier: domain)
-        let root = URL(fileURLWithPath: "/message-document-contract"), files = ModuleScoreFiles()
-        let path = root.appending(path: account.accountStorageIdentifier).appending(path: "message-read-snapshot.json")
+        let root = URL(fileURLWithPath: "/message-document-contract")
+        let files = ModuleScoreFiles()
+        let path = root.appending(path: account.accountStorageIdentifier).appending(
+            path: "message-read-snapshot.json")
         let original = Data(document.utf8)
         try files.writeData(original, to: path, options: [])
-        let store = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { account })
+        let store = GalleryMessageReadStore(
+            files: files, storageRoot: root, defaults: defaults, session: { account })
         #expect(await store.prepareSnapshot() == false && store.hasUnreadableSnapshot)
         #expect(await store.markSeen(ids: [42], for: .comment) == false)
         #expect(files.storedData[path].map { String(decoding: $0, as: UTF8.self) } == document)
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["summary", "acknowledgement"])
-    func automaticRecoveryFinishesTheFailedMessageConfirmation(stage: String) async throws {
+    func automaticRecoveryFinishesConfirmation(stage: String) async throws {
         let domain = "BIT101Tests.message-automatic-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let account = AppStorageSession(accountIdentifier: domain)
-        let store = GalleryMessageReadStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-auto-recovery"),
+        let store = GalleryMessageReadStore(
+            files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-auto-recovery"),
             defaults: defaults, session: { account })
         let service = DeferredSummaryService()
         service.delay = false
-        if stage == "summary" { service.failure = URLError(.notConnectedToInternet) }
-        else { service.acknowledgementFails = true }
+        if stage == "summary" {
+            service.failure = URLError(.notConnectedToInternet)
+        } else {
+            service.acknowledgementFails = true
+        }
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshSelectedType()
-        #expect(model.state(for: .comment).status == .loaded && model.state(for: .comment).items.map(\.id) == [42])
+        #expect(
+            model.state(for: .comment).status == .loaded
+                && model.state(for: .comment).items.map(\.id) == [42])
         let underlying = try #require(model.alert?.underlyingError as? URLError)
-        #expect(underlying.code == (stage == "summary" ? .notConnectedToInternet : .networkConnectionLost))
+        #expect(
+            underlying.code
+                == (stage == "summary" ? .notConnectedToInternet : .networkConnectionLost))
         let previousRequests = service.cursors.count
         service.failure = nil
         service.acknowledgementFails = false
@@ -196,26 +251,37 @@ struct GalleryMessageAvailabilityTests {
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
-    func confirmedMessageRecoveryKeepsOtherAccountsAndResumesReadUpdates(legacyOnly: Bool) async throws {
+    func confirmedMessageRecoveryKeepsOtherAccounts(legacyOnly: Bool) async throws {
         let domain = "BIT101Tests.message-storage-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let first = AppStorageSession(accountIdentifier: "message-A"), second = AppStorageSession(accountIdentifier: "message-B")
+        let first = AppStorageSession(accountIdentifier: "message-A")
+        let second = AppStorageSession(accountIdentifier: "message-B")
         var current = first
-        let files = ModuleScoreFiles(), root = URL(fileURLWithPath: "/message-storage-recovery")
-        let firstURL = root.appending(path: first.accountStorageIdentifier).appending(path: "message-read-snapshot.json")
-        let secondURL = root.appending(path: second.accountStorageIdentifier).appending(path: "message-read-snapshot.json")
-        let original = Data("{damaged".utf8), unrelated = Data("other account".utf8)
-        if legacyOnly { defaults.set(7, forKey: first.key("gallery.message.read.snapshot")) }
-        else { try files.writeData(original, to: firstURL, options: []) }
+        let files = ModuleScoreFiles()
+        let root = URL(fileURLWithPath: "/message-storage-recovery")
+        let firstURL = root.appending(path: first.accountStorageIdentifier).appending(
+            path: "message-read-snapshot.json")
+        let secondURL = root.appending(path: second.accountStorageIdentifier).appending(
+            path: "message-read-snapshot.json")
+        let original = Data("{damaged".utf8)
+        let unrelated = Data("other account".utf8)
+        if legacyOnly {
+            defaults.set(7, forKey: first.key("gallery.message.read.snapshot"))
+        } else {
+            try files.writeData(original, to: firstURL, options: [])
+        }
         try files.writeData(unrelated, to: secondURL, options: [])
         defaults.set("other setting", forKey: "unrelated.setting")
-        let store = GalleryMessageReadStore(files: files, storageRoot: root, defaults: defaults, session: { current })
+        let store = GalleryMessageReadStore(
+            files: files, storageRoot: root, defaults: defaults, session: { current })
         #expect(await store.prepareSnapshot() == false && store.hasUnreadableSnapshot)
         #expect(await store.markSeen(ids: [42], for: .comment) == false)
         if !legacyOnly { #expect(files.storedData[firstURL] == original) }
-        let service = DeferredSummaryService(); service.delay = false; service.unread = 0
+        let service = DeferredSummaryService()
+        service.delay = false
+        service.unread = 0
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshSelectedType()
         #expect(model.alert != nil)
@@ -236,42 +302,54 @@ struct GalleryMessageAvailabilityTests {
         await model.readStateRecoveryAction()()
         #expect(!store.hasUnreadableSnapshot && !model.needsReadStateRecovery)
         #expect(await store.markSeen(ids: [42], for: .comment))
-        let saved = try JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: #require(files.storedData[firstURL]))
+        let saved = try JSONDecoder().decode(
+            GalleryMessageReadSnapshot.self, from: #require(files.storedData[firstURL]))
         #expect(saved.seenIDsByType[GalleryMessageType.comment.rawValue] == [42])
-        #expect(files.storedData[secondURL] == unrelated && defaults.string(forKey: "unrelated.setting") == "other setting")
+        #expect(
+            files.storedData[secondURL] == unrelated
+                && defaults.string(forKey: "unrelated.setting") == "other setting")
         #expect(defaults.object(forKey: first.key("gallery.message.read.snapshot")) == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func failedMessagePageRemainsAvailableForAnInPlaceRetry() async throws {
+    @Test(.timeLimit(.minutes(1))) func failedMessagePageRemainsAvailableInRetry() async throws {
         let domain = "BIT101Tests.message-pagination"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         let session = AppStorageSession(accountIdentifier: domain)
-        let store = GalleryMessageReadStore(files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-pagination"),
+        let store = GalleryMessageReadStore(
+            files: ModuleScoreFiles(), storageRoot: URL(fileURLWithPath: "/message-pagination"),
             defaults: defaults, session: { session })
         let service = DeferredSummaryService()
-        service.delay = false; service.unread = 0
+        service.delay = false
+        service.unread = 0
         let model = GalleryMessageViewModel(service: service, readStore: store)
         await model.refreshSelectedType()
         await model.refresh(type: .like)
         #expect(model.paginationTaskID(for: .comment) != model.paginationTaskID(for: .like))
         service.pageFails = true
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        await model.loadMoreIfNeeded(
+            for: .comment, currentMessage: model.state(for: .comment).items.last)
         let failed = model.state(for: .comment)
-        #expect(failed.items.map(\.id) == [42] && failed.nextCursor == 42 && failed.paginationError != nil)
+        #expect(
+            failed.items.map(\.id) == [42] && failed.nextCursor == 42
+                && failed.paginationError != nil)
         await model.refreshSelectedType()
         #expect(model.state(for: .comment).paginationError == nil)
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        await model.loadMoreIfNeeded(
+            for: .comment, currentMessage: model.state(for: .comment).items.last)
         #expect(model.state(for: .comment).paginationError != nil)
         service.pageFails = false
         await model.loadMoreIfNeeded(for: .comment, currentMessage: failed.items.last)
-        #expect(model.state(for: .comment).items.map(\.id) == [42, 41] && model.state(for: .comment).paginationError == nil)
-        await model.loadMoreIfNeeded(for: .comment, currentMessage: model.state(for: .comment).items.last)
+        #expect(
+            model.state(for: .comment).items.map(\.id) == [42, 41]
+                && model.state(for: .comment).paginationError == nil)
+        await model.loadMoreIfNeeded(
+            for: .comment, currentMessage: model.state(for: .comment).items.last)
         #expect(model.state(for: .comment).canLoadMore == false)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func historyAppearsWhileInitialAndRetriedUnreadSummariesArePending() async throws {
+    func historyAppearsArePending() async throws {
         let domain = "BIT101Tests.message-availability"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -279,7 +357,8 @@ struct GalleryMessageAvailabilityTests {
             defaults.removePersistentDomain(forName: domain)
             let files = ModuleScoreFiles()
             let session = AppStorageSession(accountIdentifier: domain)
-            let store = GalleryMessageReadStore(files: files, storageRoot: URL(fileURLWithPath: "/message-availability"),
+            let store = GalleryMessageReadStore(
+                files: files, storageRoot: URL(fileURLWithPath: "/message-availability"),
                 defaults: defaults, session: { session })
             #expect(await store.replaceLatestIDs([99], unreadCount: 1, for: .comment))
             let original = files.storedData
@@ -292,8 +371,11 @@ struct GalleryMessageAvailabilityTests {
                 service.failure = nil
             }
             let loading = Task {
-                if retry { await model.refreshSelectedType() }
-                else { await model.bootstrapIfNeeded() }
+                if retry {
+                    await model.refreshSelectedType()
+                } else {
+                    await model.bootstrapIfNeeded()
+                }
             }
             defer {
                 loading.cancel()

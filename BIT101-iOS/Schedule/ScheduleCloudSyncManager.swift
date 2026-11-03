@@ -1,11 +1,11 @@
-import CommunityTransport
 import CloudKit
 import Combine
+import CommunityTransport
 import Foundation
-import os
 import ScheduleDomain
 import ScheduleSync
 import StorageCore
+import os
 
 @MainActor
 final class AppCloudAccountGeneration {
@@ -40,7 +40,8 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
     func record(named name: String) async throws -> ScheduleCloudRecord {
         do {
             try Task.checkCancellation()
-            let record = try await container.privateCloudDatabase.record(for: CKRecord.ID(recordName: name))
+            let record = try await container.privateCloudDatabase.record(
+                for: CKRecord.ID(recordName: name))
             try Task.checkCancellation()
             return try encode(record)
         } catch { throw mapped(error) }
@@ -53,37 +54,50 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
     private func saveOwned(_ value: ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
         try Task.checkCancellation()
         let payload = try value.imageAssetPayload()
-        let assetURL = files.temporaryDirectoryURL.appendingPathComponent("schedule-cloud-images.json")
+        let assetURL = files.temporaryDirectoryURL.appendingPathComponent(
+            "schedule-cloud-images.json")
         defer { try? files.removeItemIfPresent(at: assetURL) }
         let record: CKRecord
         if let fields = value.systemFields {
             let decoder = try NSKeyedUnarchiver(forReadingFrom: fields)
             decoder.requiresSecureCoding = true
-            guard let restored = CKRecord(coder: decoder) else { throw CocoaError(.coderReadCorrupt) }
+            guard let restored = CKRecord(coder: decoder) else {
+                throw CocoaError(.coderReadCorrupt)
+            }
             decoder.finishDecoding()
             record = restored
         } else {
-            record = CKRecord(recordType: value.recordType, recordID: CKRecord.ID(recordName: value.recordName))
+            record = CKRecord(
+                recordType: value.recordType, recordID: CKRecord.ID(recordName: value.recordName))
         }
         record["studentID"] = value.studentID as CKRecordValue?
         record["updatedAt"] = value.updatedAt as CKRecordValue?
         record["payloadJSON"] = payload.metadataJSON as CKRecordValue?
         if let data = payload.imagesData {
-            try files.writeData(data, to: assetURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try files.writeData(
+                data, to: assetURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             record["ddlImagesAsset"] = CKAsset(fileURL: assetURL)
-        } else { record["ddlImagesAsset"] = nil }
+        } else {
+            record["ddlImagesAsset"] = nil
+        }
         try Task.checkCancellation()
-        do { return try encode(try await container.privateCloudDatabase.save(record)) }
-        catch { throw mapped(error) }
+        do { return try encode(try await container.privateCloudDatabase.save(record)) } catch {
+            throw mapped(error)
+        }
     }
 
     private func encode(_ record: CKRecord) throws -> ScheduleCloudRecord {
         let imageData: Data?
         if let asset = record["ddlImagesAsset"] as? CKAsset {
             guard let url = asset.fileURL else { throw CocoaError(.fileReadUnknown) }
-            imageData = try files.readData(at: url, maximumBytes: ScheduleCloudRecord.maximumImageAssetBytes)
-        } else { imageData = nil }
-        let payload = try ScheduleCloudImagePayload.joining(metadataJSON: record["payloadJSON"] as? String, imagesData: imageData)
+            imageData = try files.readData(
+                at: url, maximumBytes: ScheduleCloudRecord.maximumImageAssetBytes)
+        } else {
+            imageData = nil
+        }
+        let payload = try ScheduleCloudImagePayload.joining(
+            metadataJSON: record["payloadJSON"] as? String, imagesData: imageData)
         let encoder = NSKeyedArchiver(requiringSecureCoding: true)
         record.encodeSystemFields(with: encoder)
         encoder.finishEncoding()
@@ -112,7 +126,9 @@ actor AppScheduleCloudTransport: ScheduleCloudTransport {
 actor AppScheduleCloudUploadQueue {
     private var pending: Task<ScheduleCloudRecord, Error>?
     private var generation = 0
-    func run(_ save: @escaping @Sendable () async throws -> ScheduleCloudRecord) async throws -> ScheduleCloudRecord {
+    func run(_ save: @escaping @Sendable () async throws -> ScheduleCloudRecord) async throws
+        -> ScheduleCloudRecord
+    {
         let previous = pending
         generation &+= 1
         let current = generation
@@ -123,7 +139,11 @@ actor AppScheduleCloudUploadQueue {
         }
         pending = operation
         defer { if current == generation { pending = nil } }
-        return try await withTaskCancellationHandler { try await operation.value } onCancel: { operation.cancel() }
+        return try await withTaskCancellationHandler {
+            try await operation.value
+        } onCancel: {
+            operation.cancel()
+        }
     }
 }
 
@@ -132,26 +152,39 @@ extension ScheduleCloudSyncManager {
         local: ScheduleCloudLocalStore(
             currentAccount: {
                 let credentials = AppAccountSession.storage.communityCredentials
-                let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 guard !studentID.isEmpty else { return nil }
-                return ScheduleCloudAccount(studentID: studentID, session: AppFileDirectories.currentSession,
-                    generation: credentials.identity.generation, cloudGeneration: AppCloudAccountGeneration.shared.value)
+                return ScheduleCloudAccount(
+                    studentID: studentID, session: AppFileDirectories.currentSession,
+                    generation: credentials.identity.generation,
+                    cloudGeneration: AppCloudAccountGeneration.shared.value)
             },
             load: { await ScheduleCacheStore.loadResultAsync(for: $0) },
             save: { cache, source, account, expectedUpdatedAt in
-                guard AppAccountSession.storage.communityCredentials.identity.generation == account.generation,
-                      AppCloudAccountGeneration.shared.value == account.cloudGeneration,
-                      AppFileDirectories.currentSession == account.session else { return false }
-                return await ScheduleCacheStore.saveAndWait(cache, source: source,
-                    expectedAccountIdentifier: account.accountIdentifier, expectedUpdatedAt: expectedUpdatedAt,
-                    isCurrent: { AppAccountSession.storage.communityCredentials.identity.generation == account.generation
-                        && AppCloudAccountGeneration.shared.value == account.cloudGeneration
-                        && AppFileDirectories.currentSession == account.session })
+                guard
+                    AppAccountSession.storage.communityCredentials.identity.generation
+                        == account.generation,
+                    AppCloudAccountGeneration.shared.value == account.cloudGeneration,
+                    AppFileDirectories.currentSession == account.session
+                else { return false }
+                return await ScheduleCacheStore.saveAndWait(
+                    cache, source: source,
+                    expectedAccountIdentifier: account.accountIdentifier,
+                    expectedUpdatedAt: expectedUpdatedAt,
+                    isCurrent: {
+                        AppAccountSession.storage.communityCredentials.identity.generation
+                            == account.generation
+                            && AppCloudAccountGeneration.shared.value == account.cloudGeneration
+                            && AppFileDirectories.currentSession == account.session
+                    })
             }
         ),
         transport: AppScheduleCloudTransport(),
         presentConflict: appConflictPresenter(prompts: .shared),
-        reportStatus: { account, status in ScheduleCloudSyncPresentation.shared.receive(account: account, status: status) }
+        reportStatus: { account, status in
+            ScheduleCloudSyncPresentation.shared.receive(account: account, status: status)
+        }
     )
 
     static func appConflictPresenter(
@@ -159,12 +192,16 @@ extension ScheduleCloudSyncManager {
         currentIdentity: @escaping @MainActor @Sendable () -> CommunitySessionIdentity = {
             AppAccountSession.storage.communityCredentials.identity
         },
-        currentCloudGeneration: @escaping @MainActor @Sendable () -> Int = { AppCloudAccountGeneration.shared.value }
+        currentCloudGeneration: @escaping @MainActor @Sendable () -> Int = {
+            AppCloudAccountGeneration.shared.value
+        }
     ) -> ScheduleCloudConflictPresenter {
         { account, context, resolve in
-            let identity = CommunitySessionIdentity(accountIdentifier: account.session.accountIdentifier,
+            let identity = CommunitySessionIdentity(
+                accountIdentifier: account.session.accountIdentifier,
                 generation: account.generation)
-            guard identity == currentIdentity(), account.cloudGeneration == currentCloudGeneration() else {
+            guard identity == currentIdentity(), account.cloudGeneration == currentCloudGeneration()
+            else {
                 Task { await resolve(nil) }
                 return
             }
@@ -172,40 +209,49 @@ extension ScheduleCloudSyncManager {
             let complete: @MainActor (ScheduleCacheConflictResolution?) -> Void = { resolution in
                 guard !completed else { return }
                 completed = true
-                let choice = identity == currentIdentity() && account.cloudGeneration == currentCloudGeneration() ? resolution : nil
+                let choice =
+                    identity == currentIdentity()
+                        && account.cloudGeneration == currentCloudGeneration() ? resolution : nil
                 Task { await resolve(choice) }
             }
-            prompts.enqueue(AppPrompt(
-                id: "schedule-cache-conflict-\(context.signature)-\(UUID().uuidString)",
-                title: "本机和 iCloud 课表存在版本差异",
-                message: context.hasCommonBaseline
-                    ? "双方独立修改的内容会合并。同一项手动调整、个人日程、DDL 或设置发生冲突时，采用你选择的一侧。学校抓取数据沿用本机版本。"
-                    : "本次首次关联本机与 iCloud 的用户数据。请选择采用哪一侧的手动调整、个人日程、DDL 和设置，所选内容会同步到另一侧。学校抓取数据沿用本机版本。",
-                actions: [
-                    AppPromptAction(id: "keep-local", title: "采用本机", isDefault: true) {
-                        complete(.keepLocal)
-                    },
-                    AppPromptAction(id: "use-cloud", title: "采用 iCloud") {
-                        complete(.useCloud)
-                    },
-                    AppPromptAction(id: "later", title: "稍后处理") {
-                        complete(nil)
-                    }
-                ],
-                account: identity,
-                onDismiss: { complete(nil) },
-                onCancel: { complete(nil) }
-            ))
+            prompts.enqueue(
+                AppPrompt(
+                    id: "schedule-cache-conflict-\(context.signature)-\(UUID().uuidString)",
+                    title: "本机和 iCloud 课表存在版本差异",
+                    message: context.hasCommonBaseline
+                        ? "双方独立修改的内容会合并。同一项手动调整、个人日程、DDL 或设置发生冲突时，采用你选择的一侧。学校抓取数据沿用本机版本。"
+                        : """
+                        本次首次关联本机与 iCloud 的用户数据。请选择采用哪一侧的手动调整、个人日程、DDL 和设置，所选内容会同步到另一侧。学校抓取数据沿用本\
+                        机版本。
+                        """,
+                    actions: [
+                        AppPromptAction(id: "keep-local", title: "采用本机", isDefault: true) {
+                            complete(.keepLocal)
+                        },
+                        AppPromptAction(id: "use-cloud", title: "采用 iCloud") {
+                            complete(.useCloud)
+                        },
+                        AppPromptAction(id: "later", title: "稍后处理") {
+                            complete(nil)
+                        },
+                    ],
+                    account: identity,
+                    onDismiss: { complete(nil) },
+                    onCancel: { complete(nil) }
+                ))
         }
     }
 }
 
 extension ScheduleCloudSyncPresentation {
-    static let shared = ScheduleCloudSyncPresentation(currentAccount: {
-        let storage = AppAccountSession.storage
-        let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !studentID.isEmpty else { return nil }
-        return ScheduleCloudAccount(studentID: studentID, session: AppFileDirectories.currentSession,
-            generation: storage.communityCredentials.identity.generation, cloudGeneration: AppCloudAccountGeneration.shared.value)
-    }, accountChanges: AppAccountSession.storage.changes)
+    static let shared = ScheduleCloudSyncPresentation(
+        currentAccount: {
+            let storage = AppAccountSession.storage
+            let studentID = storage.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !studentID.isEmpty else { return nil }
+            return ScheduleCloudAccount(
+                studentID: studentID, session: AppFileDirectories.currentSession,
+                generation: storage.communityCredentials.identity.generation,
+                cloudGeneration: AppCloudAccountGeneration.shared.value)
+        }, accountChanges: AppAccountSession.storage.changes)
 }

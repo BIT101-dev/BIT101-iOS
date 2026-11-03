@@ -30,8 +30,7 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
                     state.continuation = continuation
                     return nil
                 }
-                if let completed { continuation.resume(with: completed) }
-                else { task.resume() }
+                if let completed { continuation.resume(with: completed) } else { task.resume() }
             }
         } onCancel: {
             self.complete(.failure(CancellationError()))
@@ -40,7 +39,8 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
     }
 
     private func complete(_ result: Result<(Data, URLResponse), any Error>) {
-        let continuation = state.withLock { state -> CheckedContinuation<(Data, URLResponse), any Error>? in
+        let continuation = state.withLock {
+            state -> CheckedContinuation<(Data, URLResponse), any Error>? in
             guard state.outcome == nil else { return nil }
             state.outcome = result
             let continuation = state.continuation
@@ -57,8 +57,10 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
         continuation?.resume(with: result)
     }
 
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
-                    completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
         state.withLock { if $0.outcome == nil { $0.response = response } }
         guard response.expectedContentLength <= Int64(maximumBytes) else {
             complete(.failure(HTTPClientError.responseTooLarge))
@@ -68,7 +70,9 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
         }
         let active = state.withLock { state in
             guard state.outcome == nil else { return false }
-            if response.expectedContentLength > 0 { state.data.reserveCapacity(Int(response.expectedContentLength)) }
+            if response.expectedContentLength > 0 {
+                state.data.reserveCapacity(Int(response.expectedContentLength))
+            }
             return true
         }
         completionHandler(active ? .allow : .cancel)
@@ -78,34 +82,54 @@ nonisolated final class HTTPBoundedTransfer: NSObject, URLSessionDataDelegate {
         let tooLarge = state.withLock { state in
             guard state.outcome == nil else { return false }
             guard data.count <= maximumBytes - state.data.count else {
-                let remaining = min(maximumBytes, HTTPResponseResourceLimits.maximumErrorBytes) - state.data.count
+                let remaining =
+                    min(maximumBytes, HTTPResponseResourceLimits.maximumErrorBytes)
+                    - state.data.count
                 if remaining > 0 { state.data.append(data.prefix(remaining)) }
                 return true
             }
             state.data.append(data)
             return false
         }
-        if tooLarge { complete(.failure(HTTPClientError.responseTooLarge)); dataTask.cancel() }
+        if tooLarge {
+            complete(.failure(HTTPClientError.responseTooLarge))
+            dataTask.cancel()
+        }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?
+    ) {
         if let error {
-            complete(.failure(metrics.confirmedUnsent && task.response == nil ? HTTPRequestNotSent(underlying: error) : error))
+            complete(
+                .failure(
+                    metrics.confirmedUnsent && task.response == nil
+                        ? HTTPRequestNotSent(underlying: error) : error))
         } else {
             let result: Result<(Data, URLResponse), any Error> = state.withLock { state in
-                guard let response = state.response ?? task.response else { return .failure(HTTPClientError.invalidResponse) }
+                guard let response = state.response ?? task.response else {
+                    return .failure(HTTPClientError.invalidResponse)
+                }
                 return .success((state.data, response))
             }
             complete(result)
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
         self.metrics.urlSession(session, task: task, didFinishCollecting: metrics)
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        metrics.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: request, completionHandler: completionHandler)
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        metrics.urlSession(
+            session, task: task, willPerformHTTPRedirection: response, newRequest: request,
+            completionHandler: completionHandler)
     }
 }

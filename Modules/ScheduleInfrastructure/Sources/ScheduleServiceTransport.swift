@@ -1,16 +1,16 @@
-import SchedulePorts
 import ClientCore
+import CoreFoundation
+import Foundation
 import ScheduleDomain
+import SchedulePorts
+import TransportCore
+
 //
 //  ScheduleServiceTransport.swift
 //  BIT101-iOS
 //
 //  Shared HTTPS transport and response classification.
 //
-
-import TransportCore
-import Foundation
-import CoreFoundation
 
 private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
     case decoded(Value)
@@ -31,11 +31,14 @@ extension ScheduleService {
         let owner = credentials.schoolSessionIdentity
         var request = URLRequest(url: buildURL(baseURL: baseURL ?? activeSchoolBaseURL, path: path))
         request.httpMethod = method
-        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+        request.setValue(
+            "application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
 
         if method == "POST" {
-            request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            request.setValue(
+                "application/x-www-form-urlencoded; charset=utf-8",
+                forHTTPHeaderField: "Content-Type")
             request.httpBody = HTTPFormEncoding.body(body)
         }
 
@@ -44,19 +47,19 @@ extension ScheduleService {
             if path.contains("cxxszhxqkb.do") {
                 rawCourseResponseHandler?(data)
             }
-            try validateTeachingCenterResponse(data: data, response: response)
-            guard (200 ..< 300).contains(response.statusCode) else {
+            try validateTeachingResponse(data: data, response: response)
+            guard (200..<300).contains(response.statusCode) else {
                 throw httpError(response.statusCode)
             }
             let result = try await Self.decodeJSONResponse(Response.self, from: data)
             try Task.checkCancellation()
-            try validateAuthenticationOwner(owner)
+            try validateAuthOwner(owner)
             switch result {
-            case let .decoded(response):
+            case .decoded(let response):
                 return response
-            case let .businessError(message):
+            case .businessError(let message):
                 throw ScheduleServiceError.schoolResponse(message)
-            case let .invalidResponse(error):
+            case .invalidResponse(let error):
                 // 登录页已按内容特征识别；其余 2xx 解码失败保留为响应格式错误。
                 throw ScheduleServiceError.invalidResponse.caused(by: error)
             }
@@ -70,7 +73,7 @@ extension ScheduleService {
         from data: Data
     ) async throws -> ScheduleJSONResponseResult<Response> {
         try Task.checkCancellation()
-        let businessMessage = Self.schoolBusinessErrorMessage(from: data)
+        let businessMessage = Self.schoolBusinessError(from: data)
         try Task.checkCancellation()
         if let businessMessage { return .businessError(businessMessage) }
         let result: ScheduleJSONResponseResult<Response>
@@ -84,16 +87,23 @@ extension ScheduleService {
     }
 
     /// 学校接口会在外层成功响应中嵌入业务状态，例如课表 `extParams`。
-    nonisolated static func schoolBusinessErrorMessage(from data: Data) -> String? {
+    nonisolated static func schoolBusinessError(from data: Data) -> String? {
         guard let root = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
         let successCodes: Set<Int> = [0, 1, 200]
-        let envelopeKeys: Set<String> = ["data", "datas", "result", "results", "response", "payload", "extparams", "error", "errors"]
+        let envelopeKeys: Set<String> = [
+            "data", "datas", "result", "results", "response", "payload", "extparams", "error",
+            "errors",
+        ]
         let recordKeys: Set<String> = ["rows", "items", "records", "courses", "list"]
         var candidates: [(priority: Int, depth: Int, path: String, message: String)] = []
 
         func field(_ dictionary: [String: Any], named name: String) -> Any? {
-            guard let key = dictionary.keys.sorted().first(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+            guard
+                let key = dictionary.keys.sorted().first(where: {
+                    $0.caseInsensitiveCompare(name) == .orderedSame
+                })
+            else {
                 return nil
             }
             return dictionary[key]
@@ -105,25 +115,27 @@ extension ScheduleService {
                 let explicitError = (field(dictionary, named: "error") as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let explicitErrorMessage = explicitError?.isEmpty == false ? explicitError : nil
-                let message = explicitErrorMessage
+                let message =
+                    explicitErrorMessage
                     ?? (field(dictionary, named: "msg") as? String)
                     ?? (field(dictionary, named: "message") as? String)
                 let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let normalizedPath = path.map { $0.lowercased() }
                 let isRecord = normalizedPath.contains(where: recordKeys.contains)
-                let isEnvelope = path.isEmpty || normalizedPath.last.map(envelopeKeys.contains) == true
+                let isEnvelope =
+                    path.isEmpty || normalizedPath.last.map(envelopeKeys.contains) == true
                 if !isRecord {
                     let code = normalizedBusinessCode(field(dictionary, named: "code"))
                     let success = normalizedBusinessFlag(field(dictionary, named: "success"))
-                    let reportsSuccess = success == true || businessMessageIndicatesSuccess(trimmed)
+                    let reportsSuccess = success == true || isBusinessSuccess(trimmed)
                     let priority: Int?
                     if explicitErrorMessage != nil {
                         priority = 0
                     } else if isEnvelope, success == false {
                         priority = 1
                     } else if isEnvelope,
-                              success != true,
-                              businessMessageIndicatesFailure(trimmed)
+                        success != true,
+                        isBusinessFailure(trimmed)
                     {
                         priority = 2
                     } else if isEnvelope, let code, !successCodes.contains(code), !reportsSuccess {
@@ -132,12 +144,13 @@ extension ScheduleService {
                         priority = nil
                     }
                     if let priority {
-                        candidates.append((
-                            priority: priority,
-                            depth: path.count,
-                            path: path.joined(separator: "."),
-                            message: trimmed.isEmpty ? "学校接口返回失败状态。" : trimmed
-                        ))
+                        candidates.append(
+                            (
+                                priority: priority,
+                                depth: path.count,
+                                path: path.joined(separator: "."),
+                                message: trimmed.isEmpty ? "学校接口返回失败状态。" : trimmed
+                            ))
                     }
                 }
                 for key in dictionary.keys.sorted() {
@@ -161,23 +174,24 @@ extension ScheduleService {
         }.first?.message
     }
 
-    private nonisolated static func businessMessageIndicatesFailure(_ message: String) -> Bool {
+    private nonisolated static func isBusinessFailure(_ message: String) -> Bool {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let failureMarkers = ["失败", "不成功", "未成功", "错误", "异常", "未发布", "尚未发布", "无效", "不可用"]
-        return isTeachingCenterSessionExpiryMessage(normalized) || normalized.contains("无权访问该资源")
+        return isTeachingSessionExpired(normalized) || normalized.contains("无权访问该资源")
             || failureMarkers.contains(where: normalized.contains)
-            || ["failed", "failure", "error", "invalid", "unavailable"].contains(where: normalized.contains)
+            || ["failed", "failure", "error", "invalid", "unavailable"].contains(
+                where: normalized.contains)
     }
 
-    nonisolated static func isTeachingCenterSessionExpiryMessage(_ message: String) -> Bool {
+    nonisolated static func isTeachingSessionExpired(_ message: String) -> Bool {
         let value = message.lowercased()
         return value.contains("会话") && (value.contains("过期") || value.contains("失效"))
             || value.contains("session expired") || value.contains("invalid session")
     }
 
-    private nonisolated static func businessMessageIndicatesSuccess(_ message: String) -> Bool {
+    private nonisolated static func isBusinessSuccess(_ message: String) -> Bool {
         let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !businessMessageIndicatesFailure(normalized) else { return false }
+        guard !isBusinessFailure(normalized) else { return false }
         return normalized.contains("成功") || normalized == "success" || normalized == "ok"
     }
 
@@ -188,12 +202,16 @@ extension ScheduleService {
             guard integer.isFinite, integer.rounded(.towardZero) == integer else { return nil }
             return number.intValue
         }
-        if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        if let string = value as? String {
+            return Int(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         return nil
     }
 
     private nonisolated static func normalizedBusinessFlag(_ value: Any?) -> Bool? {
-        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
         return number.boolValue
     }
 
@@ -202,8 +220,10 @@ extension ScheduleService {
         baseURL: URL? = nil, path: String, method: String = "GET", body: [(String, String)] = [],
         requiresTeachingCenterSession: Bool = true, owner: SchoolSessionIdentity? = nil
     ) async throws -> String {
-        try await sendStringResponse(baseURL: baseURL, path: path, method: method, body: body,
-            requiresTeachingCenterSession: requiresTeachingCenterSession, owner: owner).html
+        try await sendStringResponse(
+            baseURL: baseURL, path: path, method: method, body: body,
+            requiresTeachingCenterSession: requiresTeachingCenterSession, owner: owner
+        ).html
     }
 
     func sendStringResponse(
@@ -218,7 +238,9 @@ extension ScheduleService {
         request.httpMethod = method
 
         if method == "POST" {
-            request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+            request.setValue(
+                "application/x-www-form-urlencoded; charset=utf-8",
+                forHTTPHeaderField: "Content-Type")
             request.httpBody = HTTPFormEncoding.body(body)
         }
 
@@ -229,7 +251,9 @@ extension ScheduleService {
         )
     }
 
-    func sendStringRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> String {
+    func sendStringRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws
+        -> String
+    {
         try await sendStringResponse(request, owner: owner).html
     }
 
@@ -240,24 +264,32 @@ extension ScheduleService {
     ) async throws -> (html: String, url: URL) {
         let wire = try await sendObservedRequest(request, owner: owner)
         return try await wire.validated { data, response in
-            if requiresTeachingCenterSession { try validateTeachingCenterResponse(data: data, response: response) }
-            guard (200 ..< 400).contains(response.statusCode) else {
+            if requiresTeachingCenterSession {
+                try validateTeachingResponse(data: data, response: response)
+            }
+            guard (200..<400).contains(response.statusCode) else {
                 throw httpError(response.statusCode)
             }
-            guard let url = response.url ?? request.url else { throw ScheduleServiceError.invalidResponse }
+            guard let url = response.url ?? request.url else {
+                throw ScheduleServiceError.invalidResponse
+            }
             return (String(decoding: data, as: UTF8.self), url)
         }
     }
 
     /// 统一底层请求入口，并在发起前做 HTTPS 升级。
-    func sendRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> (Data, HTTPURLResponse) {
+    func sendRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> (
+        Data, HTTPURLResponse
+    ) {
         let result = try await sendObservedRequest(request, owner: owner)
         return (result.data, result.response)
     }
 
-    func sendObservedRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil) async throws -> HTTPResponse {
+    func sendObservedRequest(_ request: URLRequest, owner: SchoolSessionIdentity? = nil)
+        async throws -> HTTPResponse
+    {
         let owner = owner ?? credentials.schoolSessionIdentity
-        try validateAuthenticationOwner(owner)
+        try validateAuthOwner(owner)
         let secureRequest: URLRequest
         if let url = request.url {
             let upgradedURL = HTTPSURLUpgrade.upgradedURL(from: url)
@@ -270,13 +302,13 @@ extension ScheduleService {
         do {
             let result = try await httpClient.send(
                 secureRequest,
-                accepting: 100 ..< 600
+                accepting: 100..<600
             )
-            try validateAuthenticationOwner(owner)
+            try validateAuthOwner(owner)
             return result
         } catch {
-            try validateAuthenticationOwner(owner)
-            if isCertificateValidationError(error) {
+            try validateAuthOwner(owner)
+            if isCertificateError(error) {
                 throw ScheduleServiceError.schoolTransportFailure
             }
             if error is HTTPClientError {
@@ -299,15 +331,16 @@ extension ScheduleService {
         if teachingCenterState.shouldPreferDirect(for: studentID) {
             return schoolBaseURL
         }
-        return teachingCenterState.hasUsableSession(for: studentID) ? webVPNSchoolBaseURL : schoolBaseURL
+        return teachingCenterState.hasUsableSession(for: studentID)
+            ? webVPNSchoolBaseURL : schoolBaseURL
     }
 
-    private func validateTeachingCenterResponse(
+    private func validateTeachingResponse(
         data: Data,
         response: HTTPURLResponse
     ) throws {
         let html = String(decoding: data.prefix(16_384), as: UTF8.self).lowercased()
-        if (html.contains("<html") || html.contains("<!doctype html")), html.contains("无权访问该资源") {
+        if html.contains("<html") || html.contains("<!doctype html"), html.contains("无权访问该资源") {
             throw ScheduleServiceError.schoolResponse("学校教务服务返回“无权访问该资源”，请通过学校官方入口处理。")
         }
         if response.statusCode == 401 || response.statusCode == 403 {
@@ -325,7 +358,7 @@ extension ScheduleService {
             }
         }
         if let location = response.value(forHTTPHeaderField: "Location")?.lowercased(),
-           location.contains("login") || location.contains("/cas/")
+            location.contains("login") || location.contains("/cas/")
         {
             throw ScheduleServiceError.teachingCenterSessionExpired
         }

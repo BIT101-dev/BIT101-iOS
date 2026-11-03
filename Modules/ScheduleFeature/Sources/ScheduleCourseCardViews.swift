@@ -74,7 +74,8 @@ struct ScheduleCardTextView: UIViewRepresentable {
         private var title = ""
         private var location = ""
         private var scheduleContentMode = ScheduleCardContentMode.nameAndLocation
-        private var baseFont = UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption)
+        private var baseFont = UIFont.preferredFont(
+            forTextStyle: AppDesignSystem.Typography.uiCaption)
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -153,11 +154,17 @@ struct ScheduleCardTextView: UIViewRepresentable {
             )
             let titleAvailableHeight = max(bounds.height - locationHeight - gap, 0)
             if titleAvailableHeight >= baseFont.lineHeight {
-                layoutTitle(text: title,
+                layoutTitle(
+                    text: title,
                     in: CGRect(x: 0, y: 0, width: bounds.width, height: titleAvailableHeight))
-            } else { hideTitle() }
-            layoutLocation(text: location,
-                in: CGRect(x: 0, y: bounds.height - locationHeight, width: bounds.width, height: locationHeight))
+            } else {
+                hideTitle()
+            }
+            layoutLocation(
+                text: location,
+                in: CGRect(
+                    x: 0, y: bounds.height - locationHeight, width: bounds.width,
+                    height: locationHeight))
         }
 
         @discardableResult
@@ -199,13 +206,19 @@ struct ScheduleCardTextView: UIViewRepresentable {
                 var upper = baseFont.pointSize
                 while upper - lower > 1 / contentScaleFactor {
                     let size = (lower + upper) / 2
-                    if measuredHeight(text: text, font: baseFont.withSize(size), width: rect.width) <= rect.height {
+                    if measuredHeight(
+                        text: text, font: baseFont.withSize(size), width: rect.width)
+                        <= rect.height
+                    {
                         lower = size
-                    } else { upper = size }
+                    } else {
+                        upper = size
+                    }
                 }
                 font = baseFont.withSize(lower)
             }
-            let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
+            let height = min(
+                measuredHeight(text: text, font: font, width: rect.width), rect.height)
             configureLocationLabel(text: text, height: height, font: font)
             locationLabel.frame = CGRect(
                 x: rect.minX,
@@ -257,7 +270,9 @@ struct CourseScheduleBackgroundView: View {
             .overlay {
                 if entry.kind != .course {
                     AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small)
-                        .strokeBorder(borderColor, lineWidth: AppDesignSystem.Schedule.Grid.courseBorderWidth)
+                        .strokeBorder(
+                            borderColor,
+                            lineWidth: AppDesignSystem.Schedule.Grid.courseBorderWidth)
                 }
             }
     }

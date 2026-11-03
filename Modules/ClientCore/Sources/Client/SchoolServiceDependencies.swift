@@ -15,7 +15,7 @@ public enum SchoolSessionRestorationError: Error {
 
 /// 负责恢复学校 CAS 会话的应用适配入口。
 public protocol SchoolSessionRestoring: Sendable {
-    func restoreSchoolSessionIfNeeded() async throws -> String?
+    func restoreSchoolSession() async throws -> String?
 }
 
 /// 学校认证凭据，应用层提供具体存储实现。
@@ -26,8 +26,8 @@ public protocol SchoolCredentialsProviding {
     @MainActor func prepareSchoolCredentials() async throws
 }
 
-public extension SchoolCredentialsProviding {
-    @MainActor func prepareSchoolCredentials() async throws {}
+extension SchoolCredentialsProviding {
+    @MainActor public func prepareSchoolCredentials() async throws {}
 }
 
 /// 学校 URL 加密能力，应用层提供具体密码学实现。
@@ -36,20 +36,20 @@ public protocol SchoolServiceCryptoProviding: Sendable {
     var browserUserAgent: String { get }
 
     func schoolProtectedHeaders() -> [String: String]
-    func encryptSchoolURLCryptoBody(
+    func encryptSchoolBody(
         object: [String: String],
         publicKeyPEM: String
     ) throws -> (body: String, encryptedKey: String, aesKey: Data)
-    func decryptSchoolURLCryptoResponse(_ data: Data, aesKey: Data) throws -> Data
+    func decryptSchoolResponse(_ data: Data, aesKey: Data) throws -> Data
 }
 
-public extension SchoolServiceCryptoProviding {
-    func isAcceptedSchoolLoginCompletion(
+extension SchoolServiceCryptoProviding {
+    public func acceptsSchoolLoginResult(
         statusCode: Int,
         url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
-        if (200 ..< 300).contains(statusCode) {
+        if (200..<300).contains(statusCode) {
             return true
         }
         return statusCode == 401

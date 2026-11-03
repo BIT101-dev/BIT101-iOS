@@ -26,13 +26,14 @@ struct PaperCommentsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
-                CommunityCommentSortPicker(order: Binding(get: { selectedOrder }, set: onSelectOrder))
+                CommunityCommentSortPicker(
+                    order: Binding(get: { selectedOrder }, set: onSelectOrder))
             }
 
             switch status {
             case .idle where comments.isEmpty, .loading where comments.isEmpty:
                 AppInlineLoadingState("正在加载评论")
-            case let .failed(message) where comments.isEmpty:
+            case .failed(let message) where comments.isEmpty:
                 AppFailureState(
                     title: "加载评论失败",
                     systemImage: "text.bubble",
@@ -48,7 +49,8 @@ struct PaperCommentsSection: View {
                         .padding(.vertical, AppDesignSystem.Spacing.section)
                 } else {
                     LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
+                        ForEach(Array(comments.enumerated()), id: \.element.id) {
+                            index, comment in
                             VStack(spacing: AppDesignSystem.Spacing.none) {
                                 PaperCommentRow(
                                     comment: comment,
@@ -68,8 +70,10 @@ struct PaperCommentsSection: View {
                             }
                         }
 
-                        CommunityPaginationFooter(isLoading: isLoadingMore,
-                            errorMessage: paginationError) { onLoadMore(comments.last) }
+                        CommunityPaginationFooter(
+                            isLoading: isLoadingMore,
+                            errorMessage: paginationError
+                        ) { onLoadMore(comments.last) }
                     }
                     .appCommentSectionStyle()
                 }
@@ -77,7 +81,6 @@ struct PaperCommentsSection: View {
         }
     }
 }
-
 
 private struct PaperCommentRow: View {
     let comment: CommunityComment
@@ -87,7 +90,8 @@ private struct PaperCommentRow: View {
     let onOpenImage: (Int, [CommunityImage]) -> Void
 
     var body: some View {
-        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) { comment, isSubComment in
+        AppCommentThread(comment: comment, subcomments: comment.flattenedReplies) {
+            comment, isSubComment in
             commentBubble(comment, isSubComment: isSubComment)
         }
     }
@@ -105,7 +109,8 @@ private struct PaperCommentRow: View {
             )
         } content: {
             AppCommentIdentityHeader(
-                nickname: comment.anonymous ? AppUserPresentation.anonymousName : comment.user.nickname,
+                nickname: comment.anonymous
+                    ? AppUserPresentation.anonymousName : comment.user.nickname,
                 isSubComment: isSubComment,
                 timeText: AppDateText.timestampText(from: comment.updateTime),
                 onOpenProfile: nil

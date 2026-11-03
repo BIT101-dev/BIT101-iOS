@@ -1,26 +1,26 @@
-import ScoreDomain
-import ScorePorts
-import MineFeature
-import GalleryFeature
+import Combine
+import CommunityTransport
+import CommunityUI
 import CourseFeature
-import ScoreFeature
-import ScheduleFeature
-import MapFeature
-import ScheduleDomain
-import StorageCore
 import DesignSystemKit
+import GalleryFeature
+import MapFeature
+import MineFeature
+import ScheduleDomain
+import ScheduleFeature
+import ScoreDomain
+import ScoreFeature
+import ScorePorts
+import StorageCore
+import SwiftUI
+import UIKit
+
 //
 //  AppShellView.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import SwiftUI
-import Combine
-import CommunityTransport
-import CommunityUI
-import UIKit
 
 enum AppInterfaceOrientationPolicy {
     static func supportedOrientations(for traits: UITraitCollection) -> UIInterfaceOrientationMask {
@@ -33,7 +33,9 @@ enum AppInterfaceOrientationPolicy {
 }
 
 struct AppInterfaceOrientationObserver: UIViewRepresentable {
-    func makeUIView(context: Context) -> AppInterfaceOrientationView { AppInterfaceOrientationView() }
+    func makeUIView(context: Context) -> AppInterfaceOrientationView {
+        AppInterfaceOrientationView()
+    }
     func updateUIView(_ view: AppInterfaceOrientationView, context: Context) { view.updatePolicy() }
 }
 
@@ -42,12 +44,19 @@ final class AppInterfaceOrientationView: UIView {
     init() {
         super.init(frame: .zero)
         isUserInteractionEnabled = false
-        registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self, UITraitUserInterfaceIdiom.self]) {
+        registerForTraitChanges([
+            UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self,
+            UITraitUserInterfaceIdiom.self,
+        ]) {
             (view: AppInterfaceOrientationView, _: UITraitCollection) in view.updatePolicy()
         }
     }
     required init?(coder: NSCoder) { super.init(coder: coder) }
-    override func didMoveToWindow() { super.didMoveToWindow(); supportedOrientations = nil; updatePolicy() }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        supportedOrientations = nil
+        updatePolicy()
+    }
     func updatePolicy() {
         guard let window, let scene = window.windowScene else { return }
         let mask = AppInterfaceOrientationPolicy.supportedOrientations(for: scene.traitCollection)
@@ -75,7 +84,7 @@ enum AppTab: String, Identifiable, Codable {
         .map,
         .gallery,
         .score,
-        .mine
+        .mine,
     ]
 
     /// 供 `TabView` 和设置持久化使用的稳定标识。
@@ -181,13 +190,17 @@ struct AppShellView: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
-    优化课表与空教室布局，改善横竖屏及分栏适配。
-    修复学校短信验证中断后的恢复问题，优化成绩查询。
-    扩大帖子点击范围，优化图片预览与评论操作。
-    改进页面状态保留、缓存恢复和网络切换体验。
-    """
+        优化课表与空教室布局，改善横竖屏及分栏适配。
+        修复学校短信验证中断后的恢复问题，优化成绩查询。
+        扩大帖子点击范围，优化图片预览与评论操作。
+        改进页面状态保留、缓存恢复和网络切换体验。
+        """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
-    private static let linuxDoThanksBody = "特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。"
+    private static let linuxDoThanksBody =
+        """
+        特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区\
+        。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。
+        """
 
     let transcriptService: any TrustedTranscriptServicing
     let studentID: String
@@ -200,13 +213,17 @@ struct AppShellView: View {
     @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
     @EnvironmentObject private var lifecycle: AppAccountLifecycle
     @EnvironmentObject private var promptCoordinator: AppPromptCoordinator
-#if BIT101_UI_TESTING
-    @State private var selectedTab: AppTab = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
-        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule") ?? .schedule : .mine
-    @State private var uiTestSettingsRoute = AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"].flatMap(SettingsRoute.init(rawValue:))
-#else
+    #if BIT101_UI_TESTING
+    @State private var selectedTab: AppTab =
+        AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
+        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule")
+            ?? .schedule : .mine
+    @State private var uiTestSettingsRoute = AppUITestBootstrap.environment[
+        "BIT101_UI_TEST_SETTINGS"
+    ].flatMap(SettingsRoute.init(rawValue:))
+    #else
     @State private var selectedTab: AppTab = .schedule
-#endif
+    #endif
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedCalendarRoute: AppDeepLinkRoute?
     @State private var requestedPaperID: Int?
@@ -230,35 +247,39 @@ struct AppShellView: View {
 
     private var mainTabs: some View {
         Group {
-            if #available(iOS 18.0, *) { nativeTabs }
-            else { compactTabs }
+            if #available(iOS 18.0, *) { nativeTabs } else { compactTabs }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
         .appSelectionFeedback(trigger: selectedTab.rawValue)
         .task(id: requestedCalendarRoute) {
             guard let route = requestedCalendarRoute,
-                  case let .calendarEvent(markerID, term, account) = route else { return }
+                case .calendarEvent(let markerID, let term, let account) = route
+            else { return }
             let identity = lifecycle.accountIdentity
             defer { if requestedCalendarRoute == route { requestedCalendarRoute = nil } }
             await scheduleViewModel.loadIfNeeded()
             guard !Task.isCancelled, requestedCalendarRoute == route,
-                  identity == lifecycle.accountIdentity,
-                  account == AppAccountSession.currentSession.accountStorageIdentifier else { return }
-            scheduleViewModel.requestSystemCalendarEntry(markerID: markerID, term: term)
+                identity == lifecycle.accountIdentity,
+                account == AppAccountSession.currentSession.accountStorageIdentifier
+            else { return }
+            scheduleViewModel.requestCalendarEntry(markerID: markerID, term: term)
         }
         .onChange(of: selectedTab) { _, _ in
             interactionEvidence?("app.shell", "tab-switch")
         }
         .onAppear {
-#if BIT101_UI_TESTING
+            #if BIT101_UI_TESTING
             guard !AppFileDirectories.isRunningUITest else { return }
-#endif
-            enqueueStartupPromptsIfNeeded()
+            #endif
+            enqueueStartupPrompts()
         }
         .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active else { notificationPromptTask?.cancel(); return }
-            refreshScheduleNotificationPromptIfNeeded()
+            guard newPhase == .active else {
+                notificationPromptTask?.cancel()
+                return
+            }
+            refreshReminderPrompt()
         }
         .onDisappear {
             notificationPromptTask?.cancel()
@@ -266,18 +287,19 @@ struct AppShellView: View {
         }
         .onReceive(lifecycle.scheduleChanges) { session in
             guard session == lifecycle.currentSession() else { return }
-            refreshScheduleNotificationPromptIfNeeded()
+            refreshReminderPrompt()
         }
         .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }
-        .diagnosticAlert(item: Binding(get: { scheduleViewModel.notice }, set: { _ in scheduleViewModel.dismissNotice() }))
+        .diagnosticAlert(
+            item: Binding(
+                get: { scheduleViewModel.notice }, set: { _ in scheduleViewModel.dismissNotice() }))
     }
 
     private var usesExpandedNavigation: Bool {
-        if #available(iOS 18.0, *) { layout.usesExpandedNavigation }
-        else { false }
+        if #available(iOS 18.0, *) { layout.usesExpandedNavigation } else { false }
     }
 
     @available(iOS 18.0, *) private var nativeTabs: some View {
@@ -288,11 +310,14 @@ struct AppShellView: View {
                         .tint(destination.tab.tintColor)
                         .accentColor(destination.tab.tintColor)
                         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        .environment(\.appPageIsVisible, destination == destinationSelection.wrappedValue)
+                        .environment(
+                            \.appPageIsVisible, destination == destinationSelection.wrappedValue)
                 } label: {
-                    Label(usesExpandedNavigation ? destination.title : destination.tab.title,
-                        systemImage: destination.systemImage)
-                        .accessibilityIdentifier(destination.accessibilityIdentifier)
+                    Label(
+                        usesExpandedNavigation ? destination.title : destination.tab.title,
+                        systemImage: destination.systemImage
+                    )
+                    .accessibilityIdentifier(destination.accessibilityIdentifier)
                 }
                 .accessibilityIdentifier(destination.accessibilityIdentifier)
                 .hidden(isHidden(destination))
@@ -305,8 +330,11 @@ struct AppShellView: View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
                 Group {
-                    if tab == .schedule || tab == .gallery || tab == .score || tab == .mine { tabContent(tab) }
-                    else { NavigationStack { tabContent(tab) } }
+                    if tab == .schedule || tab == .gallery || tab == .score || tab == .mine {
+                        tabContent(tab)
+                    } else {
+                        NavigationStack { tabContent(tab) }
+                    }
                 }
                 .environment(\.appPageIsVisible, tab == selectedTab)
                 .tint(tab.tintColor)
@@ -340,11 +368,15 @@ struct AppShellView: View {
         case .topics: galleryContent(includesPaperSurface: false)
         case .papers:
             destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
-                .appBrowserHeader(isPresented: !usesExpandedNavigation) { GallerySurfacePicker(selection: $gallerySurface) }
+                .appBrowserHeader(isPresented: !usesExpandedNavigation) {
+                    GallerySurfacePicker(selection: $gallerySurface)
+                }
         case .schedule, .classroom:
             scheduleContent(showingClassrooms: destination == .classroom)
         case .scores, .courses:
-            ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse,
+            ScoreRootView(
+                courses: community.course, transcriptService: transcriptService,
+                requestedCourse: $requestedCourse,
                 selection: $scoreSurface, showingCourses: destination == .courses)
         case .mine: tabContent(.mine)
         default:
@@ -359,77 +391,100 @@ struct AppShellView: View {
         case .map:
             TimelineView(.everyMinute) { context in
                 CampusMapScreen(
-                    nextCourseTarget: UpcomingCourseMapResolver.nextTarget(in: scheduleViewModel.courseSnapshot, now: context.date),
+                    nextCourseTarget: UpcomingCourseMapResolver.nextTarget(
+                        in: scheduleViewModel.courseSnapshot, now: context.date),
                     requestedLocation: requestedMapLocation
                 )
             }
             .task { await scheduleViewModel.loadIfNeeded() }
         case .score:
-            ScoreRootView(courses: community.course, transcriptService: transcriptService, requestedCourse: $requestedCourse, selection: $scoreSurface)
+            ScoreRootView(
+                courses: community.course, transcriptService: transcriptService,
+                requestedCourse: $requestedCourse, selection: $scoreSurface)
         case .gallery:
             galleryContent()
         case .mine:
-            MineRootView(dependencies: community.mine, media: destinations.media, posters: destinations.posters,
+            MineRootView(
+                dependencies: community.mine, media: destinations.media,
+                posters: destinations.posters,
                 settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout,
                 requestedSettings: requestedMineSettings)
         }
     }
 
     private var requestedMineSettings: Binding<CommunitySettingsEntry?> {
-#if BIT101_UI_TESTING
-        Binding(get: {
-            uiTestSettingsRoute.flatMap { route in destinations.settings.settingsEntries.first { $0.id == route.rawValue } }
-        }, set: { uiTestSettingsRoute = $0.flatMap { SettingsRoute(rawValue: $0.id) } })
-#else
+        #if BIT101_UI_TESTING
+        Binding(
+            get: {
+                uiTestSettingsRoute.flatMap { route in
+                    destinations.settings.settingsEntries.first { $0.id == route.rawValue }
+                }
+            }, set: { uiTestSettingsRoute = $0.flatMap { SettingsRoute(rawValue: $0.id) } })
+        #else
         .constant(nil)
-#endif
+        #endif
     }
 
     private func scheduleContent(showingClassrooms: Bool? = nil) -> some View {
-        ScheduleRootView(viewModel: scheduleViewModel, requestedSection: $requestedScheduleSection,
-            destinations: .appDestinations(courses: community.course, onOpenAcademicCourse: { request in
-                scoreSurface = .course; selectTab(.score); requestedCourse = request
-            }, onOpenCourseLocation: { request in
-                requestedMapLocation = request; selectTab(.map)
-            }), showingClassrooms: showingClassrooms)
+        ScheduleRootView(
+            viewModel: scheduleViewModel, requestedSection: $requestedScheduleSection,
+            destinations: .appDestinations(
+                courses: community.course,
+                onOpenAcademicCourse: { request in
+                    scoreSurface = .course
+                    selectTab(.score)
+                    requestedCourse = request
+                },
+                onOpenCourseLocation: { request in
+                    requestedMapLocation = request
+                    selectTab(.map)
+                }), showingClassrooms: showingClassrooms)
     }
 
     private func galleryContent(includesPaperSurface: Bool = true) -> some View {
-        GalleryRootView(dependencies: community.gallery, media: destinations.media,
-            profiles: destinations.profiles, papers: destinations.papers, courses: destinations.courses,
+        GalleryRootView(
+            dependencies: community.gallery, media: destinations.media,
+            profiles: destinations.profiles, papers: destinations.papers,
+            courses: destinations.courses,
             requestedPaperID: includesPaperSurface ? $requestedPaperID : .constant(nil),
-            requestedPosterID: $requestedPosterID, selection: $gallerySurface, includesPaperSurface: includesPaperSurface)
+            requestedPosterID: $requestedPosterID, selection: $gallerySurface,
+            includesPaperSurface: includesPaperSurface)
     }
 
     private var destinationSelection: Binding<AppDestination> {
-        Binding(get: {
-            switch selectedTab {
-            case .schedule:
-                switch scheduleViewModel.selectedSection {
-                case .courses, .ddl: .schedule
-                case .classroom: .classroom
+        Binding(
+            get: {
+                switch selectedTab {
+                case .schedule:
+                    switch scheduleViewModel.selectedSection {
+                    case .courses, .ddl: .schedule
+                    case .classroom: .classroom
+                    }
+                case .map: .map
+                case .gallery: gallerySurface == .gallery ? .topics : .papers
+                case .score: scoreSurface == .score ? .scores : .courses
+                case .mine: .mine
                 }
-            case .map: .map
-            case .gallery: gallerySurface == .gallery ? .topics : .papers
-            case .score: scoreSurface == .score ? .scores : .courses
-            case .mine: .mine
-            }
-        }, set: { destination in
-            switch destination {
-            case .schedule, .classroom:
-                if destination == .classroom { scheduleViewModel.selectedSection = .classroom }
-                else if scheduleViewModel.selectedSection == .classroom { scheduleViewModel.selectedSection = .courses }
-                selectTab(.schedule)
-            case .map: selectTab(.map)
-            case .topics, .papers:
-                gallerySurface = destination == .topics ? .gallery : .paper
-                selectTab(.gallery)
-            case .scores, .courses:
-                scoreSurface = destination == .scores ? .score : .course
-                selectTab(.score)
-            case .mine: selectTab(.mine)
-            }
-        })
+            },
+            set: { destination in
+                switch destination {
+                case .schedule, .classroom:
+                    if destination == .classroom {
+                        scheduleViewModel.selectedSection = .classroom
+                    } else if scheduleViewModel.selectedSection == .classroom {
+                        scheduleViewModel.selectedSection = .courses
+                    }
+                    selectTab(.schedule)
+                case .map: selectTab(.map)
+                case .topics, .papers:
+                    gallerySurface = destination == .topics ? .gallery : .paper
+                    selectTab(.gallery)
+                case .scores, .courses:
+                    scoreSurface = destination == .scores ? .score : .course
+                    selectTab(.score)
+                case .mine: selectTab(.mine)
+                }
+            })
     }
 
     private var tabSelection: Binding<AppTab> {
@@ -459,22 +514,23 @@ struct AppShellView: View {
         case .scheduleDDL:
             selectTab(.schedule)
             requestedScheduleSection = .ddl
-        case let .paper(paperID):
+        case .paper(let paperID):
             gallerySurface = .paper
             selectTab(.gallery)
             requestedPaperID = paperID
-        case let .gallery(posterID):
+        case .gallery(let posterID):
             gallerySurface = .gallery
             selectTab(.gallery)
             requestedPosterID = posterID
-        case let .course(courseID):
+        case .course(let courseID):
             scoreSurface = .course
             selectTab(.score)
             requestedCourse = CourseNavigationRequest(courseID: courseID)
-        case let .calendarEvent(_, _, account):
+        case .calendarEvent(_, _, let account):
             selectTab(.schedule)
             guard account == AppAccountSession.currentSession.accountStorageIdentifier else {
-                AppErrorPresenter.shared.present(AppAlert(title: "日历事件账号", message: "请切换到创建该事件的账号后查看。"))
+                AppErrorPresenter.shared.present(
+                    AppAlert(title: "日历事件账号", message: "请切换到创建该事件的账号后查看。"))
                 return
             }
             requestedScheduleSection = nil
@@ -490,73 +546,78 @@ struct AppShellView: View {
     /// - 前后台切换会重新评估 fallback 能力
     ///
     /// 提示状态集中在这里处理，多个入口共享同一套判断。
-    private func refreshScheduleNotificationPromptIfNeeded() {
-#if BIT101_UI_TESTING
+    private func refreshReminderPrompt() {
+        #if BIT101_UI_TESTING
         guard !AppFileDirectories.isRunningUITest else { return }
-#endif
+        #endif
         notificationPromptTask?.cancel()
         notificationPromptTask = Task {
-            guard let owner = await lifecycle.scheduleNotificationPromptAccount(),
-                  !Task.isCancelled, owner == lifecycle.accountIdentity else { return }
-            enqueueScheduleNotificationPrompt(account: owner)
+            guard let owner = await lifecycle.reminderPromptAccount(),
+                !Task.isCancelled, owner == lifecycle.accountIdentity
+            else { return }
+            enqueueReminderPrompt(account: owner)
         }
     }
 
-    private func enqueueStartupPromptsIfNeeded() {
+    private func enqueueStartupPrompts() {
         guard !didEnqueueStartupPrompts else {
-            refreshScheduleNotificationPromptIfNeeded()
+            refreshReminderPrompt()
             return
         }
         didEnqueueStartupPrompts = true
 
         if settings.shouldShowCurrentStartupNotice {
-            promptCoordinator.enqueue(AppPrompt(
-                id: "startup-notice-\(Self.startupNoticeTitle)",
-                title: Self.startupNoticeTitle,
-                message: Self.startupNoticeBody,
-                actions: [
-                    AppPromptAction(id: "confirm", title: "确定", isDefault: true) {
-                        settings.markCurrentStartupNoticeSeen()
-                    }
-                ]
-            ))
+            promptCoordinator.enqueue(
+                AppPrompt(
+                    id: "startup-notice-\(Self.startupNoticeTitle)",
+                    title: Self.startupNoticeTitle,
+                    message: Self.startupNoticeBody,
+                    actions: [
+                        AppPromptAction(id: "confirm", title: "确定", isDefault: true) {
+                            settings.markStartupNoticeSeen()
+                        }
+                    ]
+                ))
         }
 
         if settings.shouldShowLinuxDoThanksNotice {
             let account = lifecycle.accountIdentity
             let session = lifecycle.currentSession()
-            promptCoordinator.enqueue(AppPrompt(
-                id: "linux-do-thanks",
-                title: Self.linuxDoThanksTitle,
-                message: Self.linuxDoThanksBody,
+            promptCoordinator.enqueue(
+                AppPrompt(
+                    id: "linux-do-thanks",
+                    title: Self.linuxDoThanksTitle,
+                    message: Self.linuxDoThanksBody,
+                    actions: [
+                        AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {
+                            settings.markThanksNoticeShown(for: session)
+                        }
+                    ],
+                    account: account
+                ))
+        }
+
+        refreshReminderPrompt()
+    }
+
+    private func enqueueReminderPrompt(account: CommunitySessionIdentity) {
+        promptCoordinator.enqueue(
+            AppPrompt(
+                id: "schedule-notification-permission",
+                title: "请开启通知",
+                message: "灵动岛提醒无法自动启动时，应用会发送本地通知。请在系统设置中允许 BIT101 发送通知。",
                 actions: [
-                    AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {
-                        settings.markLinuxDoThanksNoticeShown(for: session)
-                    }
+                    AppPromptAction(id: "cancel", title: "取消", role: .cancel) {},
+                    AppPromptAction(id: "open-settings", title: "转到设置", isDefault: true) {
+                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                            openURL(url)
+                        } else if let fallbackURL = URL(string: UIApplication.openSettingsURLString)
+                        {
+                            openURL(fallbackURL)
+                        }
+                    },
                 ],
                 account: account
             ))
-        }
-
-        refreshScheduleNotificationPromptIfNeeded()
-    }
-
-    private func enqueueScheduleNotificationPrompt(account: CommunitySessionIdentity) {
-        promptCoordinator.enqueue(AppPrompt(
-            id: "schedule-notification-permission",
-            title: "请开启通知",
-            message: "灵动岛提醒无法自动启动时，应用会发送本地通知。请在系统设置中允许 BIT101 发送通知。",
-            actions: [
-                AppPromptAction(id: "cancel", title: "取消", role: .cancel) {},
-                AppPromptAction(id: "open-settings", title: "转到设置", isDefault: true) {
-                    if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
-                        openURL(url)
-                    } else if let fallbackURL = URL(string: UIApplication.openSettingsURLString) {
-                        openURL(fallbackURL)
-                    }
-                }
-            ],
-            account: account
-        ))
     }
 }

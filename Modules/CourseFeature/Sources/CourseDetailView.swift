@@ -12,8 +12,14 @@ public struct CourseDetailView: View {
     private let identity: [ObjectIdentifier]
     private let resourceID: Int
 
-    public init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary, initialDetail: CourseDetail? = nil) {
-        scene = CourseDetailViewScene(dependencies: dependencies, media: media, profiles: profiles, initialCourse: initialCourse, initialDetail: initialDetail)
+    public init(
+        dependencies: CourseDependencies, media: MediaEnvironment,
+        profiles: CommunityProfileDestination, initialCourse: CourseSummary,
+        initialDetail: CourseDetail? = nil
+    ) {
+        scene = CourseDetailViewScene(
+            dependencies: dependencies, media: media, profiles: profiles,
+            initialCourse: initialCourse, initialDetail: initialDetail)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
         resourceID = initialCourse.id
     }
@@ -21,7 +27,7 @@ public struct CourseDetailView: View {
     public var body: some View {
         scene.id(identity)
             .id(resourceID)
-        .appReadableContent(fillsAvailableWidth: true)
+            .appReadableContent(fillsAvailableWidth: true)
     }
 }
 
@@ -44,13 +50,21 @@ private struct CourseDetailViewScene: View {
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
 
-    init(dependencies: CourseDependencies, media: MediaEnvironment, profiles: CommunityProfileDestination, initialCourse: CourseSummary, initialDetail: CourseDetail?) {
+    init(
+        dependencies: CourseDependencies, media: MediaEnvironment,
+        profiles: CommunityProfileDestination, initialCourse: CourseSummary,
+        initialDetail: CourseDetail?
+    ) {
         self.dependencies = dependencies
         self.media = media
         self.destinations = profiles
         self.initialCourse = initialCourse
         _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
-        _viewModel = StateObject(wrappedValue: CourseDetailViewModel(initialCourse: initialCourse, initialDetail: initialDetail, service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits))
+        _viewModel = StateObject(
+            wrappedValue: CourseDetailViewModel(
+                initialCourse: initialCourse, initialDetail: initialDetail,
+                service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits)
+        )
     }
 
     var body: some View {
@@ -81,7 +95,8 @@ private struct CourseDetailViewScene: View {
                         }
                     },
                     onOpenImage: { index, images in
-                        imageViewer = ImagePreviewRequest(remoteImages: images.map(\.previewImage), initialIndex: index)
+                        imageViewer = ImagePreviewRequest(
+                            remoteImages: images.map(\.previewImage), initialIndex: index)
                     },
                     onOpenUser: { user in
                         guard user.id > 0 else { return }
@@ -92,7 +107,11 @@ private struct CourseDetailViewScene: View {
                             await viewModel.loadMoreCommentsIfNeeded(currentComment: comment)
                         }
                     },
-                    onRetry: { viewModel.pendingOperations.enqueue { await viewModel.refreshComments() } }
+                    onRetry: {
+                        viewModel.pendingOperations.enqueue {
+                            await viewModel.refreshComments()
+                        }
+                    }
                 )
             }
             .padding(.horizontal, AppDesignSystem.Spacing.section)
@@ -131,21 +150,30 @@ private struct CourseDetailViewScene: View {
                 isSubmitting: viewModel.isSubmittingComment,
                 review: viewModel.commentReview
             ) { text, anonymous, rate in
-                await viewModel.submitComment(text: text, anonymous: anonymous, rate: rate, target: target)
+                await viewModel.submitComment(
+                    text: text, anonymous: anonymous, rate: rate, target: target)
             }
             .id(target.id)
         }
         .systemImagePreview(item: $imageViewer)
-        .communityReadRecovery(networkPath: dependencies.networkPath) { await retryDetailIfNeeded() }
+        .communityReadRecovery(networkPath: dependencies.networkPath) {
+            await retryDetailIfNeeded()
+        }
         .onDisappear { viewModel.pendingOperations.cancel() }
         .diagnosticAlert(item: $viewModel.alert)
     }
 
     private func retryDetailIfNeeded() async {
-        let detailFailed: Bool = if case .failed = viewModel.status { true } else { viewModel.needsContentRefresh }
-        if detailFailed { await viewModel.refresh() }
-        else { await viewModel.retryCommentsIfNeeded() }
-        if case .failed = viewModel.historyGradeStatus { await viewModel.loadHistoryGradesIfNeeded() }
+        let detailFailed: Bool =
+            if case .failed = viewModel.status { true } else { viewModel.needsContentRefresh }
+        if detailFailed {
+            await viewModel.refresh()
+        } else {
+            await viewModel.retryCommentsIfNeeded()
+        }
+        if case .failed = viewModel.historyGradeStatus {
+            await viewModel.loadHistoryGradesIfNeeded()
+        }
     }
 
     private var summarySection: some View {
@@ -166,22 +194,33 @@ private struct CourseDetailViewScene: View {
                     }
 
                     AppDetailCircleButton(
-                        accessibilityLabel: viewModel.hasKnownLikeState ? (viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程") : "等待课程点赞状态"
+                        accessibilityLabel: viewModel.hasKnownLikeState
+                            ? (viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程") : "等待课程点赞状态"
                     ) {
                         viewModel.pendingOperations.enqueue {
                             await viewModel.likeCourse()
                         }
                     } label: {
                         Group {
-                            if viewModel.isLikingCourse || (!viewModel.hasKnownLikeState && (viewModel.status == .idle || viewModel.status == .loading)) {
+                            if viewModel.isLikingCourse
+                                || (!viewModel.hasKnownLikeState
+                                    && (viewModel.status == .idle
+                                        || viewModel.status == .loading))
+                            {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Image(systemName: viewModel.isCourseLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                                    .font(AppDesignSystem.Typography.title)
+                                Image(
+                                    systemName: viewModel.isCourseLiked
+                                        ? "hand.thumbsup.fill" : "hand.thumbsup"
+                                )
+                                .font(AppDesignSystem.Typography.title)
                             }
                         }
-                        .foregroundStyle(viewModel.isCourseLiked ? AppDesignSystem.Course.accent : AppDesignSystem.Foreground.primaryColor)
+                        .foregroundStyle(
+                            viewModel.isCourseLiked
+                                ? AppDesignSystem.Course.accent
+                                : AppDesignSystem.Foreground.primaryColor)
                     }
                     .disabled(viewModel.isLikingCourse || !viewModel.hasKnownLikeState)
                 }
@@ -190,8 +229,14 @@ private struct CourseDetailViewScene: View {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                 LabeledContent("课程号", value: viewModel.resolvedNumber)
                 LabeledContent("学分", value: viewModel.resolvedCreditText)
-                LabeledContent("教师", value: viewModel.resolvedTeachersName.isEmpty ? "-" : viewModel.resolvedTeachersName)
-                LabeledContent("教师号", value: viewModel.resolvedTeachersNumber.isEmpty ? "-" : viewModel.resolvedTeachersNumber)
+                LabeledContent(
+                    "教师",
+                    value: viewModel.resolvedTeachersName.isEmpty
+                        ? "-" : viewModel.resolvedTeachersName)
+                LabeledContent(
+                    "教师号",
+                    value: viewModel.resolvedTeachersNumber.isEmpty
+                        ? "-" : viewModel.resolvedTeachersNumber)
             }
             .font(AppDesignSystem.Typography.body)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -223,14 +268,16 @@ private struct CourseDetailViewScene: View {
             case .idle, .loading:
                 AppInlineLoadingState("正在加载历史成绩")
 
-            case let .failed(message):
+            case .failed(let message):
                 AppFailureState(
                     title: "加载历史成绩失败",
                     systemImage: "chart.line.uptrend.xyaxis",
                     message: message,
                     allowsDiagnostics: viewModel.historyGradesAllowsDiagnostics,
                     onRetry: {
-                        viewModel.pendingOperations.enqueue { await viewModel.reloadHistoryGrades() }
+                        viewModel.pendingOperations.enqueue {
+                            await viewModel.reloadHistoryGrades()
+                        }
                     }
                 )
 
@@ -252,7 +299,8 @@ private struct CourseDetailViewScene: View {
                 if let url = viewModel.sharedMaterialsURL {
                     openURL(url)
                 } else {
-                    viewModel.alert = AppAlert.userInput(title: "无法打开共享资料", message: "课程名称或课程号为空。")
+                    viewModel.alert = AppAlert.userInput(
+                        title: "无法打开共享资料", message: "课程名称或课程号为空。")
                 }
             } label: {
                 AppCard(variant: .secondaryGrouped) {
@@ -283,7 +331,7 @@ private struct CourseDetailViewScene: View {
             .buttonStyle(.plain)
 
             Button {
-                appSettings.setHidesCourseHistoryMakeupOutliers(
+                appSettings.setHideMakeupOutliers(
                     !appSettings.hidesCourseHistoryMakeupOutliers
                 )
             } label: {
@@ -302,9 +350,11 @@ private struct CourseDetailViewScene: View {
                             Text("数据清洗")
                                 .font(AppDesignSystem.Typography.bodyEmphasis)
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            Text(appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示")
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                            Text(
+                                appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示"
+                            )
+                            .font(AppDesignSystem.Typography.caption)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
                         }
 
                         Spacer(minLength: AppDesignSystem.Spacing.none)
@@ -314,7 +364,9 @@ private struct CourseDetailViewScene: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("数据清洗")
-            .accessibilityValue(appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示")
+            .accessibilityValue(
+                appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示"
+            )
             .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

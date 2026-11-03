@@ -1,16 +1,17 @@
-import CommunityTransport
-import TransportCore
-import DesignSystemKit
-import CommunityCore
 import Combine
+import CommunityCore
+import CommunityTransport
+import DesignSystemKit
 import Foundation
+import TransportCore
 
 /// 四类主页列表共用第一页恢复与分页推进规则，业务对象持有代际与提示。
 @MainActor
 private func refreshMinePage<Item: Identifiable>(
     read: () -> MinePagedState<Item>, write: (MinePagedState<Item>) -> Void,
     isCurrent: () -> Bool, fetch: () async throws -> [Item], failureTitle: String,
-    onAlert: (AppAlert) -> Void, restoringItems: ([Item], [Item]) -> [Item] = { previous, _ in previous }
+    onAlert: (AppAlert) -> Void,
+    restoringItems: ([Item], [Item]) -> [Item] = { previous, _ in previous }
 ) async {
     let previous = read()
     var loading = previous
@@ -35,7 +36,8 @@ private func refreshMinePage<Item: Identifiable>(
         state.isLoadingMore = false
         let hadItems = !previous.items.isEmpty || previous.status == .loaded
         if TaskCancellation.matches(error) {
-            state.status = previous.status == .loading ? (hadItems ? .loaded : .idle) : previous.status
+            state.status =
+                previous.status == .loading ? (hadItems ? .loaded : .idle) : previous.status
             write(state)
             return
         }
@@ -61,8 +63,11 @@ private func loadMoreMinePage<Item: Identifiable>(
     write(state)
     var request = CommunityPageRequest<Item.ID>(sourcePage: state.nextPage)
     do {
-        guard let items = try await request.next(isCurrent: isCurrent,
-            knownIDs: { read().pagedItems.ids }, fetch: fetch) else { return }
+        guard
+            let items = try await request.next(
+                isCurrent: isCurrent,
+                knownIDs: { read().pagedItems.ids }, fetch: fetch)
+        else { return }
         state = read()
         state.nextPage = request.sourcePage
         state.appendPage(items)
@@ -72,7 +77,8 @@ private func loadMoreMinePage<Item: Identifiable>(
         state = read()
         state.nextPage = request.sourcePage
         state.isLoadingMore = false
-        state.loadMoreError = TaskCancellation.matches(error) ? previousError : error.localizedDescription
+        state.loadMoreError =
+            TaskCancellation.matches(error) ? previousError : error.localizedDescription
         write(state)
     }
 }
@@ -81,7 +87,9 @@ private func loadMoreMinePage<Item: Identifiable>(
 ///
 /// 分页结果的数量后缀 `+` 表示当前页后续可能还有更多帖子。
 private func minePosterCountText(for state: MinePagedState<CommunityPoster>) -> String {
-    if !state.items.isEmpty { return state.canLoadMore ? "\(state.items.count)+" : "\(state.items.count)" }
+    if !state.items.isEmpty {
+        return state.canLoadMore ? "\(state.items.count)+" : "\(state.items.count)"
+    }
     switch state.status {
     case .idle, .loading: return "..."
     case .loaded: return "0"
@@ -132,7 +140,6 @@ final class MineViewModel: ObservableObject {
         }
     }
 
-
     /// 首次进入“我的”页时加载资料卡和第一页帖子。
     ///
     /// 首页启动流程并行请求资料卡和帖子；粉丝和关注列表在对应页面进入时加载。
@@ -147,8 +154,7 @@ final class MineViewModel: ObservableObject {
 
     /// 返回主页时更新资料，首次进入时同时加载帖子摘要。
     func refreshOverview() async {
-        if hasBootstrapped { await refreshProfile() }
-        else { await bootstrapIfNeeded() }
+        if hasBootstrapped { await refreshProfile() } else { await bootstrapIfNeeded() }
     }
 
     /// 用户刷新主页时同步资料卡与帖子摘要。
@@ -206,32 +212,41 @@ final class MineViewModel: ObservableObject {
     func refreshFollowers() async {
         followerGeneration &+= 1
         let generation = followerGeneration
-        await refreshMinePage(read: { self.followerState }, write: { self.followerState = $0 },
-            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: 0) },
+        await refreshMinePage(
+            read: { self.followerState }, write: { self.followerState = $0 },
+            isCurrent: { self.followerGeneration == generation },
+            fetch: { try await self.service.fetchFollowers(page: 0) },
             failureTitle: "刷新粉丝失败", onAlert: { self.alert = $0 })
     }
 
     /// 粉丝列表的分页加载。
     func loadMoreFollowersIfNeeded(currentUser: CommunityUser?) async {
         let generation = followerGeneration
-        await loadMoreMinePage(current: currentUser, read: { self.followerState }, write: { self.followerState = $0 },
-            isCurrent: { self.followerGeneration == generation }, fetch: { try await self.service.fetchFollowers(page: $0) })
+        await loadMoreMinePage(
+            current: currentUser, read: { self.followerState }, write: { self.followerState = $0 },
+            isCurrent: { self.followerGeneration == generation },
+            fetch: { try await self.service.fetchFollowers(page: $0) })
     }
 
     /// 重新拉取关注列表第一页。
     func refreshFollowings() async {
         followingGeneration &+= 1
         let generation = followingGeneration
-        await refreshMinePage(read: { self.followingState }, write: { self.followingState = $0 },
-            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: 0) },
+        await refreshMinePage(
+            read: { self.followingState }, write: { self.followingState = $0 },
+            isCurrent: { self.followingGeneration == generation },
+            fetch: { try await self.service.fetchFollowings(page: 0) },
             failureTitle: "刷新关注失败", onAlert: { self.alert = $0 })
     }
 
     /// 关注列表的分页加载。
-    func loadMoreFollowingsIfNeeded(currentUser: CommunityUser?) async {
+    func loadMoreFollowings(currentUser: CommunityUser?) async {
         let generation = followingGeneration
-        await loadMoreMinePage(current: currentUser, read: { self.followingState }, write: { self.followingState = $0 },
-            isCurrent: { self.followingGeneration == generation }, fetch: { try await self.service.fetchFollowings(page: $0) })
+        await loadMoreMinePage(
+            current: currentUser, read: { self.followingState },
+            write: { self.followingState = $0 },
+            isCurrent: { self.followingGeneration == generation },
+            fetch: { try await self.service.fetchFollowings(page: $0) })
     }
 
     /// 重新拉取“我的帖子”第一页。
@@ -240,17 +255,21 @@ final class MineViewModel: ObservableObject {
     func refreshPosters() async {
         posterGeneration &+= 1
         let generation = posterGeneration
-        await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: 0) },
+        await refreshMinePage(
+            read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation },
+            fetch: { try await self.service.fetchMyPosters(page: 0) },
             failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 },
-            restoringItems: { $0.preservingCommunityMetrics(from: $1) })
+            restoringItems: { $0.preservingMetrics(from: $1) })
     }
 
     /// “我的帖子”列表的分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         let generation = posterGeneration
-        await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchMyPosters(page: $0) })
+        await loadMoreMinePage(
+            current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation },
+            fetch: { try await self.service.fetchMyPosters(page: $0) })
     }
 
 }
@@ -297,7 +316,6 @@ final class UserProfileViewModel: ObservableObject {
             if needsRefresh { self.posterState.needsRefresh = true }
         }
     }
-
 
     /// 首次进入主页时加载资料和第一页帖子。
     ///
@@ -374,7 +392,10 @@ final class UserProfileViewModel: ObservableObject {
         guard let userInfo, !userInfo.own, !isFollowingUser else { return }
         isFollowingUser = true
         defer { isFollowingUser = false }
-        guard userInfo.isViewerAuthenticated else { await refreshProfile(); return }
+        guard userInfo.isViewerAuthenticated else {
+            await refreshProfile()
+            return
+        }
 
         do {
             let result = try await service.followUser(id: userID)
@@ -387,7 +408,10 @@ final class UserProfileViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 await refreshProfile()
                 guard !Task.isCancelled else { return }
-                if followResultNeedsReview { alert = AppAlert(title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage) }
+                if followResultNeedsReview {
+                    alert = AppAlert(
+                        title: "关注结果待确认", message: CommunityToggleOutcomeUnknown.reviewMessage)
+                }
                 return
             }
             if TaskCancellation.matches(error) { return }
@@ -399,17 +423,21 @@ final class UserProfileViewModel: ObservableObject {
     func refreshPosters() async {
         posterGeneration &+= 1
         let generation = posterGeneration
-        await refreshMinePage(read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: 0) },
+        await refreshMinePage(
+            read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation },
+            fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: 0) },
             failureTitle: "刷新帖子失败", onAlert: { self.alert = $0 },
-            restoringItems: { $0.preservingCommunityMetrics(from: $1) })
+            restoringItems: { $0.preservingMetrics(from: $1) })
     }
 
     /// 指定用户帖子列表分页加载。
     func loadMorePostersIfNeeded(currentPoster: CommunityPoster?) async {
         let generation = posterGeneration
-        await loadMoreMinePage(current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
-            isCurrent: { self.posterGeneration == generation }, fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: $0) })
+        await loadMoreMinePage(
+            current: currentPoster, read: { self.posterState }, write: { self.posterState = $0 },
+            isCurrent: { self.posterGeneration == generation },
+            fetch: { try await self.service.fetchUserPosters(userID: self.userID, page: $0) })
     }
 
 }

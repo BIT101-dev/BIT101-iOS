@@ -72,7 +72,9 @@ public final class TeachingCenterSessionState {
         invalidate()
     }
 
-    public func replaceCookieStorage(with cookieStorage: HTTPCookieStorage, preservingAuthentication: Bool = false) {
+    public func replaceCookieStorage(
+        with cookieStorage: HTTPCookieStorage, preservingAuthentication: Bool = false
+    ) {
         if !preservingAuthentication {
             authenticationRecovery.cancel()
             owner = nil
@@ -112,8 +114,8 @@ public final class TeachingCenterSessionState {
 
     public func shouldPreferDirect(for studentID: String, now: Date = Date()) -> Bool {
         guard directStudentID == studentID,
-              let directPreferenceUntil,
-              directPreferenceUntil > now
+            let directPreferenceUntil,
+            directPreferenceUntil > now
         else {
             directStudentID = nil
             self.directPreferenceUntil = nil
@@ -156,7 +158,7 @@ public final class TeachingCenterSessionState {
         ])
     }
 
-    public func clearSchoolAuthenticationCookies() {
+    public func clearSchoolCookies() {
         invalidate(clearCookies: false)
         deleteCookies(matching: [
             "webvpn.bit.edu.cn",

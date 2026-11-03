@@ -1,7 +1,8 @@
 #if os(iOS)
 import SwiftUI
 
-public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool, (any Error)?) -> AnyView
+public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool, (any Error)?) ->
+    AnyView
 
 private struct AppFailureRecoveryActionsKey: EnvironmentKey {
     static let defaultValue: AppFailureRecoveryActionsBuilder? = nil

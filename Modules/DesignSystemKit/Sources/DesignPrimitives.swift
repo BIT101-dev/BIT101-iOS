@@ -35,4 +35,3 @@ public nonisolated enum AppDesignSystem {
 public nonisolated enum AppUserPresentation {
     public static let anonymousName = "匿名用户"
 }
-

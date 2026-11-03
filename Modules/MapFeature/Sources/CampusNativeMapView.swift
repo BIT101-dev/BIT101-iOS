@@ -70,7 +70,8 @@ struct CampusNativeMapView: UIViewRepresentable {
         context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
         context.coordinator.focus(on: focusRequest.preset, in: mapView, animated: false)
-        context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: false)
+        context.coordinator.focus(
+            on: requestedLocation?.places.first, in: mapView, animated: false)
         context.coordinator.lastFocusID = focusRequest.id
 
         return mapView
@@ -85,17 +86,21 @@ struct CampusNativeMapView: UIViewRepresentable {
             context.coordinator.lastMapConfigurationID = mapConfigurationID
         }
         context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
-        let requestedLocationChanged = context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
+        let requestedLocationChanged = context.coordinator.syncRequestedLocation(
+            requestedLocation, in: mapView)
 
         if context.coordinator.lastFocusID != focusRequest.id {
-            context.coordinator.focus(on: focusRequest.preset, in: mapView, animated: focusRequest.animated)
+            context.coordinator.focus(
+                on: focusRequest.preset, in: mapView, animated: focusRequest.animated)
             context.coordinator.lastFocusID = focusRequest.id
         }
 
         if requestedLocationChanged {
-            context.coordinator.focus(on: requestedLocation?.places.first, in: mapView, animated: true)
+            context.coordinator.focus(
+                on: requestedLocation?.places.first, in: mapView, animated: true)
         }
-        context.coordinator.updateLocation(in: mapView, active: isActive, requestID: centerOnUserRequestID)
+        context.coordinator.updateLocation(
+            in: mapView, active: isActive, requestID: centerOnUserRequestID)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
@@ -133,7 +138,9 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         /// 同步课程详情临时传入的上课地点标记；请求只在当前进程内保留。
         @discardableResult
-        func syncRequestedLocation(_ request: CampusMapLocationRequest?, in mapView: MKMapView) -> Bool {
+        func syncRequestedLocation(_ request: CampusMapLocationRequest?, in mapView: MKMapView)
+            -> Bool
+        {
             guard lastRequestedLocationID != request?.id else { return false }
 
             for annotation in requestedLocationAnnotations {
@@ -172,12 +179,17 @@ struct CampusNativeMapView: UIViewRepresentable {
         func focus(on preset: CampusPreset, in mapView: MKMapView, animated: Bool) {
             pendingCenterOnUserRequestID = nil
             mapView.setUserTrackingMode(.none, animated: false)
-            mapView.setCamera(MKMapCamera(lookingAtCenter: preset.coordinate,
-                fromDistance: preset.distance, pitch: 0, heading: 0), animated: animated && !reduceMotion)
+            mapView.setCamera(
+                MKMapCamera(
+                    lookingAtCenter: preset.coordinate,
+                    fromDistance: preset.distance, pitch: 0, heading: 0),
+                animated: animated && !reduceMotion)
         }
 
         /// 为下一节课和课程详情地点提供原生地图标记。
-        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation)
+            -> MKAnnotationView?
+        {
             guard let placeAnnotation = annotation as? CampusPlaceAnnotation else {
                 return nil
             }
@@ -218,7 +230,9 @@ struct CampusNativeMapView: UIViewRepresentable {
                 lastCenterOnUserRequestID = nil
                 return
             }
-            if lastCenterOnUserRequestID != requestID { centerOnUser(in: mapView, requestID: requestID) }
+            if lastCenterOnUserRequestID != requestID {
+                centerOnUser(in: mapView, requestID: requestID)
+            }
         }
 
         /// 已有位置立即居中，其余请求等待下一次定位回调。
@@ -238,7 +252,8 @@ struct CampusNativeMapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, didUpdate userLocation: MKUserLocation) {
             guard let requestID = pendingCenterOnUserRequestID,
-                  let coordinate = validUserCoordinate(userLocation.location) else {
+                let coordinate = validUserCoordinate(userLocation.location)
+            else {
                 return
             }
 
@@ -263,7 +278,8 @@ struct CampusNativeMapView: UIViewRepresentable {
         /// 过滤掉无效或缺失的用户坐标。
         private func validUserCoordinate(_ location: CLLocation?) -> CLLocationCoordinate2D? {
             guard let location, location.horizontalAccuracy >= 0,
-                  abs(location.timestamp.timeIntervalSinceNow) <= 60 else {
+                abs(location.timestamp.timeIntervalSinceNow) <= 60
+            else {
                 return nil
             }
 

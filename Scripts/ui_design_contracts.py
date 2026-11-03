@@ -1,22 +1,65 @@
 """Shared design tokens and semantic rule definitions."""
+
 import re
 
 SWIFTUI_CONTROL_ACTIONS = {
-    "Button": "tap", "NavigationLink": "tap", "Menu": "tap", "Link": "tap", "PhotosPicker": "tap",
-    "Toggle": "tap", "DisclosureGroup": "tap", "Picker": "selection", "DatePicker": "selection", "ColorPicker": "selection",
-    "TextField": "input", "SecureField": "input", "TextEditor": "input", "Slider": "drag", "Stepper": "tap",
-    "ScrollView": "scroll", "List": "scroll", "TabView": "tab-switch", "ShareLink": "tap",
-    "MultiDatePicker": "selection", "EditButton": "tap", "PasteButton": "tap",
+    "Button": "tap",
+    "NavigationLink": "tap",
+    "Menu": "tap",
+    "Link": "tap",
+    "PhotosPicker": "tap",
+    "Toggle": "tap",
+    "DisclosureGroup": "tap",
+    "Picker": "selection",
+    "DatePicker": "selection",
+    "ColorPicker": "selection",
+    "TextField": "input",
+    "SecureField": "input",
+    "TextEditor": "input",
+    "Slider": "drag",
+    "Stepper": "tap",
+    "ScrollView": "scroll",
+    "List": "scroll",
+    "TabView": "tab-switch",
+    "ShareLink": "tap",
+    "MultiDatePicker": "selection",
+    "EditButton": "tap",
+    "PasteButton": "tap",
 }
 SWIFTUI_MODIFIER_ACTIONS = {
-    "refreshable": "refresh", "onSubmit": "submit", "onDelete": "delete", "onMove": "move", "searchable": "search",
-    "contextMenu": "press", "swipeActions": "swipe", "accessibilityAction": "accessibility", "keyboardShortcut": "keyboard",
-    "onDrag": "drag", "onDrop": "drop", "draggable": "drag", "dropDestination": "drop", "onKeyPress": "keyboard",
+    "refreshable": "refresh",
+    "onSubmit": "submit",
+    "onDelete": "delete",
+    "onMove": "move",
+    "searchable": "search",
+    "contextMenu": "press",
+    "swipeActions": "swipe",
+    "accessibilityAction": "accessibility",
+    "keyboardShortcut": "keyboard",
+    "onDrag": "drag",
+    "onDrop": "drop",
+    "draggable": "drag",
+    "dropDestination": "drop",
+    "onKeyPress": "keyboard",
 }
-SWIFTUI_GESTURE_MODIFIERS = {"onTapGesture", "onLongPressGesture", "gesture", "simultaneousGesture", "highPriorityGesture"}
-SWIFTUI_INTERACTION_KINDS = set(SWIFTUI_CONTROL_ACTIONS) | set(SWIFTUI_MODIFIER_ACTIONS) | SWIFTUI_GESTURE_MODIFIERS | {
-    "DragGesture", "MagnificationGesture", "TapGesture", "LongPressGesture",
+SWIFTUI_GESTURE_MODIFIERS = {
+    "onTapGesture",
+    "onLongPressGesture",
+    "gesture",
+    "simultaneousGesture",
+    "highPriorityGesture",
 }
+SWIFTUI_INTERACTION_KINDS = (
+    set(SWIFTUI_CONTROL_ACTIONS)
+    | set(SWIFTUI_MODIFIER_ACTIONS)
+    | SWIFTUI_GESTURE_MODIFIERS
+    | {
+        "DragGesture",
+        "MagnificationGesture",
+        "TapGesture",
+        "LongPressGesture",
+    }
+)
 
 FIXED_GEOMETRY_CONTRACTS = (
     (
@@ -53,9 +96,7 @@ DIRECT_SYSTEM_COLOR = re.compile(
 DIRECT_ACCENT_COLOR = re.compile(r"\bColor\.accentColor\b")
 
 
-DIRECT_OPACITY_LITERAL = re.compile(
-    r"\.opacity\s*\(\s*(?:0\.[0-9]+|1(?:\.0+)?)\s*\)"
-)
+DIRECT_OPACITY_LITERAL = re.compile(r"\.opacity\s*\(\s*(?:0\.[0-9]+|1(?:\.0+)?)\s*\)")
 
 
 DIRECT_OPACITY_ASSIGNMENT = re.compile(
@@ -93,7 +134,10 @@ DIRECT_THUMBNAIL_GEOMETRY = re.compile(
 
 
 DIRECT_SEMANTIC_COLOR_RULES = (
-    (re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"), "AppDesignSystem.Palette.Highlight.primary"),
+    (
+        re.compile(r"\bColor\.orange\b|(?<![\w.])\.orange\b"),
+        "AppDesignSystem.Palette.Highlight.primary",
+    ),
     (re.compile(r"\bColor\.red\b|(?<![\w.])\.red\b"), "AppDesignSystem.Palette.Status.danger"),
     (re.compile(r"\bColor\.blue\b|(?<![\w.])\.blue\b"), "AppDesignSystem.Palette.Status.info"),
     (re.compile(r"\bColor\.green\b|(?<![\w.])\.green\b"), "AppDesignSystem.Palette.Status.success"),
@@ -127,9 +171,15 @@ PAGE_THEME_CONTRACTS = (
 
 VISUAL_CONTRACT_OWNERS = {
     "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
-    "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (("CourseHistoryGradesChart",), None),
+    "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (
+        ("CourseHistoryGradesChart",),
+        None,
+    ),
     "Modules/MediaKit/Sources/ImageDataCompressor.swift": (("ImageDataCompressor",), "render"),
-    "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift": (("LinearScheduleCalendarView",), None),
+    "Modules/ScheduleFeature/Sources/ScheduleLinearCalendarViews.swift": (
+        ("LinearScheduleCalendarView",),
+        None,
+    ),
     "Modules/MapFeature/Sources/CampusMapScreen.swift": (("AppDesignSystem", "Map"), "tabAccent"),
 }
 
@@ -148,9 +198,7 @@ CONTEXTUAL_COLOR_BYPASSES = (
 )
 
 
-DIRECT_FLOATING_SIZE = re.compile(
-    r"\.frame\(\s*width\s*:\s*42\s*,\s*height\s*:\s*42\s*\)"
-)
+DIRECT_FLOATING_SIZE = re.compile(r"\.frame\(\s*width\s*:\s*42\s*,\s*height\s*:\s*42\s*\)")
 
 
 DIRECT_TOUCH_TARGET = re.compile(
@@ -180,17 +228,13 @@ DIRECT_INPUT_PLACEHOLDER = re.compile(
 DIRECT_CUSTOM_SECTION_HEADER = re.compile(r"header\s*:\s*\{\s*Text\s*\(")
 
 
-DIRECT_ANIMATION_DURATION = re.compile(
-    r"\b(?:withAnimation|animation)\s*\([^)]*\bduration\s*:"
-)
+DIRECT_ANIMATION_DURATION = re.compile(r"\b(?:withAnimation|animation)\s*\([^)]*\bduration\s*:")
 
 
 DIRECT_BARE_HSTACK = re.compile(r"\bHStack\s*\{")
 
 
-DIRECT_HSTACK_LITERAL = re.compile(
-    r"\bHStack\s*\([^)]*\bspacing\s*:\s*[0-9]+(?:\.[0-9]+)?"
-)
+DIRECT_HSTACK_LITERAL = re.compile(r"\bHStack\s*\([^)]*\bspacing\s*:\s*[0-9]+(?:\.[0-9]+)?")
 
 
 DIRECT_FRAME_LITERAL = re.compile(
@@ -211,9 +255,7 @@ DIRECT_LOCAL_CGFLOAT_LITERAL = re.compile(
 )
 
 
-PADDING_LITERAL = re.compile(
-    r"\.padding\(\s*(?:\.[A-Za-z]+\s*,\s*)?([0-9]+(?:\.[0-9]+)?)"
-)
+PADDING_LITERAL = re.compile(r"\.padding\(\s*(?:\.[A-Za-z]+\s*,\s*)?([0-9]+(?:\.[0-9]+)?)")
 
 
 STACK_SPACING_LITERAL = re.compile(
@@ -256,31 +298,63 @@ DERIVED_DESIGN_TOKEN = re.compile(
 )
 
 
-REPEATED_DESIGN_TOKEN = re.compile(
-    r"(AppDesignSystem\.[A-Za-z_][\w.]*)\s*[+\-]\s*\1"
-)
+REPEATED_DESIGN_TOKEN = re.compile(r"(AppDesignSystem\.[A-Za-z_][\w.]*)\s*[+\-]\s*\1")
 
 
 PLAIN_LIST_EXCEPTIONS = {"Modules/GalleryFeature/Sources/GalleryMessagesView.swift"}
 
 
 COMPONENT_GROUPS = (
-    ("评论", ("AppCommentSectionHeader", "AppCommentIdentityHeader", "AppCommentActionBar", "AppCommentBubble", "AppCommentRowContainer", "AppCommentThread")),
+    (
+        "评论",
+        (
+            "AppCommentSectionHeader",
+            "AppCommentIdentityHeader",
+            "AppCommentActionBar",
+            "AppCommentBubble",
+            "AppCommentRowContainer",
+            "AppCommentThread",
+        ),
+    ),
     ("评论编辑", ("AppCommentComposerContentSection", "AppComposerToolbar")),
-    ("内容控制", ("AppSegmentedPicker", "AppTopSegmentedPicker", "AppOrderedSearchBar", "AppSearchBarContainer", "AppNavigationRowLabel")),
+    (
+        "内容控制",
+        (
+            "AppSegmentedPicker",
+            "AppTopSegmentedPicker",
+            "AppOrderedSearchBar",
+            "AppSearchBarContainer",
+            "AppNavigationRowLabel",
+        ),
+    ),
     ("头像标签", ("AppAvatarView", "AppTagChip")),
-    ("状态", ("AppLoadingState", "AppInlineLoadingState", "AppScrollStateContainer", "AppFailureState", "AppEmptyState")),
-    ("数据行", ("AppFixedColumnItem", "AppFixedColumnRow", "AppRefreshStatusRow", "AppFeedRow", "AppBrowserListRow", "AppCourseEvaluationRow")),
+    (
+        "状态",
+        (
+            "AppLoadingState",
+            "AppInlineLoadingState",
+            "AppScrollStateContainer",
+            "AppFailureState",
+            "AppEmptyState",
+        ),
+    ),
+    (
+        "数据行",
+        (
+            "AppFixedColumnItem",
+            "AppFixedColumnRow",
+            "AppRefreshStatusRow",
+            "AppFeedRow",
+            "AppBrowserListRow",
+            "AppCourseEvaluationRow",
+        ),
+    ),
     ("验证码", ("AppVerificationSheet",)),
 )
 
 
 COMPONENT_INHERITANCE = {
-    **{
-        symbol: "View"
-        for _, symbols in COMPONENT_GROUPS
-        for symbol in symbols
-    },
+    **{symbol: "View" for _, symbols in COMPONENT_GROUPS for symbol in symbols},
     "AppComposerToolbar": "ToolbarContent",
     "AppFixedColumnItem": None,
 }

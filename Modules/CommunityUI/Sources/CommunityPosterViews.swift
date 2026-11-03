@@ -26,7 +26,11 @@ public struct CommunityPosterCard: View {
     let onDelete: (() -> Void)?
     let onReport: (() -> Void)?
 
-    public init(poster: CommunityPoster, onOpenPoster: @escaping () -> Void, onOpenImage: @escaping (Int, [CommunityImage]) -> Void, onDelete: (() -> Void)? = nil, onReport: (() -> Void)? = nil) {
+    public init(
+        poster: CommunityPoster, onOpenPoster: @escaping () -> Void,
+        onOpenImage: @escaping (Int, [CommunityImage]) -> Void, onDelete: (() -> Void)? = nil,
+        onReport: (() -> Void)? = nil
+    ) {
         self.poster = poster
         self.onOpenPoster = onOpenPoster
         self.onOpenImage = onOpenImage
@@ -41,25 +45,31 @@ public struct CommunityPosterCard: View {
                     .font(AppDesignSystem.Typography.title)
                     .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                     .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     AppAvatarView(
                         imageURL: poster.anonymous
                             ? nil
                             : poster.user.avatar.thumbnailURL,
-                        fallbackImageURL: poster.anonymous ? nil : poster.user.avatar.originalURL,
+                        fallbackImageURL: poster.anonymous
+                            ? nil : poster.user.avatar.originalURL,
                         anonymous: poster.anonymous
                     )
 
                     VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
                         HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                            Text(poster.anonymous ? AppUserPresentation.anonymousName : poster.user.nickname)
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .lineLimit(1)
+                            Text(
+                                poster.anonymous
+                                    ? AppUserPresentation.anonymousName : poster.user.nickname
+                            )
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
+                            .lineLimit(1)
 
-                            if !poster.anonymous { CommunityIdentityBadge(poster.user.identity) }
+                            if !poster.anonymous {
+                                CommunityIdentityBadge(poster.user.identity)
+                            }
                         }
 
                         if !poster.anonymous, !poster.user.motto.isEmpty {
@@ -78,7 +88,7 @@ public struct CommunityPosterCard: View {
                             onReport: onReport
                         )
                         .contentShape(Rectangle())
-                        .onTapGesture { }
+                        .onTapGesture {}
                     }
                 }
 
@@ -113,7 +123,9 @@ public struct CommunityPosterCard: View {
                     .accessibilityIdentifier("interaction.CommunityPosterCard.scroll")
                     .background {
                         GeometryReader { geometry in
-                            Color.clear.preference(key: AppHorizontalControlFramesKey.self, value: [geometry.frame(in: .global)])
+                            Color.clear.preference(
+                                key: AppHorizontalControlFramesKey.self,
+                                value: [geometry.frame(in: .global)])
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,7 +147,6 @@ public struct CommunityPosterCard: View {
         .accessibilityIdentifier("community.poster.card.\(poster.id)")
         .accessibilityAddTraits(.isButton)
     }
-
 
     /// 把后端时间文本转成相对时间文案。
     private func relativeTimeText(_ string: String) -> String {
@@ -163,7 +174,9 @@ public struct CommunityPosterImagesView: View {
     let onOpenImage: (Int, [CommunityImage]) -> Void
     @State private var imageAspectRatios: [Int: CGFloat] = [:]
 
-    public init(images: [CommunityImage], onOpenImage: @escaping (Int, [CommunityImage]) -> Void) {
+    public init(
+        images: [CommunityImage], onOpenImage: @escaping (Int, [CommunityImage]) -> Void
+    ) {
         self.images = images
         self.onOpenImage = onOpenImage
     }
@@ -183,13 +196,16 @@ public struct CommunityPosterImagesView: View {
                                 image: images[allocation.index],
                                 contentMode: .fill,
                                 onAspectRatioResolved: { ratio in
-                                    guard ratio > 0, imageAspectRatios[allocation.index] != ratio else { return }
+                                    guard ratio > 0,
+                                        imageAspectRatios[allocation.index] != ratio
+                                    else { return }
                                     imageAspectRatios[allocation.index] = ratio
                                 }
                             )
 
                             if allocation.index == plan.allocations.last?.index,
-                               plan.hiddenImageCount > 0 {
+                                plan.hiddenImageCount > 0
+                            {
                                 AppDesignSystem.Palette.Media.overlay
                                 Text("+\(plan.hiddenImageCount)")
                                     .font(AppDesignSystem.Typography.title)
@@ -198,7 +214,9 @@ public struct CommunityPosterImagesView: View {
                         }
                         .frame(width: allocation.width, height: proxy.size.height)
                         .clipped()
-                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                        .clipShape(
+                            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
+                        )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -225,22 +243,25 @@ public struct CommunityPosterImagesView: View {
         let estimatedCount = max((size.width + spacing) / max(targetWidth + spacing, 1), 1)
         let lowerCount = max(Int(floor(estimatedCount)), 1)
         let upperCount = max(Int(ceil(estimatedCount)), 1)
-        let candidateCounts = lowerCount == upperCount ? [lowerCount] : [lowerCount, upperCount]
-        let divisionCount = candidateCounts.min { lhs, rhs in
-            divisionError(
-                count: lhs,
-                width: size.width,
-                height: size.height,
-                spacing: spacing,
-                targetRatio: targetRatio
-            ) < divisionError(
-                count: rhs,
-                width: size.width,
-                height: size.height,
-                spacing: spacing,
-                targetRatio: targetRatio
-            )
-        } ?? 1
+        let candidateCounts =
+            lowerCount == upperCount ? [lowerCount] : [lowerCount, upperCount]
+        let divisionCount =
+            candidateCounts.min { lhs, rhs in
+                divisionError(
+                    count: lhs,
+                    width: size.width,
+                    height: size.height,
+                    spacing: spacing,
+                    targetRatio: targetRatio
+                )
+                    < divisionError(
+                        count: rhs,
+                        width: size.width,
+                        height: size.height,
+                        spacing: spacing,
+                        targetRatio: targetRatio
+                    )
+            } ?? 1
         let cellWidth = max(
             (size.width - CGFloat(divisionCount - 1) * spacing) / CGFloat(divisionCount),
             1
@@ -250,21 +271,23 @@ public struct CommunityPosterImagesView: View {
         var allocations: [Allocation] = []
         for index in images.indices where remainingCells > 0 {
             let imageRatio = imageAspectRatios[index] ?? targetRatio
-            let span = (1 ... remainingCells).min { lhs, rhs in
-                spanError(
-                    span: lhs,
-                    imageRatio: imageRatio,
-                    cellWidth: cellWidth,
-                    height: size.height,
-                    spacing: spacing
-                ) < spanError(
-                    span: rhs,
-                    imageRatio: imageRatio,
-                    cellWidth: cellWidth,
-                    height: size.height,
-                    spacing: spacing
-                )
-            } ?? 1
+            let span =
+                (1...remainingCells).min { lhs, rhs in
+                    spanError(
+                        span: lhs,
+                        imageRatio: imageRatio,
+                        cellWidth: cellWidth,
+                        height: size.height,
+                        spacing: spacing
+                    )
+                        < spanError(
+                            span: rhs,
+                            imageRatio: imageRatio,
+                            cellWidth: cellWidth,
+                            height: size.height,
+                            spacing: spacing
+                        )
+                } ?? 1
             let width = CGFloat(span) * cellWidth + CGFloat(span - 1) * spacing
             allocations.append(Allocation(index: index, width: width))
             remainingCells -= span
@@ -327,7 +350,9 @@ public struct CommunityImageThumbnail: View {
     }
 
     /// 保留课程评论原有尺寸语义；话廊图片使用上面的自适应初始化器。
-    public init(image: CommunityImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat) {
+    public init(
+        image: CommunityImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat
+    ) {
         self.image = image
         self.width = width
         self.maxHeight = maxHeight

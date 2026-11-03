@@ -8,19 +8,29 @@ public nonisolated enum ScheduleCloudStateMerge {
         return try encoder.encode(ScheduleCloudSyncState(cache: cache))
     }
 
-    public static func merge(local: ScheduleCloudSyncState, remote: ScheduleCloudSyncState,
-                      baseline: Data, resolution: ScheduleCacheConflictResolution? = nil) throws -> ScheduleCloudSyncState? {
+    public static func merge(
+        local: ScheduleCloudSyncState, remote: ScheduleCloudSyncState,
+        baseline: Data, resolution: ScheduleCacheConflictResolution? = nil
+    ) throws -> ScheduleCloudSyncState? {
         guard let base = try JSONSerialization.jsonObject(with: baseline) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        let lhs = try JSONSerialization.jsonObject(with: encoder.encode(local)) as? [String: Any] ?? [:]
-        let rhs = try JSONSerialization.jsonObject(with: encoder.encode(remote)) as? [String: Any] ?? [:]
+        let lhs =
+            try JSONSerialization.jsonObject(with: encoder.encode(local)) as? [String: Any] ?? [:]
+        let rhs =
+            try JSONSerialization.jsonObject(with: encoder.encode(remote)) as? [String: Any] ?? [:]
         // 校区与所属教学楼共同维护选择身份。
-        let campusKeys: Set<String> = ["selectedCampusName", "selectedCampusCode", "selectedBuildingID"]
-        guard case .merged(let campus) = try choose(base.filter { campusKeys.contains($0.key) },
-            lhs.filter { campusKeys.contains($0.key) }, rhs.filter { campusKeys.contains($0.key) }, resolution: resolution) else { return nil }
+        let campusKeys: Set<String> = [
+            "selectedCampusName", "selectedCampusCode", "selectedBuildingID",
+        ]
+        guard
+            case .merged(let campus) = try choose(
+                base.filter { campusKeys.contains($0.key) },
+                lhs.filter { campusKeys.contains($0.key) },
+                rhs.filter { campusKeys.contains($0.key) }, resolution: resolution)
+        else { return nil }
         var result = campus as? [String: Any] ?? [:]
         for key in Set(base.keys).union(lhs.keys).union(rhs.keys).subtracting(campusKeys) {
             let value: Value
@@ -30,9 +40,11 @@ public nonisolated enum ScheduleCloudStateMerge {
             case "lexueDDLCompletionByID":
                 value = try mergeDictionary(base[key], lhs[key], rhs[key], resolution: resolution)
             case "schoolDDLCompletionRetiredAtByID":
-                value = try mergeDictionary(base[key], lhs[key], rhs[key], earliestDate: true, resolution: resolution)
+                value = try mergeDictionary(
+                    base[key], lhs[key], rhs[key], earliestDate: true, resolution: resolution)
             case "manualCourseRulesByTerm":
-                value = try mergeDictionary(base[key], lhs[key], rhs[key], records: true, resolution: resolution)
+                value = try mergeDictionary(
+                    base[key], lhs[key], rhs[key], records: true, resolution: resolution)
             default:
                 value = try choose(base[key], lhs[key], rhs[key], resolution: resolution)
             }
@@ -43,17 +55,21 @@ public nonisolated enum ScheduleCloudStateMerge {
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(ScheduleCloudSyncState.self,
+        return try decoder.decode(
+            ScheduleCloudSyncState.self,
             from: JSONSerialization.data(withJSONObject: result))
     }
 
     private enum Value { case conflict, merged(Any?) }
 
     private static func bytes(_ value: Any?) throws -> Data {
-        try JSONSerialization.data(withJSONObject: value ?? NSNull(), options: [.sortedKeys, .fragmentsAllowed])
+        try JSONSerialization.data(
+            withJSONObject: value ?? NSNull(), options: [.sortedKeys, .fragmentsAllowed])
     }
 
-    private static func choose(_ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution? = nil) throws -> Value {
+    private static func choose(
+        _ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution? = nil
+    ) throws -> Value {
         if try bytes(lhs) == bytes(rhs) { return .merged(lhs) }
         if try bytes(lhs) == bytes(base) { return .merged(rhs) }
         if try bytes(rhs) == bytes(base) { return .merged(lhs) }
@@ -64,18 +80,24 @@ public nonisolated enum ScheduleCloudStateMerge {
         }
     }
 
-    private static func mergeRecords(_ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution?) throws -> Value {
+    private static func mergeRecords(
+        _ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution?
+    ) throws -> Value {
         func keyed(_ value: Any?) throws -> [String: Any] {
             guard let value else { return [:] }
             guard let rows = value as? [[String: Any]] else { throw CocoaError(.coderReadCorrupt) }
             var result: [String: Any] = [:]
             for row in rows {
-                guard let id = row["id"] as? String, result[id] == nil else { throw CocoaError(.coderReadCorrupt) }
+                guard let id = row["id"] as? String, result[id] == nil else {
+                    throw CocoaError(.coderReadCorrupt)
+                }
                 result[id] = row
             }
             return result
         }
-        let baseRows = try keyed(base), localRows = try keyed(lhs), remoteRows = try keyed(rhs)
+        let baseRows = try keyed(base)
+        let localRows = try keyed(lhs)
+        let remoteRows = try keyed(rhs)
         if case .merged(let selected) = try choose(base, lhs, rhs) { return .merged(selected) }
         let value = try mergeDictionary(baseRows, localRows, remoteRows, resolution: resolution)
         switch value {
@@ -86,7 +108,10 @@ public nonisolated enum ScheduleCloudStateMerge {
                 (value as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
                     .filter { baseRows[$0] != nil && rows[$0] != nil }
             }
-            guard case .merged(let order) = try choose(retainedOrder(base), retainedOrder(lhs), retainedOrder(rhs), resolution: resolution)
+            guard
+                case .merged(let order) = try choose(
+                    retainedOrder(base), retainedOrder(lhs), retainedOrder(rhs),
+                    resolution: resolution)
             else { return .conflict }
             let ordered = order as? [String] ?? []
             let retainedIDs = Set(ordered)
@@ -95,21 +120,31 @@ public nonisolated enum ScheduleCloudStateMerge {
         }
     }
 
-    private static func mergeDictionary(_ base: Any?, _ lhs: Any?, _ rhs: Any?, records: Bool = false, earliestDate: Bool = false, resolution: ScheduleCacheConflictResolution?) throws -> Value {
+    private static func mergeDictionary(
+        _ base: Any?, _ lhs: Any?, _ rhs: Any?, records: Bool = false, earliestDate: Bool = false,
+        resolution: ScheduleCacheConflictResolution?
+    ) throws -> Value {
         func dictionary(_ value: Any?) throws -> [String: Any] {
             guard let value else { return [:] }
             guard let result = value as? [String: Any] else { throw CocoaError(.coderReadCorrupt) }
             return result
         }
-        let base = try dictionary(base), lhs = try dictionary(lhs), rhs = try dictionary(rhs)
+        let base = try dictionary(base)
+        let lhs = try dictionary(lhs)
+        let rhs = try dictionary(rhs)
         var result: [String: Any] = [:]
         for key in Set(base.keys).union(lhs.keys).union(rhs.keys) {
-            let selected = try records ? mergeRecords(base[key], lhs[key], rhs[key], resolution: resolution) : choose(base[key], lhs[key], rhs[key], resolution: earliestDate ? nil : resolution)
+            let selected =
+                try records
+                ? mergeRecords(base[key], lhs[key], rhs[key], resolution: resolution)
+                : choose(base[key], lhs[key], rhs[key], resolution: earliestDate ? nil : resolution)
             switch selected {
             case .conflict:
                 if earliestDate, let local = lhs[key] as? String, let remote = rhs[key] as? String {
                     result[key] = min(local, remote)
-                } else { return .conflict }
+                } else {
+                    return .conflict
+                }
             case .merged(let value): result[key] = value
             }
         }

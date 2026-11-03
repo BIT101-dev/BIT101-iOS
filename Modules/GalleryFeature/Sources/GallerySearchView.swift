@@ -70,9 +70,11 @@ struct GallerySearchView: View {
             await viewModel.bootstrapSearchIfNeeded()
         }
         .communityReadRecovery(networkPath: dependencies.networkPath) {
-            if viewModel.searchState.needsRefresh { await viewModel.search() }
-            else if viewModel.searchState.paginationError != nil {
-                await viewModel.loadMoreSearch(currentPoster: viewModel.searchState.posters.last)
+            if viewModel.searchState.needsRefresh {
+                await viewModel.search()
+            } else if viewModel.searchState.paginationError != nil {
+                await viewModel.loadMoreSearch(
+                    currentPoster: viewModel.searchState.posters.last)
             }
         }
         .onChange(of: viewModel.searchQuery.order) { _, _ in
@@ -87,7 +89,7 @@ struct GallerySearchView: View {
                 Button("取消") {
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.gallery-search-view.cancel")
+                .accessibilityIdentifier("ui.gallery-search-view.cancel")
             }
         }
     }

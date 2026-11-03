@@ -1,8 +1,8 @@
-import TransportCore
 import ClientCore
+import Combine
 import DesignSystemKit
 import Foundation
-import Combine
+import TransportCore
 
 struct NetworkConnectionSnapshot: Equatable, Sendable {
     let summary: String
@@ -69,9 +69,10 @@ final class NetworkMagicWarningCenter {
         let scope = Self.isSchoolHost(host) ? "school" : "external"
         let currentDate = now()
         let pathChanged = snapshot.summary != lastPathSummaryByScope[scope]
-        let cooldownExpired = lastShownAtByScope[scope].map {
-            currentDate.timeIntervalSince($0) >= cooldown
-        } ?? true
+        let cooldownExpired =
+            lastShownAtByScope[scope].map {
+                currentDate.timeIntervalSince($0) >= cooldown
+            } ?? true
         guard pathChanged || cooldownExpired else { return false }
 
         let prompt = AppPrompt(
@@ -82,11 +83,11 @@ final class NetworkMagicWarningCenter {
                 AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {}
             ]
         )
-#if RELEASE_NETWORK_SMOKE
+        #if RELEASE_NETWORK_SMOKE
         lastPathSummaryByScope[scope] = snapshot.summary
         lastShownAtByScope[scope] = currentDate
         promptCoordinator?.enqueue(prompt)
-#else
+        #else
         if let promptCoordinator {
             guard promptCoordinator.isHostReady else { return false }
         } else if errorPresenter == nil {
@@ -98,17 +99,18 @@ final class NetworkMagicWarningCenter {
             if let promptCoordinator {
                 await promptCoordinator.enqueueAndWait(prompt)
             } else if let errorPresenter {
-                await errorPresenter.presentAndWait(AppAlert(
-                    title: prompt.title,
-                    message: prompt.message,
-                    allowsDiagnostics: false,
-                    showsRecoveryLinks: false
-                ))
+                await errorPresenter.presentAndWait(
+                    AppAlert(
+                        title: prompt.title,
+                        message: prompt.message,
+                        allowsDiagnostics: false,
+                        showsRecoveryLinks: false
+                    ))
             }
             guard let self else { return }
             self.activeWarningTask = nil
         }
-#endif
+        #endif
         return true
     }
 
@@ -181,12 +183,23 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
     let finalURL: String?
     let finalMethod: String?
 
-    init(id: UUID, occurredAt: Date, method: String, url: String, statusCode: Int?, elapsedMilliseconds: Int,
-         error: String?, responseHeaders: [String: String], responseBody: String?, finalURL: String? = nil, finalMethod: String? = nil) {
-        self.id = id; self.occurredAt = occurredAt; self.method = method; self.url = url
-        self.statusCode = statusCode; self.elapsedMilliseconds = elapsedMilliseconds; self.error = error
-        self.responseHeaders = responseHeaders; self.responseBody = responseBody
-        self.finalURL = finalURL; self.finalMethod = finalMethod
+    init(
+        id: UUID, occurredAt: Date, method: String, url: String, statusCode: Int?,
+        elapsedMilliseconds: Int,
+        error: String?, responseHeaders: [String: String], responseBody: String?,
+        finalURL: String? = nil, finalMethod: String? = nil
+    ) {
+        self.id = id
+        self.occurredAt = occurredAt
+        self.method = method
+        self.url = url
+        self.statusCode = statusCode
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.error = error
+        self.responseHeaders = responseHeaders
+        self.responseBody = responseBody
+        self.finalURL = finalURL
+        self.finalMethod = finalMethod
     }
 }
 
@@ -206,7 +219,8 @@ nonisolated struct SchoolServiceIssue: Sendable {
         default: title = "学校服务异常"
         }
         let usesAuthenticationEntry = [.authenticationRestricted, .accountLocked].contains(failure)
-        actionTitle = usesAuthenticationEntry
+        actionTitle =
+            usesAuthenticationEntry
             ? "打开学校统一认证" : Self.serviceActionTitle
         message = failure.localizedDescription
     }
@@ -214,48 +228,71 @@ nonisolated struct SchoolServiceIssue: Sendable {
 
 actor NetworkDiagnosticStore {
     static let shared = NetworkDiagnosticStore()
-    private typealias Entry = (owner: SchoolSessionIdentity, record: NetworkDiagnosticRecord, failed: Bool)
+    private typealias Entry = (
+        owner: SchoolSessionIdentity, record: NetworkDiagnosticRecord, failed: Bool
+    )
     private var records: [Entry] = []
     private let currentIdentity: @MainActor @Sendable () -> SchoolSessionIdentity
 
-    init(currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = { AppAccountSession.storage.schoolSessionIdentity }) {
+    init(
+        currentIdentity: @escaping @MainActor @Sendable () -> SchoolSessionIdentity = {
+            AppAccountSession.storage.schoolSessionIdentity
+        }
+    ) {
         self.currentIdentity = currentIdentity
     }
 
-    func record(owner: SchoolSessionIdentity, id: UUID = UUID(), request: URLRequest, finalRequest: URLRequest? = nil,
-                data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+    func record(
+        owner: SchoolSessionIdentity, id: UUID = UUID(), request: URLRequest,
+        finalRequest: URLRequest? = nil,
+        data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval
+    ) async {
         guard owner == (await currentIdentity()) else { return }
         guard request.url?.host?.lowercased() != "feedback.aihelpme.dev" else { return }
         records.removeAll { $0.owner != owner }
         let http = response as? HTTPURLResponse
-        let headers = http?.allHeaderFields.reduce(into: [String: String]()) { result, item in
-            result[String(describing: item.key)] = String(describing: item.value)
-        } ?? [:]
+        let headers =
+            http?.allHeaderFields.reduce(into: [String: String]()) { result, item in
+                result[String(describing: item.key)] = String(describing: item.value)
+            } ?? [:]
         let body = data.flatMap { data -> String? in
             let limited = data.prefix(256 * 1024)
             let truncated = limited.count < data.count
-            let text = String(data: limited, encoding: .utf8) ?? (truncated
-                ? (1...3).lazy.compactMap { String(data: limited.dropLast($0), encoding: .utf8) }.first
-                : nil)
+            let text =
+                String(data: limited, encoding: .utf8)
+                ?? (truncated
+                    ? (1...3).lazy.compactMap {
+                        String(data: limited.dropLast($0), encoding: .utf8)
+                    }.first
+                    : nil)
             guard let text else { return "[非文本响应，\(data.count) 字节]" }
             return text + (truncated ? "\n[响应正文已按诊断大小限制截取]" : "")
         }
         let finalURL = response?.url ?? finalRequest?.url
-        let finalMethod = finalRequest.map { $0.httpMethod ?? "GET" }
+        let finalMethod =
+            finalRequest.map { $0.httpMethod ?? "GET" }
             ?? (finalURL != nil && finalURL == request.url ? request.httpMethod ?? "GET" : nil)
-        let diagnosticError = error.map(Self.failureDescription) ?? Self.authenticationFailure(in: data, url: finalURL ?? request.url)
-        let failed = (http?.statusCode ?? 200) >= 400
+        let diagnosticError =
+            error.map(Self.failureDescription)
+            ?? Self.authenticationFailure(in: data, url: finalURL ?? request.url)
+        let failed =
+            (http?.statusCode ?? 200) >= 400
             || (error.map { !TaskCancellation.matches($0) } ?? (diagnosticError != nil))
         let index = records.firstIndex { $0.record.id == id }
         let record = NetworkDiagnosticRecord(
-            id: id, occurredAt: index.map { records[$0].record.occurredAt } ?? Date(), method: request.httpMethod ?? "GET",
+            id: id, occurredAt: index.map { records[$0].record.occurredAt } ?? Date(),
+            method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "", statusCode: http?.statusCode,
             elapsedMilliseconds: Int(elapsed * 1_000),
             error: diagnosticError,
-            responseHeaders: headers, responseBody: body, finalURL: finalURL?.absoluteString, finalMethod: finalMethod
+            responseHeaders: headers, responseBody: body, finalURL: finalURL?.absoluteString,
+            finalMethod: finalMethod
         )
-        if let index { records[index] = (owner, record, failed) }
-        else { records.append((owner, record, failed)) }
+        if let index {
+            records[index] = (owner, record, failed)
+        } else {
+            records.append((owner, record, failed))
+        }
         records = prioritized(records, limit: 20)
     }
 
@@ -274,13 +311,18 @@ actor NetworkDiagnosticStore {
     private func prioritized(_ entries: [Entry], limit: Int) -> [Entry] {
         let failures = entries.indices.reversed().filter { entries[$0].failed }
         var selected = Array(entries.indices.suffix(max(1, limit / 2)))
-        for index in failures where selected.count < limit && !selected.contains(index) { selected.append(index) }
+        for index in failures where selected.count < limit && !selected.contains(index) {
+            selected.append(index)
+        }
         for index in failures {
             for neighbor in [index - 1, index + 1] where entries.indices.contains(neighbor) {
-                if selected.count < limit && !selected.contains(neighbor) { selected.append(neighbor) }
+                if selected.count < limit && !selected.contains(neighbor) {
+                    selected.append(neighbor)
+                }
             }
         }
-        for index in entries.indices.reversed() where selected.count < limit && !selected.contains(index) { selected.append(index) }
+        for index in entries.indices.reversed()
+        where selected.count < limit && !selected.contains(index) { selected.append(index) }
         return selected.sorted().map { entries[$0] }
     }
 
@@ -290,15 +332,17 @@ actor NetworkDiagnosticStore {
         return prioritized(records, limit: limit)
     }
 
-    func recent() async -> [NetworkDiagnosticRecord] { await currentEntries(limit: 10).map(\.record) }
+    func recent() async -> [NetworkDiagnosticRecord] {
+        await currentEntries(limit: 10).map(\.record)
+    }
 
     /// 统一认证轮询以 HTTP 200 返回业务失败，诊断保留服务端原因。
     private static func authenticationFailure(in data: Data?, url: URL?) -> String? {
         guard url?.host?.lowercased() == "login.bit101.flwfdd.xyz",
-              url?.path.hasPrefix("/api/auth/") == true,
-              let data,
-              let payload = try? BITLoginChallengeSupport.decodePayload(from: data),
-              payload.status == "failed"
+            url?.path.hasPrefix("/api/auth/") == true,
+            let data,
+            let payload = try? BITLoginChallengeSupport.decodePayload(from: data),
+            payload.status == "failed"
         else { return nil }
         return payload.error?.isEmpty == false ? payload.error : "学校统一认证失败。"
     }

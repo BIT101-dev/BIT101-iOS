@@ -43,12 +43,16 @@ final class MediaDownloadCoordinator {
         let waiter = UUID()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 if var operation = operations[key] {
                     operation.waiters[waiter] = continuation
                     operations[key] = operation
                 } else {
-                    operations[key] = Operation(id: UUID(), source: source, waiters: [waiter: continuation])
+                    operations[key] = Operation(
+                        id: UUID(), source: source, waiters: [waiter: continuation])
                     queued.append(key)
                 }
                 startQueuedDownloads()
@@ -67,8 +71,12 @@ final class MediaDownloadCoordinator {
             let client = operation.source == .avatar ? avatarClient : galleryClient
             operation.task = Task {
                 let result: Result<HTTPResponse, any Error>
-                do { result = .success(try await client.send(URLRequest(url: key), maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes)) }
-                catch { result = .failure(error) }
+                do {
+                    result = .success(
+                        try await client.send(
+                            URLRequest(url: key),
+                            maximumBytes: RemoteImageResourceLimits.maximumEncodedBytes))
+                } catch { result = .failure(error) }
                 self.finish(result, key: key, id: id)
             }
             operations[key] = operation
@@ -78,18 +86,23 @@ final class MediaDownloadCoordinator {
     private func finish(_ result: Result<HTTPResponse, any Error>, key: Key, id: UUID) {
         activeTasks.remove(id)
         defer { startQueuedDownloads() }
-        guard operations[key]?.id == id, let operation = operations.removeValue(forKey: key) else { return }
+        guard operations[key]?.id == id, let operation = operations.removeValue(forKey: key)
+        else { return }
         for waiter in operation.waiters.values { waiter.resume(with: result) }
     }
 
     private func cancel(waiter: UUID, key: Key) {
-        guard var operation = operations[key], let continuation = operation.waiters.removeValue(forKey: waiter) else { return }
+        guard var operation = operations[key],
+            let continuation = operation.waiters.removeValue(forKey: waiter)
+        else { return }
         if operation.waiters.isEmpty {
             operations[key] = nil
             queued.removeAll { $0 == key }
             operation.task?.cancel()
             startQueuedDownloads()
-        } else { operations[key] = operation }
+        } else {
+            operations[key] = operation
+        }
         continuation.resume(throwing: CancellationError())
     }
 
@@ -99,7 +112,9 @@ final class MediaDownloadCoordinator {
         queued.removeAll()
         for operation in pending {
             operation.task?.cancel()
-            for waiter in operation.waiters.values { waiter.resume(throwing: CancellationError()) }
+            for waiter in operation.waiters.values {
+                waiter.resume(throwing: CancellationError())
+            }
         }
     }
 }
@@ -108,7 +123,10 @@ final class MediaDownloadCoordinator {
 @Observable
 @MainActor
 final class MediaDisplayBudget {
-    private struct Allocation { let bytes: Int; var owners: Int }
+    private struct Allocation {
+        let bytes: Int
+        var owners: Int
+    }
     private var images: [ObjectIdentifier: Allocation] = [:]
     private var owners: [UUID: ObjectIdentifier] = [:]
     let maximumBytes: Int
@@ -139,13 +157,17 @@ final class MediaDisplayBudget {
     }
 
     func release(owner: UUID, notify: Bool = true) {
-        guard let id = owners.removeValue(forKey: owner), var allocation = images[id] else { return }
+        guard let id = owners.removeValue(forKey: owner), var allocation = images[id] else {
+            return
+        }
         allocation.owners -= 1
         if allocation.owners == 0 {
             images[id] = nil
             usedBytes -= allocation.bytes
             if notify { releaseGeneration &+= 1 }
-        } else { images[id] = allocation }
+        } else {
+            images[id] = allocation
+        }
     }
 
     nonisolated static func decodedBytes(_ image: UIImage) -> Int {
@@ -166,13 +188,17 @@ final class MediaDisplayedImage {
     @ObservationIgnored private var budget: MediaDisplayBudget?
 
     deinit {
-        let selectedBudget = budget, selectedOwner = owner
+        let selectedBudget = budget
+        let selectedOwner = owner
         Task { @MainActor in selectedBudget?.release(owner: selectedOwner) }
     }
 
     @discardableResult
     func set(_ image: UIImage, budget: MediaDisplayBudget) -> Bool {
-        guard budget.retain(image, owner: owner) else { waitingForBudget = true; return false }
+        guard budget.retain(image, owner: owner) else {
+            waitingForBudget = true
+            return false
+        }
         waitingForBudget = false
         if self.budget !== budget { self.budget?.release(owner: owner) }
         self.budget = budget

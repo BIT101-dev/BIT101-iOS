@@ -1,14 +1,15 @@
 import BIT101TestSupport
-import SchedulePorts
-@testable import TransportCore
 import ClientCore
 import CommunityTransport
 import Foundation
 import Network
-import os
-import Testing
 import ScheduleDomain
+import SchedulePorts
+import Testing
+import os
+
 @testable import ScheduleInfrastructure
+@testable import TransportCore
 
 private nonisolated enum ModuleCommunityError: Error, Equatable, CommunityAPIServiceError {
     case signedOut
@@ -20,69 +21,105 @@ private nonisolated enum ModuleCommunityError: Error, Equatable, CommunityAPISer
 @MainActor
 struct ScheduleInfrastructureTests {
     private nonisolated struct SuspendedJSONResponse: Decodable, Sendable {
-        static let state = OSAllocatedUnfairLock(initialState: (entered: false, gate: DispatchSemaphore(value: 0)))
+        static let state = OSAllocatedUnfairLock(
+            initialState: (entered: false, gate: DispatchSemaphore(value: 0)))
         init(from decoder: any Decoder) throws {
-            let gate = Self.state.withLock { state in state.entered = true; return state.gate }
+            let gate = Self.state.withLock { state in
+                state.entered = true
+                return state.gate
+            }
             guard gate.wait(timeout: .now() + 10) == .success else { throw URLError(.timedOut) }
         }
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
-    func decodedSchoolResponsesKeepTheirOriginalAccountGeneration(sameAccount: Bool) async throws {
+    func decodedSchoolResponsesGeneration(sameAccount: Bool) async throws {
         SuspendedJSONResponse.state.withLock { $0 = (false, DispatchSemaphore(value: 0)) }
         let credentials = MutableSchoolCredentials()
         let url = AppURL.required("https://example.invalid/decoded-owner")
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let transport = StubTransport(result: .success((Data(#"{"ok":true}"#.utf8), response)))
-        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: .sharedCookieStorage(forGroupContainerIdentifier: "BIT101ModulesTests.decode-owner")), transport: transport)
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
+            teachingCenterState: TeachingCenterSessionState(
+                cookieStorage: .sharedCookieStorage(
+                    forGroupContainerIdentifier: "BIT101ModulesTests.decode-owner")),
+            transport: transport)
         let task = Task { () throws -> SuspendedJSONResponse in
             try await service.sendJSONRequest(baseURL: url, path: "/decoded-owner")
         }
-        defer { task.cancel(); _ = SuspendedJSONResponse.state.withLock { $0.gate.signal() } }
+        defer {
+            task.cancel()
+            _ = SuspendedJSONResponse.state.withLock { $0.gate.signal() }
+        }
         try await waitForTestEvent { SuspendedJSONResponse.state.withLock { $0.entered } }
-        if sameAccount { credentials.generation += 1 } else { credentials.currentStudentID = "school-b" }
+        if sameAccount {
+            credentials.generation += 1
+        } else {
+            credentials.currentStudentID = "school-b"
+        }
         _ = SuspendedJSONResponse.state.withLock { $0.gate.signal() }
         await #expect(throws: CancellationError.self) { try await task.value }
     }
 
-    @Test(.timeLimit(.minutes(1))) func classroomOccupancyParsingPreservesEverySectionOrRejectsTheResponse() async throws {
+    @Test(.timeLimit(.minutes(1))) func classroomOccupancyParsingPreservesResponse() async throws {
         for (value, expected) in [("1, 2", [1, 2]), ("", []), ("  ", [])] {
-            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let data = try JSONSerialization.data(withJSONObject: [
+                "datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]
+            ])
             let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
             #expect(try await response.classroomRecords().first?.busyTimeCodes == expected)
         }
         for value in ["bad", "1,bad", "1,,2", "0", "-1", String(Int.max)] {
-            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let data = try JSONSerialization.data(withJSONObject: [
+                "datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]
+            ])
             let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
-            await #expect(throws: ScheduleServiceError.self) { try await response.classroomRecords() }
+            await #expect(throws: ScheduleServiceError.self) {
+                try await response.classroomRecords()
+            }
         }
     }
 
-    @Test func redirectAuthenticationHeadersStayBoundToTheirOrigin() throws {
+    @Test func redirectAuthHeadersStayBoundTheirOrigin() throws {
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
         let origin = AppURL.required("https://auth.example/login")
-        let response = try #require(HTTPURLResponse(url: origin, statusCode: 302, httpVersion: nil, headerFields: nil))
+        let response = try #require(
+            HTTPURLResponse(url: origin, statusCode: 302, httpVersion: nil, headerFields: nil))
         let task = session.dataTask(with: origin)
         let delegate = HTTPSUpgradingRedirectDelegate()
         for sameOrigin in [true, false] {
-            var request = URLRequest(url: AppURL.required(sameOrigin ? "https://auth.example/next" : "https://other.example/next"))
-            for header in ["Authorization", "Proxy-Authorization", "Cookie", "fake-cookie", "x-challenge-token"] {
+            var request = URLRequest(
+                url: AppURL.required(
+                    sameOrigin ? "https://auth.example/next" : "https://other.example/next"))
+            for header in [
+                "Authorization", "Proxy-Authorization", "Cookie", "fake-cookie",
+                "x-challenge-token",
+            ] {
                 request.setValue("fixture-token", forHTTPHeaderField: header)
             }
             var result: URLRequest?
-            delegate.urlSession(session, task: task, willPerformHTTPRedirection: response,
+            delegate.urlSession(
+                session, task: task, willPerformHTTPRedirection: response,
                 newRequest: request, completionHandler: { result = $0 })
             let redirected = try #require(result)
-            for header in ["Authorization", "Proxy-Authorization", "Cookie", "fake-cookie", "X-Challenge-Token"] {
-                #expect(redirected.value(forHTTPHeaderField: header) == (sameOrigin ? "fixture-token" : nil))
+            for header in [
+                "Authorization", "Proxy-Authorization", "Cookie", "fake-cookie",
+                "X-Challenge-Token",
+            ] {
+                #expect(
+                    redirected.value(forHTTPHeaderField: header)
+                        == (sameOrigin ? "fixture-token" : nil))
             }
         }
     }
 
     private struct Credentials: SchoolCredentialsProviding {
-        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: 0) }
+        var schoolSessionIdentity: SchoolSessionIdentity {
+            .init(accountIdentifier: currentStudentID, generation: 0)
+        }
         let currentStudentID = "module-school"
         let currentPassword = "module-password"
     }
@@ -91,74 +128,104 @@ struct ScheduleInfrastructureTests {
         let schoolURLCryptoPublicKey = "module-key"
         let browserUserAgent = "module-agent"
         func schoolProtectedHeaders() -> [String: String] { [:] }
-        func encryptSchoolURLCryptoBody(object: [String: String], publicKeyPEM: String) throws -> (body: String, encryptedKey: String, aesKey: Data) {
+        func encryptSchoolBody(object: [String: String], publicKeyPEM: String) throws -> (
+            body: String, encryptedKey: String, aesKey: Data
+        ) {
             ("", "", Data())
         }
-        func decryptSchoolURLCryptoResponse(_ data: Data, aesKey: Data) throws -> Data { data }
+        func decryptSchoolResponse(_ data: Data, aesKey: Data) throws -> Data { data }
     }
 
     private struct Restorer: SchoolSessionRestoring {
-        func restoreSchoolSessionIfNeeded() async throws -> String? { nil }
+        func restoreSchoolSession() async throws -> String? { nil }
     }
 
-    private func service(transport: any HTTPTransport, observer: (any HTTPClientObserving & Sendable)? = nil,
-        state: TeachingCenterSessionState? = nil, restorer: any SchoolSessionRestoring = Restorer()) -> ScheduleService {
+    private func service(
+        transport: any HTTPTransport, observer: (any HTTPClientObserving & Sendable)? = nil,
+        state: TeachingCenterSessionState? = nil, restorer: any SchoolSessionRestoring = Restorer()
+    ) -> ScheduleService {
         ScheduleService(
             credentials: Credentials(), crypto: Crypto(), schoolSessionRestorer: restorer,
-            teachingCenterState: state ?? TeachingCenterSessionState(cookieStorage: .sharedCookieStorage(forGroupContainerIdentifier: "BIT101ModulesTests.infrastructure")),
+            teachingCenterState: state
+                ?? TeachingCenterSessionState(
+                    cookieStorage: .sharedCookieStorage(
+                        forGroupContainerIdentifier: "BIT101ModulesTests.infrastructure")),
             transport: transport, observer: observer
         )
     }
 
     @Test func schoolFixtureParsingRunsInThePackageHost() throws {
-        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "BIT101-iOSTests/Fixtures/schedule-service-response.json")
         let data = try Data(contentsOf: fixture)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         #expect(response.datas.cxxszhxqkb.extParams?.code == 1)
         #expect(response.datas.cxxszhxqkb.rows.count == 14)
-        #expect(ScheduleService.schoolBusinessErrorMessage(from: data) == nil)
+        #expect(ScheduleService.schoolBusinessError(from: data) == nil)
         #expect(try response.parsedCoursesCancellable().map(\.course) == response.courseRecords)
         #expect(response.courseRecords.count == 14)
-        #expect(ScheduleService.schoolBusinessErrorMessage(from: Data(#"{"data":{"success":false,"msg":"school failure"}}"#.utf8)) == "school failure")
+        #expect(
+            ScheduleService.schoolBusinessError(
+                from: Data(#"{"data":{"success":false,"msg":"school failure"}}"#.utf8))
+                == "school failure")
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [(#"{"KCM":"待排课程"}"#, true),
-        (#"{"KCM":"已排课程","SKXQ":1,"KSJC":1,"JSJC":2,"ZCMC":"1-2周"}"#, true),
-        (#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#, false),
-        (#"{"KCM":"课程","SKXQ":1,"KSJC":2,"JSJC":1,"ZCMC":"1周"}"#, false),
-        (#"{"KCM":"课程","SKXQ":1,"ZCMC":"1周"}"#, false),
-        (#"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#, false),
-        (#"{"KCM":"课程","ZCMC":"1周"}"#, false)])
-    func schoolCoursePlacementContractPreservesPendingRowsAndRejectsIncompleteSchedules(fixture: (String, Bool)) async throws {
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [
+            (#"{"KCM":"待排课程"}"#, true),
+            (#"{"KCM":"已排课程","SKXQ":1,"KSJC":1,"JSJC":2,"ZCMC":"1-2周"}"#, true),
+            (#"{"KCM":"课程","SKXQ":8,"KSJC":1,"JSJC":2,"ZCMC":"1周"}"#, false),
+            (#"{"KCM":"课程","SKXQ":1,"KSJC":2,"JSJC":1,"ZCMC":"1周"}"#, false),
+            (#"{"KCM":"课程","SKXQ":1,"ZCMC":"1周"}"#, false),
+            (#"{"KCM":"课程","SKXQ":1,"KSJC":1,"JSJC":2}"#, false),
+            (#"{"KCM":"课程","ZCMC":"1周"}"#, false),
+        ])
+    func schoolCoursePlacementContractPreservesRows(fixture: (String, Bool)) async throws {
         let (row, valid) = fixture
         let data = Data((#"{"datas":{"cxxszhxqkb":{"rows":["# + row + #"]}}}"#).utf8)
         let transport = SequenceTransport([(200, data)])
-        if valid { #expect(try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1").count == 1) }
-        else { await #expect(throws: ScheduleServiceError.self) { try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1") } }
+        if valid {
+            #expect(
+                try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1")
+                    .count == 1)
+        } else {
+            await #expect(throws: ScheduleServiceError.self) {
+                try await service(transport: transport).fetchParsedCourses(term: "2026-2027-1")
+            }
+        }
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolTransportProjectsSecureURLsFormsAndDTOs() async throws {
-        let transport = SequenceTransport([(200, Data(#"{"datas":{"dqxnxq":{"rows":[{"DM":"2026-2027-1"}]}}}"#.utf8))])
+    @Test(.timeLimit(.minutes(1))) func schoolTransportProjectsSecureUrLsForms() async throws {
+        let transport = SequenceTransport([
+            (200, Data(#"{"datas":{"dqxnxq":{"rows":[{"DM":"2026-2027-1"}]}}}"#.utf8))
+        ])
         let response: CurrentTermResponse = try await service(transport: transport).sendJSONRequest(
-            baseURL: AppURL.required("http://example.invalid"), path: "/term", method: "POST", body: [("value", "a+b &c")]
+            baseURL: AppURL.required("http://example.invalid"), path: "/term", method: "POST",
+            body: [("value", "a+b &c")]
         )
         #expect(response.datas.dqxnxq.rows.first?.code == "2026-2027-1")
         let request = try #require(transport.requests.first)
         #expect(request.url?.absoluteString == "https://example.invalid/term")
         #expect(request.httpMethod == "POST")
         #expect(request.value(forHTTPHeaderField: "X-Requested-With") == "XMLHttpRequest")
-        #expect(String(decoding: try #require(request.httpBody), as: UTF8.self) == "value=a%2Bb%20%26c")
+        #expect(
+            String(decoding: try #require(request.httpBody), as: UTF8.self) == "value=a%2Bb%20%26c")
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolTransportPreservesCertificateAndCancellationSemantics() async throws {
+    @Test(.timeLimit(.minutes(1))) func schoolTransportPreservesCertificate() async throws {
         let request = URLRequest(url: AppURL.required("https://example.invalid/probe"))
-        let certificate = service(transport: StubTransport(result: .failure(URLError(.serverCertificateUntrusted))))
+        let certificate = service(
+            transport: StubTransport(result: .failure(URLError(.serverCertificateUntrusted))))
         do {
             _ = try await certificate.sendRequest(request)
             Issue.record("Expected school certificate failure")
         } catch let error as ScheduleServiceError {
-            if case .schoolTransportFailure = error {} else { Issue.record("Received school error: \(error)") }
+            if case .schoolTransportFailure = error {
+            } else {
+                Issue.record("Received school error: \(error)")
+            }
         }
         let cancelled = service(transport: StubTransport(result: .failure(URLError(.cancelled))))
         do {
@@ -169,7 +236,7 @@ struct ScheduleInfrastructureTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolTransportRecordsResponsesAndOriginalNetworkFailures() async throws {
+    @Test(.timeLimit(.minutes(1))) func schoolTransportRecordsResponses() async throws {
         let request = URLRequest(url: AppURL.required("http://example.invalid/diagnostic-probe"))
         let observer = RecordingObserver()
         let transport = SequenceTransport([(200, Data("school response".utf8))])
@@ -205,29 +272,42 @@ private final class SequenceTransport: HTTPTransport {
 
     func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
         let result = try await data(for: request)
-        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+        if let maximumBytes, result.0.count > maximumBytes {
+            throw HTTPClientError.responseTooLarge
+        }
         return result
     }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         let (status, data) = responses.removeFirst()
         let url = try #require(request.url)
-        let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
         return (data, response)
     }
 }
 
 @MainActor
 struct CommunityTransportTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["https://other.invalid/posters", "https://example.invalid/unrelated", "https://example.invalid/posters?page=999"])
-    func successfulResponsesKeepTheirBusinessRequestLocation(target: String) async throws {
-        let response = try #require(HTTPURLResponse(url: AppURL.required(target), statusCode: 200, httpVersion: nil, headerFields: nil))
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [
+            "https://other.invalid/posters", "https://example.invalid/unrelated",
+            "https://example.invalid/posters?page=999",
+        ])
+    func successfulResponsesKeepLocation(target: String) async throws {
+        let response = try #require(
+            HTTPURLResponse(
+                url: AppURL.required(target), statusCode: 200, httpVersion: nil, headerFields: nil))
         let transport = StubTransport(result: .success((Data("[]".utf8), response)))
-        let client = CommunityAPIClient<ModuleCommunityError>(httpClient: HTTPClient(transport: transport, observer: nil),
+        let client = CommunityAPIClient<ModuleCommunityError>(
+            httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
-            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") })
+            credentials: { .init(identity: .init(accountIdentifier: "fixture"), cookie: "fixture") }
+        )
         await #expect(throws: ModuleCommunityError.invalidResponse) {
-            let _: [Int] = try await client.request(path: "posters", queryItems: [URLQueryItem(name: "page", value: "0")])
+            let _: [Int] = try await client.request(
+                path: "posters", queryItems: [URLQueryItem(name: "page", value: "0")])
         }
     }
     @Test(.timeLimit(.minutes(1))) func authenticatedRetryUsesRefreshedCookie() async throws {
@@ -237,17 +317,25 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: cookie) },
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: cookie)
+            },
             refresh: { observed in
                 refreshedCookies.append(observed.cookie)
                 cookie = "refreshed-cookie"
             }
         )
-        let client: CommunityAPIClient<ModuleCommunityError> = session.client(errorDomain: "ModuleTests")
+        let client: CommunityAPIClient<ModuleCommunityError> = session.client(
+            errorDomain: "ModuleTests")
         let data = try await client.requestData(path: "user/info/0")
         #expect(data == Data("result".utf8))
         #expect(refreshedCookies == ["original-cookie"])
-        #expect(transport.requests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == ["original-cookie", "refreshed-cookie"])
+        #expect(
+            transport.requests.map { $0.value(forHTTPHeaderField: "fake-cookie") } == [
+                "original-cookie", "refreshed-cookie",
+            ])
     }
 
     @Test(.timeLimit(.minutes(1))) func secondUnauthorizedResponseEndsRetry() async throws {
@@ -256,10 +344,15 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "cookie") },
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "cookie")
+            },
             refresh: { _ in refreshCount += 1 }
         )
-        let client: CommunityAPIClient<ModuleCommunityError> = session.client(errorDomain: "ModuleTests")
+        let client: CommunityAPIClient<ModuleCommunityError> = session.client(
+            errorDomain: "ModuleTests")
         await #expect(throws: ModuleCommunityError.signedOut) {
             try await client.requestData(path: "user/info/0")
         }
@@ -272,10 +365,15 @@ struct CommunityTransportTests {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
-            credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "") },
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "")
+            },
             refresh: { _ in Issue.record("Unexpected session refresh") }
         )
-        let client: CommunityAPIClient<ModuleCommunityError> = session.client(errorDomain: "ModuleTests")
+        let client: CommunityAPIClient<ModuleCommunityError> = session.client(
+            errorDomain: "ModuleTests")
         await #expect(throws: ModuleCommunityError.signedOut) {
             try await client.requestData(path: "user/info/0")
         }
@@ -294,7 +392,9 @@ private final class StubTransport: HTTPTransport {
 
     func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
         let result = try await data(for: request)
-        if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+        if let maximumBytes, result.0.count > maximumBytes {
+            throw HTTPClientError.responseTooLarge
+        }
         return result
     }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -308,8 +408,10 @@ private nonisolated final class BoundedResponseProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
-                headerFields: url.path == "/declared" ? ["Content-Length": "16"] : [:]) else {
+            let response = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                headerFields: url.path == "/declared" ? ["Content-Length": "16"] : [:])
+        else {
             client?.urlProtocol(self, didFailWithError: HTTPClientError.invalidResponse)
             return
         }
@@ -352,14 +454,25 @@ private final class RecordingObserver: HTTPClientObserving {
 
 @MainActor
 struct ClientCoreTests {
-    @Test(arguments: ["native", "stream", "changed-body", "changed-url", "changed-method", "redirect-body-removal", "missing"])
-    func nativeFinalRequestEvidencePreservesAcceptedBodies(stage: String) throws {
+    @Test(arguments: [
+        "native", "stream", "changed-body", "changed-url", "changed-method",
+        "redirect-body-removal", "missing",
+    ])
+    func nativeFinalRequestPreservesAcceptedBodies(stage: String) throws {
         let url = AppURL.required("https://example.invalid/submit")
-        var sent = URLRequest(url: url); sent.httpMethod = "POST"; sent.httpBody = Data("page=1".utf8)
+        var sent = URLRequest(url: url)
+        sent.httpMethod = "POST"
+        sent.httpBody = Data("page=1".utf8)
         let metrics = HTTPTransmissionMetrics(request: sent, redirects: nil)
-        var current = sent; current.httpBody = nil
-        if stage == "missing" { #expect(metrics.finalRequest(from: nil) == nil); return }
-        if stage == "stream" { current.httpBodyStream = InputStream(data: try #require(sent.httpBody)) }
+        var current = sent
+        current.httpBody = nil
+        if stage == "missing" {
+            #expect(metrics.finalRequest(from: nil) == nil)
+            return
+        }
+        if stage == "stream" {
+            current.httpBodyStream = InputStream(data: try #require(sent.httpBody))
+        }
         if stage == "changed-body" { current.httpBody = Data("page=2".utf8) }
         if stage == "changed-url" { current.url = AppURL.required("https://example.invalid/other") }
         if stage == "changed-method" { current.httpMethod = "GET" }
@@ -367,28 +480,42 @@ struct ClientCoreTests {
             let session = URLSession(configuration: .ephemeral)
             defer { session.invalidateAndCancel() }
             let task = session.dataTask(with: sent)
-            let response = try #require(HTTPURLResponse(url: url, statusCode: 307, httpVersion: nil, headerFields: nil))
-            metrics.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: current) { _ in }
+            let response = try #require(
+                HTTPURLResponse(url: url, statusCode: 307, httpVersion: nil, headerFields: nil))
+            metrics.urlSession(
+                session, task: task, willPerformHTTPRedirection: response, newRequest: current
+            ) { _ in }
         }
         let captured = try #require(metrics.finalRequest(from: current))
-        let expected = stage == "changed-body" ? current.httpBody
+        let expected =
+            stage == "changed-body"
+            ? current.httpBody
             : ["native", "stream"].contains(stage) ? sent.httpBody : nil
         #expect(captured.httpBody == expected)
         #expect(captured.url == current.url && captured.httpMethod == current.httpMethod)
     }
 
-    @Test(.timeLimit(.minutes(1))) func finalRequestEvidenceSurvivesTransportWrappers() async throws {
+    @Test(.timeLimit(.minutes(1))) func finalRequestEvidenceSurvivesWrappers() async throws {
         let origin = AppURL.required("https://example.invalid/submit?obj=paper1&token=secret")
         let target = AppURL.required("https://other.invalid/final?obj=paper2&token=private")
-        var request = URLRequest(url: origin); request.httpMethod = "POST"
-        let response = try #require(HTTPURLResponse(url: target, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let base = FinalRequestTransport(base: StubTransport(result: .success((Data(), response))), finalRequest: URLRequest(url: target))
+        var request = URLRequest(url: origin)
+        request.httpMethod = "POST"
+        let response = try #require(
+            HTTPURLResponse(url: target, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let base = FinalRequestTransport(
+            base: StubTransport(result: .success((Data(), response))),
+            finalRequest: URLRequest(url: target))
         let client = HTTPClient(transport: ForwardingTransport(base: base), observer: nil)
         var evidence: HTTPRequestEvidence?
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest) }) { _ = try await client.send(request) }
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in
+            evidence = HTTPRequestEvidence(
+                request: request, response: response.response, finalRequest: response.finalRequest)
+        }) { _ = try await client.send(request) }
         let captured = try #require(evidence)
         #expect(captured.method == "POST" && captured.finalMethod == "GET")
-        #expect(captured.endpoint == "https://example.invalid/submit" && captured.finalEndpoint == "https://other.invalid/final")
+        #expect(
+            captured.endpoint == "https://example.invalid/submit"
+                && captured.finalEndpoint == "https://other.invalid/final")
         #expect(HTTPRequestEvidence(request: request, response: response).finalMethod == "")
     }
 
@@ -397,7 +524,9 @@ struct ClientCoreTests {
         let finalRequest: URLRequest
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            if let maximumBytes, result.0.count > maximumBytes {
+                throw HTTPClientError.responseTooLarge
+            }
             return result
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -406,9 +535,10 @@ struct ClientCoreTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func admissionFailuresPreserveUnsentRequestState() async throws {
+    @Test(.timeLimit(.minutes(1))) func admissionFailuresPreserveUnsentState() async throws {
         let transport = StubTransport(result: .failure(URLError(.timedOut)))
-        let observer = RecordingObserver(); observer.failure = URLError(.notConnectedToInternet)
+        let observer = RecordingObserver()
+        observer.failure = URLError(.notConnectedToInternet)
         let client = HTTPClient(transport: transport, observer: observer)
         var started = false
         await #expect(throws: URLError.self) {
@@ -433,55 +563,74 @@ struct ClientCoreTests {
             try await data(for: request, maximumBytes: nil)
         }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
-            let response = try await HTTPClient(transport: base, observer: nil).send(request, accepting: 100 ..< 600, maximumBytes: maximumBytes)
+            let response = try await HTTPClient(transport: base, observer: nil).send(
+                request, accepting: 100..<600, maximumBytes: maximumBytes)
             return (response.data, response.response)
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [200, 401], [0, 1, 2])
-    func requestEvidenceFollowsChildTasksAndRestoresItsScope(status: Int, layers: Int) async throws {
-        let endpoint = AppURL.required("https://student:password@example.invalid/probe?token=secret#private")
-        let response = try #require(HTTPURLResponse(url: endpoint, statusCode: status, httpVersion: nil, headerFields: nil))
+    func requestEvidenceFollowsRestoresScopeScope(status: Int, layers: Int) async throws {
+        let endpoint = AppURL.required(
+            "https://student:password@example.invalid/probe?token=secret#private")
+        let response = try #require(
+            HTTPURLResponse(url: endpoint, statusCode: status, httpVersion: nil, headerFields: nil))
         var transport: any HTTPTransport = StubTransport(result: .success((Data(), response)))
-        for _ in 0 ..< layers { transport = ForwardingTransport(base: transport) }
+        for _ in 0..<layers { transport = ForwardingTransport(base: transport) }
         let client = HTTPClient(transport: transport, observer: nil)
         var evidence: [HTTPRequestEvidence] = []
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in evidence.append(HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)) }) {
+        try await HTTPRequestEvidenceContext.$didReceive.withValue({ request, response in
+            evidence.append(
+                HTTPRequestEvidence(
+                    request: request, response: response.response,
+                    finalRequest: response.finalRequest))
+        }) {
             let child = Task { try await client.send(request) }
             if status == 200 {
                 let value = try await child.value
                 #expect(value.statusCode == status)
+            } else {
+                await #expect(throws: HTTPClientError.self) { try await child.value }
             }
-            else { await #expect(throws: HTTPClientError.self) { try await child.value } }
         }
         let recorded = try #require(evidence.first)
         #expect(evidence.count == 1)
         #expect(recorded.endpoint == "https://example.invalid/probe")
-        #expect(recorded.endpointDigest == "47bf43ee094b876be76639e73537bd54006ded21813ba5265ff3950a96f68d95")
+        #expect(
+            recorded.endpointDigest
+                == "47bf43ee094b876be76639e73537bd54006ded21813ba5265ff3950a96f68d95")
         #expect(recorded.method == "POST" && recorded.statusCode == status)
         #expect(HTTPRequestEvidenceContext.didReceive == nil)
-        let decoded = try JSONDecoder().decode(HTTPRequestEvidence.self, from: JSONEncoder().encode(recorded))
+        let decoded = try JSONDecoder().decode(
+            HTTPRequestEvidence.self, from: JSONEncoder().encode(recorded))
         #expect(decoded.endpoint == recorded.endpoint && decoded.statusCode == status)
         #expect(decoded.endpointDigest == recorded.endpointDigest)
         request.url = nil
         request.httpMethod = nil
         #expect(HTTPRequestEvidence(request: request, response: response).method == "GET")
-        #expect(HTTPRequestEvidence(request: request, response: response).endpoint == recorded.endpoint)
+        #expect(
+            HTTPRequestEvidence(request: request, response: response).endpoint == recorded.endpoint)
     }
 
-    @Test(.timeLimit(.minutes(1))) func ordinaryResponsesUseTheDefaultBudgetIncludingExplicitNil() async throws {
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let base = StubTransport(result: .success((Data(count: HTTPResponseResourceLimits.maximumStructuredBytes + 1), response)))
+    @Test(.timeLimit(.minutes(1))) func ordinaryResponsesUseDefaultBudgetNil() async throws {
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let base = StubTransport(
+            result: .success(
+                (Data(count: HTTPResponseResourceLimits.maximumStructuredBytes + 1), response)))
         let client = HTTPClient(transport: base, observer: nil)
         await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url)) }
-        await #expect(throws: HTTPClientError.self) { try await client.send(URLRequest(url: url), maximumBytes: nil) }
+        await #expect(throws: HTTPClientError.self) {
+            try await client.send(URLRequest(url: url), maximumBytes: nil)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [15, 16])
-    func customTransportAndRemoteReadWrapperEnforceResponseBudgets(maximumBytes: Int) async throws {
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+    func customTransport(maximumBytes: Int) async throws {
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let base = StubTransport(result: .success((Data(count: 16), response)))
         let observer = RecordingObserver()
         let client = HTTPClient(transport: UncachedHTTPTransport(base: base), observer: observer)
@@ -494,12 +643,14 @@ struct ClientCoreTests {
             }
             #expect(observer.sentData == nil && observer.recordedError is HTTPClientError)
         }
-        #expect(base.requests.count == 1 && base.requests.first?.cachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(
+            base.requests.count == 1
+                && base.requests.first?.cachePolicy == .reloadIgnoringLocalCacheData)
         #expect(observer.events == ["willSend", "didFinish"])
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["declared", "streamed", "chunks"])
-    func productionSessionBoundsDeclaredAndStreamedBodies(path: String) async throws {
+    func productionSessionBoundsDeclared(path: String) async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [BoundedResponseProtocol.self]
         let session = URLSessionTransport.make(configuration: configuration)
@@ -508,10 +659,12 @@ struct ClientCoreTests {
         let count = path == "chunks" ? 64 * 1_024 + 8 : 8
         let result = try await client.send(request, maximumBytes: count * 2)
         #expect(result.data == Data(repeating: 1, count: count) + Data(repeating: 2, count: count))
-        await #expect(throws: HTTPClientError.self) { try await client.send(request, maximumBytes: count * 2 - 1) }
+        await #expect(throws: HTTPClientError.self) {
+            try await client.send(request, maximumBytes: count * 2 - 1)
+        }
     }
 
-    @Test(.timeLimit(.minutes(1))) func remoteReadPolicyPreservesFailuresAndLeavesTheCallerRequestIntact() async throws {
+    @Test(.timeLimit(.minutes(1))) func remoteReadPolicyPreservesFailures() async throws {
         let base = StubTransport(result: .failure(URLError(.networkConnectionLost)))
         let request = URLRequest(url: url, cachePolicy: .returnCacheDataDontLoad)
         do {
@@ -530,7 +683,9 @@ struct ClientCoreTests {
 
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            if let maximumBytes, result.0.count > maximumBytes {
+                throw HTTPClientError.responseTooLarge
+            }
             return result
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -539,10 +694,17 @@ struct ClientCoreTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolAuthenticationContractsDecodeAndProjectChallenge() async throws {
-        let data = Data(#"{"challenge_id":"school-challenge","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":120}"#.utf8)
+    @Test(.timeLimit(.minutes(1))) func schoolAuthContractsDecode() async throws {
+        let data = Data(
+            #"""
+            {"challenge_id":"school-challenge","access_token":"token","status":"waiting_sms","\#
+            masked_phone":"138****0000","expires_in":120}
+            """#
+            .utf8)
         let payload = try BITLoginChallengeSupport.decodePayload(from: data)
-        let polled = try await BITLoginChallengeSupport.pollUntilActionable(payload, timeout: 1, interval: .milliseconds(1)) { _ in
+        let polled = try await BITLoginChallengeSupport.pollUntilActionable(
+            payload, timeout: 1, interval: .milliseconds(1)
+        ) { _ in
             Issue.record("Actionable challenge should finish immediately")
             return payload
         }
@@ -551,15 +713,19 @@ struct ClientCoreTests {
         #expect(challenge.status == "waiting_sms")
         #expect(challenge.maskedPhone == "138****0000")
         #expect(challenge.expiresIn == 120)
-        #expect(BITLoginChallengeSupport.errorMessage(from: Data(#"{"detail":{"error":"school-service"}}"#.utf8)) == "school-service")
+        #expect(
+            BITLoginChallengeSupport.errorMessage(
+                from: Data(#"{"detail":{"error":"school-service"}}"#.utf8)) == "school-service")
     }
 
     @Test(.timeLimit(.minutes(1))) func transportReportsSuccessfulResponse() async throws {
         let data = Data("response".utf8)
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         let transport = StubTransport(result: .success((data, response)))
         let observer = RecordingObserver()
-        let result = try await HTTPClient(transport: transport, observer: observer).send(URLRequest(url: url))
+        let result = try await HTTPClient(transport: transport, observer: observer).send(
+            URLRequest(url: url))
 
         #expect(result.data == data)
         #expect(result.statusCode == 200)
@@ -574,7 +740,8 @@ struct ClientCoreTests {
         let observer = RecordingObserver()
         observer.failure = URLError(.notConnectedToInternet)
         do {
-            _ = try await HTTPClient(transport: transport, observer: observer).send(URLRequest(url: url))
+            _ = try await HTTPClient(transport: transport, observer: observer).send(
+                URLRequest(url: url))
             Issue.record("Admission policy should throw its configured error")
         } catch let error as URLError {
             #expect(error.code == .notConnectedToInternet)
@@ -589,7 +756,8 @@ struct ClientCoreTests {
         let transport = StubTransport(result: .failure(URLError(.timedOut)))
         let observer = RecordingObserver()
         do {
-            _ = try await HTTPClient(transport: transport, observer: observer).send(URLRequest(url: url))
+            _ = try await HTTPClient(transport: transport, observer: observer).send(
+                URLRequest(url: url))
             Issue.record("The configured transport error should propagate")
         } catch let error as URLError {
             #expect(error.code == .timedOut)
@@ -600,7 +768,7 @@ struct ClientCoreTests {
         #expect((observer.recordedError as? URLError)?.code == .timedOut)
     }
 
-    @Test(.timeLimit(.minutes(1))) func alreadyCancelledRequestsSkipAdmissionAndTransport() async {
+    @Test(.timeLimit(.minutes(1))) func cancelledRequestsSkipAdmission() async {
         let transport = StubTransport(result: .failure(CancellationError()))
         let observer = RecordingObserver()
         let client = HTTPClient(transport: transport, observer: observer)
@@ -614,10 +782,13 @@ struct ClientCoreTests {
         #expect(observer.events.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [200, 503]) func cancellationAfterResponsePreservesCancellation(status: Int) async throws {
-        let response = try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+    @Test(.timeLimit(.minutes(1)), arguments: [200, 503]) func cancelAfter(status: Int) async throws
+    {
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
         let observer = RecordingObserver()
-        let client = HTTPClient(transport: CancellingResponseTransport(response: response), observer: observer)
+        let client = HTTPClient(
+            transport: CancellingResponseTransport(response: response), observer: observer)
         let operation = Task { @MainActor in
             try await client.send(URLRequest(url: url))
         }
@@ -628,8 +799,10 @@ struct ClientCoreTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func httpStatusValidationRetainsServerMessage() async throws {
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
-        let transport = StubTransport(result: .success((Data(#"{"message":"maintenance"}"#.utf8), response)))
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 503, httpVersion: nil, headerFields: nil))
+        let transport = StubTransport(
+            result: .success((Data(#"{"message":"maintenance"}"#.utf8), response)))
         do {
             _ = try await HTTPClient(transport: transport, observer: nil).send(URLRequest(url: url))
             Issue.record("The status policy should reject 503")
@@ -639,65 +812,85 @@ struct ClientCoreTests {
         }
     }
 
-    @Test func HTTPErrorMessagesHaveAReadableBoundAndStructuredFallback() throws {
+    @Test func httpErrorMessagesHaveReadableBound() throws {
         let large = String(repeating: "错误", count: 1_000)
         let json = try JSONSerialization.data(withJSONObject: ["message": large])
         let message = try #require(HTTPClient.errorMessage(from: json))
-        #expect(message.count == HTTPResponseResourceLimits.maximumErrorCharacters && message.hasSuffix("…"))
+        #expect(
+            message.count == HTTPResponseResourceLimits.maximumErrorCharacters
+                && message.hasSuffix("…"))
         #expect(HTTPClient.errorMessage(from: Data("<html>gateway details</html>".utf8)) == nil)
         #expect(HTTPClient.errorMessage(from: Data(#"{"unrelated":"private body"}"#.utf8)) == nil)
-        #expect(HTTPClient.errorMessage(from: Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1)) == nil)
+        #expect(
+            HTTPClient.errorMessage(
+                from: Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1))
+                == nil)
         #expect(HTTPClient.errorMessage(from: Data("  plain response  ".utf8)) == "plain response")
-        for data in [Data("<html>school login gateway</html>".utf8),
-                     Data(#"{"detail":{"error":"<html>gateway</html>"}}"#.utf8),
-                     Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1)] {
+        for data in [
+            Data("<html>school login gateway</html>".utf8),
+            Data(#"{"detail":{"error":"<html>gateway</html>"}}"#.utf8),
+            Data(repeating: 65, count: HTTPResponseResourceLimits.maximumErrorBytes + 1),
+        ] {
             #expect(BITLoginChallengeSupport.errorMessage(from: data) == nil)
         }
         #expect(BITLoginChallengeSupport.errorMessage(from: json) == message)
-        #expect(BITLoginChallengeSupport.errorMessage(from: Data(#""school-service""#.utf8)) == "school-service")
-        #expect(HTTPClient.errorMessage(from: Data(#"{"detail":{"error":"school-service"}}"#.utf8)) == "school-service")
+        #expect(
+            BITLoginChallengeSupport.errorMessage(from: Data(#""school-service""#.utf8))
+                == "school-service")
+        #expect(
+            HTTPClient.errorMessage(from: Data(#"{"detail":{"error":"school-service"}}"#.utf8))
+                == "school-service")
     }
 
     @Test func cancellationAndSecureRedirectRules() {
         #expect(TaskCancellation.matches(URLError(.cancelled)))
         #expect(TaskCancellation.matches(CancellationError()))
-        #expect(HTTPSURLUpgrade.upgradedURL(from: AppURL.required("http://example.invalid/path")).scheme == "https")
+        #expect(
+            HTTPSURLUpgrade.upgradedURL(from: AppURL.required("http://example.invalid/path")).scheme
+                == "https")
         #expect(HTTPSURLUpgrade.resolvedURL(from: "/next", relativeTo: url)?.path == "/next")
     }
 
-    @Test func formEncodingPreservesFieldBoundariesUnicodeAndRepeatedNames() {
+    @Test func formEncodingPreservesFieldUnicode() {
         let body = HTTPFormEncoding.body([("name", "a+b &c?="), ("name", "中文"), ("empty", "")])
-        #expect(String(decoding: body, as: UTF8.self) == "name=a%2Bb%20%26c%3F%3D&name=%E4%B8%AD%E6%96%87&empty=")
+        #expect(
+            String(decoding: body, as: UTF8.self)
+                == "name=a%2Bb%20%26c%3F%3D&name=%E4%B8%AD%E6%96%87&empty=")
         #expect(HTTPFormEncoding.body([]).isEmpty)
     }
 
-    @Test func wrappedNetworkErrorsKeepTheirClassificationAcrossDeepChains() {
+    @Test func wrappedNetworkErrorsChains() {
         #expect(TaskCancellation.matches(HTTPRequestNotSent(underlying: URLError(.cancelled))))
         #expect(isHostResolutionError(HTTPRequestNotSent(underlying: URLError(.cannotFindHost))))
         #expect(!TaskCancellation.matches(HTTPRequestNotSent(underlying: URLError(.timedOut))))
         func wrapped(_ error: Error) -> Error {
-            (0 ..< 20).reduce(error) { underlying, _ in
-                NSError(domain: "transport-wrapper", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])
+            (0..<20).reduce(error) { underlying, _ in
+                NSError(
+                    domain: "transport-wrapper", code: 1,
+                    userInfo: [NSUnderlyingErrorKey: underlying])
             }
         }
         #expect(TaskCancellation.matches(wrapped(CancellationError())))
         #expect(isHostResolutionError(wrapped(URLError(.cannotFindHost))))
-        #expect(isCertificateValidationError(wrapped(URLError(.serverCertificateUntrusted))))
-        #expect(isScheduleTransientNetworkError(wrapped(URLError(.timedOut))))
+        #expect(isCertificateError(wrapped(URLError(.serverCertificateUntrusted))))
+        #expect(isScheduleNetworkError(wrapped(URLError(.timedOut))))
         #expect(isSchoolTransportFailure(wrapped(ScheduleServiceError.schoolTransportFailure)))
         #expect(!TaskCancellation.matches(wrapped(URLError(.timedOut))))
         #expect(!isHostResolutionError(wrapped(URLError(.notConnectedToInternet))))
     }
 
-    @Test func networkRecoveryTracksTheSelectedPathInstance() {
+    @Test func networkRecoveryTracksSelectedPathInstance() {
         let selected = NetworkPathState(snapshot: NetworkPathSnapshot(status: .checking))
         let independent = NetworkPathState(snapshot: NetworkPathSnapshot(status: .disconnected))
         #expect(selected.isReachable)
         selected.update(snapshot: NetworkPathSnapshot(status: .disconnected))
         #expect(!selected.isReachable)
-        selected.update(snapshot: NetworkPathSnapshot(status: .init(pathStatus: .requiresConnection)))
+        selected.update(
+            snapshot: NetworkPathSnapshot(status: .init(pathStatus: .requiresConnection)))
         #expect(selected.isReachable && selected.snapshot.status == .requiresConnection)
-        selected.update(snapshot: NetworkPathSnapshot(status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
+        selected.update(
+            snapshot: NetworkPathSnapshot(
+                status: .connected, interfaces: [.wifi, .other], virtualNetworkLikely: true))
         #expect(selected.isReachable)
         #expect(selected.snapshot.interfaces == [.wifi, .other])
         #expect(selected.snapshot.virtualNetworkLikely)
@@ -707,81 +900,117 @@ struct ClientCoreTests {
 }
 
 extension ScheduleInfrastructureTests {
-    @Test(.timeLimit(.minutes(1)), arguments: ["{}", "null", "<html>gateway response</html>", #"{"datas":{"dqxnxq":{"rows":[{"DM":42}]}}}"#])
-    func malformedSchoolResponsesKeepTheirResponseClassification(_ wire: String) async {
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [
+            "{}", "null", "<html>gateway response</html>",
+            #"{"datas":{"dqxnxq":{"rows":[{"DM":42}]}}}"#,
+        ])
+    func malformedSchoolResponsesClassification(_ wire: String) async {
         let selected = service(transport: SequenceTransport([(200, Data(wire.utf8))]))
         do {
-            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(
+                baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("A malformed school payload must expose a response error")
         } catch {
-            let actual = error as NSError, expected = ScheduleServiceError.invalidResponse as NSError
+            let actual = error as NSError
+            let expected = ScheduleServiceError.invalidResponse as NSError
             #expect(actual.domain == expected.domain && actual.code == expected.code)
             #expect(actual.userInfo[NSUnderlyingErrorKey] is DecodingError)
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [401, 403])
-    func schoolAuthenticationStatusRetainsItsSessionRecoverySignal(_ status: Int) async {
-        let selected = service(transport: SequenceTransport([(status, Data(#"{"message":"expired"}"#.utf8))]))
+    func schoolAuthStatusRetainsSessionSignal(_ status: Int) async {
+        let selected = service(
+            transport: SequenceTransport([(status, Data(#"{"message":"expired"}"#.utf8))]))
         do {
-            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(
+                baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("An expired school session must expose its recovery signal")
         } catch let error as ScheduleServiceError {
-            if case .teachingCenterSessionExpired = error {} else { Issue.record("Unexpected recovery signal: \(error)") }
+            if case .teachingCenterSessionExpired = error {
+            } else {
+                Issue.record("Unexpected recovery signal: \(error)")
+            }
         } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [
-        #"{"data":{"success":false,"msg":"学期查询失败"}}"#,
-        #"{"data":{"success":false}}"#,
-        #"{"success":false,"msg":""}"#,
-        #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3,"msg":""}}}}"#,
-        #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3}}}}"#
-    ])
-    func schoolBusinessFailureRetainsTheServiceMessage(json: String) async {
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [
+            #"{"data":{"success":false,"msg":"学期查询失败"}}"#,
+            #"{"data":{"success":false}}"#,
+            #"{"success":false,"msg":""}"#,
+            #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3,"msg":""}}}}"#,
+            #"{"datas":{"cxxszhxqkb":{"rows":[],"extParams":{"code":3}}}}"#,
+        ])
+    func schoolBusinessFailureRetainsServiceMessage(json: String) async {
         let selected = service(transport: SequenceTransport([(200, Data(json.utf8))]))
         do {
-            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(
+                baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("A school business failure must reach its consumer")
         } catch let error as ScheduleServiceError {
             if case .schoolResponse(let message) = error {
                 #expect(message == (json.contains("学期查询失败") ? "学期查询失败" : "学校接口返回失败状态。"))
+            } else {
+                Issue.record("Unexpected business classification: \(error)")
             }
-            else { Issue.record("Unexpected business classification: \(error)") }
         } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolHTTPFailureKeepsTheStatusForDiagnosis() async {
-        let selected = service(transport: SequenceTransport([(503, Data(#"{"message":"maintenance"}"#.utf8))]))
+    @Test(.timeLimit(.minutes(1))) func schoolHttpFailureKeepsStatusDiagnosis() async {
+        let selected = service(
+            transport: SequenceTransport([(503, Data(#"{"message":"maintenance"}"#.utf8))]))
         do {
-            let _: CurrentTermResponse = try await selected.sendJSONRequest(baseURL: AppURL.required("https://example.invalid"), path: "/term")
+            let _: CurrentTermResponse = try await selected.sendJSONRequest(
+                baseURL: AppURL.required("https://example.invalid"), path: "/term")
             Issue.record("A maintenance response must expose its HTTP status")
         } catch {
             #expect((error as NSError).code == 503)
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func schoolTermsDecodeThroughTheProductionTransportBoundary() async throws {
-        let transport = SequenceTransport([(200, Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#.utf8))])
+    @Test(.timeLimit(.minutes(1))) func schoolTermsDecodeBoundary() async throws {
+        let transport = SequenceTransport([
+            (
+                200,
+                Data(
+                    #"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"}]}}}"#
+                        .utf8)
+            )
+        ])
         let result: TermsResponse = try await service(transport: transport).sendJSONRequest(
-            baseURL: AppURL.required("http://example.invalid"), path: "/terms", method: "POST", body: [("学期", "A+B & C")])
+            baseURL: AppURL.required("http://example.invalid"), path: "/terms", method: "POST",
+            body: [("学期", "A+B & C")])
         #expect(result.datas.xnxqcx.rows.map(\.code) == ["2026-2027-1", "2025-2026-2"])
         #expect(transport.requests.first?.url?.scheme == "https")
-        #expect(String(decoding: try #require(transport.requests.first?.httpBody), as: UTF8.self) == "%E5%AD%A6%E6%9C%9F=A%2BB%20%26%20C")
+        #expect(
+            String(decoding: try #require(transport.requests.first?.httpBody), as: UTF8.self)
+                == "%E5%AD%A6%E6%9C%9F=A%2BB%20%26%20C")
     }
 
-    @Test(.timeLimit(.minutes(1))) func availableTermsAuthenticateAndPrepareTheSelectedCookieContainerOnce() async throws {
+    @Test(.timeLimit(.minutes(1))) func availableTermsAuthenticate() async throws {
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let state = TeachingCenterSessionState(cookieStorage: cookies)
-        let terms = Data(#"{"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"},{"DM":"2026-2027-1"},{"DM":""}]}}}"#.utf8)
-        let transport = SequenceTransport([(200, Data(#"{"data":{"wengine_vpn_ticket":"ticket"}}"#.utf8)),
-            (200, Data("{}".utf8)), (200, Data("{}".utf8)), (200, terms), (200, terms)])
+        let terms = Data(
+            #"""
+            {"datas":{"xnxqcx":{"rows":[{"DM":"2026-2027-1"},{"DM":"2025-2026-2"},{"DM":"2026-\#
+            2027-1"},{"DM":""}]}}}
+            """#
+            .utf8)
+        let transport = SequenceTransport([
+            (200, Data(#"{"data":{"wengine_vpn_ticket":"ticket"}}"#.utf8)),
+            (200, Data("{}".utf8)), (200, Data("{}".utf8)), (200, terms), (200, terms),
+        ])
         let service = service(transport: transport, state: state)
         #expect(try await service.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
         #expect(try await service.fetchAvailableTerms() == ["2026-2027-1", "2025-2026-2"])
         #expect(transport.requests.count == 5)
         #expect(state.isPrepared(for: "module-school"))
-        #expect(cookies.cookies?.contains { $0.name == "wengine_vpn_ticket" && $0.isSecure } == true)
+        #expect(
+            cookies.cookies?.contains { $0.name == "wengine_vpn_ticket" && $0.isSecure } == true)
         let data = try #require(transport.requests.first?.httpBody)
         let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(body == ["username": "module-school", "password": "module-password"])
@@ -791,48 +1020,66 @@ extension ScheduleInfrastructureTests {
         var currentStudentID = "school-a"
         let currentPassword = "fixture-password"
         var generation = 0
-        var schoolSessionIdentity: SchoolSessionIdentity { .init(accountIdentifier: currentStudentID, generation: generation) }
+        var schoolSessionIdentity: SchoolSessionIdentity {
+            .init(accountIdentifier: currentStudentID, generation: generation)
+        }
     }
     private final class SuspendedSchoolCookies: HTTPTransport {
         var pending: CheckedContinuation<Void, Never>?
         var requests = 0
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            if let maximumBytes, result.0.count > maximumBytes {
+                throw HTTPClientError.responseTooLarge
+            }
             return result
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests += 1
             await withCheckedContinuation { pending = $0 }
             let url = try #require(request.url)
-            return (Data(#"{"data":{"wengine_vpn_ticket":"account-a-ticket"}}"#.utf8),
-                try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                Data(#"{"data":{"wengine_vpn_ticket":"account-a-ticket"}}"#.utf8),
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
     private final class RequestObserverFactory: HTTPClientObserving {
         var generation = 0
         var completions: [Int] = []
-        func forRequest() -> any HTTPClientObserving { RequestObserver(factory: self, generation: generation) }
+        func forRequest() -> any HTTPClientObserving {
+            RequestObserver(factory: self, generation: generation)
+        }
         func willSend(_ request: URLRequest) async throws {}
-        func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+        func didFinish(
+            request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?,
+            error: Error?, elapsed: TimeInterval
+        ) async {
             completions.append(-1)
         }
         private struct RequestObserver: HTTPClientObserving {
             let factory: RequestObserverFactory
             let generation: Int
             func willSend(_ request: URLRequest) async throws {}
-            func didFinish(request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?, error: Error?, elapsed: TimeInterval) async {
+            func didFinish(
+                request: URLRequest, finalRequest: URLRequest?, data: Data?, response: URLResponse?,
+                error: Error?, elapsed: TimeInterval
+            ) async {
                 factory.completions.append(generation)
             }
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func transportObservationsCaptureTheRequestContextBeforeNetworkSuspension() async throws {
+    @Test(.timeLimit(.minutes(1))) func transportObservationsCaptureRequestContext() async throws {
         let observer = RequestObserverFactory()
         let transport = SuspendedSchoolCookies()
         let client = HTTPClient(transport: transport, observer: observer)
-        let task = Task { try await client.send(URLRequest(url: AppURL.required("https://example.invalid/context"))) }
+        let task = Task {
+            try await client.send(
+                URLRequest(url: AppURL.required("https://example.invalid/context")))
+        }
         try await waitForTestEvent { !(transport.pending == nil) }
         observer.generation = 1
         transport.pending?.resume()
@@ -841,15 +1088,16 @@ extension ScheduleInfrastructureTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [0, 1, 2])
-    func delayedSchoolCookiesCheckAccountGenerationAndCancellation(change: Int) async throws {
+    func delayedSchoolCookiesCancel(change: Int) async throws {
         let credentials = MutableSchoolCredentials()
         let owner = credentials.schoolSessionIdentity
         let transport = SuspendedSchoolCookies()
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let state = TeachingCenterSessionState(cookieStorage: cookies)
-        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
             teachingCenterState: state, transport: transport)
-        let task = Task { try await service.ensureTeachingCenterAuthentication() }
+        let task = Task { try await service.ensureTeachingAuth() }
         try await waitForTestEvent { !(transport.pending == nil) }
         if change == 0 { credentials.currentStudentID = "school-b" }
         if change == 1 { credentials.generation += 1 }
@@ -859,40 +1107,60 @@ extension ScheduleInfrastructureTests {
         #expect(cookies.cookies?.isEmpty == true)
         #expect(state.hasUsableSession(for: credentials.currentStudentID) == false)
         if change < 2 {
-            let challenge = BITLoginAuthenticationChallenge(challengeID: "old", accessToken: "token",
+            let challenge = BITLoginAuthenticationChallenge(
+                challengeID: "old", accessToken: "token",
                 status: "waiting_sms", maskedPhone: nil, expiresIn: 300, ownerIdentity: owner)
             await #expect(throws: CancellationError.self) {
-                try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: challenge)
+                try await service.submitTeachingCode("123456", for: challenge)
             }
             #expect(transport.requests == 1)
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func repeatedTeachingCenterAuthenticationEndsWithAnActionableFailure() async throws {
-        let bytes = Data(#"{"detail":{"challenge_id":"fixture","access_token":"token","status":"authenticated","expires_in":120}}"#.utf8)
+    @Test(.timeLimit(.minutes(1))) func repeatedTeachingCenterEndsWithFailure() async throws {
+        let bytes = Data(
+            #"""
+            {"detail":{"challenge_id":"fixture","access_token":"token","status":"authenticated\#
+            ","expires_in":120}}
+            """#
+            .utf8)
         let transport = SequenceTransport(Array(repeating: (202, bytes), count: 3))
         do {
-            try await service(transport: transport).ensureTeachingCenterAuthentication()
+            try await service(transport: transport).ensureTeachingAuth()
             Issue.record("Repeated authentication should end with a fresh-operation instruction")
-        } catch ScheduleServiceError.challengeInvalid(let message) { #expect(message.contains("再次要求认证")) }
+        } catch ScheduleServiceError.challengeInvalid(let message) {
+            #expect(message.contains("再次要求认证"))
+        }
         #expect(transport.requests.count == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func teachingCenterSMSChallengePreservesItsIdentityAndExposesExpiry() async throws {
+    @Test(.timeLimit(.minutes(1))) func teachingCenterSmsPreservesIdentityIdentity() async throws {
         let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
-        let transport = SequenceTransport([(202, Data(#"{"detail":{"challenge_id":"sms","access_token":"token","status":"waiting_sms","masked_phone":"138****0000","expires_in":300}}"#.utf8))])
-        let service = service(transport: transport, state: TeachingCenterSessionState(cookieStorage: cookies))
+        let transport = SequenceTransport([
+            (
+                202,
+                Data(
+                    #"""
+                    {"detail":{"challenge_id":"sms","access_token":"token","status":"waiting_s\#
+                    ms","masked_phone":"138****0000","expires_in":300}}
+                    """#
+                    .utf8)
+            )
+        ])
+        let service = service(
+            transport: transport, state: TeachingCenterSessionState(cookieStorage: cookies))
         do {
-            try await service.ensureTeachingCenterAuthentication()
+            try await service.ensureTeachingAuth()
             Issue.record("Expected SMS challenge")
         } catch let ScheduleServiceError.secondFactorRequired(challenge) {
             #expect(challenge.challengeID == "sms" && challenge.accessToken == "token")
             #expect(challenge.maskedPhone == "138****0000" && !challenge.isExpired)
         }
-        let expired = BITLoginAuthenticationChallenge(challengeID: "expired", accessToken: "token",
+        let expired = BITLoginAuthenticationChallenge(
+            challengeID: "expired", accessToken: "token",
             status: "waiting_sms", maskedPhone: nil, expiresIn: 0, receivedAt: .distantPast)
         do {
-            try await service.submitVerificationCodeForTeachingCenterAuthentication("123456", for: expired)
+            try await service.submitTeachingCode("123456", for: expired)
             Issue.record("Expected expired SMS challenge")
         } catch let ScheduleServiceError.challengeInvalid(message) {
             #expect(message.contains("验证码已过期"))
@@ -901,94 +1169,139 @@ extension ScheduleInfrastructureTests {
     }
 
     private struct AuthenticatedRestorer: SchoolSessionRestoring {
-        func restoreSchoolSessionIfNeeded() async throws -> String? { "school-session" }
+        func restoreSchoolSession() async throws -> String? { "school-session" }
     }
 
     private final class SuspendedSecondFactor: HTTPTransport {
-        static let html = #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm"></div></form>"#
+        static let html =
+            #"""
+            <form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="u\#
+            ser-object-id" value="user"><div id="secondSmsLoginForm"></div></form>
+            """#
         let suspendedStage: String
         var pending: CheckedContinuation<Void, Never>?
         var requests: [URLRequest] = []
         init(_ stage: String) { suspendedStage = stage }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
-            if let maximumBytes, result.0.count > maximumBytes { throw HTTPClientError.responseTooLarge }
+            if let maximumBytes, result.0.count > maximumBytes {
+                throw HTTPClientError.responseTooLarge
+            }
             return result
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             requests.append(request)
             let url = try #require(request.url)
-            let stage = url.path.contains("getPhoneNumber") ? "phone" : url.path.contains("sendSmsCode") ? "send"
-                : url.path.contains("checkToken") ? "verify" : request.httpMethod == "POST" ? "login" : "html"
+            let stage =
+                url.path.contains("getPhoneNumber")
+                ? "phone"
+                : url.path.contains("sendSmsCode")
+                    ? "send"
+                    : url.path.contains("checkToken")
+                        ? "verify" : request.httpMethod == "POST" ? "login" : "html"
             if stage == suspendedStage { await withCheckedContinuation { pending = $0 } }
-            let text = stage == "phone" ? #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#
+            let text =
+                stage == "phone"
+                ? #"{"code":200,"data":{"phone":"13800000000","maskTel":"138****0000"}}"#
                 : stage == "html" ? Self.html : #"{"code":200}"#
-            return (Data(text.utf8), try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                Data(text.utf8),
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["html", "phone", "send", "input", "verify", "login"])
-    func nativeSecondFactorKeepsOneOwnerAcrossEverySuspension(stage: String) async throws {
+    @Test(
+        .timeLimit(.minutes(1)), arguments: ["html", "phone", "send", "input", "verify", "login"])
+    func nativeSecondFactorKeepsOneOwnerSuspension(stage: String) async throws {
         for change in 0...2 {
             let credentials = MutableSchoolCredentials()
             let owner = credentials.schoolSessionIdentity
             let transport = SuspendedSecondFactor(stage)
-            let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: AuthenticatedRestorer(),
-                teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+            let service = ScheduleService(
+                credentials: credentials, crypto: Crypto(),
+                schoolSessionRestorer: AuthenticatedRestorer(),
+                teachingCenterState: TeachingCenterSessionState(
+                    cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+                ),
                 transport: transport)
-            let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: SuspendedSecondFactor.html,
-                baseURL: AppURL.required("https://sso.bit.edu.cn")))
+            let context = try #require(
+                SchoolLoginHTMLParser.parseSecondFactorPage(
+                    html: SuspendedSecondFactor.html,
+                    baseURL: AppURL.required("https://sso.bit.edu.cn")))
             var input: CheckedContinuation<String, Never>?
             let handler: SchoolSMSCodeHandler = { _ in
                 if stage == "input" { return await withCheckedContinuation { input = $0 } }
                 return "123456"
             }
             let task = Task<Void, any Error> {
-                if stage == "html" { _ = try await service.refreshLexueCalendarURL(schoolSMSCodeHandler: handler) }
-                else { try await service.completeSchoolSecondFactor(context, handler: handler, smsDeliveryMode: .send, owner: owner) }
+                if stage == "html" {
+                    _ = try await service.refreshLexueCalendarURL(schoolSMSCodeHandler: handler)
+                } else {
+                    try await service.finishSchoolVerification(
+                        context, handler: handler, smsDeliveryMode: .send, owner: owner)
+                }
             }
-            try await waitForTestEvent { !(stage == "input" ? input == nil : transport.pending == nil) }
+            try await waitForTestEvent {
+                !(stage == "input" ? input == nil : transport.pending == nil)
+            }
             let count = transport.requests.count
             if change == 0 { credentials.currentStudentID = "school-b" }
             if change == 1 { credentials.generation += 1 }
             if change == 2 { task.cancel() }
-            if stage == "input" { input?.resume(returning: "123456") } else { transport.pending?.resume() }
+            if stage == "input" {
+                input?.resume(returning: "123456")
+            } else {
+                transport.pending?.resume()
+            }
             await #expect(throws: CancellationError.self) { try await task.value }
             #expect(transport.requests.count == count)
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func nativeSecondFactorSubmitsTheCapturedStudentAndFormContext() async throws {
+    @Test(.timeLimit(.minutes(1))) func nativeSecondFactorSubmitsCapturedStudent() async throws {
         let credentials = MutableSchoolCredentials()
         let transport = SuspendedSecondFactor("none")
-        let service = ScheduleService(credentials: credentials, crypto: Crypto(), schoolSessionRestorer: AuthenticatedRestorer(),
-            teachingCenterState: TeachingCenterSessionState(cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)), transport: transport)
-        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(html: SuspendedSecondFactor.html,
-            baseURL: AppURL.required("https://sso.bit.edu.cn")))
-        try await service.completeSchoolSecondFactor(context, handler: { _ in "123456" }, smsDeliveryMode: .send,
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(),
+            schoolSessionRestorer: AuthenticatedRestorer(),
+            teachingCenterState: TeachingCenterSessionState(
+                cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)),
+            transport: transport)
+        let context = try #require(
+            SchoolLoginHTMLParser.parseSecondFactorPage(
+                html: SuspendedSecondFactor.html,
+                baseURL: AppURL.required("https://sso.bit.edu.cn")))
+        try await service.finishSchoolVerification(
+            context, handler: { _ in "123456" }, smsDeliveryMode: .send,
             owner: credentials.schoolSessionIdentity)
         let request = try #require(transport.requests.last)
         let body = String(decoding: try #require(request.httpBody), as: UTF8.self)
         #expect(transport.requests.count == 4 && request.url?.path == "/cas/login")
-        #expect(body.contains("username=school-a") && body.contains("execution=flow") && body.contains("password=123456"))
+        #expect(
+            body.contains("username=school-a") && body.contains("execution=flow")
+                && body.contains("password=123456"))
     }
 
-    @Test(.timeLimit(.minutes(1))) func lexueSubscriptionUpgradesItsURLAndKeepsCompletedEventIdentity() async throws {
+    @Test(.timeLimit(.minutes(1))) func lexueSubscriptionUpgradesKeepsIdentity() async throws {
         let calendar = """
-        BEGIN:VCALENDAR
-        BEGIN:VEVENT
-        UID:homework
-        SUMMARY:作业
-        DESCRIPTION:提交报告
-        DTSTART:20300910T010000Z
-        END:VEVENT
-        END:VCALENDAR
-        """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:homework
+            SUMMARY:作业
+            DESCRIPTION:提交报告
+            DTSTART:20300910T010000Z
+            END:VEVENT
+            END:VCALENDAR
+            """
         let transport = SequenceTransport([(200, Data(calendar.utf8))])
-        let existing = DDLEventRecord(id: "homework", group: "lexue", title: "作业", text: "",
+        let existing = DDLEventRecord(
+            id: "homework", group: "lexue", title: "作业", text: "",
             dueAt: Date(timeIntervalSince1970: 0), done: true)
         let service = service(transport: transport, restorer: AuthenticatedRestorer())
-        let result = try await service.syncDDLEventsForPreflight(existingEvents: [existing],
+        let result = try await service.syncDDLEventsForPreflight(
+            existingEvents: [existing],
             storedURL: "http://lexue.bit.edu.cn/calendar/export_execute.php?userid=42&token=test")
         #expect(result.events.count == 1 && result.events.first?.done == true)
         #expect(result.events.first?.title == "作业" && result.events.first?.text == "提交报告")

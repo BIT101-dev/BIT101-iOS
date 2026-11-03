@@ -1,6 +1,6 @@
 import DesignSystemKit
-import SwiftUI
 import ScheduleContracts
+import SwiftUI
 
 /// watch 主页面。
 ///
@@ -16,13 +16,19 @@ struct WatchScheduleRootView: View {
         }
         .tabViewStyle(.page)
         .navigationTitle("课表")
-        .onReceive(NotificationCenter.default.publisher(for: .scheduleExternalSnapshotDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .scheduleExternalSnapshotDidChange)) {
+            _ in
             model.handleSnapshotDidChange()
         }
-        .onReceive(NotificationCenter.default.publisher(for: WatchScheduleSyncManager.snapshotReceivedNotification)) { _ in
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: WatchScheduleSyncManager.snapshotReceivedNotification)
+        ) { _ in
             model.handleSnapshotReceived()
         }
-        .confirmationDialog("清除本地课表数据？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible) {
+        .confirmationDialog(
+            "清除本地课表数据？", isPresented: $isShowingClearConfirmation, titleVisibility: .visible
+        ) {
             Button("清除", role: .destructive) {
                 model.clearLocalData()
             }
@@ -90,9 +96,12 @@ struct WatchScheduleRootView: View {
                                     alignment: .firstTextBaseline,
                                     spacing: AppDesignSystem.Spacing.regular
                                 ) {
-                                    Text(occurrence.relativeDayText(referenceDate: model.referenceDate))
-                                        .font(AppDesignSystem.Typography.captionEmphasis)
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                                    Text(
+                                        occurrence.relativeDayText(
+                                            referenceDate: model.referenceDate)
+                                    )
+                                    .font(AppDesignSystem.Typography.captionEmphasis)
+                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
 
                                     Spacer(minLength: AppDesignSystem.Spacing.tiny)
 

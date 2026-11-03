@@ -28,10 +28,12 @@ public nonisolated enum ScheduleDisplayNormalizer {
     ///
     /// 目前主要把 `体育/xx` 压缩成 `xx`，并把中文全角括号改成半角括号。
     public static func normalizeCourseTitle(_ value: String) -> String {
-        let withoutSportsPrefix = value.hasPrefix("体育/")
+        let withoutSportsPrefix =
+            value.hasPrefix("体育/")
             ? String(value.dropFirst("体育/".count))
             : value
-        return withoutSportsPrefix
+        return
+            withoutSportsPrefix
             .replacingOccurrences(of: "（", with: "(")
             .replacingOccurrences(of: "）", with: ")")
     }
@@ -40,8 +42,8 @@ public nonisolated enum ScheduleDisplayNormalizer {
     public static func courseCardClassroomText(_ value: String) -> String {
         let location = compactLocation(for: value)
         guard let room = location.room,
-              !location.lightBuilding.isEmpty,
-              !room.isEmpty
+            !location.lightBuilding.isEmpty,
+            !room.isEmpty
         else {
             return location.lightText
         }
@@ -51,9 +53,9 @@ public nonisolated enum ScheduleDisplayNormalizer {
         let suffix = String(building.suffix(1))
         let buildingPrefix = String(building.dropLast())
         if !buildingPrefix.isEmpty,
-           suffix.unicodeScalars.count == 1,
-           suffix.rangeOfCharacter(from: .letters) != nil,
-           suffix.unicodeScalars.first?.value ?? 0 < 128
+            suffix.unicodeScalars.count == 1,
+            suffix.rangeOfCharacter(from: .letters) != nil,
+            suffix.unicodeScalars.first?.value ?? 0 < 128
         {
             return "\(buildingPrefix)\(suffix)\n\(room)"
         }
@@ -65,7 +67,8 @@ public nonisolated enum ScheduleDisplayNormalizer {
     public static func compactLocation(for value: String) -> ScheduleCompactLocation {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return ScheduleCompactLocation(lightText: "", maxText: "", lightBuilding: "", maxBuilding: "", room: nil)
+            return ScheduleCompactLocation(
+                lightText: "", maxText: "", lightBuilding: "", maxBuilding: "", room: nil)
         }
 
         let normalizedLightText = normalizeLocationText(trimmed, mode: .light)
@@ -195,7 +198,9 @@ public nonisolated enum ScheduleDisplayNormalizer {
             }
     }()
 
-    private static func normalizeLocationText(_ value: String, mode: LocationAbbreviationMode) -> String {
+    private static func normalizeLocationText(_ value: String, mode: LocationAbbreviationMode)
+        -> String
+    {
         var normalized = value
 
         for prefix in campusPrefixes {
@@ -209,7 +214,8 @@ public nonisolated enum ScheduleDisplayNormalizer {
             )
         }
 
-        return normalized
+        return
+            normalized
             .components(separatedBy: .whitespacesAndNewlines)
             .joined()
             .replacingOccurrences(of: "-", with: "")
@@ -219,7 +225,9 @@ public nonisolated enum ScheduleDisplayNormalizer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func normalizedBuildingPair(lightText: String, maxText: String) -> (light: String, max: String) {
+    private static func normalizedBuildingPair(lightText: String, maxText: String) -> (
+        light: String, max: String
+    ) {
         if let pair = knownBuildingPairs.first(where: { lightText.hasPrefix($0.light) }) {
             return pair
         }
@@ -285,7 +293,9 @@ public nonisolated enum ScheduleSharedDateCodec {
 
     public static func parseDate(_ string: String) -> Date? {
         guard !string.isEmpty else { return nil }
-        guard let date = dateFormatter.date(from: string), dateFormatter.string(from: date) == string else {
+        guard let date = dateFormatter.date(from: string),
+            dateFormatter.string(from: date) == string
+        else {
             return nil
         }
         return date
@@ -304,7 +314,9 @@ public nonisolated enum ScheduleSharedDateCodec {
     }
 
     public static func combine(firstDay: Date, week: Int, weekday: Int, time: String) -> Date? {
-        guard ScheduleCourseConstraints.isValidWeek(week), (1...7).contains(weekday) else { return nil }
+        guard ScheduleCourseConstraints.isValidWeek(week), (1...7).contains(weekday) else {
+            return nil
+        }
         let weekOffset = week > 0 ? week - 1 : week
         let dayOffset = weekOffset * 7 + (weekday - 1)
         guard let day = calendar.date(byAdding: .day, value: dayOffset, to: firstDay) else {
@@ -338,7 +350,10 @@ public nonisolated enum ScheduleSharedDateCodec {
 /// 结构保存“周次 + 星期 + 节次”展开后的最终结果。
 /// Widget 和 Watch 直接使用它进行排序、展示和倒计时。
 public nonisolated struct ScheduleExternalOccurrence: Identifiable, Hashable, Sendable {
-    public init(id: String, title: String, classroom: String, teacher: String, startDate: Date, endDate: Date, displayUntilDate: Date) {
+    public init(
+        id: String, title: String, classroom: String, teacher: String, startDate: Date,
+        endDate: Date, displayUntilDate: Date
+    ) {
         self.id = id
         self.title = title
         self.classroom = classroom
@@ -365,13 +380,17 @@ public nonisolated struct ScheduleExternalOccurrence: Identifiable, Hashable, Se
     }
 
     public var rangeText: String {
-        "\(ScheduleSharedDateCodec.formatTime(startDate))-\(ScheduleSharedDateCodec.formatTime(endDate))"
+        """
+        \(ScheduleSharedDateCodec.formatTime(startDate))-\
+        \(ScheduleSharedDateCodec.formatTime(endDate))
+        """
     }
 
     public func relativeDayText(referenceDate: Date = Date()) -> String {
         let startOfToday = Self.calendar.startOfDay(for: referenceDate)
         let startOfClassDay = Self.calendar.startOfDay(for: startDate)
-        let dayDiff = Self.calendar.dateComponents([.day], from: startOfToday, to: startOfClassDay).day ?? 0
+        let dayDiff =
+            Self.calendar.dateComponents([.day], from: startOfToday, to: startOfClassDay).day ?? 0
 
         switch dayDiff {
         case ...0:
@@ -403,7 +422,10 @@ public nonisolated struct ScheduleExternalResolvedSnapshot: Sendable {
     public let upcomingOccurrences: [ScheduleExternalOccurrence]
     public let contentState: ScheduleExternalContentState
 
-    public init(snapshot: ScheduleExternalSnapshot?, upcomingOccurrences: [ScheduleExternalOccurrence], contentState: ScheduleExternalContentState) {
+    public init(
+        snapshot: ScheduleExternalSnapshot?, upcomingOccurrences: [ScheduleExternalOccurrence],
+        contentState: ScheduleExternalContentState
+    ) {
         self.snapshot = snapshot
         self.upcomingOccurrences = upcomingOccurrences
         self.contentState = contentState
@@ -440,7 +462,9 @@ public nonisolated struct ScheduleExternalResolvedDeadlines: Sendable {
     public let deadlines: [ScheduleExternalDeadlineSnapshot]
     public let contentState: ScheduleExternalContentState
 
-    public init(deadlines: [ScheduleExternalDeadlineSnapshot], contentState: ScheduleExternalContentState) {
+    public init(
+        deadlines: [ScheduleExternalDeadlineSnapshot], contentState: ScheduleExternalContentState
+    ) {
         self.deadlines = deadlines
         self.contentState = contentState
     }
@@ -457,51 +481,74 @@ public nonisolated enum ScheduleDeadlineResolver {
 
     private static func prepare(_ snapshot: ScheduleExternalSnapshot?) -> Prepared {
         guard let snapshot else { return .init(deadlines: [], state: .missing, retention: 0) }
-        guard snapshot.isLoggedIn else { return .init(deadlines: [], state: .loggedOut, retention: 0) }
-        guard (0...30).contains(snapshot.ddlAfterDay), snapshot.deadlines.allSatisfy(\.hasValidRecord),
-              Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count
+        guard snapshot.isLoggedIn else {
+            return .init(deadlines: [], state: .loggedOut, retention: 0)
+        }
+        guard (0...30).contains(snapshot.ddlAfterDay),
+            snapshot.deadlines.allSatisfy(\.hasValidRecord),
+            Set(snapshot.deadlines.map(\.id)).count == snapshot.deadlines.count
         else { return .init(deadlines: [], state: .invalid, retention: 0) }
-        return .init(deadlines: snapshot.deadlines.sorted {
-            $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt
-        }, state: .ready, retention: TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60)
+        return .init(
+            deadlines: snapshot.deadlines.sorted {
+                $0.dueAt == $1.dueAt ? $0.id < $1.id : $0.dueAt < $1.dueAt
+            }, state: .ready, retention: TimeInterval(snapshot.ddlAfterDay) * 24 * 60 * 60)
     }
 
     private static func firstActiveIndex(_ prepared: Prepared, now: Date) -> Int {
         let threshold = now.addingTimeInterval(-prepared.retention)
-        var lower = 0, upper = prepared.deadlines.count
+        var lower = 0
+        var upper = prepared.deadlines.count
         while lower < upper {
             let middle = lower + (upper - lower) / 2
-            if prepared.deadlines[middle].dueAt < threshold { lower = middle + 1 }
-            else { upper = middle }
+            if prepared.deadlines[middle].dueAt < threshold {
+                lower = middle + 1
+            } else {
+                upper = middle
+            }
         }
         return lower
     }
 
-    private static func resolve(_ prepared: Prepared, now: Date, limit: Int) -> ScheduleExternalResolvedDeadlines {
-        guard prepared.state == .ready else { return .init(deadlines: [], contentState: prepared.state) }
+    private static func resolve(_ prepared: Prepared, now: Date, limit: Int)
+        -> ScheduleExternalResolvedDeadlines
+    {
+        guard prepared.state == .ready else {
+            return .init(deadlines: [], contentState: prepared.state)
+        }
         let start = firstActiveIndex(prepared, now: now)
         let deadlines = Array(prepared.deadlines.dropFirst(start).prefix(max(0, limit)))
         return .init(deadlines: deadlines, contentState: deadlines.isEmpty ? .rest : .ready)
     }
 
-    public static func resolvedSnapshot(from snapshot: ScheduleExternalSnapshot?, now: Date = Date(), limit: Int = defaultLimit) -> ScheduleExternalResolvedDeadlines {
+    public static func resolvedSnapshot(
+        from snapshot: ScheduleExternalSnapshot?, now: Date = Date(), limit: Int = defaultLimit
+    ) -> ScheduleExternalResolvedDeadlines {
         resolve(prepare(snapshot), now: now, limit: limit)
     }
 
     /// 时间线共享一次排序；可见窗口推进后交由系统继续请求下一批。
     public static func timelineEntries(from snapshot: ScheduleExternalSnapshot?, now: Date = Date())
-        -> [(date: Date, resolved: ScheduleExternalResolvedDeadlines)] {
+        -> [(date: Date, resolved: ScheduleExternalResolvedDeadlines)]
+    {
         let prepared = prepare(snapshot)
         let current = resolve(prepared, now: now, limit: defaultLimit)
         let horizon = now.addingTimeInterval(24 * 60 * 60)
         let end: Date
         if let first = current.deadlines.first,
-           firstActiveIndex(prepared, now: now) + current.deadlines.count < prepared.deadlines.count {
+            firstActiveIndex(prepared, now: now) + current.deadlines.count
+                < prepared.deadlines.count
+        {
             end = min(horizon, first.dueAt.addingTimeInterval(prepared.retention + 1))
-        } else { end = horizon }
+        } else {
+            end = horizon
+        }
         var dates = [now, end]
-        if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
-            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) { dates.append(midnight) }
+        if let midnight = ScheduleSharedDateCodec.calendar.date(
+            byAdding: .day, value: 1,
+            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now))
+        {
+            dates.append(midnight)
+        }
         for deadline in current.deadlines {
             dates.append(deadline.dueAt)
             dates.append(deadline.dueAt.addingTimeInterval(prepared.retention + 1))
@@ -528,8 +575,10 @@ public nonisolated enum ScheduleTimelineRefreshPlanner {
             dates.append(contentsOf: occurrences.map(\.displayUntilDate))
             dates.append(contentsOf: occurrences.map(\.endDate))
         }
-        if let midnight = ScheduleSharedDateCodec.calendar.date(byAdding: .day, value: 1,
-            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)) {
+        if let midnight = ScheduleSharedDateCodec.calendar.date(
+            byAdding: .day, value: 1,
+            to: ScheduleSharedDateCodec.calendar.startOfDay(for: now))
+        {
             dates.append(midnight)
         }
         return Array(Set(dates.filter { $0 >= now && $0 <= horizon })).sorted()
@@ -549,15 +598,17 @@ public nonisolated enum ScheduleTimelineRefreshPlanner {
         }
 
         if includeNextMidnight,
-           let nextMidnight = ScheduleSharedDateCodec.calendar.date(
-               byAdding: .day,
-               value: 1,
-               to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)
-           )?.addingTimeInterval(1) {
+            let nextMidnight = ScheduleSharedDateCodec.calendar.date(
+                byAdding: .day,
+                value: 1,
+                to: ScheduleSharedDateCodec.calendar.startOfDay(for: now)
+            )?.addingTimeInterval(1)
+        {
             candidates.append(nextMidnight)
         }
 
-        return candidates
+        return
+            candidates
             .filter { $0 > now }
             .min()
             ?? now.addingTimeInterval(fallbackInterval)
@@ -575,11 +626,14 @@ public nonisolated enum ScheduleOccurrenceResolver {
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration
     ) -> [ScheduleExternalOccurrence] {
-        visibleOccurrences(rawOccurrences(from: snapshot, now: now), now: now,
+        visibleOccurrences(
+            rawOccurrences(from: snapshot, now: now), now: now,
             currentCourseDisplayDuration: currentCourseDisplayDuration, limit: nil)
     }
 
-    private static func rawOccurrences(from snapshot: ScheduleExternalSnapshot, now: Date) -> [ScheduleExternalOccurrence] {
+    private static func rawOccurrences(from snapshot: ScheduleExternalSnapshot, now: Date)
+        -> [ScheduleExternalOccurrence]
+    {
         let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString)
 
         let slotMap = Dictionary(
@@ -591,12 +645,17 @@ public nonisolated enum ScheduleOccurrenceResolver {
             .flatMap { course in
                 course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
                     guard
-                        !Task.isCancelled, let firstDay, ScheduleCourseConstraints.isValidWeek(week),
+                        !Task.isCancelled, let firstDay,
+                        ScheduleCourseConstraints.isValidWeek(week),
                         (1...7).contains(course.weekday),
                         let startSlot = slotMap[course.startSection],
                         let endSlot = slotMap[course.endSection],
-                        let startDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: startSlot.start),
-                        let endDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: week, weekday: course.weekday, time: endSlot.end),
+                        let startDate = ScheduleSharedDateCodec.combine(
+                            firstDay: firstDay, week: week, weekday: course.weekday,
+                            time: startSlot.start),
+                        let endDate = ScheduleSharedDateCodec.combine(
+                            firstDay: firstDay, week: week, weekday: course.weekday,
+                            time: endSlot.end),
                         endDate > startDate,
                         endDate > now
                     else {
@@ -617,11 +676,14 @@ public nonisolated enum ScheduleOccurrenceResolver {
         let customOccurrences = snapshot.customSchedules.flatMap { item in
             item.dateStrings.compactMap { value -> ScheduleExternalOccurrence? in
                 guard !Task.isCancelled, let day = ScheduleSharedDateCodec.parseDate(value),
-                      let start = ScheduleSharedDateCodec.combine(date: day, time: item.beginTime),
-                      let end = ScheduleSharedDateCodec.combine(date: day, time: item.endTime), end > start, end > now
+                    let start = ScheduleSharedDateCodec.combine(date: day, time: item.beginTime),
+                    let end = ScheduleSharedDateCodec.combine(date: day, time: item.endTime),
+                    end > start, end > now
                 else { return nil }
-                return ScheduleExternalOccurrence(id: "custom-\(item.id)-\(value)", title: item.title,
-                    classroom: item.subtitle, teacher: "", startDate: start, endDate: end, displayUntilDate: end)
+                return ScheduleExternalOccurrence(
+                    id: "custom-\(item.id)-\(value)", title: item.title,
+                    classroom: item.subtitle, teacher: "", startDate: start, endDate: end,
+                    displayUntilDate: end)
             }
         }
         let rawOccurrencesByID = (courseOccurrences + customOccurrences)
@@ -645,8 +707,11 @@ public nonisolated enum ScheduleOccurrenceResolver {
         _ rawOccurrences: [ScheduleExternalOccurrence], now: Date,
         currentCourseDisplayDuration: TimeInterval, limit: Int?
     ) -> [ScheduleExternalOccurrence] {
-        guard let lastIndex = rawOccurrences.lastIndex(where: { $0.endDate > now }) else { return [] }
-        let occurrences = rawOccurrences.lazy.enumerated().compactMap { index, occurrence -> ScheduleExternalOccurrence? in
+        guard let lastIndex = rawOccurrences.lastIndex(where: { $0.endDate > now }) else {
+            return []
+        }
+        let occurrences = rawOccurrences.lazy.enumerated().compactMap {
+            index, occurrence -> ScheduleExternalOccurrence? in
             guard occurrence.endDate > now else { return nil }
             let hasLaterOccurrence = index < lastIndex
             let displayUntilDate: Date
@@ -674,7 +739,8 @@ public nonisolated enum ScheduleOccurrenceResolver {
                 displayUntilDate: displayUntilDate
             )
         }
-        return Array(occurrences.prefix(limit.flatMap { $0 >= 0 ? $0 : nil } ?? rawOccurrences.count))
+        return Array(
+            occurrences.prefix(limit.flatMap { $0 >= 0 ? $0 : nil } ?? rawOccurrences.count))
     }
 
     public static func parseDate(_ string: String) -> Date? {
@@ -692,7 +758,8 @@ public nonisolated enum ScheduleOccurrenceResolver {
     ) -> ScheduleExternalResolvedSnapshot {
         let state = contentState(for: snapshot)
         let raw = snapshot.map { state == .ready ? rawOccurrences(from: $0, now: now) : [] } ?? []
-        return resolvedSnapshot(snapshot: snapshot, state: state, raw: raw, now: now,
+        return resolvedSnapshot(
+            snapshot: snapshot, state: state, raw: raw, now: now,
             currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
     }
 
@@ -705,11 +772,16 @@ public nonisolated enum ScheduleOccurrenceResolver {
     ) -> [ScheduleExternalTimelineEntry] {
         let state = contentState(for: snapshot)
         guard let snapshot else {
-            return [ScheduleExternalTimelineEntry(date: now, resolved: resolvedSnapshot(from: nil, now: now))]
+            return [
+                ScheduleExternalTimelineEntry(
+                    date: now, resolved: resolvedSnapshot(from: nil, now: now))
+            ]
         }
         let raw = state == .ready ? rawOccurrences(from: snapshot, now: now) : []
-        let visible = visibleOccurrences(raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: nil)
-        var dates = ScheduleTimelineRefreshPlanner.timelineDates(for: visible, now: now,
+        let visible = visibleOccurrences(
+            raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: nil)
+        var dates = ScheduleTimelineRefreshPlanner.timelineDates(
+            for: visible, now: now,
             includeDisplayUntilDates: includeDisplayUntilDates)
         if includeDisplayUntilDates {
             let horizon = now.addingTimeInterval(24 * 60 * 60)
@@ -717,44 +789,65 @@ public nonisolated enum ScheduleOccurrenceResolver {
             dates = Array(Set(dates)).sorted()
         }
         return dates.map { date in
-            ScheduleExternalTimelineEntry(date: date, resolved: resolvedSnapshot(snapshot: snapshot, state: state,
-                raw: raw, now: date, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit))
+            ScheduleExternalTimelineEntry(
+                date: date,
+                resolved: resolvedSnapshot(
+                    snapshot: snapshot, state: state,
+                    raw: raw, now: date, currentCourseDisplayDuration: currentCourseDisplayDuration,
+                    limit: limit))
         }
     }
 
     private static func resolvedSnapshot(
-        snapshot: ScheduleExternalSnapshot?, state: ScheduleExternalContentState, raw: [ScheduleExternalOccurrence],
+        snapshot: ScheduleExternalSnapshot?, state: ScheduleExternalContentState,
+        raw: [ScheduleExternalOccurrence],
         now: Date, currentCourseDisplayDuration: TimeInterval, limit: Int?
     ) -> ScheduleExternalResolvedSnapshot {
-        let occurrences = visibleOccurrences(raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
-        return ScheduleExternalResolvedSnapshot(snapshot: snapshot, upcomingOccurrences: occurrences,
+        let occurrences = visibleOccurrences(
+            raw, now: now, currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
+        return ScheduleExternalResolvedSnapshot(
+            snapshot: snapshot, upcomingOccurrences: occurrences,
             contentState: state == .ready ? (occurrences.isEmpty ? .rest : .ready) : state)
     }
 
-    private static func contentState(for snapshot: ScheduleExternalSnapshot?) -> ScheduleExternalContentState {
+    private static func contentState(for snapshot: ScheduleExternalSnapshot?)
+        -> ScheduleExternalContentState
+    {
         guard let snapshot else { return .missing }
         guard snapshot.isLoggedIn else { return .loggedOut }
         guard snapshot.customSchedules.allSatisfy(\.hasValidRecord),
-              Set(snapshot.customSchedules.map(\.id)).count == snapshot.customSchedules.count else { return .invalid }
+            Set(snapshot.customSchedules.map(\.id)).count == snapshot.customSchedules.count
+        else { return .invalid }
         if snapshot.courses.isEmpty { return snapshot.customSchedules.isEmpty ? .rest : .ready }
-        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return .invalid }
+        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else {
+            return .invalid
+        }
         return hasValidCourses(snapshot, firstDay: firstDay) ? .ready : .invalid
     }
 
     public static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot) -> Bool {
-        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else { return false }
+        guard let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString) else {
+            return false
+        }
         return hasValidCourses(snapshot, firstDay: firstDay)
     }
 
-    private static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot, firstDay: Date) -> Bool {
-        let slots = Dictionary(snapshot.timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    private static func hasValidCourses(_ snapshot: ScheduleExternalSnapshot, firstDay: Date)
+        -> Bool
+    {
+        let slots = Dictionary(
+            snapshot.timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard slots.count == snapshot.timeTable.count else { return false }
         return snapshot.courses.allSatisfy { course in
-            guard !course.weeks.isEmpty, course.weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek),
-                  (1...7).contains(course.weekday), course.startSection > 0, course.endSection >= course.startSection,
-                  let start = slots[course.startSection], let end = slots[course.endSection],
-                  let startDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: 1, weekday: course.weekday, time: start.start),
-                  let endDate = ScheduleSharedDateCodec.combine(firstDay: firstDay, week: 1, weekday: course.weekday, time: end.end)
+            guard !course.weeks.isEmpty,
+                course.weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek),
+                (1...7).contains(course.weekday), course.startSection > 0,
+                course.endSection >= course.startSection,
+                let start = slots[course.startSection], let end = slots[course.endSection],
+                let startDate = ScheduleSharedDateCodec.combine(
+                    firstDay: firstDay, week: 1, weekday: course.weekday, time: start.start),
+                let endDate = ScheduleSharedDateCodec.combine(
+                    firstDay: firstDay, week: 1, weekday: course.weekday, time: end.end)
             else { return false }
             return endDate > startDate
         }

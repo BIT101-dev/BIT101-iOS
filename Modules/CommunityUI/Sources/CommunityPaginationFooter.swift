@@ -10,8 +10,10 @@ public struct CommunityPaginationFooter: View {
     private let onRetry: () async -> Void
     @State private var retryRequested = false
 
-    public init(isLoading: Bool, errorMessage: String?, showsContinuation: Bool = false,
-        onRetry: @escaping () async -> Void) {
+    public init(
+        isLoading: Bool, errorMessage: String?, showsContinuation: Bool = false,
+        onRetry: @escaping () async -> Void
+    ) {
         self.isLoading = isLoading
         self.errorMessage = errorMessage
         self.showsContinuation = showsContinuation

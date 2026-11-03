@@ -1,25 +1,26 @@
-import CommunityPersistence
-import CommunityUI
-import SchedulePorts
-import ScoreDomain
-import GalleryFeature
-@testable import MineFeature
-import CommunityTransport
-import TransportCore
-@testable import ScheduleFeature
-@testable import ScheduleInfrastructure
-@testable import MediaKit
-import CommunityCore
-import ScoreFeature
-import Combine
-import StorageCore
 import ClientCore
+import Combine
+import CommunityCore
+import CommunityPersistence
+import CommunityTransport
+import CommunityUI
+import Foundation
+import GalleryFeature
 import ScheduleDomain
 import SchedulePersistence
+import SchedulePorts
 import ScheduleSync
-import Foundation
+import ScoreDomain
+import ScoreFeature
+import StorageCore
 import Testing
+import TransportCore
+
 @testable import BIT101_iOS
+@testable import MediaKit
+@testable import MineFeature
+@testable import ScheduleFeature
+@testable import ScheduleInfrastructure
 
 @MainActor
 final class RecordingSchedulePlatformActions: SchedulePlatformActions {
@@ -48,28 +49,34 @@ final class RecordingSchedulePlatformActions: SchedulePlatformActions {
         return 7
     }
 
-    func rebuildSystemCalendarImportHistory() async throws -> Int { 0 }
+    func rebuildSystemHistory() async throws -> Int { 0 }
 
-    func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult {
+    func deleteImportedEvents() async throws -> ScheduleSystemCalendarMutationResult {
         deleteCount += 1
         return .changed(3)
     }
 
-    func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int {
+    func importCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> Int
+    {
         if let importError { throw importError }
         calendarContent = content
         calendarTerm = term
         return 2
     }
 
-    func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult {
+    func deleteCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    {
         if let importError { throw importError }
         calendarContent = content
         calendarTerm = term
         return .changed(2)
     }
 
-    func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult {
+    func deleteCalendarEntries(markerIDs: Set<String>, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    {
         if let importError { throw importError }
         calendarMarkerIDs = markerIDs
         calendarTerm = term
@@ -89,7 +96,9 @@ final class SemesterStartDateService: ScheduleServicing {
     var courses: [CourseRecord] = []
 
     func syncCourses(term: String?) async throws -> CourseSyncPayload {
-        if let authenticationChallenge { throw ScheduleServiceError.secondFactorRequired(authenticationChallenge) }
+        if let authenticationChallenge {
+            throw ScheduleServiceError.secondFactorRequired(authenticationChallenge)
+        }
         return CourseSyncPayload(
             term: term ?? "2026-2027-1",
             firstDayString: firstDayString,
@@ -102,21 +111,33 @@ final class SemesterStartDateService: ScheduleServicing {
     }
 
     func fetchAvailableTerms() async throws -> [String] {
-        if let authenticationChallenge { throw ScheduleServiceError.secondFactorRequired(authenticationChallenge) }
+        if let authenticationChallenge {
+            throw ScheduleServiceError.secondFactorRequired(authenticationChallenge)
+        }
         throw ScheduleServiceError.invalidResponse
     }
-    func fetchCurrentTermOnly() async throws -> String { throw ScheduleServiceError.invalidResponse }
-    func prepareTeachingCenterAccess() async throws { throw ScheduleServiceError.invalidResponse }
-    func fetchCampuses() async throws -> [CampusRecord] { throw ScheduleServiceError.invalidResponse }
-    func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] { throw ScheduleServiceError.invalidResponse }
-    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] { throw ScheduleServiceError.invalidResponse }
-    func submitVerificationCodeForTeachingCenterAuthentication(
+    func fetchCurrentTermOnly() async throws -> String {
+        throw ScheduleServiceError.invalidResponse
+    }
+    func prepareTeachingAccess() async throws { throw ScheduleServiceError.invalidResponse }
+    func fetchCampuses() async throws -> [CampusRecord] {
+        throw ScheduleServiceError.invalidResponse
+    }
+    func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
+        throw ScheduleServiceError.invalidResponse
+    }
+    func fetchClassrooms(buildingID: String, term: String, date: Date) async throws
+        -> [ClassroomRecord]
+    { throw ScheduleServiceError.invalidResponse }
+    func submitTeachingCode(
         _ code: String, for challenge: BITLoginAuthenticationChallenge
     ) async throws { throw ScheduleServiceError.invalidResponse }
     func syncDDLEvents(
-        existingEvents: [DDLEventRecord], storedURL: String, schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?
+        existingEvents: [DDLEventRecord], storedURL: String,
+        schoolSMSCodeHandler: SchoolSMSCodeHandler?, onSource: DDLSyncSourceDelivery?
     ) async throws -> DDLSyncPayload { throw ScheduleServiceError.invalidResponse }
-    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String {
+    func refreshLexueCalendarURL(schoolSMSCodeHandler: SchoolSMSCodeHandler?) async throws -> String
+    {
         throw ScheduleServiceError.invalidResponse
     }
 }
@@ -125,7 +146,10 @@ final class SemesterStartDateService: ScheduleServicing {
 struct ScheduleModuleBoundaryTests {
     private actor UnavailableCloud: ScheduleCloudTransport {
         var accountChecks = 0
-        func accountAvailable() async throws -> Bool { accountChecks += 1; return false }
+        func accountAvailable() async throws -> Bool {
+            accountChecks += 1
+            return false
+        }
         func record(named name: String) async throws -> ScheduleCloudRecord {
             Issue.record("iCloud 账号状态受阻时需要保留本机课表。")
             throw URLError(.notConnectedToInternet)
@@ -136,8 +160,10 @@ struct ScheduleModuleBoundaryTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func cloudAccountAvailabilityPreservesLocalEditsAcrossEverySyncEntry() async {
-        let account = ScheduleCloudAccount(studentID: "cloud-runtime", session: AppStorageSession(accountIdentifier: "cloud-runtime"), generation: 0)
+    @Test(.timeLimit(.minutes(1))) func cloudAccountAvailabilityPreservesEntry() async {
+        let account = ScheduleCloudAccount(
+            studentID: "cloud-runtime",
+            session: AppStorageSession(accountIdentifier: "cloud-runtime"), generation: 0)
         var initial = ScheduleCache()
         initial.iCloudSyncEnabled = true
         initial.primaryScheduleTitle = "本机编辑"
@@ -145,101 +171,166 @@ struct ScheduleModuleBoundaryTests {
         let cloud = UnavailableCloud()
         var saves = 0
         var statuses: [ScheduleCloudSyncStatus] = []
-        let local = ScheduleCloudLocalStore(currentAccount: { account }, load: { _ in .loaded(cached) },
-            save: { _, _, _, _ in saves += 1; return true })
-        let manager = ScheduleSync.ScheduleCloudSyncManager(local: local, transport: cloud,
+        let local = ScheduleCloudLocalStore(
+            currentAccount: { account }, load: { _ in .loaded(cached) },
+            save: { _, _, _, _ in
+                saves += 1
+                return true
+            })
+        let manager = ScheduleSync.ScheduleCloudSyncManager(
+            local: local, transport: cloud,
             presentConflict: { _, _, _ in Issue.record("账号状态受阻时需要呈现同步状态。") },
-            reportStatus: { received, status in #expect(received == account); statuses.append(status) })
+            reportStatus: { received, status in
+                #expect(received == account)
+                statuses.append(status)
+            })
         await manager.refreshFromCloudIfNeeded()
         await manager.reconcileAfterEnabling()
-        await manager.pushLatestLocalCacheIfNeeded()
+        await manager.pushLatestCache()
         #expect(await cloud.accountChecks == 3)
         #expect(statuses == Array(repeating: .unavailable, count: 3) && saves == 0)
     }
 
-    @Test func independentCourseAdjustmentsAndDDLCompletionsConvergeAcrossDevices() throws {
+    @Test func independentCourseAdjustments() throws {
         let base = ScheduleCache()
-        var local = base, remote = base
-        local.manualCourseRulesByTerm = ["term": [.init(id: "local", sourceIdentity: "local-course", sourceCourses: [], replacementCourses: [])]]
-        remote.manualCourseRulesByTerm = ["term": [.init(id: "remote", sourceIdentity: "remote-course", sourceCourses: [], replacementCourses: [])]]
+        var local = base
+        var remote = base
+        local.manualCourseRulesByTerm = [
+            "term": [
+                .init(
+                    id: "local", sourceIdentity: "local-course", sourceCourses: [],
+                    replacementCourses: [])
+            ]
+        ]
+        remote.manualCourseRulesByTerm = [
+            "term": [
+                .init(
+                    id: "remote", sourceIdentity: "remote-course", sourceCourses: [],
+                    replacementCourses: [])
+            ]
+        ]
         local.lexueDDLCompletionByID = ["eclass:1": true]
         remote.lexueDDLCompletionByID = ["lexue:2": true]
         remote.primaryScheduleTitle = "另一台设备的标题"
         let baseline = try ScheduleCloudStateMerge.baseline(for: base)
         for (first, second) in [(local, remote), (remote, local)] {
-            let merged = try #require(try ScheduleCloudStateMerge.merge(local: .init(cache: first), remote: .init(cache: second), baseline: baseline))
+            let merged = try #require(
+                try ScheduleCloudStateMerge.merge(
+                    local: .init(cache: first), remote: .init(cache: second), baseline: baseline))
             var result = first
             merged.apply(to: &result)
-            #expect(Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == ["local", "remote"])
+            #expect(
+                Set(result.manualCourseRulesByTerm["term", default: []].map(\.id)) == [
+                    "local", "remote",
+                ])
             #expect(result.lexueDDLCompletionByID == ["eclass:1": true, "lexue:2": true])
             #expect(result.primaryScheduleTitle == remote.primaryScheduleTitle)
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func invalidScheduleWritesPreserveTheCommittedBytesUnderTheNativeRuntime(hasCommittedFile: Bool) async throws {
+    func invalidScheduleWritesPreserveRuntime(hasCommittedFile: Bool) async throws {
         let files = PreferenceMemoryFiles()
-        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/schedule"),
+        let store = SchedulePersistenceStore(
+            files: files, storageRoot: URL(fileURLWithPath: "/schedule"),
             userStateMatches: { $0.primaryScheduleTitle == $1.primaryScheduleTitle })
         let account = AppStorageSession(accountIdentifier: "invalid-native-write")
         let url = store.cacheFileURL(for: account.accountStorageIdentifier)
         var valid = ScheduleCache()
         valid.primaryScheduleTitle = "已保存课表"
         if hasCommittedFile {
-            #expect(await store.write(valid, accountIdentifier: account.accountStorageIdentifier,
-                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) != nil)
+            #expect(
+                await store.write(
+                    valid, accountIdentifier: account.accountStorageIdentifier,
+                    legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration,
+                    source: .local, expectedUpdatedAt: nil) != nil)
         }
         let previous = hasCommittedFile ? try files.readData(at: url) : nil
         var invalid = valid
-        invalid.timeTable = [TimeSlot(id: 1, start: "08:00", end: "08:45"), TimeSlot(id: 1, start: "09:00", end: "09:45")]
-        #expect(await store.write(invalid, accountIdentifier: account.accountStorageIdentifier,
-            legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration, source: .local, expectedUpdatedAt: nil) == nil)
+        invalid.timeTable = [
+            TimeSlot(id: 1, start: "08:00", end: "08:45"),
+            TimeSlot(id: 1, start: "09:00", end: "09:45"),
+        ]
+        #expect(
+            await store.write(
+                invalid, accountIdentifier: account.accountStorageIdentifier,
+                legacyAccountIdentifier: account.legacyAccountDirectoryNameForMigration,
+                source: .local, expectedUpdatedAt: nil) == nil)
         #expect(files.fileExists(at: url) == hasCommittedFile)
         if let previous { #expect(try files.readData(at: url) == previous) }
-        #expect(await store.load(for: account).cacheIfReadable?.primaryScheduleTitle == (hasCommittedFile ? valid.primaryScheduleTitle : ScheduleCache().primaryScheduleTitle))
+        #expect(
+            await store.load(for: account).cacheIfReadable?.primaryScheduleTitle
+                == (hasCommittedFile
+                    ? valid.primaryScheduleTitle : ScheduleCache().primaryScheduleTitle))
     }
 
-    @Test(.timeLimit(.minutes(1))) func classroomOccupancyRequiresItsFieldAndPreservesExplicitEmptyValues() async throws {
+    @Test(.timeLimit(.minutes(1))) func classroomOccupancyRequiresField() async throws {
         for value in ["" as Any, NSNull(), "1,2"] {
-            let data = try JSONSerialization.data(withJSONObject: ["datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]])
+            let data = try JSONSerialization.data(withJSONObject: [
+                "datas": ["cxkxjasqk": ["rows": [["JASMC": "A101", "ZYJC": value]]]]
+            ])
             let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
             let room = try #require(try await response.classroomRecords().first)
-            #expect(room.hasValidOccupancy && room.busyTimeCodes == (value is NSNull || value as? String == "" ? [] : [1, 2]))
+            #expect(
+                room.hasValidOccupancy
+                    && room.busyTimeCodes
+                        == (value is NSNull || value as? String == "" ? [] : [1, 2])
+            )
         }
         let missing = Data(#"{"datas":{"cxkxjasqk":{"rows":[{"JASMC":"A101"}]}}}"#.utf8)
-        #expect(throws: DecodingError.self) { try JSONDecoder().decode(ClassroomListResponse.self, from: missing) }
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(ClassroomListResponse.self, from: missing)
+        }
         for row in [#"{"JASMC":"","ZYJC":""}"#, #"{"JASMC":"A101","ZYJC":"1,bad"}"#] {
             let data = Data((#"{"datas":{"cxkxjasqk":{"rows":["# + row + #"]}}}"#).utf8)
             let response = try JSONDecoder().decode(ClassroomListResponse.self, from: data)
-            await #expect(throws: ScheduleServiceError.self) { try await response.classroomRecords() }
+            await #expect(throws: ScheduleServiceError.self) {
+                try await response.classroomRecords()
+            }
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [(#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-06-01 00:00:00"}"#, true),
-        (#"{"KCM":"待排课程","KSSJMS":"待定"}"#, true), (#"{"KCH":"CS101","KSSJMS":""}"#, true),
-        (#"{"KSSJMS":"待定"}"#, false), (#"{"KCM":"课程","KSSJMS":"09:00-11:00"}"#, false),
-        (#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-02-30"}"#, false),
-        (#"{"KCM":"课程","KSSJMS":"29:00-30:00","KSRQ":"2026-06-01"}"#, false),
-        (#"{"KCM":"课程","KSSJMS":"11:00-09:00","KSRQ":"2026-06-01"}"#, false),
-        (#"{"KCM":"课程","KSSJMS":"invalid","KSRQ":"2026-06-01"}"#, false)])
-    func schoolExamRowsPreservePendingArrangementsAndRejectInvalidSchedules(fixture: (String, Bool)) async throws {
+    @Test(
+        .timeLimit(.minutes(1)),
+        arguments: [
+            (#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-06-01 00:00:00"}"#, true),
+            (#"{"KCM":"待排课程","KSSJMS":"待定"}"#, true), (#"{"KCH":"CS101","KSSJMS":""}"#, true),
+            (#"{"KSSJMS":"待定"}"#, false), (#"{"KCM":"课程","KSSJMS":"09:00-11:00"}"#, false),
+            (#"{"KCM":"课程","KSSJMS":"09:00-11:00","KSRQ":"2026-02-30"}"#, false),
+            (#"{"KCM":"课程","KSSJMS":"29:00-30:00","KSRQ":"2026-06-01"}"#, false),
+            (#"{"KCM":"课程","KSSJMS":"11:00-09:00","KSRQ":"2026-06-01"}"#, false),
+            (#"{"KCM":"课程","KSSJMS":"invalid","KSRQ":"2026-06-01"}"#, false),
+        ])
+    func schoolExamRowsPreservePendingArrangements(fixture: (String, Bool)) async throws {
         let (row, valid) = fixture
         let data = Data((#"{"datas":{"cxxsksap":{"rows":["# + row + #"]}}}"#).utf8)
         let response = try JSONDecoder().decode(ExamResponse.self, from: data)
-        if valid { #expect(try await response.examRecords().first?.hasValidPlacement == true) }
-        else { await #expect(throws: ScheduleServiceError.self) { try await response.examRecords() } }
+        if valid {
+            #expect(try await response.examRecords().first?.hasValidPlacement == true)
+        } else {
+            await #expect(throws: ScheduleServiceError.self) { try await response.examRecords() }
+        }
     }
 
     @Test(.timeLimit(.minutes(1))) func pendingExamsKeepDistinctCourseIdentities() async throws {
-        let data = Data(#"{"datas":{"cxxsksap":{"rows":[{"KCM":"课程A","KSSJMS":"待定"},{"KCM":"课程B","KSSJMS":"待定"}]}}}"#.utf8)
+        let data = Data(
+            #"""
+            {"datas":{"cxxsksap":{"rows":[{"KCM":"课程A","KSSJMS":"待定"},{"KCM":"课程B","KSSJMS":"待\#
+            定"}]}}}
+            """#
+            .utf8)
         let exams = try await JSONDecoder().decode(ExamResponse.self, from: data).examRecords()
         #expect(exams.allSatisfy(\.isPendingArrangement) && Set(exams.map(\.id)).count == 2)
     }
 
     private func makeRepository(
-        session: @escaping () -> AppStorageSession = { AppStorageSession(accountIdentifier: "schedule-boundary-tests") },
+        session: @escaping () -> AppStorageSession = {
+            AppStorageSession(accountIdentifier: "schedule-boundary-tests")
+        },
         load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult,
-        save: @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws -> Void
+        save:
+            @escaping (ScheduleCache, ScheduleCacheSaveSource, AppStorageSession) async throws ->
+            Void
     ) -> ScheduleRepository {
         ScheduleRepository(session: session, load: load, save: save)
     }
@@ -261,20 +352,21 @@ struct ScheduleModuleBoundaryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func canceledInitialScheduleRestoreClearsLoadingAndReentryRecoversTheCache() async throws {
+    func canceledInitialScheduleRestoreLoading() async throws {
         var response: CheckedContinuation<ScheduleCacheLoadResult, Never>?
         var loads = 0
         var recovered = ScheduleCache()
         recovered.currentTerm = "recovered-term"
-        let repository = makeRepository(load: { _ in
-            loads += 1
-            if loads == 1 {
-                return await withCheckedContinuation {
-                    response = $0
+        let repository = makeRepository(
+            load: { _ in
+                loads += 1
+                if loads == 1 {
+                    return await withCheckedContinuation {
+                        response = $0
+                    }
                 }
-            }
-            return .loaded(recovered)
-        }, save: { _, _, _ in })
+                return .loaded(recovered)
+            }, save: { _, _, _ in })
         let model = makeViewModel(service: SemesterStartDateService(), repository: repository)
         let first = Task { await model.loadIfNeeded() }
         try await waitForTestEvent { response != nil }
@@ -290,13 +382,16 @@ struct ScheduleModuleBoundaryTests {
         #expect(loads == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func semesterStartDatePreservesCoursesAcrossRefreshAndTermSwitch() async throws {
+    @Test(.timeLimit(.minutes(1))) func semesterStartDatePreservesRefresh() async throws {
         let bundle = Bundle(for: ErrorReportAndSchedulePolicyTests.self)
-        let fixtureURL = bundle.url(
-            forResource: "schedule-service-response", withExtension: "json", subdirectory: "Fixtures"
-        ) ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
+        let fixtureURL =
+            bundle.url(
+                forResource: "schedule-service-response", withExtension: "json",
+                subdirectory: "Fixtures"
+            ) ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
         let fixture = try #require(fixtureURL)
-        let courses = try JSONDecoder().decode(CourseResponse.self, from: Data(contentsOf: fixture)).courseRecords
+        let courses = try JSONDecoder().decode(CourseResponse.self, from: Data(contentsOf: fixture))
+            .courseRecords
         let service = SemesterStartDateService()
         service.courses = courses
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
@@ -312,14 +407,16 @@ struct ScheduleModuleBoundaryTests {
         let chosenDate = try #require(ScheduleDateCodec.parseDate("2026-09-23"))
         viewModel.setSemesterStartDate(chosenDate)
         #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
-        #expect(viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-07")
+        #expect(
+            viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-07")
         #expect(viewModel.persistenceSnapshot.courses == courses)
         #expect(viewModel.selectedWeek == viewModel.resolvedAutomaticWeek())
 
         service.firstDayString = "2026-09-14"
         await viewModel.syncCourses(term: term)
         #expect(viewModel.persistenceSnapshot.firstDayString == "2026-09-21")
-        #expect(viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-14")
+        #expect(
+            viewModel.persistenceSnapshot.termSchedulesByTerm[term]?.firstDayString == "2026-09-14")
         #expect(viewModel.persistenceSnapshot.courses == courses)
 
         await viewModel.syncCourses(term: "2026-2027-2")
@@ -333,26 +430,27 @@ struct ScheduleModuleBoundaryTests {
         #expect(viewModel.persistenceSnapshot.courses == courses)
     }
 
-    @Test(.timeLimit(.minutes(1))) func restorationMapsEveryLoginFailureIntoScheduleErrors() async {
+    @Test(.timeLimit(.minutes(1))) func restoreMapsEveryErrors() async {
         let errors: [LoginServiceError] = [
             .invalidSchoolLoginPage, .schoolLoginFailed, .invalidCredentials,
             .schoolSMSCodeInvalid("验证码错误"), .schoolSMSUnavailable("短信服务暂时繁忙"),
             .unableToRestoreSchoolSession, .invalidServerResponse,
-            .keychainWriteFailed(-1), .keychainReadFailed(-1)
+            .keychainWriteFailed(-1), .keychainReadFailed(-1),
         ]
         for original in errors {
             let restorer = AppScheduleSchoolSessionRestorer(restore: { throw original })
             do {
-                _ = try await restorer.restoreSchoolSessionIfNeeded()
+                _ = try await restorer.restoreSchoolSession()
                 Issue.record("Expected a schedule restoration error")
             } catch let mapped as ScheduleServiceError {
                 #expect(mapped.localizedDescription == original.localizedDescription)
                 switch (original, mapped) {
                 case (.schoolSMSCodeInvalid, .schoolSMSCodeInvalid),
-                     (.schoolSMSUnavailable, .schoolSMSUnavailable):
+                    (.schoolSMSUnavailable, .schoolSMSUnavailable):
                     break
                 default:
-                    if case .authenticationFailed = mapped { } else {
+                    if case .authenticationFailed = mapped {
+                    } else {
                         Issue.record("Expected a schedule authentication failure")
                     }
                 }
@@ -362,18 +460,26 @@ struct ScheduleModuleBoundaryTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func restorationPreservesSecondFactorContextAndTransportCancellation() async throws {
+    @Test(.timeLimit(.minutes(1))) func restorePreservesSecondFactorContext() async throws {
         let baseURL = try #require(URL(string: "https://sso.bit.edu.cn/cas/"))
-        let context = try #require(SchoolLoginHTMLParser.parseSecondFactorPage(
-            html: #"<form action="/cas/login"><input id="login-page-flowkey" value="flow"><input id="user-object-id" value="user"><div id="secondSmsLoginForm">短信验证</div></form>"#,
-            baseURL: baseURL
-        ))
-        let challenged = AppScheduleSchoolSessionRestorer(restore: { throw LoginServiceError.schoolSMSRequired(context) })
+        let context = try #require(
+            SchoolLoginHTMLParser.parseSecondFactorPage(
+                html:
+                    #"""
+                    <form action="/cas/login"><input id="login-page-flowkey" value="flow"><inp\#
+                    ut id="user-object-id" value="user"><div id="secondSmsLoginForm">短信验证</div\#
+                    ></form>
+                    """#,
+                baseURL: baseURL
+            ))
+        let challenged = AppScheduleSchoolSessionRestorer(restore: {
+            throw LoginServiceError.schoolSMSRequired(context)
+        })
         do {
-            _ = try await challenged.restoreSchoolSessionIfNeeded()
+            _ = try await challenged.restoreSchoolSession()
             Issue.record("Expected a second-factor context")
         } catch let error as SchoolSessionRestorationError {
-            if case let .secondFactorRequired(mapped) = error {
+            if case .secondFactorRequired(let mapped) = error {
                 #expect(mapped.execution == context.execution)
                 #expect(mapped.userObjectID == context.userObjectID)
                 #expect(mapped.formAction == context.formAction)
@@ -383,18 +489,18 @@ struct ScheduleModuleBoundaryTests {
         }
         let cancelled = AppScheduleSchoolSessionRestorer(restore: { throw CancellationError() })
         await #expect(throws: CancellationError.self) {
-            _ = try await cancelled.restoreSchoolSessionIfNeeded()
+            _ = try await cancelled.restoreSchoolSession()
         }
         let timedOut = AppScheduleSchoolSessionRestorer(restore: { throw URLError(.timedOut) })
         do {
-            _ = try await timedOut.restoreSchoolSessionIfNeeded()
+            _ = try await timedOut.restoreSchoolSession()
             Issue.record("Expected a transport timeout")
         } catch let error as URLError {
             #expect(error.code == .timedOut)
         }
     }
 
-    @Test func scoreProjectionPreservesIdentityAndPresentationFields() {
+    @Test func scoreProjectionPreservesIdentity() {
         let course = CourseRecord(
             id: "summary-course", term: "2026-2027-1", name: "高等数学", teacher: "教师",
             classroom: "教学楼101", description: "课程备注", weeks: [1, 2, 3, 5],
@@ -408,7 +514,10 @@ struct ScheduleModuleBoundaryTests {
         #expect(summary.number == course.number)
         #expect(summary.creditText == "3.5")
         #expect(summary.scheduleText == "星期一 第1-2节")
-        #expect(summary.weeksText == ScheduleWeekCodec.formatWeeks(course.weeks).replacingOccurrences(of: ",", with: "、"))
+        #expect(
+            summary.weeksText
+                == ScheduleWeekCodec.formatWeeks(course.weeks).replacingOccurrences(
+                    of: ",", with: "、"))
         #expect(summary.teacher == course.teacher)
         #expect(summary.classroom == course.classroom)
         #expect(summary.campus == course.campus)
@@ -417,25 +526,34 @@ struct ScheduleModuleBoundaryTests {
         #expect(summary.hourText == "48")
     }
 
-
     @Test(.timeLimit(.minutes(1))) func mineDeletionUsesTheInjectedSession() async throws {
         let transport = RecordingCommunityDeletionTransport()
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: try #require(URL(string: "https://example.invalid")), credentials: { CommunityCredentials(identity: CommunitySessionIdentity(accountIdentifier: "test-account"), cookie: "module-cookie") }, refresh: { _ in }
+            baseURL: try #require(URL(string: "https://example.invalid")),
+            credentials: {
+                CommunityCredentials(
+                    identity: CommunitySessionIdentity(accountIdentifier: "test-account"),
+                    cookie: "module-cookie")
+            }, refresh: { _ in }
         )
         let defaults = try #require(UserDefaults(suiteName: "BIT101ModulesTests.community"))
         let dependencies = AppCommunityDependencies(
-            settings: AppSettingsStore(defaults: defaults, session: { AppStorageSession(accountIdentifier: "module-community") }),
+            settings: AppSettingsStore(
+                defaults: defaults,
+                session: { AppStorageSession(accountIdentifier: "module-community") }),
             session: session, checkLogin: { true },
-            messages: GalleryMessageReadStore(files: PreferenceMemoryFiles(), storageRoot: URL(fileURLWithPath: "/preference-sync"),
+            messages: GalleryMessageReadStore(
+                files: PreferenceMemoryFiles(),
+                storageRoot: URL(fileURLWithPath: "/preference-sync"),
                 defaults: defaults,
                 session: { AppStorageSession(accountIdentifier: "module-community") }
             ),
             drafts: ComposerDraftStore(
-                files: AppFileSystem.files, applicationSupport: URL(fileURLWithPath: "/module-community"),
-                session: { AppStorageSession(accountIdentifier: "module-community") }
-            , prepareImageData: ComposerDraftImageCompressor.compress),
+                files: AppFileSystem.files,
+                applicationSupport: URL(fileURLWithPath: "/module-community"),
+                session: { AppStorageSession(accountIdentifier: "module-community") },
+                prepareImageData: ComposerDraftImageCompressor.compress),
             submitSuggestion: { _ in }, loadCourseCredits: { [] }
         )
         try await dependencies.mine.deletePoster(42)
@@ -446,13 +564,13 @@ struct ScheduleModuleBoundaryTests {
         #expect(requests.first?.url?.path == "/posters/42")
     }
 
-    @Test func mediaProjectionPreservesOriginalThumbnailAndSingleAddressImages() throws {
+    @Test func mediaProjectionPreservesOriginalThumbnail() throws {
         let original = "https://example.com/original.png"
         let thumbnail = "https://example.com/thumbnail.png"
         let images = [
             CommunityImage(mid: "both", url: original, lowUrl: thumbnail),
             CommunityImage(mid: "original", url: original, lowUrl: ""),
-            CommunityImage(mid: "thumbnail", url: "", lowUrl: thumbnail)
+            CommunityImage(mid: "thumbnail", url: "", lowUrl: thumbnail),
         ]
         let projected = images.map(\.previewImage)
         #expect(projected[0].originalURL == URL(string: original))
@@ -471,7 +589,8 @@ private final class RecordingCommunityDeletionTransport: HTTPTransport {
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         let url = try #require(request.url)
-        let response = try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let response = try #require(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
         return (Data(), response)
     }
 }

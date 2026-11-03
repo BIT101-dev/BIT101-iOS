@@ -10,7 +10,9 @@ public final class URLSessionTransport: HTTPTransport {
         try await session.data(for: request)
     }
 
-    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (
+        Data, URLResponse
+    ) {
         try await session.data(for: request, maximumBytes: maximumBytes)
     }
 
@@ -18,10 +20,13 @@ public final class URLSessionTransport: HTTPTransport {
         configuration: URLSessionConfiguration,
         followsRedirects: Bool = true
     ) -> any HTTPTransport {
-        let delegate: any URLSessionTaskDelegate = followsRedirects
+        let delegate: any URLSessionTaskDelegate =
+            followsRedirects
             ? HTTPSUpgradingRedirectDelegate()
             : NoRedirectURLSessionDelegate()
-        return URLSessionTransport(ownedSession: URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil))
+        return URLSessionTransport(
+            ownedSession: URLSession(
+                configuration: configuration, delegate: delegate, delegateQueue: nil))
     }
 
     public static func clearSharedCache() {
@@ -44,7 +49,9 @@ public enum HTTPSURLUpgrade {
         return upgradedURL(from: url).absoluteString
     }
 
-    public nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL) -> URL? {
+    public nonisolated static func resolvedURL(from location: String, relativeTo baseURL: URL)
+        -> URL?
+    {
         if let candidate = URL(string: location), candidate.scheme != nil {
             let resolved = upgradedURL(from: candidate)
             return isHTTPURL(resolved) ? resolved : nil
@@ -93,7 +100,8 @@ public final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDeleg
             return
         }
         let upgradedURL = HTTPSURLUpgrade.upgradedURL(from: url)
-        guard let scheme = upgradedURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+        guard let scheme = upgradedURL.scheme?.lowercased(), scheme == "http" || scheme == "https"
+        else {
             completionHandler(nil)
             return
         }

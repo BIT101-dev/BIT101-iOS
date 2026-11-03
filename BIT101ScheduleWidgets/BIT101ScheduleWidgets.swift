@@ -1,15 +1,18 @@
-import ScheduleActivityContracts
-import StorageCore
+import ActivityKit
 import DesignSystemKit
+import Foundation
+import ScheduleActivityContracts
 import ScheduleContracts
 import ScheduleSharedStore
-import ActivityKit
-import Foundation
+import StorageCore
 import SwiftUI
 import WidgetKit
 
 private nonisolated enum WidgetSnapshotStorage {
-    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files, containerURL: AppFileSystem.files.appGroupContainerURL(identifier: ScheduleSharedContainer.identifier))
+    static let store = ScheduleExternalSnapshotStore(
+        files: AppFileSystem.files,
+        containerURL: AppFileSystem.files.appGroupContainerURL(
+            identifier: ScheduleSharedContainer.identifier))
 }
 
 private let scheduleWidgetSyncMessage = "请先获取课表"
@@ -26,16 +29,30 @@ private struct DeadlineWidgetEntry: TimelineEntry {
 private struct DeadlineWidgetProvider: TimelineProvider {
     func placeholder(in _: Context) -> DeadlineWidgetEntry {
         let now = Date()
-        return DeadlineWidgetEntry(date: now, resolved: .init(deadlines: [
-            .init(id: "preview-report", title: "软件工程作业", subtitle: "软件工程导论", sourceTitle: "乐学", dueAt: now.addingTimeInterval(24 * 60 * 60)),
-            .init(id: "preview-design", title: "课程设计报告", subtitle: "电子技术课程设计", sourceTitle: "课程中心", dueAt: now.addingTimeInterval(2 * 24 * 60 * 60)),
-            .init(id: "preview-practice", title: "算法练习", subtitle: "算法设计", sourceTitle: "乐学", dueAt: now.addingTimeInterval(3 * 24 * 60 * 60)),
-            .init(id: "preview-meeting", title: "准备小组汇报", subtitle: "", sourceTitle: "自定义", dueAt: now.addingTimeInterval(4 * 24 * 60 * 60)),
-        ], contentState: .ready))
+        return DeadlineWidgetEntry(
+            date: now,
+            resolved: .init(
+                deadlines: [
+                    .init(
+                        id: "preview-report", title: "软件工程作业", subtitle: "软件工程导论",
+                        sourceTitle: "乐学", dueAt: now.addingTimeInterval(24 * 60 * 60)),
+                    .init(
+                        id: "preview-design", title: "课程设计报告", subtitle: "电子技术课程设计",
+                        sourceTitle: "课程中心", dueAt: now.addingTimeInterval(2 * 24 * 60 * 60)),
+                    .init(
+                        id: "preview-practice", title: "算法练习", subtitle: "算法设计", sourceTitle: "乐学",
+                        dueAt: now.addingTimeInterval(3 * 24 * 60 * 60)),
+                    .init(
+                        id: "preview-meeting", title: "准备小组汇报", subtitle: "", sourceTitle: "自定义",
+                        dueAt: now.addingTimeInterval(4 * 24 * 60 * 60)),
+                ], contentState: .ready))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (DeadlineWidgetEntry) -> Void) {
-        if context.isPreview { completion(placeholder(in: context)); return }
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
         completion(loadEntry())
     }
 
@@ -43,28 +60,42 @@ private struct DeadlineWidgetProvider: TimelineProvider {
         let now = Date()
         do {
             let snapshot = try WidgetSnapshotStorage.store.read()
-            let entries = ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map { entry in
+            let entries = ScheduleDeadlineResolver.timelineEntries(from: snapshot, now: now).map {
+                entry in
                 DeadlineWidgetEntry(date: entry.date, resolved: entry.resolved)
             }
-            completion(Timeline(entries: entries, policy: snapshot == nil ? .after(retryDate(now: now)) : .atEnd))
+            completion(
+                Timeline(
+                    entries: entries, policy: snapshot == nil ? .after(retryDate(now: now)) : .atEnd
+                ))
         } catch {
-            completion(Timeline(entries: [failedEntry(error, now: now)], policy: .after(retryDate(now: now))))
+            completion(
+                Timeline(
+                    entries: [failedEntry(error, now: now)], policy: .after(retryDate(now: now))))
         }
     }
 
     private func loadEntry(now: Date = Date()) -> DeadlineWidgetEntry {
         do {
-            return DeadlineWidgetEntry(date: now, resolved: ScheduleDeadlineResolver.resolvedSnapshot(from: try WidgetSnapshotStorage.store.read(), now: now))
+            return DeadlineWidgetEntry(
+                date: now,
+                resolved: ScheduleDeadlineResolver.resolvedSnapshot(
+                    from: try WidgetSnapshotStorage.store.read(), now: now))
         } catch { return failedEntry(error, now: now) }
     }
 
     private func failedEntry(_ error: Error, now: Date) -> DeadlineWidgetEntry {
-        DeadlineWidgetEntry(date: now, resolved: .init(deadlines: [],
-            contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable))
+        DeadlineWidgetEntry(
+            date: now,
+            resolved: .init(
+                deadlines: [],
+                contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot
+                    ? .invalid : .unavailable))
     }
 
     private func retryDate(now: Date) -> Date {
-        ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now, includeDisplayUntilDates: false, includeNextMidnight: false)
+        ScheduleTimelineRefreshPlanner.nextRefreshDate(
+            for: [], now: now, includeDisplayUntilDates: false, includeNextMidnight: false)
     }
 }
 
@@ -79,7 +110,9 @@ struct BIT101DeadlineWidget: Widget {
         }
         .configurationDisplayName("DDL")
         .description("查看未完成事项和截止时间，支持桌面和锁屏组件。")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline])
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline,
+        ])
     }
 }
 
@@ -92,20 +125,30 @@ private struct DeadlineWidgetEntryView: View {
         case .accessoryInline:
             if let first = entry.resolved.deadlines.first {
                 Text("DDL \(first.title)")
-            } else { Text(emptyText) }
+            } else {
+                Text(emptyText)
+            }
         case .accessoryRectangular:
             if let first = entry.resolved.deadlines.first {
                 deadlineRow(first, compact: true)
-            } else { Text(emptyText).font(AppDesignSystem.Typography.caption) }
+            } else {
+                Text(emptyText).font(AppDesignSystem.Typography.caption)
+            }
         default:
-            VStack(alignment: .leading, spacing: family == .systemLarge ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular) {
+            VStack(
+                alignment: .leading,
+                spacing: family == .systemLarge
+                    ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular
+            ) {
                 HStack(spacing: AppDesignSystem.Spacing.regular) {
                     Label("DDL", systemImage: "checklist")
                     Spacer(minLength: AppDesignSystem.Spacing.none)
-                    if family == .systemMedium, let first = entry.resolved.deadlines.first { remainingText(first) }
+                    if family == .systemMedium, let first = entry.resolved.deadlines.first {
+                        remainingText(first)
+                    }
                 }
-                    .font(AppDesignSystem.Typography.captionEmphasis)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 if entry.resolved.deadlines.isEmpty {
                     Text(emptyText)
                         .font(AppDesignSystem.Typography.subheadlineEmphasis)
@@ -113,7 +156,11 @@ private struct DeadlineWidgetEntryView: View {
                 } else {
                     ForEach(Array(entry.resolved.deadlines.prefix(itemLimit))) { deadline in
                         deadlineRow(deadline, compact: family != .systemSmall)
-                        if family == .systemLarge && deadline.id != entry.resolved.deadlines.prefix(itemLimit).last?.id { Divider() }
+                        if family == .systemLarge
+                            && deadline.id != entry.resolved.deadlines.prefix(itemLimit).last?.id
+                        {
+                            Divider()
+                        }
                     }
                 }
                 Spacer(minLength: AppDesignSystem.Spacing.none)
@@ -130,10 +177,16 @@ private struct DeadlineWidgetEntryView: View {
         }
     }
 
-    private func deadlineRow(_ deadline: ScheduleExternalDeadlineSnapshot, compact: Bool) -> some View {
+    private func deadlineRow(_ deadline: ScheduleExternalDeadlineSnapshot, compact: Bool)
+        -> some View
+    {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
             Text(deadline.title)
-                .font(compact ? AppDesignSystem.Typography.subheadlineEmphasis : AppDesignSystem.Typography.title)
+                .font(
+                    compact
+                        ? AppDesignSystem.Typography.subheadlineEmphasis
+                        : AppDesignSystem.Typography.title
+                )
                 .lineLimit(compact ? 1 : 2)
             if !deadline.subtitle.isEmpty && family == .systemSmall {
                 Text(deadline.subtitle)
@@ -145,8 +198,13 @@ private struct DeadlineWidgetEntryView: View {
                 remainingText(deadline)
             }
             HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                Text("\(ScheduleSharedDateCodec.formatShortDate(deadline.dueAt)) \(ScheduleSharedDateCodec.formatTime(deadline.dueAt))")
-                    .layoutPriority(1)
+                Text(
+                    """
+                    \(ScheduleSharedDateCodec.formatShortDate(deadline.dueAt)) \
+                    \(ScheduleSharedDateCodec.formatTime(deadline.dueAt))
+                    """
+                )
+                .layoutPriority(1)
                 if family != .accessoryRectangular { Text(deadline.sourceTitle) }
             }
             .font(AppDesignSystem.Typography.caption)
@@ -163,7 +221,10 @@ private struct DeadlineWidgetEntryView: View {
             Text(deadline.dueAt, style: .relative)
         }
         .font(AppDesignSystem.Typography.captionEmphasis)
-        .foregroundStyle(deadline.dueAt <= entry.date ? AppDesignSystem.Palette.Status.danger : AppDesignSystem.Palette.Accent.primary)
+        .foregroundStyle(
+            deadline.dueAt <= entry.date
+                ? AppDesignSystem.Palette.Status.danger : AppDesignSystem.Palette.Accent.primary
+        )
         .lineLimit(1)
     }
 
@@ -206,10 +267,13 @@ struct CourseReminderLiveActivityWidget: Widget {
                     .font(AppDesignSystem.Typography.title)
                     .lineLimit(2)
 
-                Text(context.state.classroom.isEmpty ? context.state.teacher : context.state.classroom)
-                    .font(AppDesignSystem.Typography.subheadline)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .lineLimit(1)
+                Text(
+                    context.state.classroom.isEmpty
+                        ? context.state.teacher : context.state.classroom
+                )
+                .font(AppDesignSystem.Typography.subheadline)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .lineLimit(1)
 
                 LiveActivityTimerText(
                     targetDate: context.state.countdownTargetDate,
@@ -247,7 +311,7 @@ struct CourseReminderLiveActivityWidget: Widget {
                 }
                 // 展开态底部展示时间段、地点和老师摘要。
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(liveActivityExpandedSummaryText(for: context.state))
+                    Text(activityExpandedSummary(for: context.state))
                         .font(AppDesignSystem.Typography.title)
                         .lineLimit(1)
                 }
@@ -271,7 +335,9 @@ struct CourseReminderLiveActivityWidget: Widget {
     }
 
     /// 展开态底部统一摘要：开始时间优先，其后拼接地点/老师。
-    private func liveActivityExpandedSummaryText(for state: CourseReminderActivityAttributes.ContentState) -> String {
+    private func activityExpandedSummary(for state: CourseReminderActivityAttributes.ContentState)
+        -> String
+    {
         let classroom = state.classroom.trimmingCharacters(in: .whitespacesAndNewlines)
         let teacher = state.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -378,11 +444,13 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     /// 提前构造未来一天的课程切换和跨日条目。
     func getTimeline(in _: Context, completion: @escaping (Timeline<ScheduleWidgetEntry>) -> Void) {
         let now = Date()
-        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(store: WidgetSnapshotStorage.store, now: now,
+        let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(
+            store: WidgetSnapshotStorage.store, now: now,
             includeDisplayUntilDates: true, limit: 6)
         let entries = timeline.map { loadEntry(resolved: $0.resolved, now: $0.date) }
         if timeline.first?.resolved.snapshot == nil {
-            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(for: [], now: now,
+            let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(
+                for: [], now: now,
                 includeDisplayUntilDates: false, includeNextMidnight: false)
             completion(Timeline(entries: entries, policy: .after(retry)))
             return
@@ -391,10 +459,14 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     }
 
     private func loadEntry(now: Date = Date()) -> ScheduleWidgetEntry {
-        loadEntry(resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(store: WidgetSnapshotStorage.store, now: now, limit: 6), now: now)
+        loadEntry(
+            resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(
+                store: WidgetSnapshotStorage.store, now: now, limit: 6), now: now)
     }
 
-    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date) -> ScheduleWidgetEntry {
+    private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
+        -> ScheduleWidgetEntry
+    {
 
         switch resolved.contentState {
         case .missing:
@@ -425,7 +497,6 @@ private struct ScheduleWidgetProvider: TimelineProvider {
         )
     }
 
-
 }
 
 /// 课程表小组件主体，支持桌面小组件与锁屏 accessory family。
@@ -440,7 +511,10 @@ struct BIT101ScheduleWidgets: Widget {
         }
         .configurationDisplayName("课程表")
         .description("查看接下来的课程与日程，支持桌面和锁屏组件。")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline, .accessoryCircular])
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge, .accessoryRectangular, .accessoryInline,
+            .accessoryCircular,
+        ])
     }
 }
 
@@ -570,8 +644,11 @@ private struct ScheduleWidgetEntryView: View {
 
             if let first = entry.nextOccurrences.first {
                 VStack(spacing: AppDesignSystem.Spacing.micro) {
-                    Image(systemName: first.isCurrent(at: entry.date) ? "play.circle.fill" : "calendar.badge.clock")
-                        .font(AppDesignSystem.Typography.caption)
+                    Image(
+                        systemName: first.isCurrent(at: entry.date)
+                            ? "play.circle.fill" : "calendar.badge.clock"
+                    )
+                    .font(AppDesignSystem.Typography.caption)
                     Text(first.countdownTargetDate(at: entry.date), style: .timer)
                         .font(AppDesignSystem.Typography.captionEmphasis)
                         .lineLimit(1)
@@ -600,10 +677,15 @@ private struct ScheduleWidgetEntryView: View {
                         .lineLimit(2)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
 
-                    Text("\(first.rangeText)\(first.classroom.isEmpty ? "" : " · \(first.classroom)")")
-                        .font(AppDesignSystem.Typography.subheadline)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .lineLimit(1)
+                    Text(
+                        """
+                        \(first.rangeText)\
+                        \(first.classroom.isEmpty ? "" : " · \(first.classroom)")
+                        """
+                    )
+                    .font(AppDesignSystem.Typography.subheadline)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .lineLimit(1)
                 }
 
                 if !entry.nextOccurrences.dropFirst().isEmpty {
@@ -677,11 +759,13 @@ private struct ScheduleWidgetEntryView: View {
                     VStack(spacing: AppDesignSystem.Spacing.regular) {
                         ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
                             HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro)
+                                {
                                     Text(occurrence.title)
                                         .font(AppDesignSystem.Typography.subheadlineEmphasis)
                                         .lineLimit(1)
-                                        .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
+                                        .minimumScaleFactor(
+                                            AppDesignSystem.External.Scale.widgetTitle)
 
                                     let meta = secondaryMetaText(for: occurrence)
                                     if !meta.isEmpty {

@@ -7,7 +7,10 @@ public struct HTTPRequestNotSent: LocalizedError, CustomNSError {
     public init(underlying: any Error) { self.underlying = underlying }
     public var errorDescription: String? { underlying.localizedDescription }
     public var errorUserInfo: [String: Any] {
-        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: underlying.localizedDescription]
+        [
+            NSUnderlyingErrorKey: underlying,
+            NSLocalizedDescriptionKey: underlying.localizedDescription,
+        ]
     }
 }
 
@@ -25,24 +28,37 @@ final class HTTPTransmissionMetrics: NSObject, URLSessionTaskDelegate {
         guard var current else { return nil }
         let accepted = acceptedRequest.withLock { $0 }
         if current.url == accepted.url, current.httpMethod == accepted.httpMethod,
-           current.httpBody == nil, let body = accepted.httpBody {
+            current.httpBody == nil, let body = accepted.httpBody
+        {
             current.httpBody = body
         }
         return current
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
         guard !metrics.transactionMetrics.isEmpty else { return }
-        started.withLock { $0 = metrics.transactionMetrics.contains { $0.requestStartDate != nil || $0.response != nil } }
+        started.withLock {
+            $0 = metrics.transactionMetrics.contains {
+                $0.requestStartDate != nil || $0.response != nil
+            }
+        }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
         let accept: @Sendable (URLRequest?) -> Void = { [self] request in
             if let request { acceptedRequest.withLock { $0 = request } }
             completionHandler(request)
         }
-        if let redirect = redirects?.urlSession(_:task:willPerformHTTPRedirection:newRequest:completionHandler:) {
+        if let redirect = redirects?.urlSession(
+            _:task:willPerformHTTPRedirection:newRequest:completionHandler:)
+        {
             redirect(session, task, response, request, accept)
         } else {
             accept(request)
@@ -57,10 +73,13 @@ public protocol HTTPTransport {
 
 extension URLSession: HTTPTransport {
     @concurrent
-    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (
+        Data, URLResponse
+    ) {
         guard let maximumBytes else { return try await data(for: request) }
         guard maximumBytes >= 0 else { throw HTTPClientError.responseTooLarge }
-        let metrics = HTTPTransmissionMetrics(request: request, redirects: delegate as? any URLSessionTaskDelegate)
+        let metrics = HTTPTransmissionMetrics(
+            request: request, redirects: delegate as? any URLSessionTaskDelegate)
         let transfer = HTTPBoundedTransfer(maximumBytes: maximumBytes, metrics: metrics)
         let task = dataTask(with: request)
         task.delegate = transfer
@@ -77,14 +96,15 @@ extension URLSession: HTTPTransport {
                 await HTTPRequestEvidenceContext.didReceiveFinalRequest?(finalRequest)
             }
             let (data, response) = transfer.partialResponse
-            await HTTPRequestEvidenceContext.didReceivePartialResponse?(data, response ?? task.response)
+            await HTTPRequestEvidenceContext.didReceivePartialResponse?(
+                data, response ?? task.response)
             throw error
         }
     }
 }
 
 @MainActor
-fileprivate final class HTTPValidationObservation {
+private final class HTTPValidationObservation {
     private let record: @MainActor (any Error) async -> Void
     private var recordedFailure = false
     init(_ record: @escaping @MainActor (any Error) async -> Void) { self.record = record }
@@ -103,17 +123,33 @@ public nonisolated struct HTTPResponse: Sendable {
         validation = nil
     }
 
-    private init(data: Data, response: HTTPURLResponse, finalRequest: URLRequest?, validation: HTTPValidationObservation) {
-        self.data = data; self.response = response; self.finalRequest = finalRequest; self.validation = validation
+    private init(
+        data: Data, response: HTTPURLResponse, finalRequest: URLRequest?,
+        validation: HTTPValidationObservation
+    ) {
+        self.data = data
+        self.response = response
+        self.finalRequest = finalRequest
+        self.validation = validation
     }
     private let validation: HTTPValidationObservation?
-    @MainActor fileprivate func observingValidation(_ report: @escaping @MainActor (any Error) async -> Void) -> HTTPResponse {
-        .init(data: data, response: response, finalRequest: finalRequest, validation: HTTPValidationObservation(report))
+    @MainActor fileprivate func observingValidation(
+        _ report: @escaping @MainActor (any Error) async -> Void
+    ) -> HTTPResponse {
+        .init(
+            data: data, response: response, finalRequest: finalRequest,
+            validation: HTTPValidationObservation(report))
     }
-    public func reportValidationFailure(_ error: any Error) async { await validation?.report(error) }
-    @MainActor public func validated<Value: Sendable>(_ decode: (Data, HTTPURLResponse) async throws -> Value) async throws -> Value {
-        do { return try await decode(data, response) }
-        catch { await reportValidationFailure(error); throw error }
+    public func reportValidationFailure(_ error: any Error) async {
+        await validation?.report(error)
+    }
+    @MainActor public func validated<Value: Sendable>(
+        _ decode: (Data, HTTPURLResponse) async throws -> Value
+    ) async throws -> Value {
+        do { return try await decode(data, response) } catch {
+            await reportValidationFailure(error)
+            throw error
+        }
     }
 
     public let data: Data
@@ -134,7 +170,7 @@ public nonisolated enum HTTPClientError: LocalizedError {
             return "服务器返回了无法识别的响应。"
         case .responseTooLarge:
             return "服务器返回的数据超过可处理范围。"
-        case let .unacceptableStatus(code, message):
+        case .unacceptableStatus(let code, let message):
             return message?.isEmpty == false ? message : "请求失败，HTTP 状态码 \(code)。"
         }
     }
@@ -154,8 +190,8 @@ public protocol HTTPClientObserving {
     ) async
 }
 
-public extension HTTPClientObserving {
-    func forRequest() -> any HTTPClientObserving { self }
+extension HTTPClientObserving {
+    public func forRequest() -> any HTTPClientObserving { self }
 }
 
 /// 处理请求发送和 HTTP 协议层校验；业务认证规则由上层 Service 处理。
@@ -176,7 +212,7 @@ public struct HTTPClient {
 
     public func send(
         _ request: URLRequest,
-        accepting statusCodes: Range<Int> = 200 ..< 300,
+        accepting statusCodes: Range<Int> = 200..<300,
         alsoAccepting additionalStatusCodes: Set<Int> = [],
         maximumBytes: Int? = HTTPResponseResourceLimits.maximumStructuredBytes
     ) async throws -> HTTPResponse {
@@ -195,17 +231,21 @@ public struct HTTPClient {
             try Task.checkCancellation()
             HTTPRequestEvidenceContext.willStart?()
             let (data, response) = try await HTTPRequestEvidenceContext.$didReceive.withValue(nil) {
-                try await HTTPRequestEvidenceContext.$didReceivePartialResponse.withValue({ data, response in
+                try await HTTPRequestEvidenceContext.$didReceivePartialResponse.withValue({
+                    data, response in
                     receivedData = data
                     receivedResponse = response
                     parentPartial?(data, response)
                 }) {
-                    try await HTTPRequestEvidenceContext.$didReceiveFinalRequest.withValue({ value in
+                    try await HTTPRequestEvidenceContext.$didReceiveFinalRequest.withValue({
+                        value in
                         finalRequest = value
                         parent?(value)
                     }) {
-                        try await transport.data(for: request,
-                            maximumBytes: maximumBytes ?? HTTPResponseResourceLimits.maximumStructuredBytes)
+                        try await transport.data(
+                            for: request,
+                            maximumBytes: maximumBytes
+                                ?? HTTPResponseResourceLimits.maximumStructuredBytes)
                     }
                 }
             }
@@ -216,10 +256,15 @@ public struct HTTPClient {
                 throw HTTPClientError.invalidResponse
             }
             if let record = HTTPRequestEvidenceContext.didReceive {
-                await record(request, HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest))
+                await record(
+                    request,
+                    HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest))
                 try Task.checkCancellation()
             }
-            guard statusCodes.contains(httpResponse.statusCode) || additionalStatusCodes.contains(httpResponse.statusCode) else {
+            guard
+                statusCodes.contains(httpResponse.statusCode)
+                    || additionalStatusCodes.contains(httpResponse.statusCode)
+            else {
                 let message = try await Self.errorMessageInBackground(from: data)
                 throw HTTPClientError.unacceptableStatus(
                     code: httpResponse.statusCode,
@@ -229,19 +274,23 @@ public struct HTTPClient {
             result = HTTPResponse(data: data, response: httpResponse, finalRequest: finalRequest)
         } catch {
             await observer?.didFinish(
-                request: request, finalRequest: finalRequest, data: receivedData, response: receivedResponse, error: error,
+                request: request, finalRequest: finalRequest, data: receivedData,
+                response: receivedResponse, error: error,
                 elapsed: Date().timeIntervalSince(startedAt)
             )
             throw error
         }
         await observer?.didFinish(
-            request: request, finalRequest: result.finalRequest, data: result.data, response: result.response, error: nil,
+            request: request, finalRequest: result.finalRequest, data: result.data,
+            response: result.response, error: nil,
             elapsed: Date().timeIntervalSince(startedAt)
         )
         try Task.checkCancellation()
         guard let observer else { return result }
         return result.observingValidation { error in
-            await observer.didFinish(request: request, finalRequest: result.finalRequest, data: result.data, response: result.response,
+            await observer.didFinish(
+                request: request, finalRequest: result.finalRequest, data: result.data,
+                response: result.response,
                 error: error, elapsed: Date().timeIntervalSince(startedAt))
         }
     }
@@ -256,9 +305,7 @@ public struct HTTPClient {
 
     public nonisolated static func errorMessage(from data: Data) -> String? {
         guard data.count <= HTTPResponseResourceLimits.maximumErrorBytes else { return nil }
-        if
-            let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        {
+        if let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
             if let text = value as? String { return boundedErrorMessage(text) }
             guard let object = value as? [String: Any] else { return nil }
             for key in ["message", "msg", "detail", "error"] {
@@ -267,15 +314,22 @@ public struct HTTPClient {
                 }
                 if let nested = object[key] as? [String: Any] {
                     for field in ["message", "msg", "detail", "error"] {
-                        if let value = nested[field] as? String, let message = boundedErrorMessage(value) { return message }
+                        if let value = nested[field] as? String,
+                            let message = boundedErrorMessage(value)
+                        {
+                            return message
+                        }
                     }
                 }
             }
             return nil
         }
 
-        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let first = text.first, !["<", "{", "["].contains(first) else { return nil }
+        guard
+            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
+                in: .whitespacesAndNewlines),
+            let first = text.first, !["<", "{", "["].contains(first)
+        else { return nil }
         return boundedErrorMessage(text)
     }
 
@@ -294,7 +348,9 @@ public struct UncachedHTTPTransport: HTTPTransport {
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await data(for: request, maximumBytes: nil)
     }
-    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+    public func data(for request: URLRequest, maximumBytes: Int?) async throws -> (
+        Data, URLResponse
+    ) {
         var outgoing = request
         outgoing.cachePolicy = .reloadIgnoringLocalCacheData
         return try await base.data(for: outgoing, maximumBytes: maximumBytes)

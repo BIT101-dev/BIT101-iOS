@@ -1,16 +1,16 @@
+import ClientCore
+import Combine
+import Foundation
+import ScheduleDomain
 import SchedulePorts
 import TransportCore
-import ClientCore
-import ScheduleDomain
+
 //
 //  ScheduleViewModel.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import Combine
-import Foundation
 
 /// 周视图的自动定位范围。
 ///
@@ -83,9 +83,13 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         }
     }
     @Published public internal(set) var notice: ScheduleNotice?
-    public var verificationChallenge: BITLoginAuthenticationChallenge? { courseSyncCoordinator.verificationChallenge }
+    public var verificationChallenge: BITLoginAuthenticationChallenge? {
+        courseSyncCoordinator.verificationChallenge
+    }
     public var verificationError: String? { courseSyncCoordinator.verificationError }
-    public var isSubmittingVerificationCode: Bool { courseSyncCoordinator.isSubmittingVerificationCode }
+    public var isSubmittingVerificationCode: Bool {
+        courseSyncCoordinator.isSubmittingVerificationCode
+    }
     public var availableTerms: [String] { courseSyncCoordinator.availableTerms }
     public var isLoadingTerms: Bool { courseSyncCoordinator.isLoadingTerms }
     public var hasLoadedAvailableTerms: Bool { courseSyncCoordinator.hasLoadedAvailableTerms }
@@ -99,8 +103,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     public var hasPersistenceConflict: Bool { repository.hasPersistenceConflict }
     public var isResolvingPersistenceConflict: Bool { repository.isResolvingPersistenceConflict }
 
-    public func resolvePersistenceConflict(_ resolution: ScheduleCacheConflictResolution) async {
-        await repository.resolvePersistenceConflict(resolution)
+    public func resolveStorageConflict(_ resolution: ScheduleCacheConflictResolution) async {
+        await repository.resolveStorageConflict(resolution)
     }
 
     var persistenceSnapshot: ScheduleCache { repository.persistenceSnapshot }
@@ -141,21 +145,36 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     ) {
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
-        courseSyncCoordinator = ScheduleCourseSyncCoordinator(service: service, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
+        courseSyncCoordinator = ScheduleCourseSyncCoordinator(
+            service: service, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
         self.platformActions = platformActions
         self.newCustomScheduleDraft = newCustomScheduleDraft
-        ddl = ScheduleDDLViewModel(service: ddlService, repository: repository, virtualNetworkLikely: virtualNetworkLikely, beforeSchoolRequest: beforeSchoolRequest)
-        classroom = ScheduleClassroomViewModel(service: classroomService, repository: repository, virtualNetworkLikely: virtualNetworkLikely)
-        repository.courseChanges.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
-        repository.$hasPersistenceConflict.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
-        repository.$isResolvingPersistenceConflict.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
-        repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
-        ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
-        classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
-        courseSyncCoordinator.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
-        courseSyncCoordinator.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(in: &subscriptions)
+        ddl = ScheduleDDLViewModel(
+            service: ddlService, repository: repository, virtualNetworkLikely: virtualNetworkLikely,
+            beforeSchoolRequest: beforeSchoolRequest)
+        classroom = ScheduleClassroomViewModel(
+            service: classroomService, repository: repository,
+            virtualNetworkLikely: virtualNetworkLikely)
+        repository.courseChanges.sink { [weak self] in self?.objectWillChange.send() }.store(
+            in: &subscriptions)
+        repository.$hasPersistenceConflict.dropFirst().sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }.store(in: &subscriptions)
+        repository.$isResolvingPersistenceConflict.dropFirst().sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }.store(in: &subscriptions)
+        repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
+            in: &subscriptions)
+        ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
+            in: &subscriptions)
+        classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
+            in: &subscriptions)
+        courseSyncCoordinator.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
+        courseSyncCoordinator.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }
+            .store(in: &subscriptions)
         classroom.onAuthenticationRequired = { [weak courseSyncCoordinator] challenge in
-            courseSyncCoordinator?.waitForClassroomAuthentication(challenge)
+            courseSyncCoordinator?.waitForClassroomAuth(challenge)
         }
     }
 
@@ -204,11 +223,14 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     /// 顺序固定为：我的课表在前，导入的分享课表依次排在后面。
     var courseSchedules: [CourseScheduleVariant] {
         let revision = repository.revision
-        if let courseScheduleProjection, courseScheduleProjection.revision == revision { return courseScheduleProjection.values }
+        if let courseScheduleProjection, courseScheduleProjection.revision == revision {
+            return courseScheduleProjection.values
+        }
         let state = courseState
         let primary = CourseScheduleVariant(
             id: "__primary__",
-            title: state.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            title: state.primaryScheduleTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
                 ? "课表"
                 : state.primaryScheduleTitle,
             isPrimary: true,
@@ -258,12 +280,13 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
 
         // 页面先读本地缓存，打开时直接展示用户上次选择的学期；联网同步由用户主动触发。
         // 周次按当前课表首周计算，学期选择保持本地缓存值。
-        guard await reloadFromDisk(), !Task.isCancelled, generation == repository.accountGeneration else { return }
+        guard await reloadFromDisk(), !Task.isCancelled, generation == repository.accountGeneration
+        else { return }
         hasLoaded = true
         selectedWeek = resolvedAutomaticWeek()
     }
 
-    public func requestSystemCalendarEntry(markerID: String, term: String) {
+    public func requestCalendarEntry(markerID: String, term: String) {
         guard hasLoaded else { return }
         selectedSection = .courses
         requestedSystemCalendarEvent = .init(markerID: markerID, term: term)
@@ -280,7 +303,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
 
         let start = ScheduleDateCodec.calendar.startOfDay(for: firstDay)
         let today = ScheduleDateCodec.calendar.startOfDay(for: Date())
-        let diff = ScheduleDateCodec.calendar.dateComponents([.day], from: start, to: today).day ?? 0
+        let diff =
+            ScheduleDateCodec.calendar.dateComponents([.day], from: start, to: today).day ?? 0
         return ScheduleAutomaticWeekPolicy.clamped(
             ScheduleWeekCodec.weekNumber(forDayOffset: diff)
         )
@@ -290,7 +314,8 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     @discardableResult
     func reloadFromDisk() async -> Bool {
         guard await repository.reload() else { return false }
-        selectedCourseScheduleIndex = min(max(selectedCourseScheduleIndex, 0), max(courseSchedules.count - 1, 0))
+        selectedCourseScheduleIndex = min(
+            max(selectedCourseScheduleIndex, 0), max(courseSchedules.count - 1, 0))
         classroom.restoreCachedState()
         return true
     }

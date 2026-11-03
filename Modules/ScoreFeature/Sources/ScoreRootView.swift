@@ -1,5 +1,6 @@
 import ScoreDomain
 import ScorePorts
+
 #if os(iOS)
 import ClientCore
 import DesignSystemKit
@@ -11,16 +12,17 @@ public struct ScoreRefreshStatusRow: View {
     @ObservedObject private var viewModel: ScoreViewModel
     public init(viewModel: ScoreViewModel) { self.viewModel = viewModel }
     public var body: some View {
-            AppRefreshStatusRow(
-                isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
-                refreshingText: viewModel.isRecoveringStorage ? "正在恢复成绩存储" : viewModel.syncStatusText,
-                lastUpdatedText: viewModel.lastUpdatedText,
-                actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
-                onRefresh: {
-                    Task { await viewModel.refresh() }
-                },
-                actionAccessibilityIdentifier: "score.query"
-            )
+        AppRefreshStatusRow(
+            isRefreshing: viewModel.isSyncing || viewModel.isRecoveringStorage,
+            refreshingText: viewModel.isRecoveringStorage
+                ? "正在恢复成绩存储" : viewModel.syncStatusText,
+            lastUpdatedText: viewModel.lastUpdatedText,
+            actionTitle: viewModel.rows.isEmpty ? "查询成绩" : "刷新",
+            onRefresh: {
+                Task { await viewModel.refresh() }
+            },
+            actionAccessibilityIdentifier: "score.query"
+        )
     }
 }
 
@@ -32,12 +34,17 @@ public struct ScoreListPage: View {
     @State private var selectedPage: ScorePageSelection?
 
     private enum ScorePageSelection: Hashable {
-        case course(ScoreDetailSelection), transcript, terms, types, sort
-        var course: ScoreDetailSelection? { if case let .course(value) = self { value } else { nil } }
+        case course(ScoreDetailSelection)
+        case transcript, terms, types, sort
+        var course: ScoreDetailSelection? {
+            if case .course(let value) = self { value } else { nil }
+        }
     }
 
-    public init(viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
-                onSurfaceStep: ((Int) -> Void)? = nil, onSearchCourse: @escaping (String) -> Void) {
+    public init(
+        viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
+        onSurfaceStep: ((Int) -> Void)? = nil, onSearchCourse: @escaping (String) -> Void
+    ) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
         self.onSearchCourse = onSearchCourse
@@ -45,8 +52,10 @@ public struct ScoreListPage: View {
     }
 
     public var body: some View {
-        AppBrowserLayout(selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal") {
-            content.simultaneousGesture(makeHorizontalSwitchGesture { onSurfaceStep?($0) })
+        AppBrowserLayout(
+            selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal"
+        ) {
+            content.simultaneousGesture(horizontalSwitchGesture { onSurfaceStep?($0) })
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("score.browse")
         } detail: { page in
@@ -62,7 +71,7 @@ public struct ScoreListPage: View {
             case .idle, .loading:
                 AppLoadingState(title: "正在查询成绩")
                     .background(AppDesignSystem.Palette.Background.grouped)
-            case let .failed(message):
+            case .failed(let message):
                 VStack {
                     AppFailureState(
                         title: "成绩查询失败",
@@ -95,8 +104,10 @@ public struct ScoreListPage: View {
                             .frame(maxWidth: .infinity)
                         } else {
                             ForEach(visibleRows) { row in
-                                AppBrowserListRow(isSelected: selectedRowID == row.id,
-                                    action: { selectedPage = .course(.init(row: row)) }) {
+                                AppBrowserListRow(
+                                    isSelected: selectedRowID == row.id,
+                                    action: { selectedPage = .course(.init(row: row)) }
+                                ) {
                                     ScoreListRowCard(row: row)
                                 }
                                 .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
@@ -108,11 +119,15 @@ public struct ScoreListPage: View {
                     if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
                         Section("未出分") {
                             ForEach(pendingCourses) { course in
-                                AppBrowserListRow(isSelected: selectedPage?.course?.pendingCourseID == course.id,
-                                    action: { selectedPage = .course(.init(course: course)) }) {
+                                AppBrowserListRow(
+                                    isSelected: selectedPage?.course?.pendingCourseID
+                                        == course.id,
+                                    action: { selectedPage = .course(.init(course: course)) }
+                                ) {
                                     ScoreListRowCard(course: course)
                                 }
-                                .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
+                                .accessibilityIdentifier(
+                                    "ui.score-list-page.pending-course.\(course.id)")
                             }
                         }
                         .appGroupedSectionStyle()
@@ -138,7 +153,7 @@ public struct ScoreListPage: View {
                 get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissVerificationChallenge()
+                        viewModel.dismissChallenge()
                     }
                 }
             )
@@ -148,7 +163,7 @@ public struct ScoreListPage: View {
                 isSubmitting: viewModel.isSubmittingVerificationCode,
                 errorMessage: viewModel.verificationError,
                 submitTitle: "验证并查询成绩",
-                onCancel: viewModel.dismissVerificationChallenge,
+                onCancel: viewModel.dismissChallenge,
                 onSubmit: { code in
                     await viewModel.submitVerificationCode(code)
                 },
@@ -172,7 +187,9 @@ public struct ScoreListPage: View {
         .appGroupedSectionStyle()
 
         Section {
-            AppBrowserListRow(isSelected: selectedPage == .transcript, action: { selectedPage = .transcript }) {
+            AppBrowserListRow(
+                isSelected: selectedPage == .transcript, action: { selectedPage = .transcript }
+            ) {
                 Text("申请可信成绩单")
             }
             .disabled(viewModel.isSyncing)
@@ -180,17 +197,30 @@ public struct ScoreListPage: View {
         .appGroupedSectionStyle()
 
         Section {
-            AppBrowserListRow(isSelected: selectedPage == .terms, action: { selectedPage = .terms }) {
-                LabeledContent("学期", value: selectionDescription(selected: viewModel.selectedTerms, all: viewModel.availableTerms))
+            AppBrowserListRow(
+                isSelected: selectedPage == .terms, action: { selectedPage = .terms }
+            ) {
+                LabeledContent(
+                    "学期",
+                    value: selectionDescription(
+                        selected: viewModel.selectedTerms, all: viewModel.availableTerms))
             }
 
             if !viewModel.availableCourseTypes.isEmpty {
-                AppBrowserListRow(isSelected: selectedPage == .types, action: { selectedPage = .types }) {
-                    LabeledContent("种类", value: selectionDescription(selected: viewModel.selectedCourseTypes, all: viewModel.availableCourseTypes))
+                AppBrowserListRow(
+                    isSelected: selectedPage == .types, action: { selectedPage = .types }
+                ) {
+                    LabeledContent(
+                        "种类",
+                        value: selectionDescription(
+                            selected: viewModel.selectedCourseTypes,
+                            all: viewModel.availableCourseTypes))
                 }
             }
 
-            AppBrowserListRow(isSelected: selectedPage == .sort, action: { selectedPage = .sort }) {
+            AppBrowserListRow(
+                isSelected: selectedPage == .sort, action: { selectedPage = .sort }
+            ) {
                 LabeledContent("排序", value: viewModel.sortDescription)
             }
             .accessibilityIdentifier("ui.score-list-page.排序")
@@ -212,26 +242,38 @@ public struct ScoreListPage: View {
 
     @ViewBuilder private func detail(_ page: ScorePageSelection) -> some View {
         switch page {
-        case let .course(selection):
+        case .course(let selection):
             if let row = selection.row(in: viewModel.rows) {
                 ScoreDetailView(row: row, onSearchCourse: onSearchCourse)
-            } else if let course = viewModel.pendingCourses?.first(where: { $0.id == selection.pendingCourseID }) {
+            } else if let course = viewModel.pendingCourses?.first(where: {
+                $0.id == selection.pendingCourseID
+            }) {
                 PendingScoreDetailView(course: course)
             } else {
-                AppEmptyState(title: "成绩列表已更新", systemImage: "chart.bar.doc.horizontal", message: "请选择当前列表中的课程。")
+                AppEmptyState(
+                    title: "成绩列表已更新", systemImage: "chart.bar.doc.horizontal",
+                    message: "请选择当前列表中的课程。")
             }
         case .transcript: TrustedTranscriptDestination(service: transcriptService)
         case .terms:
-            ScoreFilterPage(title: "学期筛选", options: viewModel.availableTerms,
-                selectedValues: Binding(get: { viewModel.selectedTerms }, set: { viewModel.setSelectedTerms($0) }),
+            ScoreFilterPage(
+                title: "学期筛选", options: viewModel.availableTerms,
+                selectedValues: Binding(
+                    get: { viewModel.selectedTerms }, set: { viewModel.setSelectedTerms($0) }),
                 onToggleAll: viewModel.toggleAllTerms)
         case .types:
-            ScoreFilterPage(title: "种类筛选", options: viewModel.availableCourseTypes,
-                selectedValues: Binding(get: { viewModel.selectedCourseTypes }, set: { viewModel.setSelectedCourseTypes($0) }),
+            ScoreFilterPage(
+                title: "种类筛选", options: viewModel.availableCourseTypes,
+                selectedValues: Binding(
+                    get: { viewModel.selectedCourseTypes },
+                    set: { viewModel.setSelectedCourseTypes($0) }),
                 onToggleAll: viewModel.toggleAllCourseTypes)
         case .sort:
-            ScoreSortPage(sortIndex: Binding(get: { viewModel.sortIndex }, set: { viewModel.setSortIndex($0) }),
-                sortOrder: Binding(get: { viewModel.sortOrder }, set: { viewModel.setSortOrder($0) }),
+            ScoreSortPage(
+                sortIndex: Binding(
+                    get: { viewModel.sortIndex }, set: { viewModel.setSortIndex($0) }),
+                sortOrder: Binding(
+                    get: { viewModel.sortOrder }, set: { viewModel.setSortOrder($0) }),
                 onToggleOrder: viewModel.toggleSortOrder)
         }
     }
@@ -283,7 +325,7 @@ private struct TrustedTranscriptPage: View {
             switch viewModel.state {
             case .idle, .loading:
                 AppLoadingState(title: "正在向学校申请可信成绩单")
-            case let .failed(message):
+            case .failed(let message):
                 AppFailureState(
                     title: "可信成绩单申请失败",
                     systemImage: "exclamationmark.triangle",
@@ -305,38 +347,45 @@ private struct TrustedTranscriptPage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                            LazyVStack(spacing: AppDesignSystem.Spacing.content) {
-                                if let warning = viewModel.deliveryWarning {
-                                    AppFailureState(title: "部分成绩单待恢复", systemImage: "doc.text", message: warning,
-                                        allowsDiagnostics: viewModel.allowsDiagnostics, underlyingError: viewModel.failureCause, onRetry: {
-                                            viewModel.prepareRetry()
-                                            retryGeneration &+= 1
-                                        })
-                                        .disabled(viewModel.isLoadingPages)
-                                    Button("重新申请") {
-                                        viewModel.prepareReapplication()
+                        LazyVStack(spacing: AppDesignSystem.Spacing.content) {
+                            if let warning = viewModel.deliveryWarning {
+                                AppFailureState(
+                                    title: "部分成绩单待恢复", systemImage: "doc.text",
+                                    message: warning,
+                                    allowsDiagnostics: viewModel.allowsDiagnostics,
+                                    underlyingError: viewModel.failureCause,
+                                    onRetry: {
+                                        viewModel.prepareRetry()
                                         retryGeneration &+= 1
                                     }
-                                    .disabled(viewModel.isLoadingPages)
-                                    .appInteractiveListRow()
-                                    .accessibilityIdentifier("ui.trusted-transcript-page.reapply")
+                                )
+                                .disabled(viewModel.isLoadingPages)
+                                Button("重新申请") {
+                                    viewModel.prepareReapplication()
+                                    retryGeneration &+= 1
                                 }
-                                if viewModel.isLoadingPages { AppInlineLoadingState("正在补全成绩单") }
-                                ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
-                                    Button {
-                                        imageViewer = ImagePreviewRequest(localImages: viewModel.images, initialIndex: index)
-                                    } label: {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFit()
-                                    }
-                                    .buttonStyle(.plain)
-                                    .accessibilityLabel("可信成绩单第\(viewModel.pageNumbers[index])页")
-                                    .accessibilityValue("共\(viewModel.expectedPageCount)页")
-                                    .accessibilityHint("双击查看大图")
-                                }
+                                .disabled(viewModel.isLoadingPages)
+                                .appInteractiveListRow()
+                                .accessibilityIdentifier("ui.trusted-transcript-page.reapply")
                             }
-                            .padding(AppDesignSystem.Spacing.section)
+                            if viewModel.isLoadingPages { AppInlineLoadingState("正在补全成绩单") }
+                            ForEach(Array(viewModel.images.enumerated()), id: \.offset) {
+                                index, image in
+                                Button {
+                                    imageViewer = ImagePreviewRequest(
+                                        localImages: viewModel.images, initialIndex: index)
+                                } label: {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFit()
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("可信成绩单第\(viewModel.pageNumbers[index])页")
+                                .accessibilityValue("共\(viewModel.expectedPageCount)页")
+                                .accessibilityHint("双击查看大图")
+                            }
+                        }
+                        .padding(AppDesignSystem.Spacing.section)
                     }
                     .accessibilityIdentifier("interaction.TrustedTranscriptPage.scroll")
                     .background(AppDesignSystem.Palette.Background.secondary)
@@ -352,13 +401,13 @@ private struct TrustedTranscriptPage: View {
             // 页面从成绩页进入后立即申请可信成绩单，入口直接执行申请操作。
             await viewModel.applyIfNeeded()
         }
-        .onDisappear { viewModel.cancelVerificationContinuation() }
+        .onDisappear { viewModel.cancelVerification() }
         .sheet(
             item: Binding(
                 get: { viewModel.verificationChallenge },
                 set: { challenge in
                     if challenge == nil {
-                        viewModel.dismissVerificationChallenge()
+                        viewModel.dismissChallenge()
                     }
                 }
             )
@@ -368,7 +417,7 @@ private struct TrustedTranscriptPage: View {
                 isSubmitting: viewModel.isSubmittingVerificationCode,
                 errorMessage: viewModel.verificationError,
                 submitTitle: "验证并申请成绩单",
-                onCancel: viewModel.dismissVerificationChallenge,
+                onCancel: viewModel.dismissChallenge,
                 onSubmit: { code in
                     await viewModel.submitVerificationCode(code)
                 },
@@ -493,7 +542,10 @@ private struct ScoreListRowCard: View {
     }
 
     private var accessibilitySummary: String {
-        "\(courseName)，\(creditText)，\(termText)，成绩 \(scoreText)，均分 \(averageScoreText)，\(courseTypeText)"
+        """
+        \(courseName)，\(creditText)，\(termText)，成绩 \(scoreText)，均分 \(averageScoreText)，\
+        \(courseTypeText)
+        """
     }
 
     private static func trimmed(_ value: String) -> String {
@@ -543,7 +595,9 @@ private struct PendingScoreDetailView: View {
                     ScoreDetailMetaRow(title: "上课时间", value: course.scheduleText)
                     ScoreDetailMetaRow(title: "教学周", value: course.weeksText)
                     ScoreDetailMetaRow(title: "学时", value: course.hourText)
-                    if !course.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if !course.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty
+                    {
                         ScoreDetailMetaRow(title: "备注", value: course.description)
                     }
                 }
@@ -631,7 +685,7 @@ private struct ScoreDetailView: View {
         }
         .buttonStyle(.plain)
         .appInteractiveListRow()
-            .accessibilityIdentifier("ui.score-detail-view.course-evaluation")
+        .accessibilityIdentifier("ui.score-detail-view.course-evaluation")
     }
 
     private var remainingFields: [ScoreField] {

@@ -10,16 +10,17 @@ public nonisolated enum CommunityCommentComposerTarget: Identifiable, Equatable,
 
     public var id: String {
         switch self {
-        case let .poster(id): "poster-\(id)"
-        case let .course(id): "course-\(id)"
-        case let .paper(id): "paper-\(id)"
-        case let .comment(main, target): "comment-\(main.id)-\(target.id)"
+        case .poster(let id): "poster-\(id)"
+        case .course(let id): "course-\(id)"
+        case .paper(let id): "paper-\(id)"
+        case .comment(let main, let target): "comment-\(main.id)-\(target.id)"
         }
     }
 
     public var title: String {
-        if case let .comment(_, target) = self {
-            return "回复 @\(target.anonymous ? AppUserPresentation.anonymousName : target.user.nickname)"
+        if case .comment(_, let target) = self {
+            return
+                "回复 @\(target.anonymous ? AppUserPresentation.anonymousName : target.user.nickname)"
         }
         return "发表评论"
     }
@@ -31,20 +32,21 @@ public nonisolated enum CommunityCommentComposerTarget: Identifiable, Equatable,
 
     public var objectID: String {
         switch self {
-        case let .poster(id): "poster\(id)"
-        case let .course(id): "course\(id)"
-        case let .paper(id): "paper\(id)"
-        case let .comment(main, _): "comment\(main.id)"
+        case .poster(let id): "poster\(id)"
+        case .course(let id): "course\(id)"
+        case .paper(let id): "paper\(id)"
+        case .comment(let main, _): "comment\(main.id)"
         }
     }
 
     public var replyObjectID: String? {
-        guard case let .comment(main, target) = self, main.id != target.id else { return nil }
+        guard case .comment(let main, let target) = self, main.id != target.id else { return nil }
         return "comment\(target.id)"
     }
 
     public var replyUID: Int? {
-        guard case let .comment(main, target) = self, main.id != target.id, target.user.id != 0 else { return nil }
+        guard case .comment(let main, let target) = self, main.id != target.id, target.user.id != 0
+        else { return nil }
         return target.user.id
     }
 }

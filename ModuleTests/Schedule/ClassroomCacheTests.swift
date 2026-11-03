@@ -1,10 +1,11 @@
 import BIT101TestSupport
 import Foundation
 import ScheduleDomain
-import SchedulePorts
 import SchedulePersistence
+import SchedulePorts
 import StorageCore
 import Testing
+
 @testable import ScheduleFeature
 
 @MainActor
@@ -26,23 +27,34 @@ struct ClassroomCacheTests {
             if let termError { throw termError }
             return currentTerm
         }
-        func prepareTeachingCenterAccess() async throws {}
+        func prepareTeachingAccess() async throws {}
         func fetchCampuses() async throws -> [CampusRecord] {
-            [CampusRecord(id: "a", name: "校区A", code: "a"), CampusRecord(id: "b", name: "校区B", code: "b")]
+            [
+                CampusRecord(id: "a", name: "校区A", code: "a"),
+                CampusRecord(id: "b", name: "校区B", code: "b"),
+            ]
         }
         func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
             buildingQueries.append(campusCode)
             let campus = campusCode ?? "a"
-            return [BuildingRecord(id: campus, name: "教学楼", buildingCode: campus + buildingSuffix, campusName: "校区", campusCode: campus)]
+            return [
+                BuildingRecord(
+                    id: campus, name: "教学楼", buildingCode: campus + buildingSuffix,
+                    campusName: "校区", campusCode: campus)
+            ]
         }
-        func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
+        func fetchClassrooms(buildingID: String, term: String, date: Date) async throws
+            -> [ClassroomRecord]
+        {
             queries.append(buildingID)
             queriedTerms.append(term)
             await beforeClassroomsReturn?()
             if let error { throw error }
             return [ClassroomRecord(id: buildingID + "-room", name: "101", busyTimeCodes: [1])]
         }
-        func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? {
+        func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws
+            -> [ClassroomRecord]?
+        {
             guard enablesPrefetch else { return nil }
             prefetchQueries.append((buildingID, term, date))
             await beforePrefetchReturn?()
@@ -62,8 +74,9 @@ struct ClassroomCacheTests {
         return cache
     }
 
-    @Test(.timeLimit(.minutes(1))) func nextDayPrefetchPersistsAndDisplaysBeforeDailyRevalidation() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-30")).addingTimeInterval(7 * 3600)
+    @Test(.timeLimit(.minutes(1))) func nextDayPrefetchPersists() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-30")).addingTimeInterval(
+            7 * 3600)
         var disk = try JSONEncoder().encode(initialCache())
         let service = Service()
         service.enablesPrefetch = true
@@ -71,10 +84,15 @@ struct ClassroomCacheTests {
         service.beforePrefetchReturn = { try? await waitForTestEvent { releasePrefetch } }
         func open() async throws -> (ScheduleRepository, ScheduleClassroomViewModel) {
             let initial = try JSONDecoder().decode(ScheduleCache.self, from: disk)
-            let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-classroom") },
-                load: { _ in .loaded(initial) }, save: { value, _, _ in disk = try JSONEncoder().encode(value) })
+            let repository = ScheduleRepository(
+                session: { .init(accountIdentifier: "prefetch-classroom") },
+                load: { _ in .loaded(initial) },
+                save: { value, _, _ in disk = try JSONEncoder().encode(value) })
             await repository.loadIfNeeded()
-            return (repository, ScheduleClassroomViewModel(service: service, repository: repository, now: { now }))
+            return (
+                repository,
+                ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+            )
         }
         let (repository, model) = try await open()
         await model.refreshClassroomPage(force: false)
@@ -85,8 +103,12 @@ struct ClassroomCacheTests {
         releasePrefetch = true
         await inFlight.value
         #expect(service.prefetchQueries.count == 1)
-        #expect(service.prefetchQueries.first?.buildingID == "a1" && service.prefetchQueries.first?.term == "term")
-        #expect(service.prefetchQueries.first.map { ScheduleDateCodec.formatDate($0.date) } == "2026-10-01")
+        #expect(
+            service.prefetchQueries.first?.buildingID == "a1"
+                && service.prefetchQueries.first?.term == "term")
+        #expect(
+            service.prefetchQueries.first.map { ScheduleDateCodec.formatDate($0.date) }
+                == "2026-10-01")
         #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"])
         await model.refreshClassroomPage(force: false)
         await model.classroomPrefetchTask?.value
@@ -97,7 +119,9 @@ struct ClassroomCacheTests {
         let (_, reopened) = try await open()
         reopened.restoreCachedState()
         #expect(reopened.classroomAvailabilities.map(\.id) == ["a1-next"])
-        #expect(reopened.classroomLastUpdatedAt == prefetchedAt && !reopened.hasExpiredClassroomData(at: now))
+        #expect(
+            reopened.classroomLastUpdatedAt == prefetchedAt
+                && !reopened.hasExpiredClassroomData(at: now))
         var release = false
         service.beforeClassroomsReturn = { try? await waitForTestEvent { release } }
         let refresh = Task { await reopened.refreshClassroomPage(force: false) }
@@ -112,15 +136,18 @@ struct ClassroomCacheTests {
         #expect(reopened.cache.nextDayClassroomQueriesByBuildingID?.count == 1)
     }
 
-    @Test(.timeLimit(.minutes(1))) func failedPrefetchIsSilentAndWaitsUntilTheNextDay() async throws {
+    @Test(.timeLimit(.minutes(1))) func failedPrefetchIsSilent() async throws {
         let date = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
-        let service = Service(), initial = initialCache()
+        let service = Service()
+        let initial = initialCache()
         service.enablesPrefetch = true
         service.prefetchError = ScheduleServiceError.teachingCenterSessionExpired
-        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-failure") },
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "prefetch-failure") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { date })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { date })
         await model.refreshClassroomPage(force: false)
         await model.classroomPrefetchTask?.value
         await model.refreshClassroomPage(force: false)
@@ -130,14 +157,18 @@ struct ClassroomCacheTests {
         #expect(model.cache.nextDayClassroomQueriesByBuildingID?["a1"]?.records == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func nextPrefetchPreservesOtherBuildingsReadyForToday() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
-        let service = Service(), initial = initialCache()
+    @Test(.timeLimit(.minutes(1))) func nextPrefetchPreservesBuildingsReadyToday() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
+        let service = Service()
+        let initial = initialCache()
         service.enablesPrefetch = true
-        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-buildings") },
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "prefetch-buildings") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         await model.refreshClassroomPage(force: false)
         await model.classroomPrefetchTask?.value
         await model.selectCampus(code: "b")?.value
@@ -156,14 +187,17 @@ struct ClassroomCacheTests {
 
     @Test(.timeLimit(.minutes(1))) func cancelledPrefetchPreservesTheResetState() async throws {
         let date = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
-        let service = Service(), initial = initialCache()
+        let service = Service()
+        let initial = initialCache()
         service.enablesPrefetch = true
         var release = false
         service.beforePrefetchReturn = { try? await waitForTestEvent { release } }
-        let repository = ScheduleRepository(session: { .init(accountIdentifier: "prefetch-reset") },
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "prefetch-reset") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { date })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { date })
         await model.refreshClassroomPage(force: false)
         try await waitForTestEvent { service.prefetchQueries.count == 1 }
         let prefetch = model.classroomPrefetchTask
@@ -174,16 +208,19 @@ struct ClassroomCacheTests {
         #expect(model.classroomAvailabilities.isEmpty && model.selectedBuildingID.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func classroomDatesUseTheSchoolTermWhileTheTimetableShowsHistory() async throws {
+    @Test(.timeLimit(.minutes(1))) func classroomDatesUseSchoolTerm() async throws {
         var initial = initialCache()
         initial.currentTerm = "historical-term"
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
         let service = Service()
         service.currentTerm = "school-current-term"
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "classroom-term") },
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "classroom-term") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         await model.refreshClassroomPage(force: false)
         await model.refreshClassroomPage(force: false)
         #expect(service.queriedTerms == ["school-current-term"])
@@ -200,17 +237,23 @@ struct ClassroomCacheTests {
         model.restoreCachedState()
         #expect(model.classroomLastUpdatedAt == updatedAt && service.queriedTerms.count == 2)
         #expect(model.hasExpiredClassroomData(at: now) && model.classroomAvailabilities.isEmpty)
-        #expect(repository.classroomState.cachedClassroomQueriesByBuildingID?["a1"]?.records?.map(\.id) == ["a1-room"])
+        #expect(
+            repository.classroomState.cachedClassroomQueriesByBuildingID?["a1"]?.records?.map(\.id)
+                == ["a1-room"])
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func dailyEntryReusesResultsAndKeepsMinuteFilteringLocal() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600 + 59 * 60)
-        let initial = initialCache(), service = Service()
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "daily-classroom") },
+    func dailyEntryReusesKeepsMinuteFiltering() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600 + 59 * 60)
+        let initial = initialCache()
+        let service = Service()
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "daily-classroom") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         await model.refreshClassroomPage(force: false)
         #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"])
         now = now.addingTimeInterval(60)
@@ -222,15 +265,18 @@ struct ClassroomCacheTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func readOnlyScheduleStorageKeepsClassroomSelectionAvailable() async throws {
+    func readOnlyScheduleKeepsClassroomAvailable() async throws {
         let service = Service()
         var writes = 0
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "readonly-classroom") },
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "readonly-classroom") },
             load: { _ in .unreadable }, save: { _, _, _ in writes += 1 })
         await repository.loadIfNeeded()
-        let now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
-        model.setSelectedClassroomSectionIDs([])
+        let now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
+        model.setClassroomSections([])
         await model.refreshClassroomPage(force: false)
         await model.selectCampus(code: "b")?.value
         #expect(service.buildingQueries == ["a", "b"] && service.queries == ["a1", "b1"])
@@ -238,16 +284,22 @@ struct ClassroomCacheTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func persistedQueriesSurviveRelaunchAndRefreshAtSchoolMidnight() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(24 * 3600 - 60)
+    func persistedQueriesSurviveRelaunch() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            24 * 3600 - 60)
         var disk = try JSONEncoder().encode(initialCache())
         let service = Service()
         func open() async throws -> (ScheduleRepository, ScheduleClassroomViewModel) {
             let initial = try JSONDecoder().decode(ScheduleCache.self, from: disk)
-            let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "relaunch-classroom") },
-                load: { _ in .loaded(initial) }, save: { value, _, _ in disk = try JSONEncoder().encode(value) })
+            let repository = ScheduleRepository(
+                session: { AppStorageSession(accountIdentifier: "relaunch-classroom") },
+                load: { _ in .loaded(initial) },
+                save: { value, _, _ in disk = try JSONEncoder().encode(value) })
             await repository.loadIfNeeded()
-            return (repository, ScheduleClassroomViewModel(service: service, repository: repository, now: { now }))
+            return (
+                repository,
+                ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+            )
         }
         let (repository, model) = try await open()
         await model.refreshClassroomPage(force: false)
@@ -260,17 +312,22 @@ struct ClassroomCacheTests {
         await reopened.refreshClassroomPage(force: false)
         await reopened.refreshClassroomPage(force: false)
         #expect(service.queries == ["a1", "a1"] && service.buildingQueries == ["a", "a"])
-        #expect(reopened.classroomLastUpdatedAt == now && !reopened.hasExpiredClassroomData(at: now))
+        #expect(
+            reopened.classroomLastUpdatedAt == now && !reopened.hasExpiredClassroomData(at: now))
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func failedRefreshRetainsResultsAndManualRetryRecovers() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
-        let initial = initialCache(), service = Service()
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "failed-classroom") },
+    func failedRefreshRetainsResults() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
+        let initial = initialCache()
+        let service = Service()
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "failed-classroom") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         await model.refreshClassroomPage(force: false)
         let successfulUpdate = model.classroomLastUpdatedAt
         service.error = ScheduleServiceError.teachingCenterSessionExpired
@@ -285,18 +342,24 @@ struct ClassroomCacheTests {
         #expect(service.queries == ["a1", "a1", "a1"] && model.classroomLastUpdatedAt == now)
         await model.selectCampus(code: "b")?.value
         await model.selectCampus(code: "a")?.value
-        #expect(service.queries == ["a1", "a1", "a1", "b1"] && service.buildingQueries == ["a", "a", "a", "b"])
+        #expect(
+            service.queries == ["a1", "a1", "a1", "b1"]
+                && service.buildingQueries == ["a", "a", "a", "b"])
         #expect(model.classroomAvailabilities.map(\.id) == ["a1-room"])
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func initialFailureWaitsForExplicitRetryAndChangedBuildingKeepsItsOwnResults() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
-        let initial = initialCache(), service = Service()
-        let repository = ScheduleRepository(session: { AppStorageSession(accountIdentifier: "initial-failure-classroom") },
+    func initialFailureWaitsExplicitRetry() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
+        let initial = initialCache()
+        let service = Service()
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "initial-failure-classroom") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         service.error = ScheduleServiceError.teachingCenterSessionExpired
         await model.refreshClassroomPage(force: false)
         await model.refreshClassroomPage(force: false)
@@ -321,13 +384,17 @@ struct ClassroomCacheTests {
         #expect(restored.classroomData.cachedClassroomQueriesByBuildingID == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func eachCampusRefreshesItsDirectoryDailyAndManualRefreshReloadsIt() async throws {
-        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(7 * 3600)
-        let initial = initialCache(), service = Service()
-        let repository = ScheduleRepository(session: { .init(accountIdentifier: "campus-directories") },
+    @Test(.timeLimit(.minutes(1))) func eachCampusRefreshesDirectoryDaily() async throws {
+        var now = try #require(ScheduleDateCodec.parseDate("2026-09-07")).addingTimeInterval(
+            7 * 3600)
+        let initial = initialCache()
+        let service = Service()
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "campus-directories") },
             load: { _ in .loaded(initial) }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        let model = ScheduleClassroomViewModel(service: service, repository: repository, now: { now })
+        let model = ScheduleClassroomViewModel(
+            service: service, repository: repository, now: { now })
         await model.refreshClassroomPage(force: false)
         await model.selectCampus(code: "b")?.value
         await model.selectCampus(code: "a")?.value
@@ -336,27 +403,37 @@ struct ClassroomCacheTests {
         await model.refreshClassroomPage(force: false)
         await model.selectCampus(code: "b")?.value
         #expect(service.buildingQueries == ["a", "b", "a", "b"])
-        #expect(model.selectedBuildingID == "b2" && model.classroomAvailabilities.map(\.id) == ["b2-room"])
+        #expect(
+            model.selectedBuildingID == "b2"
+                && model.classroomAvailabilities.map(\.id) == ["b2-room"])
         service.buildingSuffix = "3"
         await model.refreshClassroomPage()
         #expect(service.buildingQueries == ["a", "b", "a", "b", "b"])
-        #expect(model.selectedBuildingID == "b3" && model.classroomAvailabilities.map(\.id) == ["b3-room"])
+        #expect(
+            model.selectedBuildingID == "b3"
+                && model.classroomAvailabilities.map(\.id) == ["b3-room"])
     }
 
-    @Test(.timeLimit(.minutes(1))) func damagedClassroomQueryPreservesPersonalSchedulesAndOtherBuildings() async throws {
+    @Test(.timeLimit(.minutes(1))) func damagedClassroomQueryPreservesSchedules() async throws {
         var cache = initialCache()
-        cache.customSchedules = [CustomScheduleRecord(id: "personal", title: "活动", subtitle: "", description: "",
-            dateString: "2026-09-07", beginTime: "12:00", endTime: "13:00")]
+        cache.customSchedules = [
+            CustomScheduleRecord(
+                id: "personal", title: "活动", subtitle: "", description: "",
+                dateString: "2026-09-07", beginTime: "12:00", endTime: "13:00")
+        ]
         let date = try #require(ScheduleDateCodec.parseDate("2026-09-07"))
         let room = ClassroomRecord(id: "a1-room", name: "101", busyTimeCodes: [1])
-        let valid = ClassroomQueryCache(term: "term", queryDate: date, attemptedAt: date, updatedAt: date, records: [room])
+        let valid = ClassroomQueryCache(
+            term: "term", queryDate: date, attemptedAt: date, updatedAt: date, records: [room])
         var invalid = valid
         invalid.records = [ClassroomRecord(id: "a2-room", name: "102", busyTimeCodes: [0])]
         cache.classroomData.cachedClassroomQueriesByBuildingID = ["a1": valid, "a2": invalid]
         cache.classroomData.nextDayClassroomQueriesByBuildingID = ["a1": valid, "a2": invalid]
         let bytes = try JSONEncoder().encode(cache)
-        let files = ModuleScoreFiles(), account = AppStorageSession(accountIdentifier: "damaged-classroom")
-        let store = SchedulePersistenceStore(files: files, storageRoot: URL(fileURLWithPath: "/damaged-classroom"),
+        let files = ModuleScoreFiles()
+        let account = AppStorageSession(accountIdentifier: "damaged-classroom")
+        let store = SchedulePersistenceStore(
+            files: files, storageRoot: URL(fileURLWithPath: "/damaged-classroom"),
             userStateMatches: { _, _ in true })
         let url = store.cacheFileURL(for: account.accountStorageIdentifier)
         try files.writeData(bytes, to: url, options: .atomic)

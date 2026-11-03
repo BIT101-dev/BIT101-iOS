@@ -1,20 +1,24 @@
 import DesignSystemKit
+import SwiftUI
+import UIKit
+
 //
 //  LoginViews.swift
 //  BIT101-iOS
 //
-
-import SwiftUI
-import UIKit
 
 /// 学校凭据在当前页面上方通过系统安全输入框收集。
 @MainActor
 final class SchoolPasswordPrompt {
     static let shared = SchoolPasswordPrompt()
     private let presenter: @MainActor () -> UIViewController?
-    private var active: (id: UUID, alert: UIAlertController, continuation: CheckedContinuation<String, Error>)?
+    private var active:
+        (id: UUID, alert: UIAlertController, continuation: CheckedContinuation<String, Error>)?
 
-    init(presenter: @escaping @MainActor () -> UIViewController? = AppErrorPresenter.topViewController) {
+    init(
+        presenter: @escaping @MainActor () -> UIViewController? = AppErrorPresenter
+            .topViewController
+    ) {
         self.presenter = presenter
     }
 
@@ -28,7 +32,8 @@ final class SchoolPasswordPrompt {
                     continuation.resume(throwing: LoginServiceError.schoolCredentialsRequired)
                     return
                 }
-                let alert = UIAlertController(title: "学校统一身份认证",
+                let alert = UIAlertController(
+                    title: "学校统一身份认证",
                     message: "学号：\(studentID)\n课表、空教室、DDL 和成绩使用学校密码。密码保存在本机钥匙串，保存后继续当前操作。",
                     preferredStyle: .alert)
                 alert.addTextField { field in
@@ -39,26 +44,32 @@ final class SchoolPasswordPrompt {
                     field.autocorrectionType = .no
                     field.accessibilityIdentifier = "school.credentials.password"
                 }
-                alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
-                    self?.finish(id, result: .failure(CancellationError()))
-                })
-                let save = UIAlertAction(title: "保存并继续", style: .default) { [weak self, weak alert] _ in
-                    guard let password = alert?.textFields?.first?.text, !password.isEmpty else { return }
+                alert.addAction(
+                    UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+                        self?.finish(id, result: .failure(CancellationError()))
+                    })
+                let save = UIAlertAction(title: "保存并继续", style: .default) {
+                    [weak self, weak alert] _ in
+                    guard let password = alert?.textFields?.first?.text, !password.isEmpty else {
+                        return
+                    }
                     self?.finish(id, result: .success(password))
                 }
                 save.isEnabled = false
                 alert.addAction(save)
                 alert.preferredAction = save
                 if let field = alert.textFields?.first {
-                    field.addAction(UIAction { [weak field, weak save] _ in
-                        save?.isEnabled = field?.text?.isEmpty == false
-                    }, for: .editingChanged)
+                    field.addAction(
+                        UIAction { [weak field, weak save] _ in
+                            save?.isEnabled = field?.text?.isEmpty == false
+                        }, for: .editingChanged)
                 }
                 active = (id, alert, continuation)
                 controller.present(alert, animated: true)
             }
         } onCancel: {
-            Task { @MainActor [weak self] in self?.finish(id, result: .failure(CancellationError())) }
+            Task { @MainActor [weak self] in self?.finish(id, result: .failure(CancellationError()))
+            }
         }
     }
 
@@ -116,7 +127,8 @@ private struct LoginFormView: View {
                     .accessibilityHint("输入 BIT101 账号的学号")
                     .accessibilityIdentifier("login.student-id")
                     .onSubmit {
-                    interactionEvidence?("interaction.LoginFormView.onSubmit.student-id", "submit")
+                        interactionEvidence?(
+                            "interaction.LoginFormView.onSubmit.student-id", "submit")
 
                         focusedField = .password
                     }
@@ -131,7 +143,8 @@ private struct LoginFormView: View {
                     .accessibilityHint("输入 BIT101 密码，学校服务按需使用独立的学校密码")
                     .accessibilityIdentifier("login.password")
                     .onSubmit {
-                    interactionEvidence?("interaction.LoginFormView.onSubmit.password", "submit")
+                        interactionEvidence?(
+                            "interaction.LoginFormView.onSubmit.password", "submit")
 
                         submitLogin()
                     }
@@ -213,31 +226,40 @@ private struct AccountRegistrationView: View {
                         .focused($focusedField, equals: .studentID)
                         .accessibilityLabel("学号")
                         .accessibilityIdentifier("registration.student-id")
-                    SecureField("", text: $viewModel.password, prompt: AppInputPrompt.text("BIT101 新密码"))
-                        .textContentType(loginContentType(.newPassword))
-                        .focused($focusedField, equals: .password)
-                        .accessibilityLabel("BIT101 新密码")
-                        .accessibilityIdentifier("registration.password")
-                    SecureField("", text: $viewModel.confirmation, prompt: AppInputPrompt.text("确认密码"))
-                        .textContentType(loginContentType(.newPassword))
-                        .focused($focusedField, equals: .confirmation)
-                        .accessibilityLabel("确认密码")
-                        .accessibilityIdentifier("registration.confirmation")
+                    SecureField(
+                        "", text: $viewModel.password, prompt: AppInputPrompt.text("BIT101 新密码")
+                    )
+                    .textContentType(loginContentType(.newPassword))
+                    .focused($focusedField, equals: .password)
+                    .accessibilityLabel("BIT101 新密码")
+                    .accessibilityIdentifier("registration.password")
+                    SecureField(
+                        "", text: $viewModel.confirmation, prompt: AppInputPrompt.text("确认密码")
+                    )
+                    .textContentType(loginContentType(.newPassword))
+                    .focused($focusedField, equals: .confirmation)
+                    .accessibilityLabel("确认密码")
+                    .accessibilityIdentifier("registration.confirmation")
                 }
 
                 Section {
                     Picker("验证方式", selection: $viewModel.method) {
-                        ForEach(RegistrationVerificationMethod.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        ForEach(RegistrationVerificationMethod.allCases, id: \.self) {
+                            Text($0.rawValue).tag($0)
+                        }
                     }
                     .accessibilityIdentifier("registration.method")
                     .appSelectionFeedback(trigger: viewModel.method)
                     .appInteractiveListRow()
                     if viewModel.method == .school {
-                        SecureField("", text: $viewModel.schoolPassword, prompt: AppInputPrompt.text("学校统一身份认证密码"))
-                            .textContentType(loginContentType(.password))
-                            .focused($focusedField, equals: .schoolPassword)
-                            .accessibilityLabel("学校统一身份认证密码")
-                            .accessibilityIdentifier("registration.school-password")
+                        SecureField(
+                            "", text: $viewModel.schoolPassword,
+                            prompt: AppInputPrompt.text("学校统一身份认证密码")
+                        )
+                        .textContentType(loginContentType(.password))
+                        .focused($focusedField, equals: .schoolPassword)
+                        .accessibilityLabel("学校统一身份认证密码")
+                        .accessibilityIdentifier("registration.school-password")
                         if viewModel.verified {
                             Label("身份验证成功", systemImage: "checkmark.circle")
                                 .foregroundStyle(AppDesignSystem.Palette.Status.success)
@@ -254,7 +276,8 @@ private struct AccountRegistrationView: View {
                             .accessibilityLabel("6 位验证码")
                             .accessibilityIdentifier("registration.code")
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            let remaining = max(0, Int(ceil(viewModel.resendAt.timeIntervalSince(context.date))))
+                            let remaining = max(
+                                0, Int(ceil(viewModel.resendAt.timeIntervalSince(context.date))))
                             Button(remaining > 0 ? "\(remaining) 秒后重新发送" : "发送验证码") { verify() }
                                 .disabled(!viewModel.canVerify || remaining > 0)
                                 .accessibilityIdentifier("registration.send-code")
@@ -269,8 +292,11 @@ private struct AccountRegistrationView: View {
                         focusedField = nil
                         requestedOperation = .submit
                     } label: {
-                        if viewModel.isSubmitting { AppInlineLoadingState("正在提交") }
-                        else { Text("注册或重置并登录") }
+                        if viewModel.isSubmitting {
+                            AppInlineLoadingState("正在提交")
+                        } else {
+                            Text("注册或重置并登录")
+                        }
                     }
                     .disabled(!viewModel.canSubmit)
                     .appInteractiveListRow()
@@ -308,11 +334,10 @@ private enum LoginField: Hashable {
     case password
 }
 
-
 private func loginContentType(_ type: UITextContentType) -> UITextContentType {
-#if BIT101_UI_TESTING
+    #if BIT101_UI_TESTING
     return AppFileDirectories.isRunningUITest ? .oneTimeCode : type
-#else
+    #else
     return type
-#endif
+    #endif
 }

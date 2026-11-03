@@ -1,14 +1,14 @@
-import SchedulePorts
 import ClientCore
-import TransportCore
+import Combine
+import Foundation
 import ScheduleDomain
+import SchedulePorts
+import TransportCore
+
 //
 //  ScheduleDDLViewModel.swift
 //  BIT101-iOS
 //
-
-import Combine
-import Foundation
 
 private nonisolated struct DDLPersistenceFailure: Error {}
 
@@ -30,7 +30,11 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     private(set) var schoolSMSWaitID: UUID?
     private var subscription: AnyCancellable?
 
-    public init(service: any ScheduleDDLServicing, repository: ScheduleRepository, virtualNetworkLikely: @escaping @MainActor () -> Bool = { false }, beforeSchoolRequest: @escaping @MainActor () async -> Void = {}) {
+    public init(
+        service: any ScheduleDDLServicing, repository: ScheduleRepository,
+        virtualNetworkLikely: @escaping @MainActor () -> Bool = { false },
+        beforeSchoolRequest: @escaping @MainActor () async -> Void = {}
+    ) {
         self.service = service
         self.beforeSchoolRequest = beforeSchoolRequest
         self.repository = repository
@@ -57,7 +61,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
 
     func submitSchoolSMSCode(_ code: String) {
         let normalized = code.filter(\.isNumber)
-        guard (4 ... 8).contains(normalized.count) else { return }
+        guard (4...8).contains(normalized.count) else { return }
         let continuation = schoolSMSContinuation
         schoolSMSContinuation = nil
         schoolSMSWaitID = nil
@@ -127,10 +131,10 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             : "\(cache.ddlEvents.count) 条日程已超出显示范围。当前滞留天数为 \(afterDay) 天，可在 DDL 设置调整。"
     }
 
-
     /// 同步学校 DDL，并保留手动项目和完成状态。
     @discardableResult
-    public func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool {
+    public func syncDDL(showSuccessNotice: Bool = true, showErrorNotice: Bool = true) async -> Bool
+    {
         guard !isSyncingDDL else { return false }
         let generation = accountGeneration
         notice = nil
@@ -148,28 +152,36 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             var deliveredGroups: Set<String> = []
             let payload = try await service.syncDDLEvents(
                 existingEvents: cache.ddlEvents, storedURL: cache.lexueCalendarURL,
-                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation), onSource: { [self] update in
+                schoolSMSCodeHandler: makeSchoolSMSCodeHandler(for: generation),
+                onSource: { [self] update in
                     try await applySyncPayload(update, generation: generation)
                     deliveredGroups.formUnion(update.syncedGroups)
                 })
             try Task.checkCancellation()
             guard accountGeneration == generation else { return false }
-            if deliveredGroups.isEmpty { try await applySyncPayload(payload, generation: generation) }
+            if deliveredGroups.isEmpty {
+                try await applySyncPayload(payload, generation: generation)
+            }
             if showSuccessNotice {
                 func schoolContent(_ events: [DDLEventRecord]) -> Set<DDLEventRecord> {
-                    Set(events.filter { $0.isSchoolSynced && payload.syncedGroups.contains($0.group) }.map {
-                        var event = $0
-                        event.done = false
-                        return event
-                    })
+                    Set(
+                        events.filter {
+                            $0.isSchoolSynced && payload.syncedGroups.contains($0.group)
+                        }.map {
+                            var event = $0
+                            event.done = false
+                            return event
+                        })
                 }
                 if payload.warnings.isEmpty, !payload.syncedGroups.isEmpty,
-                   schoolContent(previousEvents) == schoolContent(cache.ddlEvents) {
+                    schoolContent(previousEvents) == schoolContent(cache.ddlEvents)
+                {
                     notice = .informational(title: "DDL 已是最新", message: "本次获取结果与学校原始日程完全一致。")
                 } else {
                     notice = .informational(
                         title: payload.warnings.isEmpty ? "DDL 同步成功" : "DDL 部分更新",
-                        message: (["已同步 \(payload.events.count) 条学校日程。"] + payload.warnings).joined(separator: "\n")
+                        message: (["已同步 \(payload.events.count) 条学校日程。"] + payload.warnings).joined(
+                            separator: "\n")
                     )
                 }
             }
@@ -178,13 +190,14 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             return false
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             guard accountGeneration == generation else { return false }
-            presentDDLSecondFactorNotice()
+            presentDDLVerification()
             return false
         } catch let error as ScheduleServiceError {
             guard accountGeneration == generation else { return false }
             switch error {
             case .schoolSMSCodeInvalid:
-                notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
+                notice = ScheduleNotice.userInput(
+                    title: "验证码错误", message: error.localizedDescription)
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", error: error)
             default:
@@ -192,7 +205,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                     notice = schoolFailureNotice(
                         title: "DDL 同步失败",
                         message: error.localizedDescription,
-                        networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
+                        networkFailure: Self.isSchoolTransportError(error), underlyingError: error
                     )
                 }
             }
@@ -204,7 +217,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
                 notice = schoolFailureNotice(
                     title: "DDL 同步失败",
                     message: error.localizedDescription,
-                    networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
+                    networkFailure: Self.isSchoolTransportError(error), underlyingError: error
                 )
             }
             return false
@@ -246,19 +259,20 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             }
         } catch ScheduleServiceError.schoolSecondFactorRequired {
             guard accountGeneration == generation else { return }
-            presentDDLSecondFactorNotice()
+            presentDDLVerification()
         } catch let error as ScheduleServiceError {
             guard accountGeneration == generation else { return }
             switch error {
             case .schoolSMSCodeInvalid:
-                notice = ScheduleNotice.userInput(title: "验证码错误", message: error.localizedDescription)
+                notice = ScheduleNotice.userInput(
+                    title: "验证码错误", message: error.localizedDescription)
             case .schoolSMSUnavailable:
                 notice = ScheduleNotice(title: "短信验证失败", error: error)
             default:
                 notice = schoolFailureNotice(
                     title: "订阅链接获取失败",
                     message: error.localizedDescription,
-                    networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
+                    networkFailure: Self.isSchoolTransportError(error), underlyingError: error
                 )
             }
         } catch {
@@ -267,7 +281,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             notice = schoolFailureNotice(
                 title: "订阅链接获取失败",
                 message: error.localizedDescription,
-                networkFailure: Self.isLikelySchoolTransportError(error), underlyingError: error
+                networkFailure: Self.isSchoolTransportError(error), underlyingError: error
             )
         }
     }
@@ -278,7 +292,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     func toggleDDLDone(_ event: DDLEventRecord) {
         guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
         cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
-        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.isSchoolSynced {
+        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.isSchoolSynced
+        {
             cache.lexueDDLCompletionByID[updated.id] = updated.done
         }
         persist()
@@ -382,7 +397,9 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         guard accountGeneration == generation else { throw CancellationError() }
         try repository.requireWritable()
         if payload.syncedGroups.contains("lexue") { cache.lexueCalendarURL = payload.url }
-        for event in cache.ddlEvents where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil) {
+        for event in cache.ddlEvents
+        where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil)
+        {
             cache.lexueDDLCompletionByID[event.id] = event.done
         }
         let syncedEvents = payload.events.map { event in
@@ -396,7 +413,8 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
             into: cache.ddlEvents,
             syncedGroups: payload.syncedGroups
         )
-        cache.reconcileCompletionHistory(currentIDs: Set(payload.events.map(\.id)),
+        cache.reconcileCompleted(
+            currentIDs: Set(payload.events.map(\.id)),
             syncedGroups: payload.syncedGroups, now: Date())
         cache.ddlUpdatedAt = Date()
         guard await persistAndWait(), accountGeneration == generation else {
@@ -406,7 +424,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         }
     }
 
-    private func presentDDLSecondFactorNotice() {
+    private func presentDDLVerification() {
         notice = ScheduleNotice.userInput(
             title: "需要短信验证",
             message: ScheduleServiceError.schoolSecondFactorRequired.localizedDescription

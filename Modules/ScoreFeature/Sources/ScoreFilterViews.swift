@@ -1,4 +1,5 @@
 import ScoreDomain
+
 #if os(iOS)
 import DesignSystemKit
 import SwiftUI
@@ -11,8 +12,10 @@ struct ScoreFilterPage: View {
     let onToggleAll: () -> Void
 
     var body: some View {
-        AppMultiSelectionList(title: title, items: options, itemTitle: { $0 }, selectAllTitle: "全选",
-            showsCompletionButton: false, selectedItems: Binding(
+        AppMultiSelectionList(
+            title: title, items: options, itemTitle: { $0 }, selectAllTitle: "全选",
+            showsCompletionButton: false,
+            selectedItems: Binding(
                 get: { options.filter { selectedValues.contains($0) } },
                 set: { selectedValues = Set($0) }
             ), onToggleAll: onToggleAll)
@@ -39,7 +42,7 @@ struct ScoreSortPage: View {
                     }
                     .buttonStyle(.plain)
                     .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.score-sort-page.index")
+                    .accessibilityIdentifier("ui.score-sort-page.index")
                 }
             }
 

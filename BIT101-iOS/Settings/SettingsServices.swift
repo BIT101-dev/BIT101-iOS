@@ -1,17 +1,17 @@
+import Combine
+import CommunityCore
+import CommunityTransport
+import DesignSystemKit
+import Foundation
 import MineFeature
 import TransportCore
-import CommunityTransport
-import CommunityCore
-import DesignSystemKit
+
 //
 //  SettingsServices.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import Foundation
-import Combine
 
 /// 设置中心网络层使用的错误类型。
 enum SettingsServiceError: LocalizedError {
@@ -53,7 +53,8 @@ struct SettingsAccountDependencies {
     func acceptsLoginCheck(_ isLoggedIn: Bool, for owner: CommunityCredentials) -> Bool {
         let current = credentials()
         return current.identity == owner.identity && !current.cookie.isEmpty
-            || (!isLoggedIn && current.cookie.isEmpty && current.identity.accountIdentifier == owner.identity.accountIdentifier)
+            || (!isLoggedIn && current.cookie.isEmpty
+                && current.identity.accountIdentifier == owner.identity.accountIdentifier)
     }
 }
 
@@ -68,7 +69,10 @@ final class AccountProfileMutation: ObservableObject {
         guard !isBusy else { return false }
         isRunning = true
         task = Task {
-            defer { task = nil; isRunning = false }
+            defer {
+                task = nil
+                isRunning = false
+            }
             guard !Task.isCancelled else { return }
             await operation()
         }
@@ -103,7 +107,12 @@ final class AccountSettingsModel: ObservableObject {
 
     func loadProfile(for expected: CommunityCredentials? = nil) async {
         let owner = expected ?? dependencies.credentials()
-        guard !owner.cookie.isEmpty else { isLoggedIn = false; profile = nil; profileOwner = nil; return }
+        guard !owner.cookie.isEmpty else {
+            isLoggedIn = false
+            profile = nil
+            profileOwner = nil
+            return
+        }
         readRevision &+= 1
         let revision = readRevision
         isLoadingProfile = true
@@ -117,8 +126,11 @@ final class AccountSettingsModel: ObservableObject {
             isLoggedIn = true
         } catch {
             guard presents(error, for: owner), readRevision == revision else { return }
-            if let settingsError = error as? SettingsServiceError, case .notLoggedIn = settingsError {
-                isLoggedIn = false; profile = nil; profileOwner = nil
+            if let settingsError = error as? SettingsServiceError, case .notLoggedIn = settingsError
+            {
+                isLoggedIn = false
+                profile = nil
+                profileOwner = nil
             }
             profileLoadError = error
             alert = AppAlert(title: "加载资料失败", error: error)
@@ -131,13 +143,22 @@ final class AccountSettingsModel: ObservableObject {
         defer { isCheckingLogin = false }
         do {
             let loggedIn = try await dependencies.service.checkLogin()
-            guard dependencies.acceptsLoginCheck(loggedIn, for: owner), !Task.isCancelled else { return }
+            guard dependencies.acceptsLoginCheck(loggedIn, for: owner), !Task.isCancelled else {
+                return
+            }
             isLoggedIn = loggedIn
-            if loggedIn { await loadProfile(for: dependencies.credentials()) }
-            else { profile = nil; profileOwner = nil }
+            if loggedIn {
+                await loadProfile(for: dependencies.credentials())
+            } else {
+                profile = nil
+                profileOwner = nil
+            }
         } catch {
             guard presents(error, for: owner) else { return }
-            if dependencies.credentials().cookie.isEmpty { isLoggedIn = false; profile = nil }
+            if dependencies.credentials().cookie.isEmpty {
+                isLoggedIn = false
+                profile = nil
+            }
             alert = AppAlert(title: "检查失败", error: error)
         }
     }
@@ -154,13 +175,15 @@ final class AccountSettingsModel: ObservableObject {
             try await dependencies.profileMutation.perform {
                 let data = try await preparedData()
                 guard isCurrent(owner), let profile else { return }
-                let image = try await dependencies.service.uploadAvatar(data: data, filename: "avatar.jpg")
+                let image = try await dependencies.service.uploadAvatar(
+                    data: data, filename: "avatar.jpg")
                 guard isCurrent(owner) else { return }
                 _ = try await commit(profile.updatingUser(avatar: image), for: owner)
             }
         } catch {
             guard presents(error, for: owner) else { return }
-            alert = AppAlert(title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "头像更新失败", error: error)
+            alert = AppAlert(
+                title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "头像更新失败", error: error)
         }
     }
 
@@ -173,14 +196,18 @@ final class AccountSettingsModel: ObservableObject {
             }
         } catch {
             guard presents(error, for: owner) else { return false }
-            alert = AppAlert(title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "更新失败", error: error)
+            alert = AppAlert(
+                title: error is CommunityUpdateOutcomeUnknown ? "更新结果待确认" : "更新失败", error: error)
         }
         return saved
     }
 
-    private func commit(_ updated: MineUserInfo, for owner: CommunityCredentials) async throws -> Bool {
+    private func commit(_ updated: MineUserInfo, for owner: CommunityCredentials) async throws
+        -> Bool
+    {
         guard isCurrent(owner) else { return false }
-        try await dependencies.service.updateUser(nickname: updated.user.nickname,
+        try await dependencies.service.updateUser(
+            nickname: updated.user.nickname,
             motto: updated.user.motto, avatarMid: updated.user.avatar.mid)
         guard isCurrent(owner) else { return false }
         readRevision &+= 1
@@ -234,20 +261,22 @@ struct SettingsNetworkService: AccountSettingsServicing {
             "avatar_mid": avatarMid,
         ])
         let identity = session.currentCredentials.identity
-        do { try await api.requestVoid(path: "user/info", method: "PUT", body: body, mutation: .update) }
-        catch let failure as CommunityUpdateOutcomeUnknown {
+        do {
+            try await api.requestVoid(
+                path: "user/info", method: "PUT", body: body, mutation: .update)
+        } catch let failure as CommunityUpdateOutcomeUnknown {
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             let latest: MineUserInfo
-            do { latest = try await fetchMyInfo() }
-            catch {
+            do { latest = try await fetchMyInfo() } catch {
                 if TaskCancellation.matches(error) { throw error }
                 throw failure
             }
             try Task.checkCancellation()
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             guard nickname.map({ $0 == latest.user.nickname }) ?? true,
-                  motto.map({ $0 == latest.user.motto }) ?? true,
-                  avatarMid.map({ $0 == latest.user.avatar.mid }) ?? true else { throw failure }
+                motto.map({ $0 == latest.user.motto }) ?? true,
+                avatarMid.map({ $0 == latest.user.avatar.mid }) ?? true
+            else { throw failure }
         }
     }
 
@@ -256,8 +285,10 @@ struct SettingsNetworkService: AccountSettingsServicing {
     /// 上传成功后，调用方再次调用 `updateUser`，将返回的 `mid` 绑定到用户资料。
     func uploadAvatar(data: Data, filename: String = "avatar.jpg") async throws -> CommunityImage {
         let multipart = MultipartFormData.jpegFile(data: data, filename: filename)
-        return try await api.request(path: "upload/image", method: "POST", body: multipart.body,
-            contentType: multipart.contentType, validate: { image in
+        return try await api.request(
+            path: "upload/image", method: "POST", body: multipart.body,
+            contentType: multipart.contentType,
+            validate: { image in
                 guard image.hasResourceIdentity else { throw SettingsServiceError.invalidResponse }
             })
     }

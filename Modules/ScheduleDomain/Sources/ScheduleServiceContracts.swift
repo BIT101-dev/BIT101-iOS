@@ -47,7 +47,10 @@ public nonisolated struct DDLSyncPayload: Sendable {
     public let syncedGroups: Set<String>
     public let warnings: [String]
 
-    public init(url: String, events: [DDLEventRecord], syncedGroups: Set<String> = ["lexue"], warnings: [String] = []) {
+    public init(
+        url: String, events: [DDLEventRecord], syncedGroups: Set<String> = ["lexue"],
+        warnings: [String] = []
+    ) {
         self.url = url
         self.events = events
         self.syncedGroups = syncedGroups

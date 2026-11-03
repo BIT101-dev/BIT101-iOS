@@ -15,18 +15,27 @@ extension AppDesignSystem {
         public static let ddlNumericPickerHeight: CGFloat = 240
         public static let reminderDisabledOpacity = AppDesignSystem.Opacity.overlay
         enum GridPalette {
-            static let majorLine = AppDesignSystem.Foreground.secondaryColor.opacity(AppDesignSystem.Opacity.surface)
-            static let minorLine = AppDesignSystem.Foreground.secondaryColor.opacity(AppDesignSystem.Opacity.subtle)
-            static let courseBorder = AppDesignSystem.Foreground.secondaryColor.opacity(AppDesignSystem.Opacity.softOverlay)
-            static let weekBar = AppDesignSystem.Foreground.secondaryColor.opacity(AppDesignSystem.Opacity.controlOverlay)
-            static let todayHighlight = AppDesignSystem.Palette.Accent.primary.opacity(AppDesignSystem.Opacity.subtle)
+            static let majorLine = AppDesignSystem.Foreground.secondaryColor.opacity(
+                AppDesignSystem.Opacity.surface)
+            static let minorLine = AppDesignSystem.Foreground.secondaryColor.opacity(
+                AppDesignSystem.Opacity.subtle)
+            static let courseBorder = AppDesignSystem.Foreground.secondaryColor.opacity(
+                AppDesignSystem.Opacity.softOverlay)
+            static let weekBar = AppDesignSystem.Foreground.secondaryColor.opacity(
+                AppDesignSystem.Opacity.controlOverlay)
+            static let todayHighlight = AppDesignSystem.Palette.Accent.primary.opacity(
+                AppDesignSystem.Opacity.subtle)
         }
 
         enum CoursePalette {
-            static let examSurface = AppDesignSystem.Palette.Highlight.primary.opacity(AppDesignSystem.Opacity.surface)
-            static let customSurface = AppDesignSystem.Palette.Status.info.opacity(AppDesignSystem.Opacity.surface)
-            static let examBorder = AppDesignSystem.Palette.Highlight.primary.opacity(AppDesignSystem.Opacity.softOverlay)
-            static let customBorder = AppDesignSystem.Palette.Status.info.opacity(AppDesignSystem.Opacity.softOverlay)
+            static let examSurface = AppDesignSystem.Palette.Highlight.primary.opacity(
+                AppDesignSystem.Opacity.surface)
+            static let customSurface = AppDesignSystem.Palette.Status.info.opacity(
+                AppDesignSystem.Opacity.surface)
+            static let examBorder = AppDesignSystem.Palette.Highlight.primary.opacity(
+                AppDesignSystem.Opacity.softOverlay)
+            static let customBorder = AppDesignSystem.Palette.Status.info.opacity(
+                AppDesignSystem.Opacity.softOverlay)
             static let secondaryLayerOpacity = AppDesignSystem.Opacity.controlOverlay
         }
 
@@ -44,8 +53,12 @@ extension AppDesignSystem {
             static let itemSpacing: CGFloat = 5
             static let itemWidth: CGFloat = AppDesignSystem.Size.Control.touchTarget
             static var captionLineHeight: CGFloat {
-                UIFont.preferredFont(forTextStyle: AppDesignSystem.Typography.uiCaption,
-                    compatibleWith: UITraitCollection { $0.preferredContentSizeCategory = .large }).lineHeight
+                UIFont.preferredFont(
+                    forTextStyle: AppDesignSystem.Typography.uiCaption,
+                    compatibleWith: UITraitCollection {
+                        $0.preferredContentSizeCategory = .large
+                    }
+                ).lineHeight
             }
             static let barHeight: CGFloat = 20
             static let minorBarHeight: CGFloat = 16

@@ -1,7 +1,7 @@
+import Combine
 import ScheduleContracts
 import ScheduleSharedStore
 import SwiftUI
-import Combine
 
 enum WatchScheduleRefreshState: Equatable {
     case idle
@@ -38,24 +38,26 @@ struct WatchScheduleStatusDependencies {
     var loadResolvedSnapshot: @MainActor (Date, Int) async -> ScheduleExternalResolvedSnapshot
     var clearSnapshot: @MainActor () async -> Bool
     var activateSync: @MainActor () -> Void
-    var requestLatestSnapshot: @MainActor (
-        @escaping @MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void
-    ) -> Void
+    var requestLatestSnapshot:
+        @MainActor (
+            @escaping @MainActor (Result<WatchScheduleSyncOutcome, WatchScheduleSyncError>) -> Void
+        ) -> Void
     var waitForRefreshTimeout: @MainActor () async -> Void = {
         try? await Task.sleep(for: .seconds(4))
     }
 
-#if os(watchOS)
+    #if os(watchOS)
     static let live = WatchScheduleStatusDependencies(
         now: Date.init,
         loadResolvedSnapshot: { now, limit in
-            await ScheduleOccurrenceResolver.loadResolvedSnapshotAsync(store: PlatformScheduleSnapshotStorage.store, now: now, limit: limit)
+            await ScheduleOccurrenceResolver.loadResolvedSnapshotAsync(
+                store: PlatformScheduleSnapshotStorage.store, now: now, limit: limit)
         },
         clearSnapshot: WatchScheduleSyncManager.shared.clearSnapshot,
         activateSync: WatchScheduleSyncManager.shared.activateIfNeeded,
-        requestLatestSnapshot: WatchScheduleSyncManager.shared.requestLatestSnapshotFromPhone
+        requestLatestSnapshot: WatchScheduleSyncManager.shared.requestPhoneSnapshot
     )
-#endif
+    #endif
 }
 
 /// watch 主页面状态模型协调共享快照、时间推进和镜像同步。
@@ -80,11 +82,11 @@ final class WatchScheduleStatusModel: ObservableObject {
     private var snapshotGeneration: UInt64 = 0
     private var refreshGeneration: UInt64 = 0
 
-#if os(watchOS)
+    #if os(watchOS)
     convenience init() {
         self.init(dependencies: .live)
     }
-#endif
+    #endif
 
     init(dependencies: WatchScheduleStatusDependencies) {
         self.dependencies = dependencies
@@ -134,15 +136,19 @@ final class WatchScheduleStatusModel: ObservableObject {
             guard !Task.isCancelled, let self, self.snapshotGeneration == generation else { return }
             var usingCachedSnapshot = false
             if preserveLoadedSnapshot, let cached = self.snapshot, cached.isLoggedIn,
-               self.contentState == .ready || self.contentState == .rest,
-               resolved.contentState == .unavailable || resolved.contentState == .invalid,
-               resolved.snapshot == nil || resolved.snapshot?.studentID == cached.studentID {
+                self.contentState == .ready || self.contentState == .rest,
+                resolved.contentState == .unavailable || resolved.contentState == .invalid,
+                resolved.snapshot == nil || resolved.snapshot?.studentID == cached.studentID
+            {
                 let resolution = Task.detached {
-                    ScheduleOccurrenceResolver.resolvedSnapshot(from: cached, now: now, limit: limit)
+                    ScheduleOccurrenceResolver.resolvedSnapshot(
+                        from: cached, now: now, limit: limit)
                 }
                 resolved = await withTaskCancellationHandler {
                     await resolution.value
-                } onCancel: { resolution.cancel() }
+                } onCancel: {
+                    resolution.cancel()
+                }
                 guard !Task.isCancelled, self.snapshotGeneration == generation else { return }
                 usingCachedSnapshot = true
             }
@@ -165,7 +171,9 @@ final class WatchScheduleStatusModel: ObservableObject {
         let waitForTimeout = dependencies.waitForRefreshTimeout
         refreshFeedbackTask = Task { @MainActor [weak self] in
             await waitForTimeout()
-            guard !Task.isCancelled, let self, self.refreshGeneration == generation, self.refreshState == .syncing else { return }
+            guard !Task.isCancelled, let self, self.refreshGeneration == generation,
+                self.refreshState == .syncing
+            else { return }
             self.refreshState = .waiting
         }
         requestLatestSnapshot(reportResult: true)
@@ -221,7 +229,9 @@ final class WatchScheduleStatusModel: ObservableObject {
     private func requestLatestSnapshot(reportResult: Bool) {
         let generation = refreshGeneration
         dependencies.requestLatestSnapshot { [weak self] result in
-            guard reportResult, let self, self.refreshGeneration == generation, self.acceptsRefreshResult else { return }
+            guard reportResult, let self, self.refreshGeneration == generation,
+                self.acceptsRefreshResult
+            else { return }
             switch result {
             case .success(.received):
                 self.handleSnapshotReceived()

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Enforce the repository's 1000-line limit on maintained text files."""
+
 from pathlib import Path
 import subprocess
 import argparse
 from validation_inputs import repository_input_names
+from code_style_rules import style_findings
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
@@ -13,8 +15,11 @@ LIMIT = 1000
 
 
 def length_findings(contents: dict[str, str]) -> list[str]:
-    return [f"{name}: {len(source.splitlines())} 行，文件上限为 {LIMIT} 行"
-            for name, source in contents.items() if len(source.splitlines()) > LIMIT]
+    return [
+        f"{name}: {len(source.splitlines())} 行，文件上限为 {LIMIT} 行"
+        for name, source in contents.items()
+        if len(source.splitlines()) > LIMIT
+    ]
 
 
 def index_files(root: Path = ROOT, *, include=None) -> dict[str, bytes]:
@@ -29,10 +34,12 @@ def index_files(root: Path = ROOT, *, include=None) -> dict[str, bytes]:
     if not objects:
         return {}
     contents = {name: b"" for name, _ in objects}
-    with subprocess.Popen(["git", "cat-file", "--batch"], cwd=root,
-                          stdin=subprocess.PIPE, stdout=subprocess.PIPE) as process:
+    with subprocess.Popen(
+        ["git", "cat-file", "--batch"], cwd=root, stdin=subprocess.PIPE, stdout=subprocess.PIPE
+    ) as process:
         for name, object_id in objects:
-            if include is not None and not include(name): continue
+            if include is not None and not include(name):
+                continue
             process.stdin.write(object_id + b"\n")
             process.stdin.flush()
             size = int(process.stdout.readline().split()[2])
@@ -40,11 +47,14 @@ def index_files(root: Path = ROOT, *, include=None) -> dict[str, bytes]:
             if len(data) != size or process.stdout.read(1) != b"\n":
                 raise ValueError("Git 对象读取需要完整内容。")
             if include is None:
-                try: data.decode("utf-8")
-                except UnicodeDecodeError: continue
+                try:
+                    data.decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
             contents[name] = data
         process.stdin.close()
-        if process.wait(): raise subprocess.CalledProcessError(process.returncode, process.args)
+        if process.wait():
+            raise subprocess.CalledProcessError(process.returncode, process.args)
     return contents
 
 
@@ -63,7 +73,7 @@ def main() -> int:
         contents = working_contents()
     assert length_findings({"source.swift": "line\n" * LIMIT}) == []
     assert len(length_findings({"document.md": "line\n" * (LIMIT + 1)})) == 1
-    findings = length_findings(contents)
+    findings = length_findings(contents) + style_findings(contents)
     if findings:
         print("\n".join(findings))
     return int(bool(findings))
@@ -74,11 +84,12 @@ def working_contents() -> dict[str, str]:
     contents = {}
     for name in sorted(set(paths) - {""}):
         path = ROOT / name
-        if path.is_file():
-            try:
-                contents[name] = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                continue
+        if not (path.is_file()):
+            continue
+        try:
+            contents[name] = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
     return contents
 
 

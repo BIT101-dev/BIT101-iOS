@@ -1,20 +1,22 @@
-import SchedulePorts
-import ScheduleDomain
 import Foundation
+import ScheduleDomain
+import SchedulePorts
 
 extension ScheduleViewModel {
     public func syncCourses(term: String? = nil) async {
-        await courseSyncCoordinator.syncCourses(term: term, selectTerm: selectTermForSync, applyPayload: applyCourseSyncPayload)
+        await courseSyncCoordinator.syncCourses(
+            term: term, selectTerm: selectTermForSync, applyPayload: applyCourseSyncPayload)
     }
 
     public func loadAvailableTerms() async { await courseSyncCoordinator.loadAvailableTerms() }
 
     public func submitVerificationCode(_ code: String) async {
-        await courseSyncCoordinator.submitVerificationCode(code, applyPayload: applyCourseSyncPayload,
+        await courseSyncCoordinator.submitVerificationCode(
+            code, applyPayload: applyCourseSyncPayload,
             refreshClassrooms: { [classroom] in await classroom.refreshClassroomPage() })
     }
 
-    public func dismissVerificationChallenge() { courseSyncCoordinator.dismissVerificationChallenge() }
+    public func dismissChallenge() { courseSyncCoordinator.dismissChallenge() }
 
     /// 先保存用户选择的学期，再独立请求课表。
     ///
@@ -41,7 +43,11 @@ extension ScheduleViewModel {
     /// 课表页面展示的最近一次成功同步时间。
     var coursesLastUpdatedText: String {
         guard courseState.coursesUpdatedAt != .distantPast else { return "更新时间：暂无记录" }
-        return "更新时间：\(courseState.coursesUpdatedAt.formatted(.dateTime.month().day().hour().minute()))"
+        return
+            """
+            更新时间：\
+            \(courseState.coursesUpdatedAt.formatted(.dateTime.month().day().hour().minute()))
+            """
     }
 
     private func applyCourseSyncPayload(_ payload: CourseSyncPayload) async {
@@ -54,13 +60,14 @@ extension ScheduleViewModel {
             rules: rules,
             with: incomingCourses
         )
-        let coursesAreIdentical = scheduleCourseSourceRecordsEqual(existingBaseline, incomingCourses)
+        let coursesAreIdentical = courseSourcesEqual(existingBaseline, incomingCourses)
 
         let snapshot = makeTermSnapshot(from: payload, now: now)
         var candidate = persistenceSnapshot
         candidate.courseData.store(snapshot)
         guard candidate.hasSupportedCourseSections else {
-            notice = .userInput(title: "请调整节次时间表",
+            notice = .userInput(
+                title: "请调整节次时间表",
                 message: "新课程使用了当前时间表以外的节次。已有课表已保留，请在课表设置中补齐节次时间后重新同步。")
             return
         }
@@ -79,7 +86,8 @@ extension ScheduleViewModel {
             let courseText = names.isEmpty ? "相关课程" : names.joined(separator: "、")
             notice = ScheduleNotice(
                 title: "手动调课已失效",
-                message: "学校课表中的 \(courseText) 发生了变化，相关手动调课已移除，当前显示最新课程安排。" + (warnings.isEmpty ? "" : "\n" + warnings),
+                message: "学校课表中的 \(courseText) 发生了变化，相关手动调课已移除，当前显示最新课程安排。"
+                    + (warnings.isEmpty ? "" : "\n" + warnings),
                 allowsDiagnostics: !warnings.isEmpty
             )
         } else if !warnings.isEmpty {
@@ -92,7 +100,9 @@ extension ScheduleViewModel {
         }
     }
 
-    private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date) -> TermScheduleSnapshot {
+    private func makeTermSnapshot(from payload: CourseSyncPayload, now: Date)
+        -> TermScheduleSnapshot
+    {
         TermScheduleSnapshot(
             term: payload.term,
             firstDayString: payload.firstDayString,

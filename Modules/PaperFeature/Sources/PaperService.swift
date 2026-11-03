@@ -1,6 +1,6 @@
 import Combine
-import CommunityTransport
 import CommunityCore
+import CommunityTransport
 //
 //  PaperService.swift
 //  BIT101-iOS
@@ -30,7 +30,8 @@ extension PaperServiceError: CommunityAPIServiceError {
     public static var communityInvalidResponse: Self { .invalidResponse }
     public static func communityResourceFailure(path: String, message: String?) -> Self? {
         let parts = path.split(separator: "/")
-        return parts.count == 2 && parts[0] == "papers" && Int(parts[1]) != nil && message == "文章不存在Orz" ? .missingPaper : nil
+        return parts.count == 2 && parts[0] == "papers" && Int(parts[1]) != nil
+            && message == "文章不存在Orz" ? .missingPaper : nil
     }
 }
 
@@ -46,12 +47,12 @@ public nonisolated struct PaperEditConflict: LocalizedError {
 public struct PaperService {
     private let api: CommunityAPIClient<PaperServiceError>
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+        resourceUpdates.changes
+    }
 
     private let session: CommunitySession
     private let details = PaperDetailRequestStore()
-
-
 
     private struct CreatePaperRequest: Encodable {
         let title: String
@@ -88,14 +89,20 @@ public struct PaperService {
         }
     }
 
-    public init(session: CommunitySession, resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
-        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
+    public init(
+        session: CommunitySession,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil
+    ) {
+        self.resourceUpdates =
+            resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         self.session = session
         api = session.client(errorDomain: "BIT101.Paper")
     }
 
     /// 拉取文章列表。
-    public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary] {
+    public func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws
+        -> [PaperSummary]
+    {
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
         var queryItems = [URLQueryItem(name: "page", value: String(page))]
@@ -105,7 +112,8 @@ public struct PaperService {
         if let orderValue = order.requestValue {
             queryItems.append(URLQueryItem(name: "order", value: orderValue))
         }
-        let papers: [PaperSummary] = try await api.request(path: "papers", queryItems: queryItems, authentication: .optional,
+        let papers: [PaperSummary] = try await api.request(
+            path: "papers", queryItems: queryItems, authentication: .optional,
             validate: { papers in
                 guard papers.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else {
                     throw PaperServiceError.invalidResponse
@@ -139,16 +147,25 @@ public struct PaperService {
     private func loadPaper(id: Int, credentials: CommunityCredentials) async throws -> PaperDetail {
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
-        guard session.currentCredentials.identity == credentials.identity else { throw CancellationError() }
-        let response: CommunityAPIResponse<PaperDetail> = try await api.response(path: "papers/\(id)", authentication: .optional,
-            validate: { detail in guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else { throw PaperServiceError.invalidResponse } })
+        guard session.currentCredentials.identity == credentials.identity else {
+            throw CancellationError()
+        }
+        let response: CommunityAPIResponse<PaperDetail> = try await api.response(
+            path: "papers/\(id)", authentication: .optional,
+            validate: { detail in
+                guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else {
+                    throw PaperServiceError.invalidResponse
+                }
+            })
         var detail = response.value
         detail.isViewerAuthenticated = response.isAuthenticated
         return resourceUpdates.resolve(detail, since: revision)
     }
 
     /// 拉取文章评论。
-    public func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment] {
+    public func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws
+        -> [CommunityComment]
+    {
         var queryItems = [
             URLQueryItem(name: "obj", value: "paper\(paperID)"),
             URLQueryItem(name: "order", value: order.rawValue),
@@ -156,11 +173,15 @@ public struct PaperService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        let response: CommunityAPIResponse<[CommunityComment]> = try await api.response(path: "reaction/comments",
-            queryItems: queryItems, authentication: .optional, validate: { comments in
-                guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else { throw PaperServiceError.invalidResponse }
+        let response: CommunityAPIResponse<[CommunityComment]> = try await api.response(
+            path: "reaction/comments",
+            queryItems: queryItems, authentication: .optional,
+            validate: { comments in
+                guard CommunityComment.validatesResponse(comments, for: "paper\(paperID)") else {
+                    throw PaperServiceError.invalidResponse
+                }
             })
-        return response.value.map { $0.settingViewerAuthentication(response.isAuthenticated) }
+        return response.value.map { $0.settingViewerAuth(response.isAuthenticated) }
     }
 
     /// 点赞或取消点赞文章。
@@ -248,37 +269,45 @@ public struct PaperService {
         lastUpdatedAt: String
     ) async throws {
         defer { details.invalidate(ids: [id]) }
-        guard let version = AppDateText.date(from: lastUpdatedAt) else { throw PaperServiceError.invalidResponse }
+        guard let version = AppDateText.date(from: lastUpdatedAt) else {
+            throw PaperServiceError.invalidResponse
+        }
         let identity = session.currentCredentials.identity
-        do { try await api.requestVoid(
-            path: "papers/\(id)",
-            method: "PUT",
-            body: try api.encode(
-                UpdatePaperRequest(
-                    title: title,
-                    intro: intro,
-                    content: content,
-                    anonymous: anonymous,
-                    publicEdit: publicEdit,
-                    lastTime: version.timeIntervalSince1970
+        do {
+            try await api.requestVoid(
+                path: "papers/\(id)",
+                method: "PUT",
+                body: try api.encode(
+                    UpdatePaperRequest(
+                        title: title,
+                        intro: intro,
+                        content: content,
+                        anonymous: anonymous,
+                        publicEdit: publicEdit,
+                        lastTime: version.timeIntervalSince1970
+                    )
                 )
             )
-        ) } catch {
+        } catch {
             let failure = error
             if TaskCancellation.matches(error) || error is HTTPRequestNotSent { throw error }
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             details.invalidate(ids: [id])
             let latest: PaperDetail
-            do { latest = try await fetchPaper(id: id) }
-            catch {
+            do { latest = try await fetchPaper(id: id) } catch {
                 if TaskCancellation.matches(error) { throw error }
                 throw failure
             }
             try Task.checkCancellation()
             guard session.currentCredentials.identity == identity else { throw CancellationError() }
             if latest.title == title, latest.intro == intro, latest.content == content,
-               latest.anonymous == anonymous, latest.publicEdit == publicEdit { return }
-            guard let latestVersion = AppDateText.date(from: latest.updateTime) else { throw PaperServiceError.invalidResponse }
+                latest.anonymous == anonymous, latest.publicEdit == publicEdit
+            {
+                return
+            }
+            guard let latestVersion = AppDateText.date(from: latest.updateTime) else {
+                throw PaperServiceError.invalidResponse
+            }
             if latestVersion != version { throw PaperEditConflict(latest: latest) }
             throw failure
         }

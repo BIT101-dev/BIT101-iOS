@@ -42,10 +42,15 @@ struct GalleryReportSheet: View {
                             .appInteractiveListRow()
                             .accessibilityIdentifier("ui.gallery-report-sheet.reload")
                     } else {
-                        Picker("类型", selection: Binding(
-                            get: { model.selectedTypeID ?? model.reportTypes.first?.id ?? 0 },
-                            set: { model.selectedTypeID = $0 }
-                        )) {
+                        Picker(
+                            "类型",
+                            selection: Binding(
+                                get: {
+                                    model.selectedTypeID ?? model.reportTypes.first?.id ?? 0
+                                },
+                                set: { model.selectedTypeID = $0 }
+                            )
+                        ) {
                             ForEach(model.reportTypes) { reportType in
                                 Text(reportType.text).tag(reportType.id)
                             }
@@ -56,10 +61,13 @@ struct GalleryReportSheet: View {
                 }
 
                 Section("补充说明") {
-                    TextField("", text: $model.text, prompt: AppInputPrompt.text("请描述举报原因"), axis: .vertical)
-                        .lineLimit(4, reservesSpace: true)
-                        .accessibilityLabel("请描述举报原因")
-                        .accessibilityIdentifier("gallery.report.reason")
+                    TextField(
+                        "", text: $model.text, prompt: AppInputPrompt.text("请描述举报原因"),
+                        axis: .vertical
+                    )
+                    .lineLimit(4, reservesSpace: true)
+                    .accessibilityLabel("请描述举报原因")
+                    .accessibilityIdentifier("gallery.report.reason")
                 }
 
                 if let errorMessage = model.errorMessage, !errorMessage.isEmpty {
@@ -74,9 +82,12 @@ struct GalleryReportSheet: View {
                         Task { await submit() }
                     }
                     .frame(maxWidth: .infinity)
-                    .disabled(model.isLoading || model.isSubmitting || model.resultNeedsReview || model.selectedTypeID == nil)
+                    .disabled(
+                        model.isLoading || model.isSubmitting || model.resultNeedsReview
+                            || model.selectedTypeID == nil
+                    )
                     .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.gallery-report-sheet.submit")
+                    .accessibilityIdentifier("ui.gallery-report-sheet.submit")
                 }
             }
             .disabled(model.isSubmitting || model.resultNeedsReview)

@@ -1,29 +1,30 @@
-import Combine
-import ScoreDomain
-import ScorePorts
-import ScheduleDomain
-import SchedulePorts
-@testable import ScoreInfrastructure
-import CommunityTransport
-import CommunityCore
-@testable import GalleryFeature
-@testable import CommunityUI
-@testable import ScheduleFeature
-@testable import MediaKit
-@testable import ScoreFeature
-import StorageCore
-import TransportCore
 import ClientCore
-import ScheduleContracts
-import ScheduleActivityContracts
+import Combine
+import CommunityCore
+import CommunityTransport
 import Foundation
 import Network
-import os
+import ScheduleActivityContracts
+import ScheduleContracts
+import ScheduleDomain
+import SchedulePorts
+import ScoreDomain
+import ScorePorts
 import Security
+import StorageCore
 import Testing
+import TransportCore
 import UIKit
 import XCTest
+import os
+
 @testable import BIT101_iOS
+@testable import CommunityUI
+@testable import GalleryFeature
+@testable import MediaKit
+@testable import ScheduleFeature
+@testable import ScoreFeature
+@testable import ScoreInfrastructure
 
 private nonisolated final class DelayedSchoolCookieServer: Sendable {
     private struct State: Sendable {
@@ -40,7 +41,7 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
         listener.stateUpdateHandler = { [listener, state] value in
             state.withLock {
                 if case .ready = value { $0.port = listener.port?.rawValue }
-                if case let .failed(error) = value { $0.failure = error }
+                if case .failed(let error) = value { $0.failure = error }
             }
         }
         listener.newConnectionHandler = { [self] connection in
@@ -50,13 +51,23 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
         listener.start(queue: queue)
     }
     private func receive(_ connection: NWConnection, buffered: Data) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 8_192) { [self] data, _, complete, error in
-            if let error { state.withLock { $0.failure = error }; return }
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8_192) {
+            [self] data, _, complete, error in
+            if let error {
+                state.withLock { $0.failure = error }
+                return
+            }
             var bytes = buffered
             if let data { bytes.append(data) }
             let request = String(decoding: bytes, as: UTF8.self)
-            if request.contains("\r\n\r\n") { state.withLock { $0.connection = connection; $0.request = request } }
-            else if !complete { receive(connection, buffered: bytes) }
+            if request.contains("\r\n\r\n") {
+                state.withLock {
+                    $0.connection = connection
+                    $0.request = request
+                }
+            } else if !complete {
+                receive(connection, buffered: bytes)
+            }
         }
     }
     func url() async throws -> URL {
@@ -75,11 +86,23 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
             return snapshot.connection != nil
         }
     }
-    func requestHasCookie() -> Bool { state.withLock { $0.request.lowercased().contains("\r\ncookie:") } }
+    func requestHasCookie() -> Bool {
+        state.withLock { $0.request.lowercased().contains("\r\ncookie:") }
+    }
     func finish() {
-        let connection = state.withLock { value in let current = value.connection; value.connection = nil; return current }
-        let response = Data("HTTP/1.1 200 OK\r\nSet-Cookie: school-test=retired-session; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
-        connection?.send(content: response, completion: .contentProcessed { _ in connection?.cancel() })
+        let connection = state.withLock { value in
+            let current = value.connection
+            value.connection = nil
+            return current
+        }
+        let response = Data(
+            """
+            HTTP/1.1 200 OK\r\nSet-Cookie: school-test=retired-session; Path=/\r\nContent-Lengt\
+            h: 0\r\nConnection: close\r\n\r\n
+            """
+            .utf8)
+        connection?.send(
+            content: response, completion: .contentProcessed { _ in connection?.cancel() })
     }
     func stop() {
         listener.newConnectionHandler = nil
@@ -91,18 +114,21 @@ private nonisolated final class DelayedSchoolCookieServer: Sendable {
 
 @MainActor
 struct SchoolCookieIsolationTests {
-    @Test func smokeAuthenticationStartsWithIndependentCookieContainers() throws {
+    @Test func smokeAuthStartsWithCookieContainers() throws {
         let first = AppSchoolSession.isolatedState()
         let second = AppSchoolSession.isolatedState()
-        let cookie = try #require(HTTPCookie(properties: [.domain: "sso.bit.edu.cn", .path: "/",
-            .name: "smoke-fixture", .value: "first"] ))
+        let cookie = try #require(
+            HTTPCookie(properties: [
+                .domain: "sso.bit.edu.cn", .path: "/",
+                .name: "smoke-fixture", .value: "first",
+            ]))
         first.cookieStorage.setCookie(cookie)
         #expect(first.cookieStorage !== second.cookieStorage)
         #expect(second.cookieStorage.cookies?.contains(where: { $0.name == cookie.name }) == false)
         #expect(first.cookieStorage !== AppSchoolSession.teachingCenter.cookieStorage)
     }
     @Test(.timeLimit(.minutes(1)))
-    func delayedSessionCookieWritesRemainInTheRetiredAccountContainer() async throws {
+    func delayedSessionCookieWritesRemainContainer() async throws {
         let retiredCookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let currentCookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
         let state = TeachingCenterSessionState(cookieStorage: retiredCookies)
@@ -120,7 +146,7 @@ struct SchoolCookieIsolationTests {
         let oldRequest = Task { try await transport.data(for: request) }
         defer { oldRequest.cancel() }
         try await server.waitForRequest()
-        state.clearSchoolAuthenticationCookies()
+        state.clearSchoolCookies()
         state.replaceCookieStorage(with: currentCookies)
         server.finish()
         _ = try await oldRequest.value
@@ -133,8 +159,15 @@ struct SchoolCookieIsolationTests {
         #expect(server.requestHasCookie() == false)
         server.finish()
         _ = try await newRequest.value
-        #expect(selections.count == 2 && selections[0] === retiredCookies && selections[1] === currentCookies)
-        currentCookies.setCookie(try #require(HTTPCookie(properties: [.domain: "webvpn.bit.edu.cn", .path: "/", .name: "school-owner", .value: "current-session"])))
+        #expect(
+            selections.count == 2 && selections[0] === retiredCookies
+                && selections[1] === currentCookies)
+        currentCookies.setCookie(
+            try #require(
+                HTTPCookie(properties: [
+                    .domain: "webvpn.bit.edu.cn", .path: "/", .name: "school-owner",
+                    .value: "current-session",
+                ])))
         #expect(state.hasUsableSession(for: "next-account") == false)
         state.markAuthenticated(for: "next-account")
         #expect(state.hasUsableSession(for: "next-account"))

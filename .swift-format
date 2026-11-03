@@ -1,0 +1,9 @@
+{
+  "lineLength": 100,
+  "indentation": {
+    "spaces": 4
+  },
+  "maximumBlankLines": 1,
+  "indentConditionalCompilationBlocks": false,
+  "respectsExistingLineBreaks": true
+}

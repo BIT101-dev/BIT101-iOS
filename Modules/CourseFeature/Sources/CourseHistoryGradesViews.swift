@@ -114,11 +114,14 @@ struct CourseHistoryGradesChart: View {
 
                 if let selectedGrade {
                     RuleMark(x: .value("选中学期", selectedGrade.term))
-                        .foregroundStyle(AppDesignSystem.Palette.Status.danger.opacity(AppDesignSystem.Course.historyWarningOpacity))
+                        .foregroundStyle(
+                            AppDesignSystem.Palette.Status.danger.opacity(
+                                AppDesignSystem.Course.historyWarningOpacity)
+                        )
                         .lineStyle(StrokeStyle(lineWidth: 2, dash: [5, 4]))
                 }
             }
-            .chartYScale(domain: 0 ... 1)
+            .chartYScale(domain: 0...1)
             .chartYAxis(.hidden)
             .chartXAxis {
                 AxisMarks(values: chartGrades.map(\.term)) { value in
@@ -143,7 +146,9 @@ struct CourseHistoryGradesChart: View {
     }
 
     private func shouldShowYearLabel(for term: String) -> Bool {
-        guard let index = chartGrades.firstIndex(where: { $0.term == term }) else { return false }
+        guard let index = chartGrades.firstIndex(where: { $0.term == term }) else {
+            return false
+        }
         guard index > 0 else { return true }
         return yearText(from: chartGrades[index - 1].term) != yearText(from: term)
     }

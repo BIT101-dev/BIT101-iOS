@@ -22,10 +22,13 @@ public struct ScheduleTermPickerPage: View {
                     }
                 } else if viewModel.availableTerms.isEmpty {
                     if viewModel.verificationChallenge != nil {
-                        AppEmptyState(title: "等待短信验证", systemImage: "message", message: "完成短信验证后获取学期列表。")
+                        AppEmptyState(
+                            title: "等待短信验证", systemImage: "message", message: "完成短信验证后获取学期列表。")
                     } else {
-                        AppEmptyState(title: viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载",
-                            systemImage: "calendar", actionTitle: "重新加载") {
+                        AppEmptyState(
+                            title: viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载",
+                            systemImage: "calendar", actionTitle: "重新加载"
+                        ) {
                             Task { await viewModel.loadAvailableTerms() }
                         }
                     }
@@ -47,9 +50,12 @@ public struct ScheduleTermPickerPage: View {
                             }
                             .contentShape(Rectangle())
                         }
-                        .disabled(viewModel.isSyncingCourses || viewModel.isLoadingTerms || viewModel.settingsSnapshot.currentTerm == term)
+                        .disabled(
+                            viewModel.isSyncingCourses || viewModel.isLoadingTerms
+                                || viewModel.settingsSnapshot.currentTerm == term
+                        )
                         .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.schedule-term-picker-page.term")
+                        .accessibilityIdentifier("ui.schedule-term-picker-page.term")
                     }
                 }
             }
@@ -63,7 +69,7 @@ public struct ScheduleTermPickerPage: View {
             await viewModel.loadAvailableTerms()
         }
         .refreshable {
-                    interactionEvidence?("interaction.ScheduleTermPickerPage.refreshable", "refresh")
+            interactionEvidence?("interaction.ScheduleTermPickerPage.refreshable", "refresh")
 
             await viewModel.loadAvailableTerms()
         }
@@ -103,7 +109,7 @@ public struct ScheduleSemesterStartDatePickerPage: View {
             .environment(\.calendar, ScheduleDateCodec.calendar)
             .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
             .appSelectionFeedback(trigger: draftDate)
-                .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.学期起始日期")
+            .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.学期起始日期")
 
             if let schoolDate {
                 Button("使用学校日期") {
@@ -119,14 +125,14 @@ public struct ScheduleSemesterStartDatePickerPage: View {
                 Button("取消") {
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.cancel")
+                .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") {
                     onSubmit(usesSchoolDate ? nil : draftDate)
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.done")
+                .accessibilityIdentifier("ui.schedule-semester-start-date-picker-page.done")
             }
         }
     }
@@ -146,7 +152,7 @@ public struct CourseLiveActivityLeadMinutesPickerPage: View {
     /// 使用原生 wheel picker 提供 1...60 分钟的阈值选择。
     public var body: some View {
         Picker("提前显示阈值", selection: $draftValue) {
-            ForEach(1 ... 60, id: \.self) { minute in
+            ForEach(1...60, id: \.self) { minute in
                 Text("\(minute) 分钟")
                     .tag(minute)
             }
@@ -161,17 +167,19 @@ public struct CourseLiveActivityLeadMinutesPickerPage: View {
                 Button("取消") {
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.cancel")
+                .accessibilityIdentifier(
+                    "ui.course-live-activity-lead-minutes-picker-page.cancel")
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("完成") {
                     value = draftValue
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.done")
+                .accessibilityIdentifier(
+                    "ui.course-live-activity-lead-minutes-picker-page.done")
             }
         }
-            .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.提前显示阈值")
+        .accessibilityIdentifier("ui.course-live-activity-lead-minutes-picker-page.提前显示阈值")
     }
 }
 
@@ -197,7 +205,9 @@ public struct ScheduleExportCodeSheet: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(AppDesignSystem.Spacing.content)
-                        .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                        .background(
+                            AppDesignSystem.Palette.Background.secondaryGrouped,
+                            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
                 }
                 .accessibilityIdentifier("interaction.ScheduleExportCodeSheet.scroll")
 
@@ -218,7 +228,7 @@ public struct ScheduleExportCodeSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                        .accessibilityIdentifier("ui.schedule-export-code-sheet.cancel")
+                    .accessibilityIdentifier("ui.schedule-export-code-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     ShareLink(item: code)
@@ -253,7 +263,9 @@ public struct ScheduleImportCodeSheet: View {
     @State private var importTask: Task<Void, Never>?
     @FocusState private var isEditingCode: Bool
 
-    public init(initialText: String, appStoreURL: URL, onImport: @escaping (String) async throws -> Void) {
+    public init(
+        initialText: String, appStoreURL: URL, onImport: @escaping (String) async throws -> Void
+    ) {
         self.onImport = onImport
         self.appStoreURL = appStoreURL
         _text = State(initialValue: initialText)
@@ -267,14 +279,18 @@ public struct ScheduleImportCodeSheet: View {
                     .font(AppDesignSystem.Typography.footnote.monospacedDigit())
                     .frame(minHeight: AppDesignSystem.Schedule.settingsPanelMinimumHeight)
                     .padding(AppDesignSystem.Spacing.regular)
-                    .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+                    .background(
+                        AppDesignSystem.Palette.Background.secondaryGrouped,
+                        in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
+                    )
                     .accessibilityLabel("课表编码")
                     .accessibilityIdentifier("schedule.import.code")
 
                 HStack(spacing: AppDesignSystem.Spacing.content) {
                     Button {
                         guard let clipboard = UIPasteboard.general.string,
-                              !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        else {
                             localAlert = AppAlert.userInput(
                                 title: "粘贴失败",
                                 message: "剪贴板中没有可用的课表编码。"
@@ -298,16 +314,18 @@ public struct ScheduleImportCodeSheet: View {
                                 try await onImport(code)
                                 try Task.checkCancellation()
                                 dismiss()
-                            } catch where TaskCancellation.matches(error) {
+                            } catch  where TaskCancellation.matches(error) {
                                 return
                             } catch let error as ScheduleShareCodeError {
-                                if case let .unsupportedNewerFormat(version) = error {
+                                if case .unsupportedNewerFormat(let version) = error {
                                     unsupportedFormatVersion = version
                                 } else {
-                                    localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
+                                    localAlert = AppAlert.userInput(
+                                        title: "导入失败", message: error.localizedDescription)
                                 }
                             } catch {
-                                localAlert = AppAlert.userInput(title: "导入失败", message: error.localizedDescription)
+                                localAlert = AppAlert.userInput(
+                                    title: "导入失败", message: error.localizedDescription)
                             }
                         }
                     } label: {
@@ -315,7 +333,9 @@ public struct ScheduleImportCodeSheet: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(importTask != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        importTask != nil
+                            || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .padding(AppDesignSystem.Spacing.section)
@@ -326,7 +346,7 @@ public struct ScheduleImportCodeSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                        .accessibilityIdentifier("schedule.import-code.cancel")
+                    .accessibilityIdentifier("schedule.import-code.cancel")
                 }
             }
             .diagnosticAlert(item: $localAlert)
@@ -384,7 +404,7 @@ public struct ScheduleRenameSheet: View {
                     Button("取消") {
                         dismiss()
                     }
-                        .accessibilityIdentifier("ui.schedule-rename-sheet.cancel")
+                    .accessibilityIdentifier("ui.schedule-rename-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确定") {
@@ -392,10 +412,11 @@ public struct ScheduleRenameSheet: View {
                             try onSubmit(text)
                             dismiss()
                         } catch {
-                            localAlert = AppAlert.userInput(title: "保存失败", message: error.localizedDescription)
+                            localAlert = AppAlert.userInput(
+                                title: "保存失败", message: error.localizedDescription)
                         }
                     }
-                        .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
+                    .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
                 }
             }
             .diagnosticAlert(item: $localAlert)

@@ -8,7 +8,9 @@ public nonisolated enum AccountStorageIdentity {
 
     public static func stableToken(for accountIdentifier: String) -> String {
         let normalizedIdentifier = accountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedIdentifier.isEmpty, normalizedIdentifier != "__default__" else { return "__default__" }
+        guard !normalizedIdentifier.isEmpty, normalizedIdentifier != "__default__" else {
+            return "__default__"
+        }
         guard !isStableToken(normalizedIdentifier) else { return normalizedIdentifier }
 
         let digest = SHA256.hash(data: Data(normalizedIdentifier.utf8))
@@ -47,7 +49,9 @@ public nonisolated struct AppStorageSession: Sendable, Equatable {
     public var accountDirectoryName: String {
         guard !isGuest else { return "__default__" }
         let invalid = CharacterSet.alphanumerics.inverted
-        guard accountIdentifier.rangeOfCharacter(from: invalid) != nil else { return accountIdentifier }
+        guard accountIdentifier.rangeOfCharacter(from: invalid) != nil else {
+            return accountIdentifier
+        }
         return "__encoded__" + accountIdentifier.utf8.map { String(format: "%02X", $0) }.joined()
     }
 

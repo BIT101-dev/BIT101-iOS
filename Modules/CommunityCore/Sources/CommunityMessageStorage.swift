@@ -1,6 +1,6 @@
-import StorageCore
 import Combine
 import Foundation
+import StorageCore
 
 /// 消息中心的消息类型。
 ///
@@ -41,7 +41,8 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
     public let schemaVersion: Int
     public static let maximumHistoryIDsPerType = 1_024
     public static let maximumSnapshotBytes = 16 * 1_024 * 1_024
-    public static let maximumUnreadIDsPerType = maximumSnapshotBytes / (String(Int.max).utf8.count + 1)
+    public static let maximumUnreadIDsPerType =
+        maximumSnapshotBytes / (String(Int.max).utf8.count + 1)
     public var latestIDsByType: [String: [Int]] = [:]
     public var seenIDsByType: [String: [Int]] = [:]
     public var retainedFromIDByType: [String: Int] = [:]
@@ -49,18 +50,28 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
 
     public init() { schemaVersion = Self.currentSchemaVersion }
 
-    private enum CodingKeys: String, CodingKey { case schemaVersion, latestIDsByType, seenIDsByType, retainedFromIDByType, pendingUnreadAfterIDByType }
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, latestIDsByType, seenIDsByType, retainedFromIDByType,
+            pendingUnreadAfterIDByType
+    }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = values.contains(.schemaVersion) ? try values.decode(Int.self, forKey: .schemaVersion) : Self.currentSchemaVersion
+        schemaVersion =
+            values.contains(.schemaVersion)
+            ? try values.decode(Int.self, forKey: .schemaVersion) : Self.currentSchemaVersion
         guard schemaVersion == Self.currentSchemaVersion else {
-            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: values, debugDescription: "消息快照需要受支持的格式版本。")
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion, in: values, debugDescription: "消息快照需要受支持的格式版本。")
         }
         latestIDsByType = try values.decode([String: [Int]].self, forKey: .latestIDsByType)
         seenIDsByType = try values.decode([String: [Int]].self, forKey: .seenIDsByType)
-        retainedFromIDByType = values.contains(.retainedFromIDByType) ? try values.decode([String: Int].self, forKey: .retainedFromIDByType) : [:]
-        pendingUnreadAfterIDByType = values.contains(.pendingUnreadAfterIDByType) ? try values.decode([String: Int].self, forKey: .pendingUnreadAfterIDByType) : [:]
+        retainedFromIDByType =
+            values.contains(.retainedFromIDByType)
+            ? try values.decode([String: Int].self, forKey: .retainedFromIDByType) : [:]
+        pendingUnreadAfterIDByType =
+            values.contains(.pendingUnreadAfterIDByType)
+            ? try values.decode([String: Int].self, forKey: .pendingUnreadAfterIDByType) : [:]
     }
 
     /// 各分类保留最近的已读 ID；保留边界之前的消息归为历史已读。
@@ -88,7 +99,8 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
         var merged = self
         merged.retainedFromIDByType.merge(other.retainedFromIDByType, uniquingKeysWith: max)
         for (type, ids) in other.seenIDsByType {
-            merged.seenIDsByType[type] = Array(Set(merged.seenIDsByType[type] ?? []).union(ids)).sorted()
+            merged.seenIDsByType[type] = Array(Set(merged.seenIDsByType[type] ?? []).union(ids))
+                .sorted()
         }
         return merged.compacted()
     }
@@ -103,11 +115,15 @@ public protocol GalleryMessageReadStoring: AnyObject {
     @discardableResult func prepareSnapshot() async -> Bool
     /// 用户确认后重建当前账号的已读记录，保留可读取的磁盘状态。
     @discardableResult func recoverSnapshot() async -> Bool
-    @discardableResult func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) async -> Bool
+    @discardableResult func replaceLatestIDs(
+        _ ids: [Int], unreadCount: Int, for type: GalleryMessageType
+    ) async -> Bool
     @discardableResult func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool
-    @discardableResult func markAllSeen(including ids: [Int], for type: GalleryMessageType) async -> Bool
+    @discardableResult func markAllSeen(including ids: [Int], for type: GalleryMessageType) async
+        -> Bool
     func pendingUnreadAfterID(for type: GalleryMessageType) -> Int?
-    @discardableResult func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType) async -> Bool
+    @discardableResult func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType) async
+        -> Bool
     func unreadCount(for type: GalleryMessageType) -> Int
     func isUnread(id: Int, for type: GalleryMessageType) -> Bool
 }

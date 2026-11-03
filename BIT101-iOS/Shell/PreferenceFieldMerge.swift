@@ -9,14 +9,19 @@ nonisolated enum PreferenceFieldMerge {
     ) throws -> ExperimentalPreferenceSyncEnvelope<Payload> {
         let values = try fields(payload)
         let oldValues = try previous.map { try fields($0.payload) } ?? [:]
-        var versions = previous?.fieldUpdatedAt
-            ?? Dictionary(uniqueKeysWithValues: oldValues.keys.map { ($0, previous?.updatedAt ?? .distantPast) })
+        var versions =
+            previous?.fieldUpdatedAt
+            ?? Dictionary(
+                uniqueKeysWithValues: oldValues.keys.map {
+                    ($0, previous?.updatedAt ?? .distantPast)
+                })
         for key in Set(values.keys).union(oldValues.keys) {
             if try encoded(values[key]) != encoded(oldValues[key]) { versions[key] = timestamp }
         }
         return ExperimentalPreferenceSyncEnvelope(
             updatedAt: max(previous?.updatedAt ?? .distantPast, versions.values.max() ?? timestamp),
-            payload: payload, fieldUpdatedAt: versions, additionalFields: previous?.additionalFields ?? [:]
+            payload: payload, fieldUpdatedAt: versions,
+            additionalFields: previous?.additionalFields ?? [:]
         )
     }
 
@@ -34,7 +39,8 @@ nonisolated enum PreferenceFieldMerge {
         for key in keys {
             let localDate = version(of: key, in: local)
             let remoteDate = version(of: key, in: remote)
-            let remoteWinsTie = try encoded(localValues[key]).lexicographicallyPrecedes(encoded(remoteValues[key]))
+            let remoteWinsTie = try encoded(localValues[key]).lexicographicallyPrecedes(
+                encoded(remoteValues[key]))
             let useRemote = remoteDate > localDate || (remoteDate == localDate && remoteWinsTie)
             values[key] = useRemote ? remoteValues[key] : localValues[key]
             versions[key] = max(localDate, remoteDate)
@@ -42,14 +48,17 @@ nonisolated enum PreferenceFieldMerge {
         let data = try JSONSerialization.data(withJSONObject: values, options: [.sortedKeys])
         let payload = try JSONDecoder().decode(Payload.self, from: data)
         let known = try fields(payload)
-        let extras = try JSONDecoder().decode([String: PreferenceJSONValue].self, from: data).filter { known[$0.key] == nil }
+        let extras = try JSONDecoder().decode([String: PreferenceJSONValue].self, from: data).filter
+        { known[$0.key] == nil }
         return ExperimentalPreferenceSyncEnvelope(
             updatedAt: max(local.updatedAt, remote.updatedAt),
             payload: payload, fieldUpdatedAt: versions, additionalFields: extras
         )
     }
 
-    private static func version<Payload>(of key: String, in envelope: ExperimentalPreferenceSyncEnvelope<Payload>) -> Date {
+    private static func version<Payload>(
+        of key: String, in envelope: ExperimentalPreferenceSyncEnvelope<Payload>
+    ) -> Date {
         envelope.fieldUpdatedAt.map { $0[key] ?? .distantPast } ?? envelope.updatedAt
     }
 
@@ -61,12 +70,17 @@ nonisolated enum PreferenceFieldMerge {
         return values
     }
 
-    private static func fields<Payload>(_ envelope: ExperimentalPreferenceSyncEnvelope<Payload>) throws -> [String: Any] {
-        let extras = try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope.additionalFields)) as? [String: Any] ?? [:]
+    private static func fields<Payload>(_ envelope: ExperimentalPreferenceSyncEnvelope<Payload>)
+        throws -> [String: Any]
+    {
+        let extras =
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(envelope.additionalFields))
+            as? [String: Any] ?? [:]
         return try extras.merging(fields(envelope.payload)) { _, known in known }
     }
 
     private static func encoded(_ value: Any?) throws -> Data {
-        try JSONSerialization.data(withJSONObject: value ?? NSNull(), options: [.sortedKeys, .fragmentsAllowed])
+        try JSONSerialization.data(
+            withJSONObject: value ?? NSNull(), options: [.sortedKeys, .fragmentsAllowed])
     }
 }

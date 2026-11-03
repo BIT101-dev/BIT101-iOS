@@ -1,9 +1,9 @@
-import ScoreDomain
-import ScorePorts
-import StorageCore
 import Combine
 import Foundation
 import OSLog
+import ScoreDomain
+import ScorePorts
+import StorageCore
 
 nonisolated struct ScoreCacheLegacyData: Sendable {
     let rows: Data?
@@ -54,9 +54,13 @@ nonisolated enum ScoreCacheDiskWriteResult: Sendable {
 public final class ScoreCacheStore: ScoreCacheSynchronizing {
     public nonisolated static let maximumCacheBytes = 16 * 1_024 * 1_024
     private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
+    public var changes: AnyPublisher<AppStorageSession, Never> {
+        changeSubject.eraseToAnyPublisher()
+    }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    public var localSaves: AnyPublisher<AppStorageSession, Never> {
+        saveSubject.eraseToAnyPublisher()
+    }
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScoreCache")
     private let repository: ScoreCacheDiskRepository
     private let defaults: UserDefaults
@@ -72,13 +76,18 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     }
     private static var repositories: [RepositoryKey: RepositoryReference] = [:]
 
-    public init(files: any AppFileService, storageRoot: URL, defaults: UserDefaults, session: @escaping () -> AppStorageSession, storageOperations: StorageOperationTracker = StorageOperationTracker()) {
+    public init(
+        files: any AppFileService, storageRoot: URL, defaults: UserDefaults,
+        session: @escaping () -> AppStorageSession,
+        storageOperations: StorageOperationTracker = StorageOperationTracker()
+    ) {
         Self.repositories = Self.repositories.filter { $0.value.value != nil }
         let key: RepositoryKey?
         if files is LocalAppFileService {
             key = RepositoryKey(root: files.canonicalFileURL(storageRoot), fileObject: nil)
         } else if let object = files as? any AppFileService & AnyObject {
-            key = RepositoryKey(root: files.canonicalFileURL(storageRoot), fileObject: ObjectIdentifier(object))
+            key = RepositoryKey(
+                root: files.canonicalFileURL(storageRoot), fileObject: ObjectIdentifier(object))
         } else {
             key = nil
         }
@@ -94,7 +103,9 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
         self.storageOperations = storageOperations
     }
 
-    public func loadSnapshot(for session: AppStorageSession? = nil) async throws -> ScoreCacheSnapshot? {
+    public func loadSnapshot(for session: AppStorageSession? = nil) async throws
+        -> ScoreCacheSnapshot?
+    {
         guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
@@ -131,7 +142,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     }
 
     @discardableResult
-    public func saveDetailed(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date? {
+    public func saveDetailed(rows: [ScoreRow], for session: AppStorageSession? = nil) async -> Date?
+    {
         guard !Task.isCancelled else { return nil }
         guard storageOperations.begin() else { return nil }
         defer { storageOperations.finish() }
@@ -146,7 +158,9 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     }
 
     /// 文件读取错误沿同步端口传递，协调器保留本机与云端载荷并提示恢复原因。
-    public func syncPayload(for session: AppStorageSession? = nil) async throws -> ScoreCacheSyncPayload? {
+    public func syncPayload(for session: AppStorageSession? = nil) async throws
+        -> ScoreCacheSyncPayload?
+    {
         guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
         let session = session ?? currentSession()
@@ -175,7 +189,8 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     ) async throws -> Bool {
         guard storageOperations.begin() else { throw ScoreCacheReadError.unavailable }
         defer { storageOperations.finish() }
-        guard !payload.rows.isEmpty || payload.updatedAt != nil || payload.detailedUpdatedAt != nil else { return false }
+        guard !payload.rows.isEmpty || payload.updatedAt != nil || payload.detailedUpdatedAt != nil
+        else { return false }
         let session = session ?? currentSession()
         let result = await repository.mutate(
             .synced(payload, replacing: expected),
@@ -218,9 +233,14 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     private func legacyData(for session: AppStorageSession) -> ScoreCacheLegacyData {
         var isUnreadable = false
         func value(_ prefix: String) -> Data? {
-            guard let object = defaults.object(forKey: session.key(prefix))
-                ?? defaults.object(forKey: session.legacyKey(prefix)) else { return nil }
-            guard let data = object as? Data else { isUnreadable = true; return nil }
+            guard
+                let object = defaults.object(forKey: session.key(prefix))
+                    ?? defaults.object(forKey: session.legacyKey(prefix))
+            else { return nil }
+            guard let data = object as? Data else {
+                isUnreadable = true
+                return nil
+            }
             return data
         }
         var result = ScoreCacheLegacyData(
@@ -233,7 +253,10 @@ public final class ScoreCacheStore: ScoreCacheSynchronizing {
     }
 
     private func clearLegacyDefaults(for session: AppStorageSession) {
-        for prefix in ["score.detail.cache", "score.detail.cache.updated-at", "score.detail.cache.full-updated-at"] {
+        for prefix in [
+            "score.detail.cache", "score.detail.cache.updated-at",
+            "score.detail.cache.full-updated-at",
+        ] {
             defaults.removeObject(forKey: session.key(prefix))
             defaults.removeObject(forKey: session.legacyKey(prefix))
         }
@@ -265,7 +288,9 @@ actor ScoreCacheDiskRepository {
         self.storageRoot = storageRoot
     }
 
-    func load(for session: AppStorageSession, legacyData: ScoreCacheLegacyData) -> ScoreCacheDiskReadResult {
+    func load(for session: AppStorageSession, legacyData: ScoreCacheLegacyData)
+        -> ScoreCacheDiskReadResult
+    {
         switch readFile(for: session) {
         case .loaded(let stored):
             return .loaded(stored.snapshot, migratedLegacy: false)
@@ -273,8 +298,7 @@ actor ScoreCacheDiskRepository {
             return .unreadable
         case .missing:
             let snapshot: ScoreCacheSnapshot
-            do { snapshot = try decodeLegacy(legacyData) }
-            catch { return .unreadable }
+            do { snapshot = try decodeLegacy(legacyData) } catch { return .unreadable }
             guard snapshot.containsData else { return .missing }
             do {
                 try write(DiskSnapshot(snapshot: snapshot), for: session)
@@ -297,8 +321,9 @@ actor ScoreCacheDiskRepository {
         case .loaded(let existing):
             stored = existing
         case .missing:
-            do { stored = DiskSnapshot(snapshot: try decodeLegacy(legacyData)) }
-            catch { return .unreadable }
+            do { stored = DiskSnapshot(snapshot: try decodeLegacy(legacyData)) } catch {
+                return .unreadable
+            }
         case .unreadable:
             return .unreadable
         }
@@ -315,7 +340,8 @@ actor ScoreCacheDiskRepository {
             snapshot.updatedAt = now
             snapshot.detailedUpdatedAt = now
         case .synced(let payload, let expected):
-            let current = ScoreCacheSyncPayload(rows: snapshot.rows ?? [], updatedAt: snapshot.updatedAt,
+            let current = ScoreCacheSyncPayload(
+                rows: snapshot.rows ?? [], updatedAt: snapshot.updatedAt,
                 detailedUpdatedAt: snapshot.detailedUpdatedAt)
             guard expected == nil || expected == current else { return .superseded }
             snapshot = ScoreCacheSnapshot(
@@ -381,31 +407,47 @@ actor ScoreCacheDiskRepository {
             return .loaded(try decodeStoredData(data))
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
-            let failure = StorageFailureDiagnostic(error, operation: operation, fields: Self.snapshotKeys.union(["schemaVersion", "index", "headers", "values"]))
-            Self.logger.error("成绩缓存读取受阻：\(url.lastPathComponent, privacy: .public) · \(failure.summary, privacy: .public)")
+            let failure = StorageFailureDiagnostic(
+                error, operation: operation,
+                fields: Self.snapshotKeys.union(["schemaVersion", "index", "headers", "values"]))
+            Self.logger.error(
+                """
+                成绩缓存读取受阻：\(url.lastPathComponent, privacy: .public) · \
+                \(failure.summary, privacy: .public)
+                """
+            )
             return .unreadable
         }
     }
 
     private func decodeStoredData(_ data: Data) throws -> DiskSnapshot {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              !Self.snapshotKeys.isDisjoint(with: object.keys)
+            !Self.snapshotKeys.isDisjoint(with: object.keys)
         else { throw CocoaError(.coderReadCorrupt) }
-        let version = object["schemaVersion"] == nil ? 1 : try JSONDecoder().decode(DiskVersion.self, from: data).schemaVersion
+        let version =
+            object["schemaVersion"] == nil
+            ? 1 : try JSONDecoder().decode(DiskVersion.self, from: data).schemaVersion
         guard version == 1 else { throw CocoaError(.coderReadCorrupt) }
-        return DiskSnapshot(snapshot: try JSONDecoder().decode(ScoreCacheSnapshot.self, from: data),
-            fields: object.filter { !Self.snapshotKeys.contains($0.key) && $0.key != "schemaVersion" })
+        return DiskSnapshot(
+            snapshot: try JSONDecoder().decode(ScoreCacheSnapshot.self, from: data),
+            fields: object.filter {
+                !Self.snapshotKeys.contains($0.key) && $0.key != "schemaVersion"
+            })
     }
 
     private func decodeLegacy(_ legacyData: ScoreCacheLegacyData) throws -> ScoreCacheSnapshot {
         guard !legacyData.isUnreadable else { throw CocoaError(.coderReadCorrupt) }
-        guard [legacyData.rows, legacyData.updatedAt, legacyData.detailedUpdatedAt].compactMap({ $0 })
-            .reduce(0, { $0 + $1.count }) <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileReadTooLarge) }
+        guard
+            [legacyData.rows, legacyData.updatedAt, legacyData.detailedUpdatedAt].compactMap({ $0 })
+                .reduce(0, { $0 + $1.count }) <= ScoreCacheStore.maximumCacheBytes
+        else { throw CocoaError(.fileReadTooLarge) }
         let decoder = JSONDecoder()
         return ScoreCacheSnapshot(
             rows: try legacyData.rows.map { try decoder.decode([ScoreRow].self, from: $0) },
             updatedAt: try legacyData.updatedAt.map { try decoder.decode(Date.self, from: $0) },
-            detailedUpdatedAt: try legacyData.detailedUpdatedAt.map { try decoder.decode(Date.self, from: $0) }
+            detailedUpdatedAt: try legacyData.detailedUpdatedAt.map {
+                try decoder.decode(Date.self, from: $0)
+            }
         )
     }
 
@@ -413,12 +455,17 @@ actor ScoreCacheDiskRepository {
         let url = fileURL(for: session)
         try files.createDirectory(at: url.deletingLastPathComponent())
         let encoded = try JSONEncoder().encode(stored.snapshot)
-        guard encoded.count <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
-        guard let snapshot = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else { throw CocoaError(.coderInvalidValue) }
+        guard encoded.count <= ScoreCacheStore.maximumCacheBytes else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        guard let snapshot = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        else { throw CocoaError(.coderInvalidValue) }
         var fields = stored.fields.merging(snapshot) { _, new in new }
         fields["schemaVersion"] = 1
         let data = try JSONSerialization.data(withJSONObject: fields)
-        guard data.count <= ScoreCacheStore.maximumCacheBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        guard data.count <= ScoreCacheStore.maximumCacheBytes else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
         try files.writeData(
             data,
             to: url,
@@ -434,20 +481,25 @@ actor ScoreCacheDiskRepository {
 
     private func legacyFileURL(for session: AppStorageSession) -> URL {
         storageRoot
-            .appending(path: session.legacyAccountDirectoryNameForMigration, directoryHint: .isDirectory)
+            .appending(
+                path: session.legacyAccountDirectoryNameForMigration, directoryHint: .isDirectory
+            )
             .appending(path: "score-cache.json")
     }
 
     private func removeLegacyFile(for session: AppStorageSession) {
         let url = legacyFileURL(for: session)
         guard url != fileURL(for: session),
-              let data = try? files.readData(at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes),
-              (try? decodeStoredData(data)) != nil
+            let data = try? files.readData(
+                at: url, maximumBytes: ScoreCacheStore.maximumCacheBytes),
+            (try? decodeStoredData(data)) != nil
         else { return }
         do {
             try files.removeItem(at: url)
             let directory = url.deletingLastPathComponent()
-            if try files.contentsOfDirectory(at: directory, options: []).isEmpty { try files.removeItem(at: directory) }
+            if try files.contentsOfDirectory(at: directory, options: []).isEmpty {
+                try files.removeItem(at: directory)
+            }
         } catch {
             Self.logger.error("清理成绩迁移文件遇到错误：\(String(describing: error), privacy: .private)")
         }

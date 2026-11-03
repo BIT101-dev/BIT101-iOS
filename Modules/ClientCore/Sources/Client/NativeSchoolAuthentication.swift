@@ -21,7 +21,8 @@ public nonisolated enum SchoolServiceTarget: Sendable, CaseIterable {
         case .transcript, .webVPN: return nil
         }
         let scheme = self == .grades ? "http" : "https"
-        return AppURL.required("https://webvpn.bit.edu.cn/\(scheme)/77726476706e69737468656265737421\(token)")
+        return AppURL.required(
+            "https://webvpn.bit.edu.cn/\(scheme)/77726476706e69737468656265737421\(token)")
     }
 }
 
@@ -41,8 +42,12 @@ public protocol SchoolServiceAuthenticating {
     func authenticate(_ target: SchoolServiceTarget) async throws -> SchoolAuthenticatedSession
 }
 
-public nonisolated enum NativeSchoolAuthenticationError: LocalizedError, SchoolServiceFailureProviding {
-    case invalidResponse, serviceUnavailable(Int), additionalVerification
+public nonisolated enum NativeSchoolAuthenticationError: LocalizedError,
+    SchoolServiceFailureProviding
+{
+    case invalidResponse
+    case serviceUnavailable(Int)
+    case additionalVerification
     public var schoolServiceFailure: SchoolServiceFailure? {
         guard case .serviceUnavailable(let status) = self else { return nil }
         return status == 403 ? .accessDenied : (status >= 500 ? .unavailable : nil)
@@ -68,10 +73,14 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
     private let fingerprint = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     private let authenticationQueue = SchoolAuthenticationQueue()
 
-    public init(credentials: any SchoolCredentialsProviding, restorer: any SchoolSessionRestoring,
+    public init(
+        credentials: any SchoolCredentialsProviding, restorer: any SchoolSessionRestoring,
         client: HTTPClient, cookies: @escaping () -> HTTPCookieStorage,
         secondFactor: @escaping (SchoolSecondFactorContext) async throws -> Void,
-        serviceLogin: @escaping (URL, String) async throws -> URL = { _, _ in throw NativeSchoolAuthenticationError.invalidResponse }) {
+        serviceLogin: @escaping (URL, String) async throws -> URL = { _, _ in
+            throw NativeSchoolAuthenticationError.invalidResponse
+        }
+    ) {
         self.credentials = credentials
         self.restorer = restorer
         self.client = client
@@ -80,7 +89,9 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         self.serviceLogin = serviceLogin
     }
 
-    public func authenticate(_ target: SchoolServiceTarget) async throws -> SchoolAuthenticatedSession {
+    public func authenticate(_ target: SchoolServiceTarget) async throws
+        -> SchoolAuthenticatedSession
+    {
         let owner = credentials.schoolSessionIdentity
         return try await authenticationQueue.perform {
             try await self.authenticate(target, owner: owner)
@@ -90,28 +101,38 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
     public func verifyIdentity() async throws {
         let owner = credentials.schoolSessionIdentity
         try await authenticationQueue.perform {
-            let landing = try await self.follow(self.webVPNLoginURL, owner: owner, stopAtIdentityTicket: true)
-            guard Self.isIdentityServiceTicket(landing) else { throw NativeSchoolAuthenticationError.invalidResponse }
+            let landing = try await self.follow(
+                self.webVPNLoginURL, owner: owner, stopAtIdentityTicket: true)
+            guard Self.isIdentityServiceTicket(landing) else {
+                throw NativeSchoolAuthenticationError.invalidResponse
+            }
         }
     }
 
     public nonisolated static func isIdentityServiceTicket(_ url: URL) -> Bool {
-        guard isSchoolURL(url), url.host == "webvpn.bit.edu.cn", url.path == "/login", url.fragment == nil,
-              let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
+        guard isSchoolURL(url), url.host == "webvpn.bit.edu.cn", url.path == "/login",
+            url.fragment == nil,
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return false }
         let tickets = query.filter { $0.name == "ticket" }
         return tickets.count == 1 && tickets[0].value?.isEmpty == false
             && query.filter { $0.name == "cas_login" }.map(\.value) == ["true"]
     }
 
-    private func authenticate(_ target: SchoolServiceTarget, owner: SchoolSessionIdentity) async throws -> SchoolAuthenticatedSession {
+    private func authenticate(_ target: SchoolServiceTarget, owner: SchoolSessionIdentity)
+        async throws -> SchoolAuthenticatedSession
+    {
         try validate(owner)
         do {
-            guard try await restorer.restoreSchoolSessionIfNeeded() != nil else { throw NativeSchoolAuthenticationError.additionalVerification }
-        }
-        catch SchoolSessionRestorationError.secondFactorRequired(let context) {
+            guard try await restorer.restoreSchoolSession() != nil else {
+                throw NativeSchoolAuthenticationError.additionalVerification
+            }
+        } catch SchoolSessionRestorationError.secondFactorRequired(let context) {
             try await secondFactor(context)
             try validate(owner)
-            guard try await restorer.restoreSchoolSessionIfNeeded() != nil else { throw NativeSchoolAuthenticationError.additionalVerification }
+            guard try await restorer.restoreSchoolSession() != nil else {
+                throw NativeSchoolAuthenticationError.additionalVerification
+            }
         }
         try validate(owner)
         if target == .webVPN {
@@ -120,12 +141,15 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         }
         do {
             let landing = try await follow(entry(target), owner: owner)
-            guard landing.host == target.baseURL.host else { throw NativeSchoolAuthenticationError.invalidResponse }
+            guard landing.host == target.baseURL.host else {
+                throw NativeSchoolAuthenticationError.invalidResponse
+            }
             return try session(target.baseURL, target: target, owner: owner)
         } catch {
             try validate(owner)
             guard let vpnBase = target.webVPNBaseURL,
-                  Self.permitsFallback(error) else { throw error }
+                Self.permitsFallback(error)
+            else { throw error }
             try await establishWebVPN(owner: owner)
             let landing = try await follow(entry(target), owner: owner, throughWebVPN: true)
             guard landing.host == vpnBase.host, landing.path.hasPrefix(vpnBase.path) else {
@@ -138,10 +162,16 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
     private func entry(_ target: SchoolServiceTarget) -> URL {
         switch target {
         case .teachingCenter:
-            AppURL.required("https://jxzxehall.bit.edu.cn/auth-protocol-core/login?service=https%3A%2F%2Fjxzxehallapp.bit.edu.cn%2Fjwapp%2Fsys%2Fwdkbby%2F*default%2Findex.do")
+            AppURL.required(
+                """
+                https://jxzxehall.bit.edu.cn/auth-protocol-core/login?service=https%3A%2F%2Fjxz\
+                xehallapp.bit.edu.cn%2Fjwapp%2Fsys%2Fwdkbby%2F*default%2Findex.do
+                """
+            )
         case .grades:
             // service 标识参与学校票据校验，实际请求统一升级 HTTPS。
-            AppURL.required("https://sso.bit.edu.cn/cas/login?service=http%3A%2F%2Fjwms.bit.edu.cn%2F")
+            AppURL.required(
+                "https://sso.bit.edu.cn/cas/login?service=http%3A%2F%2Fjwms.bit.edu.cn%2F")
         case .transcript: target.baseURL.appending(path: "cjd/Account/ExternalLogin")
         case .webVPN: target.baseURL
         }
@@ -149,19 +179,30 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
 
     private func establishWebVPN(owner: SchoolSessionIdentity) async throws {
         var parts = URLComponents()
-        parts.scheme = "https"; parts.host = "webvpn.bit.edu.cn"; parts.path = "/set-fingerprint"
+        parts.scheme = "https"
+        parts.host = "webvpn.bit.edu.cn"
+        parts.path = "/set-fingerprint"
         parts.queryItems = [URLQueryItem(name: "fingerprint", value: fingerprint)]
         // 指纹先于 CAS service 登录，Wengine ticket 与本机浏览器身份保持一致。
-        guard let fingerprintURL = parts.url else { throw NativeSchoolAuthenticationError.invalidResponse }
-        let wire = try await client.send(URLRequest(url: fingerprintURL), accepting: 200 ..< 400)
+        guard let fingerprintURL = parts.url else {
+            throw NativeSchoolAuthenticationError.invalidResponse
+        }
+        let wire = try await client.send(URLRequest(url: fingerprintURL), accepting: 200..<400)
         try validate(owner)
-        guard wire.response.url == parts.url else { throw NativeSchoolAuthenticationError.invalidResponse }
+        guard wire.response.url == parts.url else {
+            throw NativeSchoolAuthenticationError.invalidResponse
+        }
         _ = try await follow(webVPNLoginURL, owner: owner)
         guard hasWebVPNTicket else { throw NativeSchoolAuthenticationError.invalidResponse }
     }
 
     private var webVPNLoginURL: URL {
-        AppURL.required("https://sso.bit.edu.cn/cas/login?service=https%3A%2F%2Fwebvpn.bit.edu.cn%2Flogin%3Fcas_login%3Dtrue")
+        AppURL.required(
+            """
+            https://sso.bit.edu.cn/cas/login?service=https%3A%2F%2Fwebvpn.bit.edu.cn%2Flogin%3F\
+            cas_login%3Dtrue
+            """
+        )
     }
 
     private var hasWebVPNTicket: Bool {
@@ -171,60 +212,81 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         })
     }
 
-    private func follow(_ start: URL, owner: SchoolSessionIdentity, throughWebVPN: Bool = false,
-                        stopAtIdentityTicket: Bool = false) async throws -> URL {
+    private func follow(
+        _ start: URL, owner: SchoolSessionIdentity, throughWebVPN: Bool = false,
+        stopAtIdentityTicket: Bool = false
+    ) async throws -> URL {
         var next = start
         var completedSecondFactor = false
         var submittedPassword = false
-        for _ in 0 ..< 16 {
+        for _ in 0..<16 {
             try validate(owner)
             if throughWebVPN { next = vpnURL(next) }
-            guard Self.isSchoolURL(next) else { throw NativeSchoolAuthenticationError.invalidResponse }
+            guard Self.isSchoolURL(next) else {
+                throw NativeSchoolAuthenticationError.invalidResponse
+            }
             if stopAtIdentityTicket {
                 if Self.isIdentityServiceTicket(next) {
-                    guard submittedPassword else { throw NativeSchoolAuthenticationError.invalidResponse }
+                    guard submittedPassword else {
+                        throw NativeSchoolAuthenticationError.invalidResponse
+                    }
                     return next
                 }
-                guard next.host == "sso.bit.edu.cn" else { throw NativeSchoolAuthenticationError.invalidResponse }
+                guard next.host == "sso.bit.edu.cn" else {
+                    throw NativeSchoolAuthenticationError.invalidResponse
+                }
             }
             var request = URLRequest(url: next)
             request.timeoutInterval = 25
-            let wire = try await client.send(request, accepting: 100 ..< 600)
+            let wire = try await client.send(request, accepting: 100..<600)
             try validate(owner)
             guard let responseURL = wire.response.url, Self.isSchoolURL(responseURL),
-                  responseURL == next else { throw NativeSchoolAuthenticationError.invalidResponse }
-            if (300 ..< 400).contains(wire.response.statusCode),
-               let location = wire.response.value(forHTTPHeaderField: "Location"),
-               let url = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: next) {
+                responseURL == next
+            else { throw NativeSchoolAuthenticationError.invalidResponse }
+            if (300..<400).contains(wire.response.statusCode),
+                let location = wire.response.value(forHTTPHeaderField: "Location"),
+                let url = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: next)
+            {
                 next = url
                 continue
             }
-            guard (200 ..< 300).contains(wire.response.statusCode) else {
+            guard (200..<300).contains(wire.response.statusCode) else {
                 throw NativeSchoolAuthenticationError.serviceUnavailable(wire.response.statusCode)
             }
             let html = String(decoding: wire.data, as: UTF8.self)
             if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
-            if let context = SchoolLoginHTMLParser.parseSecondFactorPage(html: html,
-                baseURL: AppURL.required("https://sso.bit.edu.cn"), documentURL: next) {
-                guard !completedSecondFactor else { throw NativeSchoolAuthenticationError.additionalVerification }
+            if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
+                html: html,
+                baseURL: AppURL.required("https://sso.bit.edu.cn"), documentURL: next)
+            {
+                guard !completedSecondFactor else {
+                    throw NativeSchoolAuthenticationError.additionalVerification
+                }
                 try await secondFactor(context)
                 completedSecondFactor = true
                 next = start
                 continue
             }
             if SchoolLoginHTMLParser.parse(html: html).salt != nil {
-                guard next.host == "sso.bit.edu.cn", !submittedPassword else { throw NativeSchoolAuthenticationError.invalidResponse }
+                guard next.host == "sso.bit.edu.cn", !submittedPassword else {
+                    throw NativeSchoolAuthenticationError.invalidResponse
+                }
                 next = try await serviceLogin(next, html)
                 submittedPassword = true
                 continue
             }
             if next.host == "webvpn.bit.edu.cn", next.path == "/fingerprint" {
                 guard !throughWebVPN else { throw NativeSchoolAuthenticationError.invalidResponse }
-                guard var parts = URLComponents(url: next, resolvingAgainstBaseURL: false) else { throw NativeSchoolAuthenticationError.invalidResponse }
+                guard var parts = URLComponents(url: next, resolvingAgainstBaseURL: false) else {
+                    throw NativeSchoolAuthenticationError.invalidResponse
+                }
                 parts.path = "/set-fingerprint"
-                parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "fingerprint" }
+                parts.queryItems =
+                    (parts.queryItems ?? []).filter { $0.name != "fingerprint" }
                     + [URLQueryItem(name: "fingerprint", value: fingerprint)]
-                guard let fingerprintURL = parts.url else { throw NativeSchoolAuthenticationError.invalidResponse }
+                guard let fingerprintURL = parts.url else {
+                    throw NativeSchoolAuthenticationError.invalidResponse
+                }
                 next = fingerprintURL
                 continue
             }
@@ -233,24 +295,36 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         throw NativeSchoolAuthenticationError.invalidResponse
     }
 
-    private func session(_ base: URL, target: SchoolServiceTarget, owner: SchoolSessionIdentity) throws -> SchoolAuthenticatedSession {
+    private func session(_ base: URL, target: SchoolServiceTarget, owner: SchoolSessionIdentity)
+        throws -> SchoolAuthenticatedSession
+    {
         try validate(owner)
         let resource = target == .transcript ? base.appending(path: "cjd/ScoreReport2/Index") : base
-        let scoped = (cookies().cookies(for: resource) ?? []).filter { $0.expiresDate.map { $0 > Date() } ?? true }
-        let header = scoped.isEmpty ? "" : HTTPCookie.requestHeaderFields(with: scoped)["Cookie"] ?? ""
+        let scoped = (cookies().cookies(for: resource) ?? []).filter {
+            $0.expiresDate.map { $0 > Date() } ?? true
+        }
+        let header =
+            scoped.isEmpty ? "" : HTTPCookie.requestHeaderFields(with: scoped)["Cookie"] ?? ""
         return SchoolAuthenticatedSession(baseURL: base, cookieHeader: header, owner: owner)
     }
 
     private func validate(_ owner: SchoolSessionIdentity) throws {
         try Task.checkCancellation()
-        guard !owner.accountIdentifier.isEmpty, credentials.schoolSessionIdentity == owner else { throw CancellationError() }
+        guard !owner.accountIdentifier.isEmpty, credentials.schoolSessionIdentity == owner else {
+            throw CancellationError()
+        }
     }
 
     private func vpnURL(_ url: URL) -> URL {
         let base: URL
         switch url.host {
         case "jxzxehall.bit.edu.cn":
-            base = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c72468ba58c1b26316e8e7f6f")
+            base = AppURL.required(
+                """
+                https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695\
+                c72468ba58c1b26316e8e7f6f
+                """
+            )
         case "jxzxehallapp.bit.edu.cn":
             guard let mapped = SchoolServiceTarget.teachingCenter.webVPNBaseURL else { return url }
             base = mapped
@@ -260,8 +334,10 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
         default: return url
         }
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let mapped = URL(string: base.absoluteString + parts.percentEncodedPath
-                + (parts.percentEncodedQuery.map { "?" + $0 } ?? "")) else { return url }
+            let mapped = URL(
+                string: base.absoluteString + parts.percentEncodedPath
+                    + (parts.percentEncodedQuery.map { "?" + $0 } ?? ""))
+        else { return url }
         return mapped
     }
 
@@ -293,10 +369,18 @@ private final class SchoolAuthenticationQueue {
         try Task.checkCancellation()
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                if Task.isCancelled { continuation.resume(throwing: CancellationError()); return }
-                if active == nil { active = id; continuation.resume() }
-                else { waiting.append((id, continuation)) }
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if active == nil {
+                    active = id
+                    continuation.resume()
+                } else {
+                    waiting.append((id, continuation))
+                }
             }
         } onCancel: {
             Task { @MainActor in
@@ -305,8 +389,9 @@ private final class SchoolAuthenticationQueue {
             }
         }
         defer {
-            if waiting.isEmpty { active = nil }
-            else {
+            if waiting.isEmpty {
+                active = nil
+            } else {
                 let next = waiting.removeFirst()
                 active = next.0
                 next.1.resume()

@@ -1,4 +1,6 @@
 import CommunityCore
+import Foundation
+
 //
 //  GalleryModels.swift
 //  BIT101-iOS
@@ -6,9 +8,8 @@ import CommunityCore
 //  Created by Codex on 2026-03-24.
 //
 
-import Foundation
-
-public nonisolated enum GallerySubscriptionLevel: Int, Codable, CaseIterable, Identifiable, Sendable {
+public nonisolated enum GallerySubscriptionLevel: Int, Codable, CaseIterable, Identifiable, Sendable
+{
     case none, silent, update, comment
     public var id: Int { rawValue }
     public var title: String {
@@ -154,7 +155,9 @@ public struct GallerySearchQuery: Equatable {
 /// 帖子详情模型。
 ///
 /// 详情包含当前用户的点赞、归属和插件字段。
-public nonisolated struct GalleryPosterDetail: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct GalleryPosterDetail: CommunityResourceItem, Decodable, Identifiable,
+    Hashable, Sendable
+{
     public var communityObjectID: String { "poster\(id)" }
     public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
         var value = self
@@ -242,16 +245,27 @@ extension GalleryPosterDetail {
 
     public nonisolated init(from decoder: Decoder) throws {
         let poster = try CommunityPoster(from: decoder, preview: false)
-        anonymous = poster.anonymous; claim = poster.claim; commentNum = poster.commentNum
-        createTime = poster.createTime; editTime = poster.editTime; id = poster.id
-        images = poster.images; discardedImageCount = poster.discardedImageCount; likeNum = poster.likeNum
-        self.public = poster.public; tags = poster.tags; text = poster.text; title = poster.title
-        updateTime = poster.updateTime; user = poster.user
+        anonymous = poster.anonymous
+        claim = poster.claim
+        commentNum = poster.commentNum
+        createTime = poster.createTime
+        editTime = poster.editTime
+        id = poster.id
+        images = poster.images
+        discardedImageCount = poster.discardedImageCount
+        likeNum = poster.likeNum
+        self.public = poster.public
+        tags = poster.tags
+        text = poster.text
+        title = poster.title
+        updateTime = poster.updateTime
+        user = poster.user
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         like = try fields.decode(Bool.self, forKey: .like)
         own = try fields.decode(Bool.self, forKey: .own)
         plugins = (try? fields.decode(String.self, forKey: .plugins)) ?? ""
-        subscription = try fields.decodeIfPresent(GallerySubscriptionLevel.self, forKey: .subscription)
+        subscription = try fields.decodeIfPresent(
+            GallerySubscriptionLevel.self, forKey: .subscription)
     }
 
     /// 根据列表卡片构造占位详情。
@@ -332,15 +346,15 @@ public enum GalleryReportTarget: Identifiable, Hashable {
 
     public var id: String {
         switch self {
-        case let .poster(id): return "poster-\(id)"
-        case let .comment(id): return "comment-\(id)"
+        case .poster(let id): return "poster-\(id)"
+        case .comment(let id): return "comment-\(id)"
         }
     }
 
     public var objectID: String {
         switch self {
-        case let .poster(id): return "poster\(id)"
-        case let .comment(id): return "comment\(id)"
+        case .poster(let id): return "poster\(id)"
+        case .comment(let id): return "comment\(id)"
         }
     }
 
@@ -419,7 +433,9 @@ public nonisolated struct GalleryMessageUser: Decodable, Hashable, Sendable {
         case avatar
     }
 
-    public init(id: Int = 0, nickname: String = "", avatar: GalleryMessageAvatar = GalleryMessageAvatar()) {
+    public init(
+        id: Int = 0, nickname: String = "", avatar: GalleryMessageAvatar = GalleryMessageAvatar()
+    ) {
         self.id = id
         self.nickname = nickname
         self.avatar = avatar
@@ -429,7 +445,9 @@ public nonisolated struct GalleryMessageUser: Decodable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
         nickname = try container.decodeIfPresent(String.self, forKey: .nickname) ?? ""
-        avatar = try container.decodeIfPresent(GalleryMessageAvatar.self, forKey: .avatar) ?? GalleryMessageAvatar()
+        avatar =
+            try container.decodeIfPresent(GalleryMessageAvatar.self, forKey: .avatar)
+            ?? GalleryMessageAvatar()
     }
 
     /// 返回消息列表展示名称。
@@ -453,7 +471,9 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
     public var system: Int
     public var subscription: Int
 
-    public init(comment: Int = 0, follow: Int = 0, like: Int = 0, system: Int = 0, subscription: Int = 0) {
+    public init(
+        comment: Int = 0, follow: Int = 0, like: Int = 0, system: Int = 0, subscription: Int = 0
+    ) {
         self.comment = comment
         self.follow = follow
         self.like = like
@@ -480,7 +500,9 @@ public nonisolated struct GalleryMessageUnreadCounts: Decodable, Equatable, Send
         for count in [comment, follow, like, system, subscription] {
             let sum = total.addingReportingOverflow(count)
             guard count >= 0, !sum.overflow else {
-                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Invalid unread counts"))
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: decoder.codingPath, debugDescription: "Invalid unread counts")
+                )
             }
             total = sum.partialValue
         }
@@ -544,8 +566,10 @@ nonisolated struct GalleryMessageListState {
     var canLoadMore = true
 
     mutating func prependCurrentWindow(_ messages: [GalleryMessage]) {
-        if let newest = pagedItems.items.first?.id, let cursor = messages.last?.id, cursor > newest {
-            olderWindows.insert(.init(boundary: newest, cursor: nextCursor, canLoadMore: canLoadMore), at: 0)
+        if let newest = pagedItems.items.first?.id, let cursor = messages.last?.id, cursor > newest
+        {
+            olderWindows.insert(
+                .init(boundary: newest, cursor: nextCursor, canLoadMore: canLoadMore), at: 0)
             nextCursor = cursor
             canLoadMore = true
         }
@@ -562,7 +586,8 @@ nonisolated struct GalleryMessageListState {
         guard requested == nextCursor else {
             if let index = olderWindows.firstIndex(where: { $0.cursor == requested }) {
                 olderWindows[index].cursor = messages.last?.id ?? requested
-                olderWindows[index].canLoadMore = messages.last.map { $0.id < (requested ?? Int.max) } ?? false
+                olderWindows[index].canLoadMore =
+                    messages.last.map { $0.id < (requested ?? Int.max) } ?? false
             }
             return
         }

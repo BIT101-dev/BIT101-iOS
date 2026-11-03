@@ -33,7 +33,6 @@ public nonisolated struct NetworkPathSnapshot: Equatable, Sendable {
     public var isReachable: Bool { status != .disconnected }
 }
 
-
 /// Hosts share one path state across request diagnostics and feature recovery.
 @MainActor
 @Observable

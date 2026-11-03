@@ -10,12 +10,18 @@ final class NetworkSmokeExecutionGate {
 
     func acquire() async -> Bool {
         guard !Task.isCancelled else { return false }
-        guard isRunning else { isRunning = true; return true }
+        guard isRunning else {
+            isRunning = true
+            return true
+        }
         let id = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                if Task.isCancelled { continuation.resume(returning: false) }
-                else { waiting.append((id, continuation)) }
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                } else {
+                    waiting.append((id, continuation))
+                }
             }
         } onCancel: {
             Task { @MainActor in
@@ -26,8 +32,11 @@ final class NetworkSmokeExecutionGate {
     }
 
     func release() {
-        if waiting.isEmpty { isRunning = false }
-        else { waiting.removeFirst().1.resume(returning: true) }
+        if waiting.isEmpty {
+            isRunning = false
+        } else {
+            waiting.removeFirst().1.resume(returning: true)
+        }
     }
 }
 

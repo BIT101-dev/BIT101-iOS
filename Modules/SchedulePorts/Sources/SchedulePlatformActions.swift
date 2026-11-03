@@ -1,6 +1,6 @@
+import Foundation
 import ScheduleDomain
 import StorageCore
-import Foundation
 
 /// 用户操作触发的平台能力，由应用组装层提供。
 @MainActor
@@ -8,11 +8,14 @@ public protocol SchedulePlatformActions {
     func enableCloudSync(session: AppStorageSession) async
     func enableCourseReminder(session: AppStorageSession) async
     func importSystemCalendar(courses: ScheduleCourseSnapshot, term: String) async throws -> Int
-    func importSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> Int
-    func deleteSystemCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws -> ScheduleSystemCalendarMutationResult
-    func deleteSystemCalendarEntries(markerIDs: Set<String>, term: String) async throws -> ScheduleSystemCalendarMutationResult
-    func deleteImportedSystemCalendarEvents() async throws -> ScheduleSystemCalendarMutationResult
-    func rebuildSystemCalendarImportHistory() async throws -> Int
+    func importCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> Int
+    func deleteCalendarEntries(_ content: ScheduleSystemCalendarContent, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    func deleteCalendarEntries(markerIDs: Set<String>, term: String) async throws
+        -> ScheduleSystemCalendarMutationResult
+    func deleteImportedEvents() async throws -> ScheduleSystemCalendarMutationResult
+    func rebuildSystemHistory() async throws -> Int
 }
 
 public nonisolated enum ScheduleSystemCalendarMarkerID {
@@ -33,7 +36,7 @@ public nonisolated enum ScheduleSystemCalendarMutationResult: Equatable, Sendabl
 
     public var count: Int {
         switch self {
-        case let .changed(count): return count
+        case .changed(let count): return count
         case .noOp: return 0
         }
     }
@@ -69,7 +72,7 @@ public nonisolated enum ScheduleSystemCalendarError: LocalizedError {
             return "没有找到由 BIT101 导入的日历事件。"
         case .importHistoryUnreadable:
             return "课表日历导入记录读取失败，原始记录已保留。请使用“重建日历导入记录”后重试。"
-        case let .invalidEntry(message):
+        case .invalidEntry(let message):
             return message
         }
     }

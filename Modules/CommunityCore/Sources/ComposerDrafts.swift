@@ -46,7 +46,8 @@ public nonisolated enum ComposerDraftImagePolicy {
     public static let maximumBytes = 1 * 1_024 * 1_024
     public static let maximumImageCount = 9
     public static let maximumMetadataBytes = maximumBytes
-    public static let maximumLegacyMetadataBytes = maximumImageCount * 2 * ((maximumBytes + 2) / 3 * 4) + maximumMetadataBytes
+    public static let maximumLegacyMetadataBytes =
+        maximumImageCount * 2 * ((maximumBytes + 2) / 3 * 4) + maximumMetadataBytes
 }
 
 public nonisolated struct ComposerImageDraftSnapshot: Codable, Equatable, Sendable {
@@ -54,7 +55,9 @@ public nonisolated struct ComposerImageDraftSnapshot: Codable, Equatable, Sendab
     public let previewData: Data
     public let uploadData: Data?
     public let uploadedImage: CommunityImage?
-    public init(filename: String, previewData: Data, uploadData: Data?, uploadedImage: CommunityImage? = nil) {
+    public init(
+        filename: String, previewData: Data, uploadData: Data?, uploadedImage: CommunityImage? = nil
+    ) {
         self.filename = filename
         self.previewData = previewData
         self.uploadData = uploadData
@@ -75,7 +78,10 @@ public nonisolated struct GalleryComposerDraftSnapshot: ComposerDraftSnapshot {
     public let isPublic: Bool
     public let selectedClaimID: Int
     public var images: [ComposerImageDraftSnapshot]
-    public init(title: String, text: String, selectedTags: [String], customTags: [String], anonymous: Bool, isPublic: Bool, selectedClaimID: Int, images: [ComposerImageDraftSnapshot]) {
+    public init(
+        title: String, text: String, selectedTags: [String], customTags: [String], anonymous: Bool,
+        isPublic: Bool, selectedClaimID: Int, images: [ComposerImageDraftSnapshot]
+    ) {
         self.title = title
         self.text = text
         self.selectedTags = selectedTags
@@ -117,7 +123,8 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: ComposerDraftSnapsho
         text = try container.decode(String.self, forKey: .text)
         images = try container.decode([ComposerImageDraftSnapshot].self, forKey: .images)
         contact = try container.decodeIfPresent(String.self, forKey: .contact) ?? ""
-        pendingSubmissionMetadata = try container.decodeIfPresent(Data.self, forKey: .pendingSubmissionMetadata)
+        pendingSubmissionMetadata = try container.decodeIfPresent(
+            Data.self, forKey: .pendingSubmissionMetadata)
     }
 }
 
@@ -132,9 +139,16 @@ public nonisolated struct PaperComposerDraftSnapshot: Codable, Equatable, Sendab
     public let content: String
     public let anonymous: Bool
 
-    public init(paperID: Int?, baselineUpdatedAt: String?, title: String, intro: String, content: String, anonymous: Bool) {
-        self.paperID = paperID; self.baselineUpdatedAt = baselineUpdatedAt
-        self.title = title; self.intro = intro; self.content = content; self.anonymous = anonymous
+    public init(
+        paperID: Int?, baselineUpdatedAt: String?, title: String, intro: String, content: String,
+        anonymous: Bool
+    ) {
+        self.paperID = paperID
+        self.baselineUpdatedAt = baselineUpdatedAt
+        self.title = title
+        self.intro = intro
+        self.content = content
+        self.anonymous = anonymous
     }
 }
 
@@ -144,7 +158,8 @@ public protocol PaperComposerDraftStoring: Sendable {
     func loadPaperDrafts() async -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]>
     func loadPaper(paperID: Int?) async -> ComposerDraftLoadResult<PaperComposerDraftSnapshot>
     func capturePaperRecovery() async -> ComposerDraftCleanup
-    func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async -> ComposerDraftCleanup
+    func capturePaperCleanup(matching snapshot: PaperComposerDraftSnapshot?) async
+        -> ComposerDraftCleanup
 }
 
 /// 草稿读取结果保留源文件的恢复状态，保存沿同一结果判断写权限。
@@ -200,7 +215,9 @@ public nonisolated enum ComposerPublicationKind: String, Codable, CaseIterable, 
 }
 
 public nonisolated enum ComposerPublicationContent: Codable, Equatable, Sendable {
-    case gallery(title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool)
+    case gallery(
+        title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String],
+        claimID: Int, isPublic: Bool)
     case paper(title: String, intro: String, content: String, anonymous: Bool)
 
     public var kind: ComposerPublicationKind {
@@ -235,10 +252,12 @@ public nonisolated enum ComposerPublicationStart: Sendable {
 
 @MainActor
 public protocol ComposerPublicationStoring: Sendable {
-    func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt?
-    func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart
+    func loadPublication(kind: ComposerPublicationKind, owner: String) async throws
+        -> ComposerPublicationAttempt?
+    func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws
+        -> ComposerPublicationStart
     func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool
-    func resetPublicationsAfterReview(owner: String) async throws
+    func resetReviewedPublications(owner: String) async throws
 }
 
 public nonisolated enum ComposerPublicationReviewState: Sendable {

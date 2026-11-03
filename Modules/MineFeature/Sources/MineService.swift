@@ -1,14 +1,14 @@
 import Combine
-import CommunityTransport
 import CommunityCore
+import CommunityTransport
+import Foundation
+
 //
 //  MineService.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import Foundation
 
 /// “我的”页接口层错误。
 ///
@@ -40,17 +40,22 @@ public struct MineService {
     private let api: CommunityAPIClient<MineServiceError>
     private let session: CommunitySession
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+        resourceUpdates.changes
+    }
 
     private let preferences: () -> CommunityPreferenceSnapshot
 
     /// 初始化社区 API 客户端。
     ///
     /// 资料请求通过注入会话取得当前账号凭据，并复用社区连接池。
-    public init(session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
-        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
+    public init(
+        session: CommunitySession, preferences: @escaping () -> CommunityPreferenceSnapshot,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil
+    ) {
         self.session = session
-        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
+        self.resourceUpdates =
+            resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Mine")
         self.preferences = preferences
     }
@@ -64,9 +69,11 @@ public struct MineService {
 
     /// 获取指定用户的公开资料卡信息。
     public func fetchUserInfo(id: Int) async throws -> MineUserInfo {
-        let response: CommunityAPIResponse<MineUserInfo> = try await api.response(path: "user/info/\(id)", authentication: .optional, validate: { info in
-            guard id > 0, info.user.id == id else { throw MineServiceError.invalidResponse }
-        })
+        let response: CommunityAPIResponse<MineUserInfo> = try await api.response(
+            path: "user/info/\(id)", authentication: .optional,
+            validate: { info in
+                guard id > 0, info.user.id == id else { throw MineServiceError.invalidResponse }
+            })
         var info = response.value
         info.isViewerAuthenticated = response.isAuthenticated
         return info
@@ -80,12 +87,14 @@ public struct MineService {
     ///
     /// 关注/粉丝接口都使用页码分页，第一页从 0 开始。
     public func fetchFollowings(page: Int) async throws -> [CommunityUser] {
-        try await api.request(path: "user/followings", queryItems: [URLQueryItem(name: "page", value: String(page))])
+        try await api.request(
+            path: "user/followings", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
     /// 获取我的粉丝列表。
     public func fetchFollowers(page: Int) async throws -> [CommunityUser] {
-        try await api.request(path: "user/followers", queryItems: [URLQueryItem(name: "page", value: String(page))])
+        try await api.request(
+            path: "user/followers", queryItems: [URLQueryItem(name: "page", value: String(page))])
     }
 
     /// 获取“我的帖子”列表；普通帖子页面按设置隐藏机器人帖子。
@@ -118,14 +127,17 @@ public struct MineService {
             path: "posters",
             queryItems: queryItems,
             validate: { posters in
-                guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else { throw MineServiceError.invalidResponse }
+                guard userID == 0 || posters.allSatisfy({ $0.user.id == userID }) else {
+                    throw MineServiceError.invalidResponse
+                }
             }
         )
-        if let issue = response.value.compactMap(\.imageRecoveryIssue).first { await response.reportValidationFailure(issue) }
+        if let issue = response.value.compactMap(\.imageRecoveryIssue).first {
+            await response.reportValidationFailure(issue)
+        }
         try Task.checkCancellation()
         guard session.currentCredentials.identity == identity else { throw CancellationError() }
         return resourceUpdates.resolve(response.value, since: revision)
     }
 
 }
-

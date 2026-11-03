@@ -1,32 +1,75 @@
 #!/usr/bin/env python3
 """Run semantic SwiftUI and design system checks."""
+
 import sys
+
 sys.dont_write_bytecode = True
 import re
 import subprocess
 from command_output import show_report_lines
 from ui_rules import (
-    DERIVED_DESIGN_TOKEN, DESIGN_SYSTEM, DESIGN_SYSTEM_SOURCES, DIRECT_FLOATING_MATERIAL,
-    DIRECT_GRID_ITEM_GEOMETRY, DIRECT_GROUPED_LIST_STYLE, DIRECT_INPUT_PLACEHOLDER,
-    DIRECT_LIST_SECTION_SPACING, DIRECT_LOCAL_CGFLOAT_LITERAL, DIRECT_PLAIN_LIST_STYLE,
-    DIRECT_SEMANTIC_COLOR_RULES, DIRECT_STROKE_GEOMETRY, DIRECT_THUMBNAIL_GEOMETRY,
-    DIRECT_VISUAL_RULES, PADDING_LITERAL, PLAIN_LIST_EXCEPTIONS, REPEATED_DESIGN_TOKEN,
-    REPORT_PATH, ROOT, STACK_SPACING_LITERAL, append_rule_finding, call_name,
-    check_accessibility_coverage, check_component_contracts, check_composer_lifecycle,
-    check_contextual_component_colors, check_design_token_boundaries, check_error_report_coverage,
-    check_fonts, check_haptic_consistency, check_interactive_list_colors,
-    check_page_theme_consistency, check_registered_visual_contracts, check_ui_test_inventory,
-    is_registered_cgfloat_contract, is_registered_map_theme_color_definition,
-    is_reviewed_fixed_geometry, list_has_grouped_style, mask_comments, mask_literals_and_comments,
-    pattern_line_number, pattern_nodes, rendered_component_counts, source_relative, source_text,
-    swift_files, syntax_index,
+    DERIVED_DESIGN_TOKEN,
+    DESIGN_SYSTEM,
+    DESIGN_SYSTEM_SOURCES,
+    DIRECT_FLOATING_MATERIAL,
+    DIRECT_GRID_ITEM_GEOMETRY,
+    DIRECT_GROUPED_LIST_STYLE,
+    DIRECT_INPUT_PLACEHOLDER,
+    DIRECT_LIST_SECTION_SPACING,
+    DIRECT_LOCAL_CGFLOAT_LITERAL,
+    DIRECT_PLAIN_LIST_STYLE,
+    DIRECT_SEMANTIC_COLOR_RULES,
+    DIRECT_STROKE_GEOMETRY,
+    DIRECT_THUMBNAIL_GEOMETRY,
+    DIRECT_VISUAL_RULES,
+    PADDING_LITERAL,
+    PLAIN_LIST_EXCEPTIONS,
+    REPEATED_DESIGN_TOKEN,
+    REPORT_PATH,
+    ROOT,
+    STACK_SPACING_LITERAL,
+    append_rule_finding,
+    call_name,
+    check_accessibility_coverage,
+    check_component_contracts,
+    check_composer_lifecycle,
+    check_contextual_component_colors,
+    check_design_token_boundaries,
+    check_error_report_coverage,
+    check_fonts,
+    check_haptic_consistency,
+    check_interactive_list_colors,
+    check_page_theme_consistency,
+    check_registered_visual_contracts,
+    check_ui_test_inventory,
+    is_registered_cgfloat_contract,
+    is_registered_map_theme_color_definition,
+    is_reviewed_fixed_geometry,
+    list_has_grouped_style,
+    mask_comments,
+    mask_literals_and_comments,
+    pattern_line_number,
+    pattern_nodes,
+    rendered_component_counts,
+    source_relative,
+    source_text,
+    swift_files,
+    syntax_index,
 )
-from ui_rule_tests import ast_marker_boundary_findings, source_boundary_findings, map_theme_color_contract_findings, interaction_inventory_boundary_findings
+from ui_rule_tests import (
+    ast_marker_boundary_findings,
+    source_boundary_findings,
+    map_theme_color_contract_findings,
+    interaction_inventory_boundary_findings,
+)
 from code_quality_rules import static_audit_lock
 from swift_type_index import SwiftBindingTypes
 from ui_source_facts import UIAuditContext, is_semantic_color_member
 
-def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None) -> int:
+
+def main(
+    shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None
+) -> int:
     swift_files.cache_clear()
     source_text.cache_clear()
 
@@ -70,27 +113,42 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         raw_source = source_text(path)
         facts = syntax[str(path)]
         components = rendered_component_counts(facts, syntax)
-        app_card_uses += components['AppCard']
-        floating_stack_uses += sum(components[symbol] for symbol in
-            ('AppFloatingActionStack', 'appBrowserActions', 'appBrowserFloatingActions'))
+        app_card_uses += components["AppCard"]
+        floating_stack_uses += sum(
+            components[symbol]
+            for symbol in (
+                "AppFloatingActionStack",
+                "appBrowserActions",
+                "appBrowserFloatingActions",
+            )
+        )
         for invocation in facts.get("invocations", []):
             name = call_name(invocation["calledExpression"])
             if name != "ZStack":
                 continue
             invocation_source = mask_literals_and_comments(invocation["value"])
-            if re.match(
-                r"ZStack\s*\(\s*alignment\s*:\s*\.bottomTrailing\s*\)", invocation_source
-            ) and re.search(r"\b(?:Floating|FAB)", invocation_source):
-                if "AppFloatingActionStack" not in invocation_source:
-                    errors.append(f"{relative}: 右下角操作组必须使用 AppFloatingActionStack")
+            if not (
+                re.match(
+                    ("ZStack\\s*\\(\\s*alignment\\s*:\\s*\\.bottomTrailing\\s*\\)"),
+                    invocation_source,
+                )
+                and re.search(("\\b(?:Floating|FAB)"), invocation_source)
+            ):
+                continue
+            if "AppFloatingActionStack" not in invocation_source:
+                errors.append(f"{relative}: 右下角操作组必须使用 AppFloatingActionStack")
         emitted_rule_findings: set[tuple[str, int, str]] = set()
         for pattern, message in DIRECT_VISUAL_RULES:
             if path.name == "AppLayoutComponents.swift" and pattern in (
-                DIRECT_GROUPED_LIST_STYLE, DIRECT_LIST_SECTION_SPACING, DIRECT_FLOATING_MATERIAL
+                DIRECT_GROUPED_LIST_STYLE,
+                DIRECT_LIST_SECTION_SPACING,
+                DIRECT_FLOATING_MATERIAL,
             ):
                 continue
             for node in pattern_nodes(facts, pattern):
-                if pattern is DIRECT_LOCAL_CGFLOAT_LITERAL and is_registered_cgfloat_contract(path, node):
+                if pattern is DIRECT_LOCAL_CGFLOAT_LITERAL and is_registered_cgfloat_contract(
+                    path, node
+                ):
                     continue
                 if pattern in (
                     DIRECT_GRID_ITEM_GEOMETRY,
@@ -98,10 +156,16 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                     DIRECT_THUMBNAIL_GEOMETRY,
                 ) and is_reviewed_fixed_geometry(path, raw_source, pattern, node):
                     continue
-                pattern_source = mask_comments(node["value"]) if pattern is DIRECT_INPUT_PLACEHOLDER else mask_literals_and_comments(node["value"])
+                pattern_source = (
+                    mask_comments(node["value"])
+                    if pattern is DIRECT_INPUT_PLACEHOLDER
+                    else mask_literals_and_comments(node["value"])
+                )
                 for match in pattern.finditer(pattern_source):
                     line_number = pattern_line_number(raw_source, node, match.start())
-                    append_rule_finding(errors, emitted_rule_findings, relative, line_number, message, pattern)
+                    append_rule_finding(
+                        errors, emitted_rule_findings, relative, line_number, message, pattern
+                    )
         for pattern, palette_name in DIRECT_SEMANTIC_COLOR_RULES:
             for node in pattern_nodes(facts, pattern):
                 pattern_source = mask_literals_and_comments(node["value"])
@@ -114,7 +178,12 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                 for match in pattern.finditer(pattern_source):
                     line_number = pattern_line_number(raw_source, node, match.start())
                     append_rule_finding(
-                        errors, emitted_rule_findings, relative, line_number, f"请使用 {palette_name}", pattern
+                        errors,
+                        emitted_rule_findings,
+                        relative,
+                        line_number,
+                        f"请使用 {palette_name}",
+                        pattern,
                     )
 
         for pattern, label in (
@@ -151,19 +220,20 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
                             pattern,
                         )
 
-        if relative_source not in PLAIN_LIST_EXCEPTIONS:
-            for node in pattern_nodes(facts, DIRECT_PLAIN_LIST_STYLE):
-                pattern_source = mask_literals_and_comments(node["value"])
-                for match in DIRECT_PLAIN_LIST_STYLE.finditer(pattern_source):
-                    line_number = pattern_line_number(raw_source, node, match.start())
-                    append_rule_finding(
-                        errors,
-                        emitted_rule_findings,
-                        relative,
-                        line_number,
-                        "plain 列表用于消息中心，其余页面使用分组列表",
-                        DIRECT_PLAIN_LIST_STYLE,
-                    )
+        if not (relative_source not in PLAIN_LIST_EXCEPTIONS):
+            continue
+        for node in pattern_nodes(facts, DIRECT_PLAIN_LIST_STYLE):
+            pattern_source = mask_literals_and_comments(node["value"])
+            for match in DIRECT_PLAIN_LIST_STYLE.finditer(pattern_source):
+                line_number = pattern_line_number(raw_source, node, match.start())
+                append_rule_finding(
+                    errors,
+                    emitted_rule_findings,
+                    relative,
+                    line_number,
+                    "plain 列表用于消息中心，其余页面使用分组列表",
+                    DIRECT_PLAIN_LIST_STYLE,
+                )
 
     if app_card_uses == 0:
         errors.append("公共卡片组件需要在生产视图中调用 AppCard")
@@ -179,14 +249,21 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
         facts = syntax[str(path)]
         for control in facts["listControls"]:
             if not list_has_grouped_style(control, facts["listStyleModifiers"]):
-                errors.append(f"{path.relative_to(ROOT)}: {'.'.join(control['scope'])} List 必须由自身表达式接入 appGroupedListStyle")
+                errors.append(
+                    (
+                        f"{path.relative_to(ROOT)}"
+                        f": "
+                        f"{'.'.join(control['scope'])}"
+                        f" List 必须由自身表达式接入 appGroupedListStyle"
+                    )
+                )
 
     if errors:
         lines = ["[失败] UI 一致性检查：", *errors]
         report = "\n".join(lines)
         REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         REPORT_PATH.write_text(report + "\n", encoding="utf-8")
-        show_report_lines((line + '\n' for line in lines), REPORT_PATH, 'UI 一致性检查')
+        show_report_lines((line + "\n" for line in lines), REPORT_PATH, "UI 一致性检查")
         return 1
 
     REPORT_PATH.unlink(missing_ok=True)
@@ -198,8 +275,12 @@ def main(shared_syntax: dict[str, dict] | None = None, boundary_findings: list[s
 if __name__ == "__main__":
     with static_audit_lock():
         if sys.argv[1:] == ["--self-test"]:
-            findings = [*ast_marker_boundary_findings(), *interaction_inventory_boundary_findings(),
-                *source_boundary_findings(), *map_theme_color_contract_findings()]
+            findings = [
+                *ast_marker_boundary_findings(),
+                *interaction_inventory_boundary_findings(),
+                *source_boundary_findings(),
+                *map_theme_color_contract_findings(),
+            ]
             if findings:
                 print("\n".join(findings), file=sys.stderr)
             else:

@@ -41,7 +41,7 @@ struct FreeClassroomTabView: View {
                         actionTitle: canClearSectionFilter ? "清除节次筛选" : "刷新空教室",
                         onAction: {
                             if canClearSectionFilter {
-                                viewModel.setSelectedClassroomSectionIDs([])
+                                viewModel.setClassroomSections([])
                             } else {
                                 Task { await viewModel.refreshClassroomPage() }
                             }
@@ -54,7 +54,10 @@ struct FreeClassroomTabView: View {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(availabilities) { classroom in
                         let matchesAllSelectedSections = isExactMatch(for: classroom)
-                        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.content) {
+                        HStack(
+                            alignment: .firstTextBaseline,
+                            spacing: AppDesignSystem.Spacing.content
+                        ) {
                             Text(classroom.name)
                                 .font(AppDesignSystem.Typography.body)
                                 .foregroundStyle(AppDesignSystem.Foreground.primary)
@@ -93,12 +96,15 @@ struct FreeClassroomTabView: View {
         Section { ClassroomRefreshStatusRow(viewModel: viewModel) }
 
         Section {
-            Picker("校区", selection: Binding(
-                get: { viewModel.cache.selectedCampusCode },
-                set: { newValue in
-                    viewModel.selectCampus(code: newValue)
-                }
-            )) {
+            Picker(
+                "校区",
+                selection: Binding(
+                    get: { viewModel.cache.selectedCampusCode },
+                    set: { newValue in
+                        viewModel.selectCampus(code: newValue)
+                    }
+                )
+            ) {
                 ForEach(viewModel.campuses) { campus in
                     Text(campus.name).tag(campus.code)
                 }
@@ -106,12 +112,15 @@ struct FreeClassroomTabView: View {
             .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
             .appInteractiveListRow()
 
-            Picker("教学楼", selection: Binding(
-                get: { viewModel.selectedBuildingID },
-                set: { newValue in
-                    viewModel.selectBuilding(id: newValue)
-                }
-            )) {
+            Picker(
+                "教学楼",
+                selection: Binding(
+                    get: { viewModel.selectedBuildingID },
+                    set: { newValue in
+                        viewModel.selectBuilding(id: newValue)
+                    }
+                )
+            ) {
                 ForEach(viewModel.buildings) { building in
                     Text(building.name).tag(building.buildingCode)
                 }
@@ -119,7 +128,10 @@ struct FreeClassroomTabView: View {
             .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
             .appInteractiveListRow()
 
-            AppBrowserListRow(isSelected: usesSidebar && selectedPage == .sections, action: { selectedPage = .sections }) {
+            AppBrowserListRow(
+                isSelected: usesSidebar && selectedPage == .sections,
+                action: { selectedPage = .sections }
+            ) {
                 sectionFilterLabel
             }
             .accessibilityIdentifier("classroom.section-filter")
@@ -137,7 +149,7 @@ struct FreeClassroomTabView: View {
             title: "节次筛选", selectAllTitle: "全选", showsCompletionButton: false,
             selectedSections: Binding(
                 get: { viewModel.cache.selectedClassroomSectionIDs },
-                set: { viewModel.setSelectedClassroomSectionIDs($0) }
+                set: { viewModel.setClassroomSections($0) }
             )
         )
     }
@@ -173,7 +185,8 @@ struct FreeClassroomTabView: View {
 struct ClassroomRefreshStatusRow: View {
     @ObservedObject var viewModel: ScheduleClassroomViewModel
     var body: some View {
-        AppRefreshStatusRow(isRefreshing: viewModel.isRefreshingPage, refreshingText: viewModel.pageRefreshText,
+        AppRefreshStatusRow(
+            isRefreshing: viewModel.isRefreshingPage, refreshingText: viewModel.pageRefreshText,
             lastUpdatedText: viewModel.classroomLastUpdatedText, actionTitle: "刷新",
             onRefresh: { Task { await viewModel.refreshClassroomPage() } })
     }

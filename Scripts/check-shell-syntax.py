@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Parse shell files with their declared interpreter."""
+
 import subprocess
 from pathlib import Path
 from validation_inputs import repository_script_paths
@@ -18,15 +19,21 @@ def interpreter(source: str) -> str:
 
 def main() -> int:
     source = "#!/bin/sh\nforeach value (one two)\n  echo $value\nend\n"
-    assert subprocess.run([interpreter(source), "-n"], input=source, text=True, capture_output=True).returncode
+    assert subprocess.run(
+        [interpreter(source), "-n"], input=source, text=True, capture_output=True
+    ).returncode
     errors = []
-    for path in repository_script_paths(ROOT, {'.sh'}):
+    for path in repository_script_paths(ROOT, {".sh"}):
         try:
-            result = subprocess.run([interpreter(path.read_text()), "-n", str(path)], capture_output=True, text=True)
-            if result.returncode: errors.append(result.stderr.strip())
+            result = subprocess.run(
+                [interpreter(path.read_text()), "-n", str(path)], capture_output=True, text=True
+            )
+            if result.returncode:
+                errors.append(result.stderr.strip())
         except (KeyError, IndexError):
             errors.append(f"{path.relative_to(ROOT)}: shell 文件需要声明支持的解释器")
-    if errors: print("\n".join(errors))
+    if errors:
+        print("\n".join(errors))
     return int(bool(errors))
 
 

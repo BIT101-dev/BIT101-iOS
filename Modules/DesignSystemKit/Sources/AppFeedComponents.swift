@@ -4,7 +4,8 @@ import SwiftUI
 public struct AppSelectionHighlight: View {
     public init() {}
     public var body: some View {
-        Rectangle().fill(.tint.opacity(AppDesignSystem.Opacity.selection)).allowsHitTesting(false)
+        Rectangle().fill(.tint.opacity(AppDesignSystem.Opacity.selection)).allowsHitTesting(
+            false)
     }
 }
 
@@ -36,7 +37,6 @@ public struct AppFeedRow<Content: View>: View {
 #endif
 
 #if os(iOS)
-
 
 /// 日程和成绩详情页共用的课程评价入口行。
 public struct AppCourseEvaluationRow: View {

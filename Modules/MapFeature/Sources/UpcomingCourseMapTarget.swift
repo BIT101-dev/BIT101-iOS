@@ -17,7 +17,10 @@ public nonisolated struct UpcomingCourseMapTarget: Equatable, Sendable {
     public let place: CampusMapPlace?
     public let startDateText: String
 
-    public init(id: String, courseName: String, classroom: String, startDate: Date, campus: CampusPreset?, place: CampusMapPlace?, startDateText: String) {
+    public init(
+        id: String, courseName: String, classroom: String, startDate: Date, campus: CampusPreset?,
+        place: CampusMapPlace?, startDateText: String
+    ) {
         self.id = id
         self.courseName = courseName
         self.classroom = classroom

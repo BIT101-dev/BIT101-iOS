@@ -1,14 +1,14 @@
+import Combine
 import CommunityPersistence
 import CommunityUI
-import ScoreDomain
-import ScorePorts
-import ScoreInfrastructure
-import GalleryFeature
-import StorageCore
-import ScoreFeature
-import ScheduleDomain
 import Foundation
-import Combine
+import GalleryFeature
+import ScheduleDomain
+import ScoreDomain
+import ScoreFeature
+import ScoreInfrastructure
+import ScorePorts
+import StorageCore
 
 struct AppAccountStores {
     private static let storageOperations = StorageOperationTracker()
@@ -27,17 +27,22 @@ struct AppAccountStores {
 
     static let shared = AppAccountStores(
         communityMessages: GalleryMessageReadStore(
-            files: AppFileDirectories.files, storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
-            defaults: AppFileDirectories.defaults, session: { AppFileDirectories.currentSession }, storageOperations: storageOperations
+            files: AppFileDirectories.files,
+            storageRoot: AppFileDirectories.appSupportURL(named: "BIT101-iOS"),
+            defaults: AppFileDirectories.defaults, session: { AppFileDirectories.currentSession },
+            storageOperations: storageOperations
         ),
         composerDrafts: ComposerDraftStore(
-            files: AppFileDirectories.files, applicationSupport: AppFileDirectories.applicationSupport,
-            session: { AppFileDirectories.currentSession }, prepareImageData: ComposerDraftImageCompressor.compress,
-            storageOperations: storageOperations, publicationOwner: { AppAccountSession.storage.currentStudentID }
+            files: AppFileDirectories.files,
+            applicationSupport: AppFileDirectories.applicationSupport,
+            session: { AppFileDirectories.currentSession },
+            prepareImageData: ComposerDraftImageCompressor.compress,
+            storageOperations: storageOperations,
+            publicationOwner: { AppAccountSession.storage.currentStudentID }
         ),
         scoreCache: ScoreCacheStore(
             files: AppFileDirectories.files,
-            storageRoot: AppFileDirectories.applicationSupportDirectoryURL(named: "BIT101-iOS"),
+            storageRoot: AppFileDirectories.appSupportURL(named: "BIT101-iOS"),
             defaults: AppFileDirectories.defaults,
             session: { AppFileDirectories.scoreCacheSession }, storageOperations: storageOperations
         ),
@@ -51,9 +56,13 @@ struct AppAccountStores {
 }
 
 extension AppAccountStores {
-    static func loadScheduleCourses(for session: AppStorageSession) async -> [String: [ScoreCourseSummary]] {
+    static func loadScheduleCourses(for session: AppStorageSession) async -> [String:
+        [ScoreCourseSummary]]
+    {
         let result = await ScheduleCacheStore.loadResultAsync(for: session)
-        return (result.cacheIfReadable?.cachedCoursesByTerm ?? [:]).mapValues { $0.map(ScoreCourseSummary.init) }
+        return (result.cacheIfReadable?.cachedCoursesByTerm ?? [:]).mapValues {
+            $0.map(ScoreCourseSummary.init)
+        }
     }
 }
 
@@ -64,7 +73,8 @@ extension ScoreViewModel {
         stores: AppAccountStores = .shared,
         currentScoreCacheSession: (@MainActor () -> AppStorageSession)? = nil,
         scheduleCoursesChanges: AnyPublisher<AppStorageSession, Never>,
-        loadScheduleCourses: @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
+        loadScheduleCourses:
+            @escaping @MainActor (AppStorageSession) async -> [String: [ScoreCourseSummary]]
     ) {
         self.init(
             service: service,
@@ -76,7 +86,11 @@ extension ScoreViewModel {
         )
     }
 
-    convenience init() { self.init(service: ScoreService(), scheduleCoursesChanges: ScheduleCacheStore.changes, loadScheduleCourses: AppAccountStores.loadScheduleCourses) }
+    convenience init() {
+        self.init(
+            service: ScoreService(), scheduleCoursesChanges: ScheduleCacheStore.changes,
+            loadScheduleCourses: AppAccountStores.loadScheduleCourses)
+    }
 }
 
 /// 应用生命周期为基础存储提供当前账号、路径和偏好容器。
@@ -96,7 +110,8 @@ extension ScoreCourseSummary {
         let scheduleText: String
         if (1...7).contains(course.weekday), course.startSection > 0 {
             let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
-            let section = course.endSection > course.startSection
+            let section =
+                course.endSection > course.startSection
                 ? "第\(course.startSection)-\(course.endSection)节"
                 : "第\(course.startSection)节"
             scheduleText = "星期\(weekdays[course.weekday - 1]) \(section)"
@@ -108,7 +123,10 @@ extension ScoreCourseSummary {
             type: course.type, teacher: course.teacher, classroom: course.classroom,
             campus: course.campus, description: course.description, creditText: course.creditText,
             scheduleText: scheduleText,
-            weeksText: course.weeks.isEmpty ? "-" : ScheduleWeekCodec.formatWeeks(course.weeks).replacingOccurrences(of: ",", with: "、"),
+            weeksText: course.weeks.isEmpty
+                ? "-"
+                : ScheduleWeekCodec.formatWeeks(course.weeks).replacingOccurrences(
+                    of: ",", with: "、"),
             hourText: course.hour > 0 ? "\(course.hour)" : "-"
         )
     }

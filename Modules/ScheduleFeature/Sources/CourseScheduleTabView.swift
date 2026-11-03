@@ -18,7 +18,9 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
 
 struct CourseScheduleRefreshStatusRow: View {
     @ObservedObject var viewModel: ScheduleViewModel
-    private var activeSchedule: ScheduleViewModel.CourseScheduleVariant { viewModel.activeCourseSchedule }
+    private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
+        viewModel.activeCourseSchedule
+    }
     var body: some View {
         refreshStatus
             .accessibilityElement(children: .contain)
@@ -87,7 +89,8 @@ struct CourseScheduleTabView: View {
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleCourseShare?
     @State var refreshStatusContentHeight = AppDesignSystem.Size.Control.touchTarget
-    @AppStorage("schedule.calendar.axisMode") var storedCalendarAxisMode = ScheduleCalendarAxisMode.quantized.rawValue
+    @AppStorage("schedule.calendar.axisMode") var storedCalendarAxisMode =
+        ScheduleCalendarAxisMode.quantized.rawValue
     @State var calendarAxisZoomScale: CGFloat = AppDesignSystem.Schedule.timelineDefaultScale
 
     var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
@@ -104,8 +107,10 @@ struct CourseScheduleTabView: View {
 
     @ViewBuilder private var addContentAction: some View {
         if supportsEditingDisplayedSchedule {
-            AppFloatingActionButton(systemImage: "plus", accessibilityLabel: "添加课表内容",
-                accessibilityIdentifier: "schedule.add-content") { isShowingAddContentMenu = true }
+            AppFloatingActionButton(
+                systemImage: "plus", accessibilityLabel: "添加课表内容",
+                accessibilityIdentifier: "schedule.add-content"
+            ) { isShowingAddContentMenu = true }
             .confirmationDialog(
                 "添加课表内容",
                 isPresented: $isShowingAddContentMenu,
@@ -148,7 +153,8 @@ struct CourseScheduleTabView: View {
                         selectedEntry = entry
                     },
                     onSelectDay: { date, weekday in
-                        guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else { return }
+                        guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly
+                        else { return }
                         guard supportsEditingDisplayedSchedule else {
                             viewModel.notice = ScheduleNotice.userInput(
                                 title: "无法调整分享课表",
@@ -162,7 +168,8 @@ struct CourseScheduleTabView: View {
                             weekday: weekday
                         )
                         dayAdjustmentDraft = ScheduleDayAdjustmentDraft(
-                            targetDate: ScheduleDateCodec.calendar.date(byAdding: .day, value: 1, to: date) ?? date
+                            targetDate: ScheduleDateCodec.calendar.date(
+                                byAdding: .day, value: 1, to: date) ?? date
                         )
                     },
                     onSelectWeekValue: { week in
@@ -192,7 +199,9 @@ struct CourseScheduleTabView: View {
             }
         }
         .frame(height: height)
-        .appBrowserFloatingActions(bottomInset: layout.usesBottomTabBar ? 0 : layout.safeAreaInsets.bottom) {
+        .appBrowserFloatingActions(
+            bottomInset: layout.usesBottomTabBar ? 0 : layout.safeAreaInsets.bottom
+        ) {
             addContentAction
         }
     }
@@ -204,7 +213,8 @@ struct CourseScheduleTabView: View {
         GeometryReader { proxy in
             let listHeight = max(proxy.size.height, 1)
             let scheduleSectionGap = AppDesignSystem.Spacing.content
-            let usesLandscapeCalendar = layout.isLandscapeWindow && !layout.usesAccessibilityText
+            let usesLandscapeCalendar =
+                layout.isLandscapeWindow && !layout.usesAccessibilityText
             let refreshStatusHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
                 contentHeight: refreshStatusContentHeight
             )
@@ -212,7 +222,8 @@ struct CourseScheduleTabView: View {
                 listHeight
                     - refreshStatusHeight
                     - scheduleSectionGap
-                    - (usesLandscapeCalendar || !layout.usesBottomTabBar ? AppDesignSystem.Spacing.none : scheduleSectionGap),
+                    - (usesLandscapeCalendar || !layout.usesBottomTabBar
+                        ? AppDesignSystem.Spacing.none : scheduleSectionGap),
                 1
             )
 
@@ -220,18 +231,23 @@ struct CourseScheduleTabView: View {
                 if usesLandscapeCalendar {
                     VStack(spacing: AppDesignSystem.Spacing.content) {
                         List { refreshStatusSection }
-                            .accessibilityIdentifier("interaction.CourseScheduleTabView.refresh")
+                            .accessibilityIdentifier(
+                                "interaction.CourseScheduleTabView.refresh"
+                            )
                             .appGroupedListStyle()
                             .scrollContentBackground(.hidden)
                             .scrollDisabled(true)
                             .frame(height: refreshStatusHeight)
                         calendarSurface(height: calendarHeight)
-                            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
+                            .clipShape(
+                                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
+                            )
                             .padding(.horizontal, AppDesignSystem.Spacing.section)
                     }
                     .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
                         guard height > 0 else { return }
-                        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                        refreshStatusContentHeight = max(
+                            height, AppDesignSystem.Size.Control.touchTarget)
                     }
                 } else {
                     List {
@@ -249,12 +265,15 @@ struct CourseScheduleTabView: View {
                     .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
                     .appGroupedListStyle()
                     .scrollContentBackground(.hidden)
-                    .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
+                    .scrollDisabled(
+                        calendarAxisMode == .quantized || activeSchedule.firstDay != nil
+                    )
                     .frame(height: listHeight, alignment: .top)
                     .zIndex(0)
                     .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
                         guard height > 0 else { return }
-                        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+                        refreshStatusContentHeight = max(
+                            height, AppDesignSystem.Size.Control.touchTarget)
                     }
                 }
 
@@ -265,11 +284,14 @@ struct CourseScheduleTabView: View {
         .simultaneousGesture(scheduleSwitchGesture)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")
-        .sheet(item: $selectedEntry, onDismiss: {
-            if editingCustomScheduleID != nil {
-                isShowingEditSchedule = true
+        .sheet(
+            item: $selectedEntry,
+            onDismiss: {
+                if editingCustomScheduleID != nil {
+                    isShowingEditSchedule = true
+                }
             }
-        }) { entry in
+        ) { entry in
             ScheduleEntryDetailSheet(
                 entry: entry,
                 academicCourses: {
@@ -277,7 +299,9 @@ struct CourseScheduleTabView: View {
                         activeSchedule.courses.first(where: { $0.id == sourceID })
                     }
                     let identities = Set(displayedCourses.map(scheduleCourseIdentity))
-                    return activeSchedule.courses.filter { identities.contains(scheduleCourseIdentity($0)) }
+                    return activeSchedule.courses.filter {
+                        identities.contains(scheduleCourseIdentity($0))
+                    }
                 }(),
                 currentWeek: viewModel.selectedWeek,
                 currentTerm: activeSchedule.currentTerm,
@@ -290,7 +314,9 @@ struct CourseScheduleTabView: View {
                     viewModel.courseArrangementDrafts(forCourseID: courseID)
                 },
                 courseArrangementDraftForOccurrence: { courseID, week in
-                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else {
+                    guard
+                        let course = activeSchedule.courses.first(where: { $0.id == courseID })
+                    else {
                         return nil
                     }
                     return viewModel.courseArrangementDraft(for: course, week: week)
@@ -302,7 +328,8 @@ struct CourseScheduleTabView: View {
                             try viewModel.updateCourseArrangements(arrangements)
                         case .occurrence:
                             guard let arrangement = arrangements.first,
-                                  let weeks = try? ScheduleCourseEditor.parseWeeks(arrangement.draft.weeksText)
+                                let weeks = try? ScheduleCourseEditor.parseWeeks(
+                                    arrangement.draft.weeksText)
                             else {
                                 throw viewModel.scheduleValidationError("至少选择一周课程。")
                             }
@@ -319,7 +346,9 @@ struct CourseScheduleTabView: View {
                     }
                 },
                 onDeleteCourseOccurrence: { courseID, week in
-                    guard let course = activeSchedule.courses.first(where: { $0.id == courseID }) else { return }
+                    guard
+                        let course = activeSchedule.courses.first(where: { $0.id == courseID })
+                    else { return }
                     do {
                         try viewModel.deleteCourseOccurrence(id: course.id, week: week)
                         selectedEntry = nil
@@ -332,38 +361,54 @@ struct CourseScheduleTabView: View {
                     } catch { presentSaveError(error) }
                 },
                 onImportCourseOccurrence: { courseID, week in
-                    guard let content = calendarCourseContent(courseID: courseID, week: week) else { return }
+                    guard let content = calendarCourseContent(courseID: courseID, week: week)
+                    else { return }
                     importCalendarEntries(content, term: activeSchedule.currentTerm)
                 },
                 onImportCourse: { courseID in
-                    guard let content = calendarCourseContent(courseID: courseID) else { return }
+                    guard let content = calendarCourseContent(courseID: courseID) else {
+                        return
+                    }
                     importCalendarEntries(content, term: activeSchedule.currentTerm)
                 },
                 onDeleteCalendarMarkers: { markerIDs, term in
                     deleteCalendarEntries(markerIDs: markerIDs, term: term)
                 },
                 onDeleteCalendarCourse: { courseID, term in
-                    guard let content = calendarCourseContent(courseID: courseID) else { return }
+                    guard let content = calendarCourseContent(courseID: courseID) else {
+                        return
+                    }
                     deleteCalendarEntries(content, term: term)
                 },
                 onImportExam: { examID in
-                    guard let exam = activeSchedule.exams.first(where: { $0.id == examID }) else { return }
+                    guard let exam = activeSchedule.exams.first(where: { $0.id == examID })
+                    else { return }
                     importCalendarEntries(.exam(exam), term: activeSchedule.currentTerm)
                 },
                 onImportCustomSchedule: { scheduleID in
-                    guard let schedule = activeSchedule.customSchedules.first(where: { $0.id == scheduleID }) else { return }
-                    importCalendarEntries(.customSchedule(schedule), term: activeSchedule.currentTerm)
+                    guard
+                        let schedule = activeSchedule.customSchedules.first(where: {
+                            $0.id == scheduleID
+                        })
+                    else { return }
+                    importCalendarEntries(
+                        .customSchedule(schedule), term: activeSchedule.currentTerm)
                 },
                 onDeleteCalendarEntry: { markerID, term in
                     if entry.kind == .custom,
-                       let schedule = activeSchedule.customSchedules.first(where: { $0.id == entry.sourceID }) {
+                        let schedule = activeSchedule.customSchedules.first(where: {
+                            $0.id == entry.sourceID
+                        })
+                    {
                         deleteCalendarEntries(.customSchedule(schedule), term: term)
                     } else {
                         deleteCalendarEntries(markerIDs: Set([markerID]), term: term)
                     }
                 },
                 onEditCustomSchedule: {
-                    if let schedule = viewModel.courseState.customSchedules.first(where: { $0.id == entry.sourceID }) {
+                    if let schedule = viewModel.courseState.customSchedules.first(where: {
+                        $0.id == entry.sourceID
+                    }) {
                         editingCustomScheduleID = schedule.id
                         customScheduleDraft = viewModel.customScheduleDraft(for: schedule)
                     }
@@ -384,7 +429,8 @@ struct CourseScheduleTabView: View {
                 onSubmit: {
                     do {
                         if let editingCustomScheduleID {
-                            try viewModel.updateCustomSchedule(id: editingCustomScheduleID, draft: customScheduleDraft)
+                            try viewModel.updateCustomSchedule(
+                                id: editingCustomScheduleID, draft: customScheduleDraft)
                         } else {
                             try viewModel.addCustomSchedule(customScheduleDraft)
                         }
@@ -426,7 +472,8 @@ struct CourseScheduleTabView: View {
                     do {
                         switch dayAdjustmentDraft.mode {
                         case .holiday:
-                            try viewModel.clearCourses(week: context.week, weekday: context.weekday)
+                            try viewModel.clearCourses(
+                                week: context.week, weekday: context.weekday)
                         case .transfer:
                             try viewModel.transferCourses(
                                 fromWeek: context.week,
@@ -460,9 +507,10 @@ struct CourseScheduleTabView: View {
             )
         }
         .diagnosticAlert(item: $courseShareAlert)
-        .task(id: prefetchedCourseID) { await resolvePreparedCourseShare() }
-        .onAppear { consumeSystemCalendarRequest() }
-        .onChange(of: viewModel.requestedSystemCalendarEvent) { _, _ in consumeSystemCalendarRequest() }
+        .task(id: prefetchedCourseID) { await resolveCourseShare() }
+        .onAppear { consumeCalendarRequest() }
+        .onChange(of: viewModel.requestedSystemCalendarEvent) { _, _ in consumeCalendarRequest()
+        }
         .onDisappear { cancelPendingActions() }
         .onChange(of: viewModel.accountGeneration) { _, _ in
             dismissPresentedSheets()
@@ -477,12 +525,13 @@ struct CourseScheduleTabView: View {
             CourseScheduleRefreshStatusRow(viewModel: viewModel)
                 .background {
                     GeometryReader { proxy in
-                        Color.clear.preference(key: ScheduleRefreshStatusContentHeightKey.self, value: proxy.size.height)
+                        Color.clear.preference(
+                            key: ScheduleRefreshStatusContentHeightKey.self,
+                            value: proxy.size.height)
                     }
                 }
         }
     }
-
 
 }
 

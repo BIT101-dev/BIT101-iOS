@@ -1,60 +1,88 @@
-import CommunityCore
 import BIT101TestSupport
+import CommunityCore
 import CommunityTransport
 import Foundation
 import Testing
 import TransportCore
+
 @testable import PaperFeature
 
 @MainActor
 struct PaperDetailRequestTests {
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func leavingAPromotedPreviewKeepsCapacityForTheNextReader(alreadyActive: Bool) async throws {
+    func leavingPromotedPreviewKeepsCapacityReader(alreadyActive: Bool) async throws {
         let store = PaperDetailRequestStore()
         let (events, started) = AsyncStream<Int>.makeStream()
         let (submissions, submitted) = AsyncStream<Void>.makeStream()
-        defer { started.finish(); submitted.finish() }
-        var starts = events.makeAsyncIterator(), consumers = submissions.makeAsyncIterator()
+        defer {
+            started.finish()
+            submitted.finish()
+        }
+        var starts = events.makeAsyncIterator()
+        var consumers = submissions.makeAsyncIterator()
         var pending: [Int: CheckedContinuation<PaperDetail, any Error>] = [:]
         var calls: [Int: Int] = [:]
-        var active = 0, peak = 0
+        var active = 0
+        var peak = 0
         func load(_ id: Int) async throws -> PaperDetail {
             calls[id, default: 0] += 1
-            active += 1; peak = max(peak, active)
+            active += 1
+            peak = max(peak, active)
             defer { active -= 1 }
-            let value = try await withCheckedThrowingContinuation { pending[id] = $0; started.yield(id) }
+            let value = try await withCheckedThrowingContinuation {
+                pending[id] = $0
+                started.yield(id)
+            }
             try Task.checkCancellation()
             return value
         }
         var previews = (1...3).map { id in
-            Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } }
+            Task {
+                try await store.preview(id: id, credentials: credentials) { try await load(id) }
+            }
         }
-        var reading: Task<PaperDetail, any Error>?, next: Task<PaperDetail, any Error>?
+        var reading: Task<PaperDetail, any Error>?
+        var next: Task<PaperDetail, any Error>?
         defer {
             for preview in previews { preview.cancel() }
-            reading?.cancel(); next?.cancel()
-            for continuation in pending.values { continuation.resume(throwing: CancellationError()) }
+            reading?.cancel()
+            next?.cancel()
+            for continuation in pending.values {
+                continuation.resume(throwing: CancellationError())
+            }
             pending.removeAll()
         }
         for _ in 0..<3 { _ = await starts.next() }
-        previews.append(Task {
-            submitted.yield(())
-            return try await store.preview(id: 4, credentials: credentials) { try await load(4) }
-        })
+        previews.append(
+            Task {
+                submitted.yield(())
+                return try await store.preview(id: 4, credentials: credentials) {
+                    try await load(4)
+                }
+            })
         _ = await consumers.next()
         let promotedID = alreadyActive ? 1 : 4
         reading = Task {
             submitted.yield(())
-            return try await store.detail(id: promotedID, credentials: credentials) { try await load(promotedID) }
+            return try await store.detail(id: promotedID, credentials: credentials) {
+                try await load(promotedID)
+            }
         }
         _ = await consumers.next()
         if !alreadyActive { #expect(await starts.next() == 4) }
         reading?.cancel()
-        do { _ = try await reading?.value; Issue.record("离开详情后应结束该阅读等待者。") }
-        catch is CancellationError { #expect(reading?.isCancelled == true) }
-        if alreadyActive { #expect(pending[4] == nil && active == 3) }
-        else { pending.removeValue(forKey: 4)?.resume(returning: Self.detail(4, title: "旧任务")) }
-        next = Task { try await store.detail(id: 5, credentials: credentials) { try await load(5) } }
+        do {
+            _ = try await reading?.value
+            Issue.record("离开详情后应结束该阅读等待者。")
+        } catch is CancellationError { #expect(reading?.isCancelled == true) }
+        if alreadyActive {
+            #expect(pending[4] == nil && active == 3)
+        } else {
+            pending.removeValue(forKey: 4)?.resume(returning: Self.detail(4, title: "旧任务"))
+        }
+        next = Task {
+            try await store.detail(id: 5, credentials: credentials) { try await load(5) }
+        }
         #expect(await starts.next() == 5)
         for id in 1...3 { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
         #expect(await starts.next() == 4)
@@ -67,11 +95,14 @@ struct PaperDetailRequestTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func refreshingTheFirstPageRevalidatesAuthorMetadata() async throws {
+    func refreshingFirstPageMetadata() async throws {
         let store = PaperDetailRequestStore()
         let value = Self.detail(1, updateTime: "2026-10-01T08:00:00Z")
         var loads = 0
-        func load() async throws -> PaperDetail { loads += 1; return value }
+        func load() async throws -> PaperDetail {
+            loads += 1
+            return value
+        }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         store.invalidate(ids: [1])
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
@@ -79,17 +110,23 @@ struct PaperDetailRequestTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["saved", "conflict", "unchanged"])
-    func failedEditsReconcileTheirActualRemoteResult(scenario: String) async throws {
+    func failedEditsReconcileTheirResult(scenario: String) async throws {
         let transport = EditRecoveryTransport(scenario: scenario)
-        let session = CommunitySession(httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: AppURL.required("https://example.invalid"), credentials: { self.credentials }, refresh: { _ in })
+        let session = CommunitySession(
+            httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), credentials: { self.credentials },
+            refresh: { _ in })
         do {
-            try await PaperService(session: session).updatePaper(id: 1, title: "本地标题", intro: "简介",
-                content: "正文", anonymous: false, publicEdit: true, lastUpdatedAt: "2026-10-01T08:00:00Z")
+            try await PaperService(session: session).updatePaper(
+                id: 1, title: "本地标题", intro: "简介",
+                content: "正文", anonymous: false, publicEdit: true,
+                lastUpdatedAt: "2026-10-01T08:00:00Z")
             #expect(scenario == "saved")
         } catch let conflict as PaperEditConflict {
             #expect(scenario == "conflict" && conflict.latest.title == "远端标题")
-        } catch { #expect(scenario == "unchanged" && (error as? URLError)?.code == .networkConnectionLost) }
+        } catch {
+            #expect(scenario == "unchanged" && (error as? URLError)?.code == .networkConnectionLost)
+        }
         #expect(transport.methods == ["PUT", "GET"])
     }
 
@@ -97,20 +134,30 @@ struct PaperDetailRequestTests {
         let scenario: String
         var methods: [String] = []
         init(scenario: String) { self.scenario = scenario }
-        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) { try await data(for: request) }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            try await data(for: request)
+        }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             methods.append(request.httpMethod ?? "")
             if request.httpMethod == "PUT" { throw URLError(.networkConnectionLost) }
-            let body: [String: Any] = ["id": 1, "title": scenario == "saved" ? "本地标题" : "远端标题",
-                "intro": "简介", "content": "正文", "create_time": "", "update_time": scenario == "unchanged" ? "2026-10-01T08:00:00Z" : "2026-10-02T08:00:00Z",
-                "update_user": ["id": 7], "anonymous": false, "public_edit": true, "like_num": 0, "comment_num": 0, "like": false, "own": true]
+            let body: [String: Any] = [
+                "id": 1, "title": scenario == "saved" ? "本地标题" : "远端标题",
+                "intro": "简介", "content": "正文", "create_time": "",
+                "update_time": scenario == "unchanged"
+                    ? "2026-10-01T08:00:00Z" : "2026-10-02T08:00:00Z",
+                "update_user": ["id": 7], "anonymous": false, "public_edit": true, "like_num": 0,
+                "comment_num": 0, "like": false, "own": true,
+            ]
             let url = try #require(request.url)
-            return (try JSONSerialization.data(withJSONObject: body),
-                try #require(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)))
+            return (
+                try JSONSerialization.data(withJSONObject: body),
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func foregroundReadingStartsWhilePreviewsWaitForNetwork() async throws {
+    @Test(.timeLimit(.minutes(1))) func foregroundReadingStarts() async throws {
         let store = PaperDetailRequestStore()
         let gates = (0...4).map { _ in ListRequestGate<PaperDetail>() }
         let (submissions, submitted) = AsyncStream<Void>.makeStream()
@@ -118,7 +165,9 @@ struct PaperDetailRequestTests {
         let previews = (1...4).map { id in
             Task {
                 submitted.yield(())
-                return try await store.preview(id: id, credentials: credentials) { try await gates[id].request() }
+                return try await store.preview(id: id, credentials: credentials) {
+                    try await gates[id].request()
+                }
             }
         }
         defer { for preview in previews { preview.cancel() } }
@@ -142,24 +191,31 @@ struct PaperDetailRequestTests {
     }
 
     @Test
-    func publicCommentThreadsPreserveTheirViewerStateThroughLocalUpdates() {
+    func publicCommentThreadsPreserveTheirUpdates() {
         let user = CommunityUser.placeholder(id: 1, nickname: "作者")
         func comment(_ id: Int, sub: [CommunityComment] = []) -> CommunityComment {
-            .init(id: id, obj: "paper1", images: [], user: user, anonymous: false, createTime: "", updateTime: "",
-                like: false, likeNum: 0, commentNum: sub.count, own: false, rate: 0, replyUser: user,
+            .init(
+                id: id, obj: "paper1", images: [], user: user, anonymous: false, createTime: "",
+                updateTime: "",
+                like: false, likeNum: 0, commentNum: sub.count, own: false, rate: 0,
+                replyUser: user,
                 replyObj: "", text: "正文", sub: sub)
         }
-        let guest = comment(1, sub: [comment(2, sub: [comment(3)])]).settingViewerAuthentication(false)
-        #expect(!guest.isViewerAuthenticated && guest.flattenedReplies.allSatisfy { !$0.isViewerAuthenticated })
+        let guest = comment(1, sub: [comment(2, sub: [comment(3)])]).settingViewerAuth(false)
+        #expect(
+            !guest.isViewerAuthenticated
+                && guest.flattenedReplies.allSatisfy { !$0.isViewerAuthenticated })
         #expect(!guest.replacingSubComments(guest.sub).isViewerAuthenticated)
         #expect(!guest.updatingLike(true, likeNum: 1).isViewerAuthenticated)
-        let authenticated = guest.settingViewerAuthentication(true)
-        #expect(authenticated.isViewerAuthenticated && authenticated.flattenedReplies.allSatisfy(\.isViewerAuthenticated))
+        let authenticated = guest.settingViewerAuth(true)
+        #expect(
+            authenticated.isViewerAuthenticated
+                && authenticated.flattenedReplies.allSatisfy(\.isViewerAuthenticated))
         #expect(authenticated.flattenedReplies.map(\.text) == ["正文", "正文"])
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func publicRecoveryKeepsItsViewerStateOutsideTheAuthenticatedPreviewCache() async throws {
+    func publicRecoveryKeepsViewerStateCache() async throws {
         let store = PaperDetailRequestStore()
         var publicDetail = Self.detail(1)
         publicDetail.isViewerAuthenticated = false
@@ -174,37 +230,50 @@ struct PaperDetailRequestTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func foregroundDetailsPassQueuedPreviewsAndPromoteSharedRequests(upgrade: Bool) async throws {
+    func foregroundDetailsPassRequests(upgrade: Bool) async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Int>.makeStream()
         defer { entered.finish() }
         var pending: [Int: CheckedContinuation<PaperDetail, any Error>] = [:]
         func load(_ id: Int) async throws -> PaperDetail {
-            try await withCheckedThrowingContinuation { pending[id] = $0; entered.yield(id) }
+            try await withCheckedThrowingContinuation {
+                pending[id] = $0
+                entered.yield(id)
+            }
         }
         var previews = (1...3).map { id in
-            Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } }
+            Task {
+                try await store.preview(id: id, credentials: credentials) { try await load(id) }
+            }
         }
         var starts = events.makeAsyncIterator()
         for _ in 1...3 { _ = await starts.next() }
         let (queuedEvents, queuedEntered) = AsyncStream<Void>.makeStream()
         defer { queuedEntered.finish() }
         for id in 4...5 {
-            previews.append(Task {
-                queuedEntered.yield(())
-                return try await store.preview(id: id, credentials: credentials) { try await load(id) }
-            })
+            previews.append(
+                Task {
+                    queuedEntered.yield(())
+                    return try await store.preview(id: id, credentials: credentials) {
+                        try await load(id)
+                    }
+                })
         }
         var queued = queuedEvents.makeAsyncIterator()
-        _ = await queued.next(); _ = await queued.next()
+        _ = await queued.next()
+        _ = await queued.next()
         let foregroundID = upgrade ? 5 : 6
         let detail = Task {
             queuedEntered.yield(())
-            return try await store.detail(id: foregroundID, credentials: credentials) { try await load(foregroundID) }
+            return try await store.detail(id: foregroundID, credentials: credentials) {
+                try await load(foregroundID)
+            }
         }
         _ = await queued.next()
         #expect(await starts.next() == foregroundID)
-        for id in [1, 2, 3, foregroundID] { pending.removeValue(forKey: id)?.resume(returning: Self.detail(id)) }
+        for id in [1, 2, 3, foregroundID] {
+            pending.removeValue(forKey: id)?.resume(returning: Self.detail(id))
+        }
         for _ in 0..<(upgrade ? 1 : 2) {
             let id = try #require(await starts.next())
             pending.removeValue(forKey: id)?.resume(returning: Self.detail(id))
@@ -213,10 +282,13 @@ struct PaperDetailRequestTests {
         #expect(try await detail.value.id == foregroundID)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewOwnershipSurvivesRenewalAndTracksSignedInState() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewOwnershipSurvivesRenewal() async throws {
         let store = PaperDetailRequestStore()
         var loads = 0
-        func load() async throws -> PaperDetail { loads += 1; return Self.detail(1) }
+        func load() async throws -> PaperDetail {
+            loads += 1
+            return Self.detail(1)
+        }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         let renewed = CommunityCredentials(identity: credentials.identity, cookie: "renewed")
         #expect(store.cachedDetail(id: 1, credentials: renewed)?.id == 1)
@@ -229,32 +301,47 @@ struct PaperDetailRequestTests {
         #expect(loads == 4)
     }
 
-    private let credentials = CommunityCredentials(identity: .init(accountIdentifier: "paper-preview"), cookie: "fixture")
+    private let credentials = CommunityCredentials(
+        identity: .init(accountIdentifier: "paper-preview"), cookie: "fixture")
 
-    private static func detail(_ id: Int, title: String = "文章", updateTime: String = "") -> PaperDetail {
-        PaperDetail(id: id, title: title, intro: "", content: "正文", createTime: "", updateTime: updateTime,
-            updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0, commentNum: 0,
+    private static func detail(_ id: Int, title: String = "文章", updateTime: String = "")
+        -> PaperDetail
+    {
+        PaperDetail(
+            id: id, title: title, intro: "", content: "正文", createTime: "", updateTime: updateTime,
+            updateUser: .placeholder(id: 1, nickname: "作者"), anonymous: false, likeNum: 0,
+            commentNum: 0,
             publicEdit: false, like: false, own: true)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func previewCacheUsesTheBodyDisplayBudget(oversized: Bool) async throws {
         let store = PaperDetailRequestStore()
-        let body = String(repeating: "x", count: PaperContentResourceLimits.maximumBodyBytes - 12 + (oversized ? 1 : 0))
-        let author = CommunityUser(id: 1, createTime: "", nickname: "作者", avatar: .init(mid: "", url: "", lowUrl: ""),
-            motto: "", identity: .init(id: 0, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
-        let value = PaperDetail(id: 1, title: "文章", intro: "", content: body, createTime: "", updateTime: "",
+        let body = String(
+            repeating: "x",
+            count: PaperContentResourceLimits.maximumBodyBytes - 12 + (oversized ? 1 : 0))
+        let author = CommunityUser(
+            id: 1, createTime: "", nickname: "作者", avatar: .init(mid: "", url: "", lowUrl: ""),
+            motto: "",
+            identity: .init(
+                id: 0, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil))
+        let value = PaperDetail(
+            id: 1, title: "文章", intro: "", content: body, createTime: "", updateTime: "",
             updateUser: author, anonymous: false, likeNum: 0, commentNum: 0,
             publicEdit: false, like: false, own: true)
         var loads = 0
-        func load() async throws -> PaperDetail { loads += 1; return value }
-        #expect(try await store.preview(id: 1, credentials: credentials, load: load).authorName == "作者")
+        func load() async throws -> PaperDetail {
+            loads += 1
+            return value
+        }
+        #expect(
+            try await store.preview(id: 1, credentials: credentials, load: load).authorName == "作者")
         #expect((store.cachedDetail(id: 1, credentials: credentials) != nil) == !oversized)
         #expect(try await store.detail(id: 1, credentials: credentials, load: load).content == body)
         #expect(loads == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewRequestsReserveReadingCapacityAndCancelQueuedWork() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewRequestsReserveReadingCapacity() async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Int>.makeStream()
         defer { entered.finish() }
@@ -270,18 +357,31 @@ struct PaperDetailRequestTests {
                 entered.yield(id)
             }
         }
-        var tasks = (1...3).map { id in Task { try await store.preview(id: id, credentials: credentials) { try await load(id) } } }
+        var tasks = (1...3).map { id in
+            Task {
+                try await store.preview(id: id, credentials: credentials) { try await load(id) }
+            }
+        }
         var starts = events.makeAsyncIterator()
         for _ in 0..<3 { _ = await starts.next() }
         let (queuedEvents, queuedEntered) = AsyncStream<Int>.makeStream()
         defer { queuedEntered.finish() }
-        let queuedPreview = Task { queuedEntered.yield(4); return try await store.preview(id: 4, credentials: credentials) { try await load(4) } }
-        let cancelled = Task { queuedEntered.yield(5); return try await store.preview(id: 5, credentials: credentials) { try await load(5) } }
+        let queuedPreview = Task {
+            queuedEntered.yield(4)
+            return try await store.preview(id: 4, credentials: credentials) { try await load(4) }
+        }
+        let cancelled = Task {
+            queuedEntered.yield(5)
+            return try await store.preview(id: 5, credentials: credentials) { try await load(5) }
+        }
         var queued = queuedEvents.makeAsyncIterator()
-        _ = await queued.next(); _ = await queued.next()
+        _ = await queued.next()
+        _ = await queued.next()
         cancelled.cancel()
-        do { _ = try await cancelled.value; Issue.record("排队消费者需要沿取消结束") }
-        catch is CancellationError { #expect(cancelled.isCancelled) }
+        do {
+            _ = try await cancelled.value
+            Issue.record("排队消费者需要沿取消结束")
+        } catch is CancellationError { #expect(cancelled.isCancelled) }
         #expect(completions.count == 3 && peak == 3)
         completions.removeValue(forKey: 1)?.resume(returning: Self.detail(1))
         #expect(await starts.next() == 4)
@@ -291,7 +391,7 @@ struct PaperDetailRequestTests {
         #expect(active == 0 && peak == 3 && completions.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func coalescedConsumersKeepIndependentCancellation() async throws {
+    @Test(.timeLimit(.minutes(1))) func coalescedConsumersKeepIndependentCancel() async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Void>.makeStream()
         defer { entered.finish() }
@@ -299,57 +399,79 @@ struct PaperDetailRequestTests {
         var loads = 0
         func load() async throws -> PaperDetail {
             loads += 1
-            return try await withCheckedThrowingContinuation { pending = $0; entered.yield(()) }
+            return try await withCheckedThrowingContinuation {
+                pending = $0
+                entered.yield(())
+            }
         }
         let first = Task { try await store.preview(id: 1, credentials: credentials, load: load) }
         var starts = events.makeAsyncIterator()
         _ = await starts.next()
         let (joined, consumerEntered) = AsyncStream<Void>.makeStream()
         defer { consumerEntered.finish() }
-        let second = Task { consumerEntered.yield(()); return try await store.preview(id: 1, credentials: credentials, load: load) }
+        let second = Task {
+            consumerEntered.yield(())
+            return try await store.preview(id: 1, credentials: credentials, load: load)
+        }
         var consumers = joined.makeAsyncIterator()
         _ = await consumers.next()
         first.cancel()
-        do { _ = try await first.value; Issue.record("已取消消费者需要保持取消结果") }
-        catch is CancellationError { #expect(first.isCancelled) }
+        do {
+            _ = try await first.value
+            Issue.record("已取消消费者需要保持取消结果")
+        } catch is CancellationError { #expect(first.isCancelled) }
         pending?.resume(returning: Self.detail(1))
         #expect(try await second.value.authorName == "作者")
         #expect(loads == 1)
     }
 
-    @Test(.timeLimit(.minutes(1))) func previewHandoffIsConsumedAndRefreshStaysLive() async throws {
+    @Test(.timeLimit(.minutes(1))) func previewHandoffIsConsumed() async throws {
         let store = PaperDetailRequestStore()
         var loads = 0
-        func load() async throws -> PaperDetail { loads += 1; return Self.detail(1, title: "版本\(loads)") }
+        func load() async throws -> PaperDetail {
+            loads += 1
+            return Self.detail(1, title: "版本\(loads)")
+        }
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         #expect(store.cachedDetail(id: 1, credentials: credentials)?.title == "版本1")
         #expect(try await store.detail(id: 1, credentials: credentials, load: load).title == "版本2")
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         store.invalidate()
         #expect(try await store.detail(id: 1, credentials: credentials, load: load).title == "版本4")
-        let other = CommunityCredentials(identity: .init(accountIdentifier: "other"), cookie: "fixture")
+        let other = CommunityCredentials(
+            identity: .init(accountIdentifier: "other"), cookie: "fixture")
         _ = try await store.preview(id: 1, credentials: credentials, load: load)
         #expect(try await store.detail(id: 1, credentials: other, load: load).title == "版本6")
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) func refreshEpochKeepsFreshWorkSeparateFromAnOlderPreview(scoped: Bool) async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func refreshEpochKeepsWorkSeparateOlderPreview(scoped: Bool) async throws {
         let store = PaperDetailRequestStore()
         let (events, entered) = AsyncStream<Void>.makeStream()
         defer { entered.finish() }
         var oldCompletion: CheckedContinuation<PaperDetail, any Error>?
-        let old = Task { try await store.preview(id: 1, credentials: credentials) {
-            try await withCheckedThrowingContinuation { oldCompletion = $0; entered.yield(()) }
-        } }
+        let old = Task {
+            try await store.preview(id: 1, credentials: credentials) {
+                try await withCheckedThrowingContinuation {
+                    oldCompletion = $0
+                    entered.yield(())
+                }
+            }
+        }
         var starts = events.makeAsyncIterator()
         _ = await starts.next()
         _ = try await store.preview(id: 2, credentials: credentials) { Self.detail(2) }
         store.invalidate(ids: scoped ? [1] : nil)
         #expect((store.cachedDetail(id: 2, credentials: credentials) != nil) == scoped)
-        _ = try await store.preview(id: 1, credentials: credentials) { Self.detail(1, title: "新版本") }
+        _ = try await store.preview(id: 1, credentials: credentials) {
+            Self.detail(1, title: "新版本")
+        }
         oldCompletion?.resume(returning: Self.detail(1, title: "旧版本"))
         _ = try await old.value
         #expect(store.cachedDetail(id: 1, credentials: credentials)?.title == "新版本")
-        let opened = try await store.detail(id: 1, credentials: credentials) { Self.detail(1, title: "重新校验") }
+        let opened = try await store.detail(id: 1, credentials: credentials) {
+            Self.detail(1, title: "重新校验")
+        }
         #expect(opened.title == "重新校验")
     }
 
@@ -357,13 +479,22 @@ struct PaperDetailRequestTests {
         let store = PaperDetailRequestStore()
         var loads = 0
         for id in 1...5 {
-            _ = try await store.preview(id: id, credentials: credentials) { loads += 1; return Self.detail(id) }
+            _ = try await store.preview(id: id, credentials: credentials) {
+                loads += 1
+                return Self.detail(id)
+            }
         }
-        _ = try await store.detail(id: 1, credentials: credentials) { loads += 1; return Self.detail(1) }
+        _ = try await store.detail(id: 1, credentials: credentials) {
+            loads += 1
+            return Self.detail(1)
+        }
         #expect(loads == 6)
         #expect(store.cachedDetail(id: 5, credentials: credentials)?.id == 5)
         #expect(loads == 6)
-        _ = try await store.detail(id: 5, credentials: credentials) { loads += 1; return Self.detail(5) }
+        _ = try await store.detail(id: 5, credentials: credentials) {
+            loads += 1
+            return Self.detail(5)
+        }
         #expect(loads == 7)
     }
 }

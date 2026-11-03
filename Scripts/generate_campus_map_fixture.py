@@ -17,7 +17,9 @@ from pathlib import Path
 from validation_provenance import report_lock
 
 SUPPORTED_CAMPUSES = {"中关村校区", "良乡校区"}
-FIXTURE_PATH = Path(__file__).resolve().parents[1] / "BIT101-iOSTests/Fixtures/campus-map-locations.json"
+FIXTURE_PATH = (
+    Path(__file__).resolve().parents[1] / "BIT101-iOSTests/Fixtures/campus-map-locations.json"
+)
 TIME_PATTERN = re.compile(
     r"星期[一二三四五六日天]\s*"
     r"(?:\[[^\]]+\]|第\s*\d+\s*节(?:\s*-\s*第\s*\d+\s*节)?)"
@@ -28,6 +30,7 @@ TIME_PATTERN = re.compile(
 
 def extract_unique_locations(path: Path) -> list[tuple[str, str]]:
     from openpyxl import load_workbook
+
     warnings.filterwarnings("ignore", message="Workbook contains no default style")
     with closing(load_workbook(path, read_only=True, data_only=True)) as workbook:
         sheet = workbook.active
@@ -58,19 +61,29 @@ def extract_unique_locations(path: Path) -> list[tuple[str, str]]:
 def merge_locations(old_rows: list[dict], locations: list[tuple[str, str]]) -> list[dict]:
     retained = {(row["campus"], row["classroom"]): row for row in old_rows}
     for campus, classroom in locations:
-        retained.setdefault((campus, classroom), {
-            "campus": campus, "classroom": classroom, "expected": None, "review": "pending",
-        })
+        retained.setdefault(
+            (campus, classroom),
+            {
+                "campus": campus,
+                "classroom": classroom,
+                "expected": None,
+                "review": "pending",
+            },
+        )
     return [retained[key] for key in sorted(retained)]
 
 
 def update_fixture(locations: list[tuple[str, str]], allow_new: bool) -> tuple[int, int]:
     with report_lock(path=FIXTURE_PATH):
-        old_rows = json.loads(FIXTURE_PATH.read_text(encoding="utf-8")) if FIXTURE_PATH.exists() else []
+        old_rows = (
+            json.loads(FIXTURE_PATH.read_text(encoding="utf-8")) if FIXTURE_PATH.exists() else []
+        )
         decisions = {(row["campus"], row["classroom"]): row.get("expected") for row in old_rows}
         new_locations = [item for item in locations if item not in decisions]
         if new_locations and not allow_new:
-            preview = "\n".join(f"- {campus} / {classroom}" for campus, classroom in new_locations[:20])
+            preview = "\n".join(
+                f"- {campus} / {classroom}" for campus, classroom in new_locations[:20]
+            )
             raise SystemExit(
                 f"发现 {len(new_locations)} 个新地点需要审核：\n{preview}\n"
                 "审核后更新 expected，或显式使用 --allow-new 生成待处理项。"
@@ -80,7 +93,12 @@ def update_fixture(locations: list[tuple[str, str]], allow_new: bool) -> tuple[i
         FIXTURE_PATH.parent.mkdir(parents=True, exist_ok=True)
         incoming = FIXTURE_PATH.with_suffix(".incoming")
         try:
-            incoming.write_text("[\n" + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows) + "\n]\n", encoding="utf-8")
+            incoming.write_text(
+                "[\n"
+                + ",\n".join("  " + json.dumps(row, ensure_ascii=False) for row in rows)
+                + "\n]\n",
+                encoding="utf-8",
+            )
             incoming.replace(FIXTURE_PATH)
         finally:
             incoming.unlink(missing_ok=True)

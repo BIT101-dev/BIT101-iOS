@@ -1,15 +1,15 @@
-import TransportCore
-import DesignSystemKit
+import Combine
 import CommunityCore
+import DesignSystemKit
+import Foundation
+import TransportCore
+
 //
 //  GalleryViewModel.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-03-24.
 //
-
-import Combine
-import Foundation
 
 @MainActor
 final class GallerySubscriptionsViewModel: ObservableObject {
@@ -51,10 +51,17 @@ final class GallerySubscriptionsViewModel: ObservableObject {
             needsRefresh = false
         } catch {
             guard generation == requestGeneration else { return }
-            if TaskCancellation.matches(error) { status = items.isEmpty ? previousStatus : .loaded; return }
+            if TaskCancellation.matches(error) {
+                status = items.isEmpty ? previousStatus : .loaded
+                return
+            }
             needsRefresh = true
-            if items.isEmpty { status = .failed(error.localizedDescription) }
-            else { status = .loaded; alert = AppAlert(title: "刷新收藏失败", error: error) }
+            if items.isEmpty {
+                status = .failed(error.localizedDescription)
+            } else {
+                status = .loaded
+                alert = AppAlert(title: "刷新收藏失败", error: error)
+            }
         }
     }
 
@@ -65,9 +72,12 @@ final class GallerySubscriptionsViewModel: ObservableObject {
         defer { if generation == requestGeneration { isLoadingMore = false } }
         var request = CommunityPageRequest<Int>(sourcePage: nextPage)
         do {
-            guard let result = try await request.next(isCurrent: { self.generation == requestGeneration },
-                knownIDs: { self.pagedItems.ids },
-                fetch: { try await self.service.fetchSubscriptions(page: $0) }) else { return }
+            guard
+                let result = try await request.next(
+                    isCurrent: { self.generation == requestGeneration },
+                    knownIDs: { self.pagedItems.ids },
+                    fetch: { try await self.service.fetchSubscriptions(page: $0) })
+            else { return }
             pagedItems.append(result)
             nextPage = request.sourcePage + 1
             canLoadMore = !result.isEmpty
@@ -95,15 +105,26 @@ final class GalleryViewModel: ObservableObject {
     private var searchStorage = GalleryFeedState()
     var searchState: GalleryFeedState {
         get { searchStorage }
-        set { objectWillChange.send(); searchStorage = newValue }
-        _modify { objectWillChange.send(); yield &searchStorage }
+        set {
+            objectWillChange.send()
+            searchStorage = newValue
+        }
+        _modify {
+            objectWillChange.send()
+            yield &searchStorage
+        }
     }
     private var pageSearchQuery: GallerySearchQuery?
     var displayedQueryDescription: String? {
         guard let pageSearchQuery,
-              pageSearchQuery.text != searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                || pageSearchQuery.order != searchQuery.order else { return nil }
-        return "\(pageSearchQuery.text.isEmpty ? "全部话题" : "“\(pageSearchQuery.text)”的话题") · \(pageSearchQuery.order.title)"
+            pageSearchQuery.text != searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                || pageSearchQuery.order != searchQuery.order
+        else { return nil }
+        return
+            """
+            \(pageSearchQuery.text.isEmpty ? "全部话题" : "“\(pageSearchQuery.text)”的话题") · \
+            \(pageSearchQuery.order.title)
+            """
     }
     /// 是否展示搜索页。
     @Published var isShowingSearch = false
@@ -118,8 +139,14 @@ final class GalleryViewModel: ObservableObject {
     }()
     private(set) var feedStates: [GalleryFeedKind: GalleryFeedState] {
         get { feedStorage }
-        set { objectWillChange.send(); feedStorage = newValue }
-        _modify { objectWillChange.send(); yield &feedStorage }
+        set {
+            objectWillChange.send()
+            feedStorage = newValue
+        }
+        _modify {
+            objectWillChange.send()
+            yield &feedStorage
+        }
     }
 
     private let service: any GalleryFeedServicing
@@ -134,13 +161,18 @@ final class GalleryViewModel: ObservableObject {
     init(service: any GalleryFeedServicing) {
         self.service = service
         recommendPrefetch = GalleryRecommendPrefetchCoordinator(service: service)
-        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in self?.applyResourceMetrics(metrics) }
+        resourceSubscription = service.resourceChanges.sink { [weak self] metrics in
+            self?.applyResourceMetrics(metrics)
+        }
     }
 
     private func applyResourceMetrics(_ metrics: [CommunityResourceMetrics]) {
         if feedStorage.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
-            || refreshPreviousStates.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
-            || searchStorage.posters.needsCommunityRefresh(for: metrics) {
+            || refreshPreviousStates.values.contains(where: {
+                $0.posters.needsCommunityRefresh(for: metrics)
+            })
+            || searchStorage.posters.needsCommunityRefresh(for: metrics)
+        {
             cancelPendingOperations()
         }
         func apply(to state: inout GalleryFeedState) -> Bool {
@@ -149,15 +181,22 @@ final class GalleryViewModel: ObservableObject {
             if needsRefresh { state.needsRefresh = true }
             return changed || needsRefresh
         }
-        var feeds = feedStorage, search = searchStorage
+        var feeds = feedStorage
+        var search = searchStorage
         var changed = apply(to: &search)
         for feed in GalleryFeedKind.allCases {
             var state = feeds[feed] ?? GalleryFeedState()
-            if apply(to: &state) { feeds[feed] = state; changed = true }
+            if apply(to: &state) {
+                feeds[feed] = state
+                changed = true
+            }
         }
-        if changed { objectWillChange.send(); feedStorage = feeds; searchStorage = search }
+        if changed {
+            objectWillChange.send()
+            feedStorage = feeds
+            searchStorage = search
+        }
     }
-
 
     deinit {
         interactionTasks.values.forEach { $0.cancel() }
@@ -170,7 +209,8 @@ final class GalleryViewModel: ObservableObject {
         recommendPrefetch.reset()
         for feed in GalleryFeedKind.allCases {
             if var previous = refreshPreviousStates[feed] {
-                previous.posters = previous.posters.preservingCommunityMetrics(from: state(for: feed).posters)
+                previous.posters = previous.posters.preservingMetrics(
+                    from: state(for: feed).posters)
                 feedStates[feed] = previous
             }
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
@@ -183,7 +223,7 @@ final class GalleryViewModel: ObservableObject {
         cancelSearchOperations()
     }
 
-    func contentPreferencesDidChange() {
+    func contentPreferencesChanged() {
         cancelPendingOperations()
         for feed in GalleryFeedKind.allCases { feedStates[feed] = GalleryFeedState() }
         searchState = GalleryFeedState()
@@ -195,7 +235,10 @@ final class GalleryViewModel: ObservableObject {
     func releaseInactiveFeeds() {
         for feed in GalleryFeedKind.allCases where feed != selectedFeed {
             refreshGenerations[feed] = (refreshGenerations[feed] ?? 0) &+ 1
-            for key in ["refresh:\(feed.rawValue)", "load-more:\(feed.rawValue)", "prefetch:\(feed.rawValue)"] {
+            for key in [
+                "refresh:\(feed.rawValue)", "load-more:\(feed.rawValue)",
+                "prefetch:\(feed.rawValue)",
+            ] {
                 interactionTasks[key]?.cancel()
                 interactionTasks[key] = nil
                 interactionTaskTokens[key] = nil
@@ -213,7 +256,9 @@ final class GalleryViewModel: ObservableObject {
             interactionTaskTokens[key] = nil
         }
         searchGeneration &+= 1
-        if searchState.status == .loading { searchState.status = searchState.posters.isEmpty ? .idle : .loaded }
+        if searchState.status == .loading {
+            searchState.status = searchState.posters.isEmpty ? .idle : .loaded
+        }
         searchState.isLoadingMore = false
     }
 
@@ -232,14 +277,16 @@ final class GalleryViewModel: ObservableObject {
     }
 
     @discardableResult
-    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) -> Task<Void, Never> {
+    func enqueueLoadMore(for feed: GalleryFeedKind, currentPoster: CommunityPoster?) -> Task<
+        Void, Never
+    > {
         return enqueueInteractionTask(key: "load-more:\(feed.rawValue)") { [weak self] in
             await self?.loadMoreIfNeeded(for: feed, currentPoster: currentPoster)
         }
     }
 
     @discardableResult
-    func enqueueNewestRefreshAfterComposer() -> Task<Void, Never> {
+    func enqueueComposerRefresh() -> Task<Void, Never> {
         enqueueInteractionTask(key: "composer-refresh", replacingCurrent: true) { [weak self] in
             guard let self else { return }
             self.selectedFeed = .newest
@@ -257,18 +304,20 @@ final class GalleryViewModel: ObservableObject {
 
     func search() async {
         let task = enqueueSearch()
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        await withTaskCancellationHandler(
+            operation: { await task.value }, onCancel: { task.cancel() })
     }
 
     func loadMoreSearch(currentPoster: CommunityPoster?) async {
         let task = enqueueSearchLoadMore(currentPoster: currentPoster)
-        await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        await withTaskCancellationHandler(
+            operation: { await task.value }, onCancel: { task.cancel() })
     }
 
     @discardableResult
     func enqueueSearchLoadMore(currentPoster: CommunityPoster?) -> Task<Void, Never> {
         enqueueInteractionTask(key: "search-load-more") { [weak self] in
-            await self?.loadMoreSearchResultsIfNeeded(currentPoster: currentPoster)
+            await self?.loadMoreSearchResults(currentPoster: currentPoster)
         }
     }
 
@@ -347,10 +396,16 @@ final class GalleryViewModel: ObservableObject {
                     while true {
                         try Task.checkCancellation()
                         guard refreshGenerations[feed] == generation else { return }
-                        guard !batch.canLoadMore || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
+                        guard
+                            !batch.canLoadMore
+                                || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
                         else { throw GalleryServiceError.invalidResponse }
                         try progress.record(batch.sourceIDs)
-                        if !batch.items.isEmpty || !batch.canLoadMore || batch.nextSourcePage >= GalleryPaging.maximumSourcePages { break }
+                        if !batch.items.isEmpty || !batch.canLoadMore
+                            || batch.nextSourcePage >= GalleryPaging.maximumSourcePages
+                        {
+                            break
+                        }
                         sourcePage = batch.nextSourcePage
                         batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
                     }
@@ -388,14 +443,19 @@ final class GalleryViewModel: ObservableObject {
             guard refreshGenerations[feed] == generation else { return }
             let cancelled = TaskCancellation.matches(error)
             setState(for: feed) {
-                $0.posters = previousState.posters.preservingCommunityMetrics(from: $0.posters)
+                $0.posters = previousState.posters.preservingMetrics(from: $0.posters)
                 $0.needsRefresh = cancelled ? previousState.needsRefresh : true
                 $0.paginationError = previousState.paginationError
-                $0.status = cancelled ? (previousState.status == .loading ? (previousState.posters.isEmpty ? .idle : .loaded) : previousState.status)
-                    : (previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded)
+                $0.status =
+                    cancelled
+                    ? (previousState.status == .loading
+                        ? (previousState.posters.isEmpty ? .idle : .loaded) : previousState.status)
+                    : (previousState.posters.isEmpty
+                        ? .failed(error.localizedDescription) : .loaded)
                 $0.isLoadingMore = false
                 $0.nextPage = previousState.nextPage
-                $0.canLoadMore = previousState.canLoadMore && (cancelled || !previousState.posters.isEmpty)
+                $0.canLoadMore =
+                    previousState.canLoadMore && (cancelled || !previousState.posters.isEmpty)
             }
             if cancelled { return }
             alert = AppAlert(title: "加载话廊失败", error: error)
@@ -430,7 +490,8 @@ final class GalleryViewModel: ObservableObject {
         guard
             state(for: feed).status == .loaded,
             state(for: feed).canLoadMore, !state(for: feed).isLoadingMore,
-            currentPoster.map({ state(for: feed).shouldLoadMore(currentID: $0.id) }) ?? state(for: feed).posters.isEmpty
+            currentPoster.map({ state(for: feed).shouldLoadMore(currentID: $0.id) })
+                ?? state(for: feed).posters.isEmpty
         else {
             return
         }
@@ -439,13 +500,16 @@ final class GalleryViewModel: ObservableObject {
         var sourcePage = state(for: feed).nextPage
 
         do {
-            let batch = try await nextVisibleBatch(sourcePage: &sourcePage,
+            let batch = try await nextVisibleBatch(
+                sourcePage: &sourcePage,
                 knownIDs: state(for: feed).posterIDs, stopAfterOne: feed.isBotFeed,
-                skipsEmptyPages: feed == .recommend) { page in
+                skipsEmptyPages: feed == .recommend
+            ) { page in
                 let batch: GalleryPageBatch<CommunityPoster>
                 if feed == .recommend {
                     let prefetched = try await recommendPrefetch.takePage(for: page)
-                    batch = .init(items: prefetched.posters, nextSourcePage: prefetched.nextPage,
+                    batch = .init(
+                        items: prefetched.posters, nextSourcePage: prefetched.nextPage,
                         canLoadMore: prefetched.canLoadMore, sourceIDs: prefetched.sourceIDs)
                 } else if feed.isBotFeed {
                     batch = try await self.service.fetchBotFeed(startPage: page)
@@ -457,7 +521,9 @@ final class GalleryViewModel: ObservableObject {
             }
             guard refreshGenerations[feed] == generation else { return }
             setState(for: feed) { Self.commit(batch, into: &$0) }
-            if feed == .recommend, batch.canLoadMore { recommendPrefetch.start(from: batch.nextSourcePage) }
+            if feed == .recommend, batch.canLoadMore {
+                recommendPrefetch.start(from: batch.nextSourcePage)
+            }
 
         } catch {
             guard refreshGenerations[feed] == generation else { return }
@@ -466,7 +532,10 @@ final class GalleryViewModel: ObservableObject {
                 setState(for: feed) { $0.isLoadingMore = false }
                 return
             }
-            setState(for: feed) { $0.isLoadingMore = false; $0.paginationError = error.localizedDescription }
+            setState(for: feed) {
+                $0.isLoadingMore = false
+                $0.paginationError = error.localizedDescription
+            }
             alert = AppAlert(title: "加载更多失败", error: error)
         }
     }
@@ -501,7 +570,7 @@ final class GalleryViewModel: ObservableObject {
         } catch {
             guard searchGeneration == generation else { return }
             var restored = previousState
-            restored.posters = restored.posters.preservingCommunityMetrics(from: searchState.posters)
+            restored.posters = restored.posters.preservingMetrics(from: searchState.posters)
             if TaskCancellation.matches(error) {
                 searchState = restored
                 searchState.isLoadingMore = false
@@ -512,7 +581,8 @@ final class GalleryViewModel: ObservableObject {
             }
             searchState = restored
             searchState.needsRefresh = true
-            searchState.status = previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded
+            searchState.status =
+                previousState.posters.isEmpty ? .failed(error.localizedDescription) : .loaded
             searchState.isLoadingMore = false
             if previousState.posters.isEmpty { searchState.canLoadMore = false }
             alert = AppAlert(title: "搜索失败", error: error)
@@ -522,14 +592,15 @@ final class GalleryViewModel: ObservableObject {
     /// 搜索结果页的分页加载。
     ///
     /// 搜索结果按需加载；无关键词时保持预取请求链路空闲。
-    func loadMoreSearchResultsIfNeeded(currentPoster: CommunityPoster?) async {
+    func loadMoreSearchResults(currentPoster: CommunityPoster?) async {
         guard let query = pageSearchQuery else { return }
         let generation = searchGeneration
 
         guard
             searchState.status == .loaded,
             searchState.canLoadMore, !searchState.isLoadingMore,
-            currentPoster.map({ searchState.shouldLoadMore(currentID: $0.id) }) ?? searchState.posters.isEmpty
+            currentPoster.map({ searchState.shouldLoadMore(currentID: $0.id) })
+                ?? searchState.posters.isEmpty
         else {
             return
         }
@@ -538,7 +609,9 @@ final class GalleryViewModel: ObservableObject {
         var sourcePage = searchState.nextPage
 
         do {
-            let batch = try await nextVisibleBatch(sourcePage: &sourcePage, knownIDs: searchState.posterIDs) { page in
+            let batch = try await nextVisibleBatch(
+                sourcePage: &sourcePage, knownIDs: searchState.posterIDs
+            ) { page in
                 let batch = try await self.service.searchPosters(query: query, page: page)
                 guard self.searchGeneration == generation else { throw CancellationError() }
                 return batch
@@ -577,9 +650,11 @@ final class GalleryViewModel: ObservableObject {
     }
 
     /// 请求阶段积累新增页，完成后释放读取快照并一次性提交。
-    private func nextVisibleBatch(sourcePage: inout Int, knownIDs: Set<Int>, stopAfterOne: Bool = false,
+    private func nextVisibleBatch(
+        sourcePage: inout Int, knownIDs: Set<Int>, stopAfterOne: Bool = false,
         skipsEmptyPages: Bool = false,
-        fetch: (Int) async throws -> GalleryPageBatch<CommunityPoster>) async throws -> GalleryPageBatch<CommunityPoster> {
+        fetch: (Int) async throws -> GalleryPageBatch<CommunityPoster>
+    ) async throws -> GalleryPageBatch<CommunityPoster> {
         let startPage = sourcePage
         var pending = CommunityPagedItems<CommunityPoster>()
         var progress = CommunityPageProgress(knownIDs: knownIDs)
@@ -587,18 +662,23 @@ final class GalleryViewModel: ObservableObject {
         repeat {
             let batch = try await fetch(sourcePage)
             try Task.checkCancellation()
-            guard !batch.canLoadMore || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
+            guard
+                !batch.canLoadMore
+                    || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
             else { throw GalleryServiceError.invalidResponse }
             try progress.record(batch.sourceIDs)
             pending.append(batch.items.filter { !knownIDs.contains($0.id) })
             sourcePage = batch.nextSourcePage
             canLoadMore = batch.canLoadMore
             if stopAfterOne || batch.items.isEmpty && !skipsEmptyPages { break }
-        } while canLoadMore && pending.items.isEmpty && sourcePage - startPage < GalleryPaging.maximumSourcePages
+        } while canLoadMore && pending.items.isEmpty
+            && sourcePage - startPage < GalleryPaging.maximumSourcePages
         return .init(items: pending.items, nextSourcePage: sourcePage, canLoadMore: canLoadMore)
     }
 
-    private static func commit(_ batch: GalleryPageBatch<CommunityPoster>, into state: inout GalleryFeedState) {
+    private static func commit(
+        _ batch: GalleryPageBatch<CommunityPoster>, into state: inout GalleryFeedState
+    ) {
         state.paginationError = nil
         let count = state.posters.count
         state.appendUniqueItems(batch.items)
@@ -609,7 +689,9 @@ final class GalleryViewModel: ObservableObject {
     }
 
     @concurrent
-    private static func deduplicateInBackground(_ posters: [CommunityPoster]) async throws -> [CommunityPoster] {
+    private static func deduplicateInBackground(_ posters: [CommunityPoster]) async throws
+        -> [CommunityPoster]
+    {
         try Task.checkCancellation()
         var storage = CommunityPagedItems<CommunityPoster>()
         storage.append(posters)

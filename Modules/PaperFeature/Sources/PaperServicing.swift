@@ -1,6 +1,8 @@
 import CommunityCore
+
 public protocol PaperListServicing: CommunityResourceObserving {
-    func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws -> [PaperSummary]
+    func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws
+        -> [PaperSummary]
     func fetchPaper(id: Int) async throws -> PaperDetail
     func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata
 }
@@ -8,7 +10,8 @@ public protocol PaperListServicing: CommunityResourceObserving {
 public protocol PaperDetailServicing {
     func cachedPaper(id: Int) async -> PaperDetail?
     func fetchPaper(id: Int) async throws -> PaperDetail
-    func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws -> [CommunityComment]
+    func fetchComments(paperID: Int, order: CommunityCommentOrder, page: Int?) async throws
+        -> [CommunityComment]
     func likePaper(id: Int) async throws -> CommunityLikeResult
     func sendLike(objectID: String) async throws -> CommunityLikeResult
     func createComment(
@@ -35,8 +38,12 @@ extension PaperDetailServicing {
 }
 
 public protocol PaperComposerServicing {
-    func createPaper(title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool) async throws -> Int
-    func updatePaper(id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool, lastUpdatedAt: String) async throws
+    func createPaper(
+        title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool
+    ) async throws -> Int
+    func updatePaper(
+        id: Int, title: String, intro: String, content: String, anonymous: Bool, publicEdit: Bool,
+        lastUpdatedAt: String) async throws
 }
 
 extension PaperService: PaperListServicing, PaperDetailServicing, PaperComposerServicing {}

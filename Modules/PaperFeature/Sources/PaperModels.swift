@@ -15,10 +15,14 @@ enum PaperContentResourceLimits {
 
     static func acceptsPreviewCache(_ detail: PaperDetail) -> Bool {
         let user = detail.updateUser
-        let fields = [detail.title, detail.intro, detail.content, detail.createTime, detail.updateTime,
-            user.createTime, user.nickname, user.motto, user.avatar.mid, user.avatar.url, user.avatar.lowUrl,
-            user.identity.color, user.identity.text, user.identity.createTime, user.identity.updateTime,
-            user.identity.deleteTime ?? ""]
+        let fields = [
+            detail.title, detail.intro, detail.content, detail.createTime, detail.updateTime,
+            user.createTime, user.nickname, user.motto, user.avatar.mid, user.avatar.url,
+            user.avatar.lowUrl,
+            user.identity.color, user.identity.text, user.identity.createTime,
+            user.identity.updateTime,
+            user.identity.deleteTime ?? "",
+        ]
         return fields.reduce(0) { $0 + $1.utf8.count } <= maximumBodyBytes
     }
 
@@ -36,7 +40,6 @@ enum PaperContentResourceLimits {
         return bytes.count <= maximumBlockBytes
     }
 }
-
 
 /// 文章列表支持的排序方式。
 ///
@@ -75,7 +78,9 @@ public enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
 /// 文章列表项。
 ///
 /// 文章列表按摘要字段解码，模型保持轻量。
-public nonisolated struct PaperSummary: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct PaperSummary: CommunityResourceItem, Decodable, Identifiable, Hashable,
+    Sendable
+{
     public var communityObjectID: String { "paper\(id)" }
     public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
         var value = self
@@ -101,16 +106,22 @@ public nonisolated struct PaperPreviewMetadata: Equatable, Hashable, Sendable {
     public let avatarFallbackURL: URL?
     public let isAnonymous: Bool
 
-    public init(authorName: String, avatarURL: URL?, isAnonymous: Bool, avatarFallbackURL: URL? = nil) {
-        self.authorName = authorName; self.avatarURL = avatarURL
-        self.isAnonymous = isAnonymous; self.avatarFallbackURL = avatarFallbackURL
+    public init(
+        authorName: String, avatarURL: URL?, isAnonymous: Bool, avatarFallbackURL: URL? = nil
+    ) {
+        self.authorName = authorName
+        self.avatarURL = avatarURL
+        self.isAnonymous = isAnonymous
+        self.avatarFallbackURL = avatarFallbackURL
     }
 }
 
 /// 文章详情模型。
 ///
 /// 详情页会额外显示编辑者、正文块、点赞状态和所有者状态。
-public nonisolated struct PaperDetail: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct PaperDetail: CommunityResourceItem, Decodable, Identifiable, Hashable,
+    Sendable
+{
     public var communityObjectID: String { "paper\(id)" }
     public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
         var value = self

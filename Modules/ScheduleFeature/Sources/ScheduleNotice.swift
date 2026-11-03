@@ -26,7 +26,7 @@ extension ScheduleStateConsumer {
         )
     }
 
-    nonisolated static func isLikelySchoolTransportError(_ error: Error) -> Bool {
+    nonisolated static func isSchoolTransportError(_ error: Error) -> Bool {
         ErrorChain.contains(error) { candidate in
             guard let urlError = candidate as? URLError else { return false }
             return [
@@ -36,7 +36,7 @@ extension ScheduleStateConsumer {
                 .networkConnectionLost,
                 .notConnectedToInternet,
                 .secureConnectionFailed,
-                .timedOut
+                .timedOut,
             ].contains(urlError.code)
         }
     }

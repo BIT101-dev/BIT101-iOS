@@ -1,7 +1,8 @@
 #!/bin/zsh
 
 record_result() {
-  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" \
+    "$RESULT_BUNDLE" "$1" "$2" "$3" <<'PY'
 import json
 import os
 from pathlib import Path
@@ -27,30 +28,61 @@ if stage in {"testCleanup", "testMacReceiveAndRestore", "testMacCleanup"}:
     bundle = str(bundles[0]) if len(bundles) == 1 else ""
     generated_bundle = bundles[0] if len(bundles) == 1 else None
 if bundle and Path(bundle).is_dir():
-    result = subprocess.run([
-        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", bundle,
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [
+            "xcrun",
+            "xcresulttool",
+            "get",
+            "test-results",
+            "summary",
+            "--path",
+            bundle,
+        ],
+        capture_output=True,
+        text=True,
+    )
     if result.returncode == 0:
         summary = json.loads(result.stdout)
         for key in ("totalTestCount", "passedTests", "failedTests", "skippedTests", "testFailures"):
             row[key] = summary.get(key, [] if key == "testFailures" else 0)
-        result = subprocess.run(['xcrun', 'xcresulttool', 'get', 'test-results', 'tests', '--path', bundle], capture_output=True, text=True)
+        result = subprocess.run(
+            ["xcrun", "xcresulttool", "get", "test-results", "tests", "--path", bundle],
+            capture_output=True,
+            text=True,
+        )
         if result.returncode == 0:
             tree = json.loads(result.stdout)
             executed, targets = set(), set()
+
             def visit(value):
                 if isinstance(value, dict):
-                    if value.get('nodeType') == 'Test Case': executed.add(normalized_test_id(value['nodeIdentifier']))
-                    if value.get('nodeType') == 'Unit test bundle': targets.add(value['name'])
-                    for child in value.values(): visit(child)
+                    if value.get("nodeType") == "Test Case":
+                        executed.add(normalized_test_id(value["nodeIdentifier"]))
+                    if value.get("nodeType") == "Unit test bundle":
+                        targets.add(value["name"])
+                    for child in value.values():
+                        visit(child)
                 elif isinstance(value, list):
-                    for child in value: visit(child)
+                    for child in value:
+                        visit(child)
+
             visit(tree)
-            row['executedTests'], row['testTargets'] = sorted(executed), sorted(targets)
-            devices = tree.get('devices', [])
-            row['destination'] = {'platform': devices[0].get('platform'), 'deviceIdentifier': devices[0].get('deviceId')} if len(devices) == 1 else {}
-if not icloud_stage_complete(row, stage) or not stage.startswith('testMac') \
-        and row.get('destination', {}).get('deviceIdentifier') != os.environ.get('BIT101_XCODE_DEVICE_ID'):
+            row["executedTests"], row["testTargets"] = sorted(executed), sorted(targets)
+            devices = tree.get("devices", [])
+            row["destination"] = (
+                {
+                    "platform": devices[0].get("platform"),
+                    "deviceIdentifier": devices[0].get("deviceId"),
+                }
+                if len(devices) == 1
+                else {}
+            )
+if (
+    not icloud_stage_complete(row, stage)
+    or not stage.startswith("testMac")
+    and row.get("destination", {}).get("deviceIdentifier")
+    != os.environ.get("BIT101_XCODE_DEVICE_ID")
+):
     row["exitCode"] = exit_code or 1
     print(f"[失败] {stage} 要求目标方法在所属测试 target 与执行宿主通过。")
 if generated_bundle is not None:
@@ -59,15 +91,27 @@ if generated_bundle is not None:
     else:
         retained_bundle = generated_bundle.parent / "test-results.xcresult"
         if stage == "testMacCleanup" and retained_bundle.exists():
-            merged = retained_bundle.with_suffix('.incoming.xcresult')
+            merged = retained_bundle.with_suffix(".incoming.xcresult")
             shutil.rmtree(merged, ignore_errors=True)
-            subprocess.run(['xcrun', 'xcresulttool', 'merge', '--output-path', str(merged), str(retained_bundle), str(generated_bundle)],
-                check=True, capture_output=True, text=True)
+            subprocess.run(
+                [
+                    "xcrun",
+                    "xcresulttool",
+                    "merge",
+                    "--output-path",
+                    str(merged),
+                    str(retained_bundle),
+                    str(generated_bundle),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             shutil.rmtree(retained_bundle)
             shutil.move(str(merged), str(retained_bundle))
             shutil.rmtree(generated_bundle)
-            row['resultBundle'] = str(retained_bundle)
-            row['logPath'] = log_path
+            row["resultBundle"] = str(retained_bundle)
+            row["logPath"] = log_path
         elif generated_bundle != retained_bundle:
             if retained_bundle.exists():
                 shutil.rmtree(retained_bundle)
@@ -120,8 +164,10 @@ run_mac_cleanup() {
 from pathlib import Path
 import shutil
 import sys
-for path in Path(sys.argv[1]).glob('*.xcresult'):
-    if path.name != 'test-results.xcresult': shutil.rmtree(path)
+
+for path in Path(sys.argv[1]).glob("*.xcresult"):
+    if path.name != "test-results.xcresult":
+        shutil.rmtree(path)
 PYCLEANLOGS
   bit101_run_logged "$log" "Mac 本地验收清理" xcodebuild test "${common_args[@]}" \
     -test-timeouts-enabled YES -destination 'platform=macOS,variant=Mac Catalyst' \

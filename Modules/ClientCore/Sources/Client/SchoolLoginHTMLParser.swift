@@ -19,16 +19,21 @@ public nonisolated enum SchoolLoginHTMLParser {
         return SchoolLoginContext(
             salt: salt,
             execution: execution,
-            isLoggedIn: containsAuthenticatedPageMarker(in: html) && !containsLoginPageMarker(in: html)
+            isLoggedIn: isAuthenticatedPage(in: html) && !containsLoginPageMarker(in: html)
         )
     }
 
     /// CAS 表单省略 action 时沿当前文档提交，保留 service 与 execution 上下文。
     public static func loginFormAction(html: String, documentURL: URL) -> URL? {
-        let action = attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#) ?? ""
+        let action =
+            attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#)
+            ?? ""
         let decoded = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = decoded.isEmpty ? documentURL : URL(string: decoded, relativeTo: documentURL)?.absoluteURL,
-              isSameSecureOrigin(url, as: documentURL) else { return nil }
+        guard
+            let url = decoded.isEmpty
+                ? documentURL : URL(string: decoded, relativeTo: documentURL)?.absoluteURL,
+            isSameSecureOrigin(url, as: documentURL)
+        else { return nil }
         return url
     }
 
@@ -38,14 +43,19 @@ public nonisolated enum SchoolLoginHTMLParser {
         return ["1030027", "1030031"].contains(code)
     }
 
-    public static func loginErrorCode(html: String) -> String? { field(in: html, id: "login-error-code") }
+    public static func loginErrorCode(html: String) -> String? {
+        field(in: html, id: "login-error-code")
+    }
 
     /// 从学校 CAS 短信验证页提取继续提交所需的表单上下文。
-    public static func parseSecondFactorPage(html: String, baseURL: URL, documentURL: URL? = nil) -> SchoolSecondFactorContext? {
-        let hasSecondFactorMarker = html.range(
-            of: "secondSmsLoginForm|second-auth-tip|sso-second|current-login-type|cas-gateway",
-            options: [.regularExpression, .caseInsensitive]
-        ) != nil
+    public static func parseSecondFactorPage(html: String, baseURL: URL, documentURL: URL? = nil)
+        -> SchoolSecondFactorContext?
+    {
+        let hasSecondFactorMarker =
+            html.range(
+                of: "secondSmsLoginForm|second-auth-tip|sso-second|current-login-type|cas-gateway",
+                options: [.regularExpression, .caseInsensitive]
+            ) != nil
         guard hasSecondFactorMarker else { return nil }
         guard let form = secondFactorForm(in: html) else { return nil }
         let fields = field(in: form, id: "user-object-id") == nil ? html : form
@@ -59,13 +69,17 @@ public nonisolated enum SchoolLoginHTMLParser {
             return nil
         }
 
-        let action = attribute(
-            in: form,
-            pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
-        ) ?? ""
+        let action =
+            attribute(
+                in: form,
+                pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
+            ) ?? ""
         let decodedAction = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
         let pageURL = documentURL ?? baseURL
-        guard let formAction = decodedAction.isEmpty ? pageURL : URL(string: decodedAction, relativeTo: pageURL)?.absoluteURL else {
+        guard
+            let formAction = decodedAction.isEmpty
+                ? pageURL : URL(string: decodedAction, relativeTo: pageURL)?.absoluteURL
+        else {
             return nil
         }
         guard isSameSecureOrigin(formAction, as: baseURL) else {
@@ -81,7 +95,8 @@ public nonisolated enum SchoolLoginHTMLParser {
 
     /// 使用正则从 HTML 中提取单个字段值。
     private static func value(in html: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        else {
             return nil
         }
 
@@ -101,13 +116,18 @@ public nonisolated enum SchoolLoginHTMLParser {
     }
 
     private static func secondFactorForm(in html: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive]) else { return nil }
-        let forms = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap { match in
+        guard
+            let regex = try? NSRegularExpression(
+                pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive])
+        else { return nil }
+        let forms = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap
+        { match in
             Range(match.range, in: html).map { String(html[$0]) }
         }
         if forms.count == 1 { return forms[0] }
         let candidates = forms.filter { form in
-            field(in: form, id: "user-object-id") != nil && field(in: form, id: "login-page-flowkey") != nil
+            field(in: form, id: "user-object-id") != nil
+                && field(in: form, id: "login-page-flowkey") != nil
         }
         return candidates.count == 1 ? candidates[0] : nil
     }
@@ -123,7 +143,7 @@ public nonisolated enum SchoolLoginHTMLParser {
         }
     }
 
-    private static func containsAuthenticatedPageMarker(in html: String) -> Bool {
+    private static func isAuthenticatedPage(in html: String) -> Bool {
         let markers = [
             "退出登录",
             "注销",
@@ -166,24 +186,34 @@ public nonisolated enum SchoolLoginHTMLParser {
         return nil
     }
 
-    private static let namedReferences = ["nbsp": " ", "quot": "\"", "apos": "'", "lt": "<", "gt": ">", "amp": "&"]
-    private static let characterReferences = try? NSRegularExpression(pattern: #"&([A-Za-z][A-Za-z0-9]*|#(?:[xX][0-9A-Fa-f]+|[0-9]+));"#)
+    private static let namedReferences = [
+        "nbsp": " ", "quot": "\"", "apos": "'", "lt": "<", "gt": ">", "amp": "&",
+    ]
+    private static let characterReferences = try? NSRegularExpression(
+        pattern: #"&([A-Za-z][A-Za-z0-9]*|#(?:[xX][0-9A-Fa-f]+|[0-9]+));"#)
 
     public static func decodeHTML(_ value: String) -> String {
         guard let expression = characterReferences else { return value }
         var decoded = value
-        for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
+        for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value))
+            .reversed()
+        {
             guard let bodyRange = Range(match.range(at: 1), in: value),
-                  let range = Range(match.range, in: decoded) else { continue }
+                let range = Range(match.range, in: decoded)
+            else { continue }
             let body = String(value[bodyRange])
             let replacement: String?
-            if let named = namedReferences[body] { replacement = named }
-            else if body.hasPrefix("#") {
+            if let named = namedReferences[body] {
+                replacement = named
+            } else if body.hasPrefix("#") {
                 let digits = body.dropFirst()
-                let number = digits.hasPrefix("x") || digits.hasPrefix("X")
+                let number =
+                    digits.hasPrefix("x") || digits.hasPrefix("X")
                     ? UInt32(digits.dropFirst(), radix: 16) : UInt32(digits)
                 replacement = number.flatMap(UnicodeScalar.init).map(String.init)
-            } else { replacement = nil }
+            } else {
+                replacement = nil
+            }
             if let replacement { decoded.replaceSubrange(range, with: replacement) }
         }
         return decoded

@@ -16,7 +16,9 @@ private enum AppKeyboard {
 private struct KeyboardDismissSupportModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(KeyboardBackgroundTapInstaller().frame(width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
+            .background(
+                KeyboardBackgroundTapInstaller().frame(
+                    width: AppDesignSystem.Spacing.none, height: AppDesignSystem.Spacing.none))
     }
 }
 
@@ -56,7 +58,8 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         var interactionEvidence: ((String, String) -> Void)?
         private weak var window: UIWindow?
         private lazy var recognizer: UITapGestureRecognizer = {
-            let recognizer = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
+            let recognizer = UITapGestureRecognizer(
+                target: self, action: #selector(didTapBackground))
             recognizer.cancelsTouchesInView = false
             recognizer.delaysTouchesEnded = false
             recognizer.delegate = self
@@ -100,8 +103,11 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
 
         @objc private func didTapBackground() {
             DispatchQueue.main.async { [weak self] in
-                guard let window = self?.window, Self.focusedInput(in: window) != nil else { return }
-                self?.interactionEvidence?("interaction.KeyboardBackgroundTapInstaller.background-tap", "tap")
+                guard let window = self?.window, Self.focusedInput(in: window) != nil else {
+                    return
+                }
+                self?.interactionEvidence?(
+                    "interaction.KeyboardBackgroundTapInstaller.background-tap", "tap")
                 AppKeyboard.dismiss()
             }
         }
@@ -119,13 +125,16 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
         private func scheduleAccessory(on input: UIResponder & UITextInput) {
             DispatchQueue.main.async { [weak self, weak input] in
                 guard let self, let input, input.isFirstResponder,
-                      (input as? UIView)?.window === self.window else { return }
+                    (input as? UIView)?.window === self.window
+                else { return }
                 self.installAccessory(on: input)
             }
         }
 
         private static func focusedInput(in view: UIView) -> (UIResponder & UITextInput)? {
-            if view.isFirstResponder, let input = view as? (UIResponder & UITextInput) { return input }
+            if view.isFirstResponder, let input = view as? (UIResponder & UITextInput) {
+                return input
+            }
             for child in view.subviews {
                 if let input = focusedInput(in: child) { return input }
             }
@@ -145,7 +154,9 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             if let installed = AppKeyboard.accessories.object(forKey: input) {
                 toolbar = installed
             } else if let existing = existingAccessory as? UIToolbar,
-                      existing.items?.contains(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) == true {
+                existing.items?.contains(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }
+                ) == true
+            {
                 toolbar = existing
             } else {
                 toolbar = UIToolbar()
@@ -153,8 +164,12 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
                 doneButton.setTitle("✓ 完成", for: .normal)
                 doneButton.accessibilityIdentifier = "keyboard.dismiss"
                 doneButton.addAction(UIAction { _ in AppKeyboard.dismiss() }, for: .touchUpInside)
-                doneButton.heightAnchor.constraint(greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget).isActive = true
-                doneButton.widthAnchor.constraint(greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget).isActive = true
+                doneButton.heightAnchor.constraint(
+                    greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget
+                ).isActive = true
+                doneButton.widthAnchor.constraint(
+                    greaterThanOrEqualToConstant: AppDesignSystem.Size.Control.touchTarget
+                ).isActive = true
                 let doneItem = UIBarButtonItem(customView: doneButton)
                 doneItem.accessibilityIdentifier = "keyboard.dismiss"
                 toolbar.items = [
@@ -176,19 +191,24 @@ struct KeyboardBackgroundTapInstaller: UIViewRepresentable {
             }
         }
 
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch
+        ) -> Bool {
             guard let view = touch.view else { return false }
             return acceptsBackgroundTouch(in: view)
         }
 
         func acceptsBackgroundTouch(in target: UIView) -> Bool {
             guard let window, Self.focusedInput(in: window) != nil,
-                  var controller = window.rootViewController else { return false }
+                var controller = window.rootViewController
+            else { return false }
             while let presented = controller.presentedViewController { controller = presented }
             guard target.isDescendant(of: controller.view) else { return false }
             var view: UIView? = target
             while let current = view {
-                if current is UIControl || current is UITextField || current is UITextView || current is UIInputView {
+                if current is UIControl || current is UITextField || current is UITextView
+                    || current is UIInputView
+                {
                     return false
                 }
                 view = current.superview

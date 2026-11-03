@@ -14,7 +14,8 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
     }
 
     private var accessibility: CFString {
-        synchronizable ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        synchronizable
+            ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     }
 
     func save(_ value: String, account: String) throws {
@@ -76,7 +77,8 @@ final class KeychainLoginCredentials: LoginCredentialsStoring {
         let query = baseQuery(account: account)
         let status = SecItemDelete(query as CFDictionary)
         guard Self.keychainDeleteSucceeded(status: status) else {
-            Self.logger.error("Keychain delete failed account=\(account, privacy: .public) status=\(status)")
+            Self.logger.error(
+                "Keychain delete failed account=\(account, privacy: .public) status=\(status)")
             return false
         }
         return true

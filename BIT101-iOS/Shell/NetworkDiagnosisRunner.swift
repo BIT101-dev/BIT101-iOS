@@ -1,14 +1,14 @@
-import SchedulePorts
-import ScheduleDomain
-import CommunityTransport
 import ClientCore
+import Combine
+import CommunityTransport
+import Foundation
+import GalleryFeature
+import PaperFeature
+import ScheduleDomain
+import SchedulePorts
 import ScoreDomain
 import ScorePorts
-import PaperFeature
-import GalleryFeature
 import TransportCore
-import Combine
-import Foundation
 
 struct NetworkDiagnosisReport: Equatable, Sendable {
     let results: [String]
@@ -90,7 +90,10 @@ final class NetworkDiagnosisRunner: ObservableObject {
         isRunning = true
         completedCount = 0
         currentTermForDiagnosis = nil
-        defer { isRunning = false; currentTermForDiagnosis = nil }
+        defer {
+            isRunning = false
+            currentTermForDiagnosis = nil
+        }
 
         let independentSteps: [Step] = [.path, .bit101Home, .gallery, .paper, .currentTerm]
         var resultByStep: [String: String] = [:]
@@ -103,7 +106,10 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 }
             }
             for await (title, result) in group {
-                guard accepts(owner), let result else { group.cancelAll(); return }
+                guard accepts(owner), let result else {
+                    group.cancelAll()
+                    return
+                }
                 resultByStep[title] = result
                 completedCount += 1
             }
@@ -134,7 +140,8 @@ final class NetworkDiagnosisRunner: ObservableObject {
             switch step {
             case .path:
                 let snapshot = dependencies.path.snapshot
-                detail = snapshot.virtualNetworkLikely
+                detail =
+                    snapshot.virtualNetworkLikely
                     ? "\(snapshot.summary)，可能经过虚拟网络或代理"
                     : snapshot.summary
             case .bit101Home:
@@ -160,28 +167,40 @@ final class NetworkDiagnosisRunner: ObservableObject {
                 detail = "通过"
             case .ddl:
                 let result = try await dependencies.school.ddl()
-                guard !result.syncedGroups.isEmpty else { throw ScheduleServiceError.invalidResponse }
-                detail = result.warnings.isEmpty ? "通过" : "部分可用，" + ErrorReportRedactor.sanitized(result.warnings.joined(separator: "；"))
-            case .transcript:
-                let result = try await dependencies.transcript.fetchTrustedTranscriptPages()
-                let numbers = Set(result.pages.filter {
-                    !$0.data.isEmpty && $0.number > 0 && $0.number <= result.expectedPageCount
-                }.map(\.number))
-                let complete = result.expectedPageCount > 0 && numbers.count == result.expectedPageCount
-                    && result.pages.count == numbers.count
-                if complete, result.failure == nil { detail = "通过" }
-                else if numbers.isEmpty {
-                    throw result.failure ?? ScoreServiceError.invalidResponse
+                guard !result.syncedGroups.isEmpty else {
+                    throw ScheduleServiceError.invalidResponse
                 }
-                else {
-                    let message = result.failure.map { "，" + ErrorReportRedactor.sanitized($0.localizedDescription) } ?? ""
+                detail =
+                    result.warnings.isEmpty
+                    ? "通过"
+                    : "部分可用，"
+                        + ErrorReportRedactor.sanitized(result.warnings.joined(separator: "；"))
+            case .transcript:
+                let result = try await dependencies.transcript.fetchTrustedPages()
+                let numbers = Set(
+                    result.pages.filter {
+                        !$0.data.isEmpty && $0.number > 0 && $0.number <= result.expectedPageCount
+                    }.map(\.number))
+                let complete =
+                    result.expectedPageCount > 0 && numbers.count == result.expectedPageCount
+                    && result.pages.count == numbers.count
+                if complete, result.failure == nil {
+                    detail = "通过"
+                } else if numbers.isEmpty {
+                    throw result.failure ?? ScoreServiceError.invalidResponse
+                } else {
+                    let message =
+                        result.failure.map {
+                            "，" + ErrorReportRedactor.sanitized($0.localizedDescription)
+                        } ?? ""
                     detail = "部分可用，已读取 \(numbers.count) / \(result.expectedPageCount) 页\(message)"
                 }
             }
             return "\(step.title)：\(detail)"
         } catch ScheduleServiceError.secondFactorRequired,
-                  ScheduleServiceError.schoolSecondFactorRequired,
-                  ScoreServiceError.secondFactorRequired {
+            ScheduleServiceError.schoolSecondFactorRequired,
+            ScoreServiceError.secondFactorRequired
+        {
             return "\(step.title)：需要短信验证"
         } catch {
             return "\(step.title)：失败，\(ErrorReportRedactor.sanitized(error.localizedDescription))"
@@ -189,9 +208,10 @@ final class NetworkDiagnosisRunner: ObservableObject {
     }
 
     private func fetch(_ url: URL) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        var request = URLRequest(
+            url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("BIT101-iOS network diagnosis", forHTTPHeaderField: "User-Agent")
-        let response = try await dependencies.httpClient.send(request, accepting: 200 ..< 400)
+        let response = try await dependencies.httpClient.send(request, accepting: 200..<400)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
         return response.data
     }

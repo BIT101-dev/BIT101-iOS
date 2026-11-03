@@ -1,7 +1,9 @@
-import SchedulePorts
 import ClientCore
-import TransportCore
+import Foundation
 import ScheduleDomain
+import SchedulePorts
+import TransportCore
+
 //
 //  ScheduleServiceTeachingCenter.swift
 //  BIT101-iOS
@@ -9,19 +11,17 @@ import ScheduleDomain
 //  Teaching-center session recovery and academic API endpoints.
 //
 
-import Foundation
-
 extension ScheduleService {
     /// 完成教学中心认证与接口预热，业务请求计时从此阶段完成后开始。
-    public func prepareTeachingCenterAccess() async throws {
-        try await withPreparedTeachingCenterSession {}
+    public func prepareTeachingAccess() async throws {
+        try await withPreparedTeaching {}
     }
 
     /// 查询空教室页可选校区列表。
     ///
     /// 此请求加载空教室查询的元数据；教室占用由后续查询返回。
     public func fetchCampuses() async throws -> [CampusRecord] {
-        try await withPreparedTeachingCenterSession {
+        try await withPreparedTeaching {
             return try await fetchCampusesDirect()
         }
     }
@@ -30,7 +30,7 @@ extension ScheduleService {
     ///
     /// 教学楼会在进入空教室页时结合“最近下一节课的楼宇”做自动匹配。
     public func fetchBuildings(campusCode: String?) async throws -> [BuildingRecord] {
-        try await withPreparedTeachingCenterSession {
+        try await withPreparedTeaching {
             return try await fetchBuildingsDirect(campusCode: campusCode)
         }
     }
@@ -38,32 +38,38 @@ extension ScheduleService {
     /// 查询某个教学楼在指定日期的教室占用情况。
     ///
     /// 空教室接口以“查询日期 + 教学楼”为粒度返回占用节次，后续再在 ViewModel 层按选中的时段块格式化。
-    public func fetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
-        try await withPreparedTeachingCenterSession {
+    public func fetchClassrooms(buildingID: String, term: String, date: Date) async throws
+        -> [ClassroomRecord]
+    {
+        try await withPreparedTeaching {
             return try await fetchClassroomsDirect(buildingID: buildingID, term: term, date: date)
         }
     }
 
-    public func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord]? {
+    public func prefetchClassrooms(buildingID: String, term: String, date: Date) async throws
+        -> [ClassroomRecord]?
+    {
         let owner = credentials.schoolSessionIdentity
         guard teachingCenterState.isPrepared(for: owner.accountIdentifier) else { return nil }
         try Task.checkCancellation()
-        let records = try await fetchClassroomsDirect(buildingID: buildingID, term: term, date: date)
-        try validateAuthenticationOwner(owner)
+        let records = try await fetchClassroomsDirect(
+            buildingID: buildingID, term: term, date: date)
+        try validateAuthOwner(owner)
         return records
     }
 
     /// 教学中心读操作先选择可用路线，再执行一次会话预热。
-    func withPreparedTeachingCenterSession<T>(
+    func withPreparedTeaching<T>(
         operation: () async throws -> T
     ) async throws -> T {
-        try await withTeachingCenterSessionRetry {
+        try await withTeachingRetry {
             let owner = credentials.schoolSessionIdentity
             if !teachingCenterState.isPrepared(for: owner.accountIdentifier) {
-                try await teachingCenterState.preparationRecovery.refresh(identity: owner) { [self] in
-                    try validateAuthenticationOwner(owner)
+                try await teachingCenterState.preparationRecovery.refresh(identity: owner) {
+                    [self] in
+                    try validateAuthOwner(owner)
                     try await prepareJXZX()
-                    try validateAuthenticationOwner(owner)
+                    try validateAuthOwner(owner)
                 }
             }
             return try await operation()
@@ -75,35 +81,35 @@ extension ScheduleService {
     /// 首次请求前确保存在与当前账号绑定的 WebVPN Cookie。业务请求明确返回登录页、
     /// 401/403 或其他会话失效信号时，清理范围限定为教学中心状态，再重新走 bit-login。
     /// WebVPN 路线内认证恢复最多两轮；网络路线切换由外层分支处理。
-    func withTeachingCenterSessionRetry<T>(
+    func withTeachingRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
         try await credentials.prepareSchoolCredentials()
         teachingCenterState.selectOwner(credentials.schoolSessionIdentity)
         if let nativeAuthenticator {
-            return try await withNativeTeachingCenterSession(nativeAuthenticator, operation: operation)
+            return try await withNativeTeaching(nativeAuthenticator, operation: operation)
         }
-        return try await withRelayTeachingCenterSessionRetry(operation: operation)
+        return try await withRelayTeachingRetry(operation: operation)
     }
 
-    private func withRelayTeachingCenterSessionRetry<T>(operation: () async throws -> T) async throws -> T {
+    private func withRelayTeachingRetry<T>(operation: () async throws -> T) async throws -> T {
         let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
         if teachingCenterState.shouldPreferDirect(for: studentID) {
-            return try await withDirectTeachingCenterSessionRetry(operation: operation)
+            return try await withDirectTeachingRetry(operation: operation)
         }
 
         do {
-            return try await withWebVPNTeachingCenterSessionRetry(operation: operation)
+            return try await withWebVPNTeachingRetry(operation: operation)
         } catch {
             let webVPNError = error
-            guard shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
+            guard shouldTryDirectFallback(for: error) else { throw error }
 
             // 校内 SSO 直连可绕开部分 WebVPN 路由与 bit-login service URL 解析故障。
             teachingCenterState.invalidate()
             do {
                 try await ensureSchoolSession()
                 teachingCenterState.markDirectPreferred(for: studentID)
-                return try await withDirectTeachingCenterSessionRetry(operation: operation)
+                return try await withDirectTeachingRetry(operation: operation)
             } catch {
                 if Task.isCancelled || TaskCancellation.matches(error) {
                     throw error
@@ -125,13 +131,15 @@ extension ScheduleService {
     }
 
     /// 本机 CAS 与 WebVPN 为首选，业务会话失效时恢复一次，再进入有界中转回退。
-    private func withNativeTeachingCenterSession<T>(_ authenticator: any SchoolServiceAuthenticating,
-        operation: () async throws -> T) async throws -> T {
+    private func withNativeTeaching<T>(
+        _ authenticator: any SchoolServiceAuthenticating,
+        operation: () async throws -> T
+    ) async throws -> T {
         let owner = credentials.schoolSessionIdentity
         func authenticate() async throws {
             try await teachingCenterState.authenticationRecovery.refresh(identity: owner) {
                 let session = try await authenticator.authenticate(.teachingCenter)
-                try validateAuthenticationOwner(owner)
+                try validateAuthOwner(owner)
                 guard session.owner == owner else { throw CancellationError() }
                 if session.baseURL.host == schoolBaseURL.host {
                     teachingCenterState.markDirectPreferred(for: owner.accountIdentifier)
@@ -141,22 +149,24 @@ extension ScheduleService {
             }
         }
         do {
-            if !teachingCenterState.isPrepared(for: owner.accountIdentifier) { try await authenticate() }
-            do { return try await operation() }
-            catch where isTeachingCenterSessionFailure(error) {
+            if !teachingCenterState.isPrepared(for: owner.accountIdentifier) {
+                try await authenticate()
+            }
+            do { return try await operation() } catch  where isTeachingSessionFailure(error) {
                 teachingCenterState.invalidate()
                 try await authenticate()
                 return try await operation()
             }
         } catch {
-            try validateAuthenticationOwner(owner)
-            guard NativeSchoolAuthenticator.permitsFallback(error)
-                || shouldAttemptDirectTeachingCenterFallback(for: error) else { throw error }
+            try validateAuthOwner(owner)
+            guard
+                NativeSchoolAuthenticator.permitsFallback(error)
+                    || shouldTryDirectFallback(for: error)
+            else { throw error }
             let localError = error
             teachingCenterState.invalidate()
-            do { return try await withRelayTeachingCenterSessionRetry(operation: operation) }
-            catch {
-                try validateAuthenticationOwner(owner)
+            do { return try await withRelayTeachingRetry(operation: operation) } catch {
+                try validateAuthOwner(owner)
                 if case ScheduleServiceError.secondFactorRequired = error { throw error }
                 throw ScheduleServiceError.authenticationFailed(
                     "学校本机认证：\(localError.localizedDescription)；中转恢复：\(error.localizedDescription)")
@@ -165,37 +175,38 @@ extension ScheduleService {
     }
 
     /// 已验证当前网络适合校内直连时直接执行；仅在业务接口明确返回登录页时恢复一次 SSO。
-    private func withDirectTeachingCenterSessionRetry<T>(
+    private func withDirectTeachingRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
         do {
             return try await operation()
-        } catch where isTeachingCenterSessionFailure(error) {
+        } catch  where isTeachingSessionFailure(error) {
             try await ensureSchoolSession()
             return try await operation()
         } catch {
-            guard isScheduleTransientNetworkError(error) || isSchoolTransportFailure(error) else {
+            guard isScheduleNetworkError(error) || isSchoolTransportFailure(error) else {
                 throw error
             }
             teachingCenterState.invalidate()
-            return try await withWebVPNTeachingCenterSessionRetry(operation: operation)
+            return try await withWebVPNTeachingRetry(operation: operation)
         }
     }
 
     /// WebVPN 网络路线或 bit-login 暂态故障时，继续使用校内直连。
-    func shouldAttemptDirectTeachingCenterFallback(for error: Error) -> Bool {
+    func shouldTryDirectFallback(for error: Error) -> Bool {
         if SchoolServiceFailure.from(error) == .accountLocked { return false }
-        if isScheduleTransientNetworkError(error) {
+        if isScheduleNetworkError(error) {
             return true
         }
 
         switch error {
         case ScheduleServiceError.authenticationFailed(let message),
-             ScheduleServiceError.challengeInvalid(let message):
+            ScheduleServiceError.challengeInvalid(let message):
             let normalized = message.lowercased()
-            let replacedRiskFlow = normalized.contains("risk=ustc-token") && normalized.contains("flow=replaced")
+            let replacedRiskFlow =
+                normalized.contains("risk=ustc-token") && normalized.contains("flow=replaced")
             // 认证通道流程被替换或 service URL 解析故障时，沿本机学校 SSO 恢复。
-            return isTransientAuthenticationFailure(message)
+            return isTransientAuthFailure(message)
                 || normalized.contains("解析 service url 失败")
                 || replacedRiskFlow
         case ScheduleServiceError.teachingCenterSessionExpired:
@@ -208,22 +219,25 @@ extension ScheduleService {
     }
 
     /// 校外默认走 WebVPN，并保留既有的会话失效自动恢复策略。
-    private func withWebVPNTeachingCenterSessionRetry<T>(
+    private func withWebVPNTeachingRetry<T>(
         operation: () async throws -> T
     ) async throws -> T {
-        try await ensureTeachingCenterAuthentication()
+        try await ensureTeachingAuth()
 
         // WebVPN 会话失效时重新认证，并在认证状态可用后重试业务请求；短信验证由用户完成。
-        for recoveryAttempt in 0 ... 2 {
+        for recoveryAttempt in 0...2 {
             let revision = teachingCenterState.sessionRevision
             do {
                 return try await operation()
-            } catch where isTeachingCenterSessionFailure(error) {
-                let studentID = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch  where isTeachingSessionFailure(error) {
+                let studentID = credentials.currentStudentID.trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 if teachingCenterState.shouldPreferDirect(for: studentID) {
-                    return try await withDirectTeachingCenterSessionRetry(operation: operation)
+                    return try await withDirectTeachingRetry(operation: operation)
                 }
-                if teachingCenterState.sessionRevision == revision { teachingCenterState.invalidate() }
+                if teachingCenterState.sessionRevision == revision {
+                    teachingCenterState.invalidate()
+                }
                 guard recoveryAttempt < 2 else {
                     throw ScheduleServiceError.teachingCenterSessionExpired
                 }
@@ -231,7 +245,7 @@ extension ScheduleService {
                     try await Task.sleep(for: .seconds(1))
                 }
                 if !teachingCenterState.hasUsableSession(for: studentID) {
-                    try await ensureTeachingCenterAuthentication(force: true)
+                    try await ensureTeachingAuth(force: true)
                 }
             }
         }
@@ -239,10 +253,11 @@ extension ScheduleService {
         throw ScheduleServiceError.teachingCenterSessionExpired
     }
 
-    private func isTeachingCenterSessionFailure(_ error: Error) -> Bool {
+    private func isTeachingSessionFailure(_ error: Error) -> Bool {
         switch error {
         case ScheduleServiceError.teachingCenterSessionExpired: true
-        case ScheduleServiceError.schoolResponse(let message): Self.isTeachingCenterSessionExpiryMessage(message)
+        case ScheduleServiceError.schoolResponse(let message):
+            Self.isTeachingSessionExpired(message)
         default: false
         }
     }
@@ -257,35 +272,36 @@ extension ScheduleService {
         owner: SchoolSessionIdentity? = nil
     ) async throws {
         let owner = owner ?? credentials.schoolSessionIdentity
-        try validateAuthenticationOwner(owner)
+        try validateAuthOwner(owner)
         do {
-            guard try await schoolSessionRestorer.restoreSchoolSessionIfNeeded() != nil else {
+            guard try await schoolSessionRestorer.restoreSchoolSession() != nil else {
                 throw ScheduleServiceError.notLoggedIn
             }
-            try validateAuthenticationOwner(owner)
+            try validateAuthOwner(owner)
         } catch let error as SchoolSessionRestorationError {
-            try validateAuthenticationOwner(owner)
-            guard case let .secondFactorRequired(context) = error else { throw error }
+            try validateAuthOwner(owner)
+            guard case .secondFactorRequired(let context) = error else { throw error }
             guard smsDeliveryMode == .preflight || schoolSMSCodeHandler != nil else {
                 throw ScheduleServiceError.schoolSecondFactorRequired
             }
-            try await completeSchoolSecondFactor(
+            try await finishSchoolVerification(
                 context,
                 handler: schoolSMSCodeHandler,
                 smsDeliveryMode: smsDeliveryMode,
                 owner: owner
             )
-            guard try await schoolSessionRestorer.restoreSchoolSessionIfNeeded() != nil else {
+            guard try await schoolSessionRestorer.restoreSchoolSession() != nil else {
                 throw ScheduleServiceError.notLoggedIn
             }
-            try validateAuthenticationOwner(owner)
+            try validateAuthOwner(owner)
         }
     }
 
     /// 直连学校接口获取校区列表。
     private func fetchCampusesDirect() async throws -> [CampusRecord] {
         let response: CampusListResponse = try await sendJSONRequest(
-            path: "/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do?dicCode=48682&SFSY=1&order=%2BDM"
+            path:
+                "/jwapp/sys/kxjasbyMobile/modules/jxllb/ggzdpx.do?dicCode=48682&SFSY=1&order=%2BDM"
         )
 
         return response.datas.ggzdpx.rows.map {
@@ -318,7 +334,9 @@ extension ScheduleService {
     }
 
     /// 直连学校接口获取教室占用情况。
-    private func fetchClassroomsDirect(buildingID: String, term: String, date: Date) async throws -> [ClassroomRecord] {
+    private func fetchClassroomsDirect(buildingID: String, term: String, date: Date) async throws
+        -> [ClassroomRecord]
+    {
         let termParts = term.split(separator: "-")
         let termID = termParts.last.map(String.init) ?? ""
         let termYearCode = termParts.dropLast().joined(separator: "-")
@@ -349,9 +367,10 @@ extension ScheduleService {
         guard !teachingCenterState.isPrepared(for: studentID) else { return }
 
         // App 配置和语言资源请求为教学中心数据请求准备服务端会话。
-        _ = try await sendStringRequest(path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
+        _ = try await sendStringRequest(
+            path: "/jwapp/sys/funauthapp/api/getAppConfig/wdkbby-5959167891382285.do")
         _ = try await sendStringRequest(path: "/jwapp/i18n.do?appName=wdkbby&EMAP_LANG=zh")
-        try validateAuthenticationOwner(owner)
+        try validateAuthOwner(owner)
         teachingCenterState.markPrepared(for: studentID)
     }
 
@@ -384,15 +403,20 @@ extension ScheduleService {
         )
 
         let result = response.datas.cxxszhxqkb
-        guard result.rows.allSatisfy({ row in
-            !(row.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !(row.courseNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) else {
+        guard
+            result.rows.allSatisfy({ row in
+                !(row.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !(row.courseNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty
+            })
+        else {
             throw ScheduleServiceError.invalidResponse
         }
 
         let parsed = try await response.parsedCoursesInBackground()
-        guard parsed.allSatisfy({ $0.course.hasValidPlacement }) else { throw ScheduleServiceError.invalidResponse }
+        guard parsed.allSatisfy({ $0.course.hasValidPlacement }) else {
+            throw ScheduleServiceError.invalidResponse
+        }
         return parsed
     }
 
@@ -419,7 +443,8 @@ extension ScheduleService {
         )
 
         guard let firstDay = response.data.first(where: { $0.week == 1 })?.date,
-              ScheduleDateCodec.parseDate(firstDay) != nil else {
+            ScheduleDateCodec.parseDate(firstDay) != nil
+        else {
             throw ScheduleServiceError.invalidResponse
         }
 

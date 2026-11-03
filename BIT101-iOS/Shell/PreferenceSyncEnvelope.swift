@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 nonisolated enum ScoreSyncEncryptionError: LocalizedError {
     case keyPending
@@ -22,12 +22,16 @@ final class ScoreCacheSyncEncryption {
     }
 
     static func production(defaults: UserDefaults) -> ScoreCacheSyncEncryption {
-#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return ScoreCacheSyncEncryption(defaults: defaults, credentials: AutomatedTestPreferenceCloudStore.shared)
-#else
-        return ScoreCacheSyncEncryption(defaults: defaults, credentials:
-            KeychainLoginCredentials(service: "BIT101.PreferenceCloud.ScoreKeys", synchronizable: true))
-#endif
+        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+        return ScoreCacheSyncEncryption(
+            defaults: defaults, credentials: AutomatedTestPreferenceCloudStore.shared)
+        #else
+        return ScoreCacheSyncEncryption(
+            defaults: defaults,
+            credentials:
+                KeychainLoginCredentials(
+                    service: "BIT101.PreferenceCloud.ScoreKeys", synchronizable: true))
+        #endif
     }
 
     static func isEncrypted(_ data: Data) -> Bool { data.starts(with: magic) }
@@ -47,15 +51,20 @@ final class ScoreCacheSyncEncryption {
             id = UUID().uuidString
             key = SymmetricKey(size: .bits256)
             let bytes = key.withUnsafeBytes { Data($0) }
-            try credentials.save(bytes.base64EncodedString(), account: keyAccount(id: id, account: account))
+            try credentials.save(
+                bytes.base64EncodedString(), account: keyAccount(id: id, account: account))
             defaults.set(id, forKey: activeKey)
         }
         let identifier = Data(id.utf8)
-        guard identifier.count <= Int(UInt8.max) else { throw PreferenceSyncRecordError.invalidStoredValue }
+        guard identifier.count <= Int(UInt8.max) else {
+            throw PreferenceSyncRecordError.invalidStoredValue
+        }
         let header = Self.magic + Data([1, UInt8(identifier.count)]) + identifier
         return { data in
             let sealed = try AES.GCM.seal(data, using: key, authenticating: Data(account.utf8))
-            guard let combined = sealed.combined else { throw PreferenceSyncRecordError.invalidStoredValue }
+            guard let combined = sealed.combined else {
+                throw PreferenceSyncRecordError.invalidStoredValue
+            }
             return header + combined
         }
     }
@@ -67,7 +76,11 @@ final class ScoreCacheSyncEncryption {
     func prepareOpen(_ data: Data, account: String) throws -> @Sendable () throws -> Data {
         guard let record = try encryptedRecord(data) else { return { data } }
         let key = try readKey(id: record.id, account: account)
-        return { try AES.GCM.open(AES.GCM.SealedBox(combined: record.payload), using: key, authenticating: Data(account.utf8)) }
+        return {
+            try AES.GCM.open(
+                AES.GCM.SealedBox(combined: record.payload), using: key,
+                authenticating: Data(account.utf8))
+        }
     }
 
     func acceptReceivedKey(from data: Data, account: String) throws {
@@ -90,12 +103,15 @@ final class ScoreCacheSyncEncryption {
     private func encryptedRecord(_ data: Data) throws -> (id: String, payload: Data)? {
         guard Self.isEncrypted(data) else { return nil }
         let header = data.startIndex + Self.magic.count
-        guard data.endIndex >= header + 2 else { throw PreferenceSyncRecordError.invalidStoredValue }
+        guard data.endIndex >= header + 2 else {
+            throw PreferenceSyncRecordError.invalidStoredValue
+        }
         let version = Int(data[header])
         guard version == 1 else { throw PreferenceSyncRecordError.unsupportedVersion(version) }
         let end = header + 2 + Int(data[header + 1])
         guard end < data.endIndex, let id = String(data: data[(header + 2)..<end], encoding: .utf8),
-              UUID(uuidString: id) != nil else { throw PreferenceSyncRecordError.invalidStoredValue }
+            UUID(uuidString: id) != nil
+        else { throw PreferenceSyncRecordError.invalidStoredValue }
         return (id, Data(data[end...]))
     }
 
@@ -103,7 +119,9 @@ final class ScoreCacheSyncEncryption {
     func removeActiveKey(account: String) -> Bool {
         let activeKey = "experimental.preference-cloud-sync.score-key.\(account)"
         guard let id = defaults.string(forKey: activeKey) else { return true }
-        guard credentials.delete(account: keyAccount(id: id, account: account)) else { return false }
+        guard credentials.delete(account: keyAccount(id: id, account: account)) else {
+            return false
+        }
         defaults.removeObject(forKey: activeKey)
         return true
     }
@@ -111,7 +129,9 @@ final class ScoreCacheSyncEncryption {
     private func readKey(id: String, account: String) throws -> SymmetricKey {
         let secret = try credentials.read(account: keyAccount(id: id, account: account))
         guard !secret.isEmpty else { throw ScoreSyncEncryptionError.keyPending }
-        guard let data = Data(base64Encoded: secret), data.count == 32 else { throw PreferenceSyncRecordError.invalidStoredValue }
+        guard let data = Data(base64Encoded: secret), data.count == 32 else {
+            throw PreferenceSyncRecordError.invalidStoredValue
+        }
         return SymmetricKey(data: data)
     }
 
@@ -134,17 +154,28 @@ nonisolated enum PreferenceSyncRecordError: LocalizedError {
 
 /// 字段值随载荷往返保存，维护跨客户端的新增偏好。
 nonisolated enum PreferenceJSONValue: Codable, Equatable, Sendable {
-    case null, bool(Bool), number(Decimal), string(String)
-    case array([Self]), object([String: Self])
+    case null
+    case bool(Bool)
+    case number(Decimal)
+    case string(String)
+    case array([Self])
+    case object([String: Self])
 
     init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer()
-        if value.decodeNil() { self = .null }
-        else if let decoded = try? value.decode(Bool.self) { self = .bool(decoded) }
-        else if let decoded = try? value.decode(Decimal.self) { self = .number(decoded) }
-        else if let decoded = try? value.decode(String.self) { self = .string(decoded) }
-        else if let decoded = try? value.decode([Self].self) { self = .array(decoded) }
-        else { self = .object(try value.decode([String: Self].self)) }
+        if value.decodeNil() {
+            self = .null
+        } else if let decoded = try? value.decode(Bool.self) {
+            self = .bool(decoded)
+        } else if let decoded = try? value.decode(Decimal.self) {
+            self = .number(decoded)
+        } else if let decoded = try? value.decode(String.self) {
+            self = .string(decoded)
+        } else if let decoded = try? value.decode([Self].self) {
+            self = .array(decoded)
+        } else {
+            self = .object(try value.decode([String: Self].self))
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -168,15 +199,19 @@ nonisolated struct ExperimentalPreferenceSyncEnvelope<Payload: Codable>: Codable
     let fieldUpdatedAt: [String: Date]?
     var additionalFields: [String: PreferenceJSONValue]
 
-    init(updatedAt: Date, payload: Payload, fieldUpdatedAt: [String: Date]? = nil,
-         additionalFields: [String: PreferenceJSONValue] = [:]) {
+    init(
+        updatedAt: Date, payload: Payload, fieldUpdatedAt: [String: Date]? = nil,
+        additionalFields: [String: PreferenceJSONValue] = [:]
+    ) {
         self.updatedAt = updatedAt
         self.payload = payload
         self.fieldUpdatedAt = fieldUpdatedAt
         self.additionalFields = additionalFields
     }
 
-    private enum CodingKeys: String, CodingKey { case schemaVersion, updatedAt, payload, fieldUpdatedAt }
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, updatedAt, payload, fieldUpdatedAt
+    }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -188,7 +223,8 @@ nonisolated struct ExperimentalPreferenceSyncEnvelope<Payload: Codable>: Codable
         payload = try values.decode(Payload.self, forKey: .payload)
         fieldUpdatedAt = try values.decodeIfPresent([String: Date].self, forKey: .fieldUpdatedAt)
         let raw = try values.decode([String: PreferenceJSONValue].self, forKey: .payload)
-        let known = try JSONDecoder().decode([String: PreferenceJSONValue].self, from: JSONEncoder().encode(payload))
+        let known = try JSONDecoder().decode(
+            [String: PreferenceJSONValue].self, from: JSONEncoder().encode(payload))
         additionalFields = raw.filter { known[$0.key] == nil }
     }
 
@@ -197,8 +233,10 @@ nonisolated struct ExperimentalPreferenceSyncEnvelope<Payload: Codable>: Codable
         try values.encode(Self.schemaVersion, forKey: .schemaVersion)
         try values.encode(updatedAt, forKey: .updatedAt)
         try values.encodeIfPresent(fieldUpdatedAt, forKey: .fieldUpdatedAt)
-        let known = try JSONDecoder().decode([String: PreferenceJSONValue].self, from: JSONEncoder().encode(payload))
-        try values.encode(additionalFields.merging(known) { _, current in current }, forKey: .payload)
+        let known = try JSONDecoder().decode(
+            [String: PreferenceJSONValue].self, from: JSONEncoder().encode(payload))
+        try values.encode(
+            additionalFields.merging(known) { _, current in current }, forKey: .payload)
     }
 }
 

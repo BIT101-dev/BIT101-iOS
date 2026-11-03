@@ -40,7 +40,8 @@ extension AppDesignSystem {
             public static let navigationIcon: CGFloat = 24
             public static let compact: CGFloat = 28
             public static let touchTarget: CGFloat = 44
-            public static let refreshStatusRowHeight = touchTarget + 2 * AppDesignSystem.Spacing.tiny
+            public static let refreshStatusRowHeight =
+                touchTarget + 2 * AppDesignSystem.Spacing.tiny
         }
         public enum Editor {
             public static let multilineMinimumHeight: CGFloat = 180
@@ -89,7 +90,8 @@ extension AppDesignSystem {
             public static let system = Color(uiColor: .systemBackground)
             public static let grouped = Color(uiColor: .systemGroupedBackground)
             public static let secondary = Color(uiColor: .secondarySystemBackground)
-            public static let secondaryGrouped = Color(uiColor: .secondarySystemGroupedBackground)
+            public static let secondaryGrouped = Color(
+                uiColor: .secondarySystemGroupedBackground)
             public static let inputPlaceholder = Color(uiColor: .placeholderText)
         }
         public enum Border {
@@ -139,6 +141,5 @@ extension Color {
         )
     }
 }
-
 
 #endif

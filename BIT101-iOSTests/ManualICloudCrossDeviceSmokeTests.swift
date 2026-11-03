@@ -1,5 +1,6 @@
 import ScoreDomain
 import ScorePorts
+
 #if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
 import Foundation
 import StorageCore
@@ -10,10 +11,15 @@ import Testing
 nonisolated enum ICloudSmokeEvidence {
     static func accountIdentifier(runID: String) throws -> String {
         guard let identifier = UUID(uuidString: runID) else { throw URLError(.badURL) }
-        return "bit101icloudsmoke" + identifier.uuidString.replacingOccurrences(of: "-", with: "")
+        return "bit101icloudsmoke"
+            + identifier.uuidString.replacingOccurrences(of: "-", with: "")
     }
-    static func returningPayload(_ payload: ScoreCacheSyncPayload, token: String) throws -> ScoreCacheSyncPayload {
-        guard let row = payload.rows.first, !row.values.isEmpty else { throw URLError(.cannotParseResponse) }
+    static func returningPayload(_ payload: ScoreCacheSyncPayload, token: String) throws
+        -> ScoreCacheSyncPayload
+    {
+        guard let row = payload.rows.first, !row.values.isEmpty else {
+            throw URLError(.cannotParseResponse)
+        }
         var result = payload
         var values = row.values.map(\.value)
         let field = row.values.firstIndex(where: { $0.key == "课程名称" }) ?? 0
@@ -32,14 +38,21 @@ nonisolated enum ICloudSmokeEvidence {
         _ payload: ScoreCacheSyncPayload?, encodedPayload expected: Data,
         localVersion: Date?, expectedVersion: Date
     ) -> Bool {
-        guard let payload, !payload.rows.isEmpty, localVersion == expectedVersion else { return false }
+        guard let payload, !payload.rows.isEmpty, localVersion == expectedVersion else {
+            return false
+        }
         return (try? encodedPayload(payload)) == expected
     }
 
     @MainActor
-    static func cleanupConfirmed(account: String, coordinationKey: String, objectForKey: @MainActor (String) -> Any?,
-                                 cloudRecordDeleted: @MainActor () async throws -> Bool) async -> Bool {
-        let keys = ExperimentalPreferenceSyncDomain.allCases.map { "preference-sync.v2.\(account).\($0.rawValue)" }
+    static func cleanupConfirmed(
+        account: String, coordinationKey: String, objectForKey: @MainActor (String) -> Any?,
+        cloudRecordDeleted: @MainActor () async throws -> Bool
+    ) async -> Bool {
+        let keys =
+            ExperimentalPreferenceSyncDomain.allCases.map {
+                "preference-sync.v2.\(account).\($0.rawValue)"
+            }
             + [coordinationKey]
         guard keys.allSatisfy({ objectForKey($0) == nil }) else { return false }
         return (try? await cloudRecordDeleted()) == true
@@ -49,59 +62,99 @@ nonisolated enum ICloudSmokeEvidence {
 @Suite("iCloud smoke evidence")
 struct ICloudSmokeEvidenceTests {
     @Test(.timeLimit(.minutes(1))) @MainActor
-    func cleanupRequiresEveryRemoteKeyAndServerDeletion() async {
+    func cleanupRequiresEveryRemoteKey() async {
         let account = "fixture"
         let coordination = "coordination.fixture"
-        let keys = ExperimentalPreferenceSyncDomain.allCases.map { "preference-sync.v2.\(account).\($0.rawValue)" } + [coordination]
+        let keys =
+            ExperimentalPreferenceSyncDomain.allCases.map {
+                "preference-sync.v2.\(account).\($0.rawValue)"
+            } + [coordination]
         for key in keys {
             var queriedRecord = false
-            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
-                objectForKey: { $0 == key ? Data([1]) : nil }, cloudRecordDeleted: { queriedRecord = true; return true })
+            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(
+                account: account, coordinationKey: coordination,
+                objectForKey: { $0 == key ? Data([1]) : nil },
+                cloudRecordDeleted: {
+                    queriedRecord = true
+                    return true
+                })
             #expect(!confirmed && !queriedRecord)
         }
         for deleted in [false, true] {
-            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
+            let confirmed = await ICloudSmokeEvidence.cleanupConfirmed(
+                account: account, coordinationKey: coordination,
                 objectForKey: { _ in nil }, cloudRecordDeleted: { deleted })
             #expect(confirmed == deleted)
         }
-        let offline = await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: coordination,
-            objectForKey: { _ in nil }, cloudRecordDeleted: { throw URLError(.notConnectedToInternet) })
+        let offline = await ICloudSmokeEvidence.cleanupConfirmed(
+            account: account, coordinationKey: coordination,
+            objectForKey: { _ in nil },
+            cloudRecordDeleted: { throw URLError(.notConnectedToInternet) })
         #expect(!offline)
     }
     @Test("Concurrent smoke runs have separate cloud account identities")
     func runAccountsAreIsolated() throws {
         let first = "00000000-0000-0000-0000-000000000001"
         let second = "00000000-0000-0000-0000-000000000002"
-        #expect(try ICloudSmokeEvidence.accountIdentifier(runID: first) != ICloudSmokeEvidence.accountIdentifier(runID: second))
-        let account = AppStorageSession(accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: first)).accountDirectoryName
-        let keys = ExperimentalPreferenceSyncDomain.allCases.map { "preference-sync.v2.\(account).\($0.rawValue)" }
+        #expect(
+            try ICloudSmokeEvidence.accountIdentifier(runID: first)
+                != ICloudSmokeEvidence.accountIdentifier(runID: second))
+        let account = AppStorageSession(
+            accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: first)
+        ).accountDirectoryName
+        let keys =
+            ExperimentalPreferenceSyncDomain.allCases.map {
+                "preference-sync.v2.\(account).\($0.rawValue)"
+            }
             + ["manual.preference-cloud-sync.smoke.v1.\(account)"]
-        #expect(keys.allSatisfy { $0.utf16.count <= ExperimentalPreferenceCloudQuotaPolicy.maximumKeyUTF16Count })
+        #expect(
+            keys.allSatisfy {
+                $0.utf16.count <= ExperimentalPreferenceCloudQuotaPolicy.maximumKeyUTF16Count
+            })
         #expect(throws: URLError.self) { try ICloudSmokeEvidence.accountIdentifier(runID: "") }
     }
     @Test("A prior cache requires the newly received business version")
     func priorCacheRequiresCurrentVersion() throws {
         let version = Date(timeIntervalSince1970: 100)
         let row = ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["课程", "90"])
-        let payload = ScoreCacheSyncPayload(rows: [row], updatedAt: version, detailedUpdatedAt: nil)
+        let payload = ScoreCacheSyncPayload(
+            rows: [row], updatedAt: version, detailedUpdatedAt: nil)
         let encoded = try ICloudSmokeEvidence.encodedPayload(payload)
         let returned = try ICloudSmokeEvidence.returningPayload(payload, token: "mac")
         #expect(returned.rows.count == payload.rows.count)
         #expect(returned.updatedAt == payload.updatedAt)
         #expect(try ICloudSmokeEvidence.encodedPayload(returned) != encoded)
-        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: try ICloudSmokeEvidence.encodedPayload(returned),
-                                            localVersion: version, expectedVersion: version))
-        #expect(ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: version, expectedVersion: version))
-        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: nil, expectedVersion: version))
-        #expect(!ICloudSmokeEvidence.matches(payload, encodedPayload: encoded, localVersion: version, expectedVersion: version.addingTimeInterval(1)))
-        #expect(!ICloudSmokeEvidence.matches(nil, encodedPayload: encoded, localVersion: version, expectedVersion: version))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                payload, encodedPayload: try ICloudSmokeEvidence.encodedPayload(returned),
+                localVersion: version, expectedVersion: version))
+        #expect(
+            ICloudSmokeEvidence.matches(
+                payload, encodedPayload: encoded, localVersion: version,
+                expectedVersion: version))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                payload, encodedPayload: encoded, localVersion: nil, expectedVersion: version))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                payload, encodedPayload: encoded, localVersion: version,
+                expectedVersion: version.addingTimeInterval(1)))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                nil, encodedPayload: encoded, localVersion: version, expectedVersion: version))
         let changed = ScoreCacheSyncPayload(
             rows: [ScoreRow(index: 0, headers: ["课程名称", "成绩"], values: ["课程", "80"])],
             updatedAt: version, detailedUpdatedAt: nil
         )
-        #expect(!ICloudSmokeEvidence.matches(changed, encodedPayload: encoded, localVersion: version, expectedVersion: version))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                changed, encodedPayload: encoded, localVersion: version,
+                expectedVersion: version))
         let empty = ScoreCacheSyncPayload(rows: [], updatedAt: version, detailedUpdatedAt: nil)
-        #expect(!ICloudSmokeEvidence.matches(empty, encodedPayload: try ICloudSmokeEvidence.encodedPayload(empty), localVersion: version, expectedVersion: version))
+        #expect(
+            !ICloudSmokeEvidence.matches(
+                empty, encodedPayload: try ICloudSmokeEvidence.encodedPayload(empty),
+                localVersion: version, expectedVersion: version))
     }
 }
 #endif
@@ -137,7 +190,10 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor private var cloud: NSUbiquitousKeyValueStore { .default }
     @MainActor private var smokeSession: AppStorageSession {
-        get throws { AppStorageSession(accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: runID())) }
+        get throws {
+            AppStorageSession(
+                accountIdentifier: try ICloudSmokeEvidence.accountIdentifier(runID: runID()))
+        }
     }
     private let preferenceDomain = "BIT101Tests.icloud-cross-device-smoke"
     private static var storageRoot: URL {
@@ -155,28 +211,36 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var status = ScheduleCloudSyncStatus.idle
         let transport = AppScheduleCloudTransport()
         private let repository: SchedulePersistenceStore
-        lazy var manager = ScheduleCloudSyncManager(local: ScheduleCloudLocalStore(
-            currentAccount: { self.account },
-            load: { session in
-                guard session == self.account.session else { return .missing }
-                return await self.repository.load(for: session)
-            },
-            save: { value, source, account, expected in
-                guard account == self.account,
-                      let saved = await self.repository.write(value,
-                        accountIdentifier: account.session.accountStorageIdentifier,
-                        legacyAccountIdentifier: account.session.legacyAccountDirectoryNameForMigration,
-                        source: source, expectedUpdatedAt: expected) else { return false }
-                self.cache = saved
-                return true
-            }
-        ), transport: transport, presentConflict: { _, _, _ in XCTFail("验收数据应按版本往返并保留真实记录锁") },
+        lazy var manager = ScheduleCloudSyncManager(
+            local: ScheduleCloudLocalStore(
+                currentAccount: { self.account },
+                load: { session in
+                    guard session == self.account.session else { return .missing }
+                    return await self.repository.load(for: session)
+                },
+                save: { value, source, account, expected in
+                    guard account == self.account,
+                        let saved = await self.repository.write(
+                            value,
+                            accountIdentifier: account.session.accountStorageIdentifier,
+                            legacyAccountIdentifier: account.session
+                                .legacyAccountDirectoryNameForMigration,
+                            source: source, expectedUpdatedAt: expected)
+                    else { return false }
+                    self.cache = saved
+                    return true
+                }
+            ), transport: transport,
+            presentConflict: { _, _, _ in XCTFail("验收数据应按版本往返并保留真实记录锁") },
             reportStatus: { _, status in self.status = status })
 
         init(session: AppStorageSession) async throws {
-            account = ScheduleCloudAccount(studentID: session.accountIdentifier, session: session, generation: 1)
-            repository = SchedulePersistenceStore(files: LocalAppFileService(),
-                storageRoot: try ICloudCrossDeviceSmokeTests.storageRoot, userStateMatches: ScheduleCloudSyncState.matches)
+            account = ScheduleCloudAccount(
+                studentID: session.accountIdentifier, session: session, generation: 1)
+            repository = SchedulePersistenceStore(
+                files: LocalAppFileService(),
+                storageRoot: try ICloudCrossDeviceSmokeTests.storageRoot,
+                userStateMatches: ScheduleCloudSyncState.matches)
             cache.iCloudSyncEnabled = true
             switch await repository.load(for: session) {
             case .loaded(let saved): cache = saved
@@ -185,10 +249,16 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             }
         }
 
-        func replaceCache(_ value: ScheduleCache, source: ScheduleCacheSaveSource, expected: Date? = nil) async throws {
-            guard let saved = await repository.write(value, accountIdentifier: account.session.accountStorageIdentifier,
-                legacyAccountIdentifier: account.session.legacyAccountDirectoryNameForMigration,
-                source: source, expectedUpdatedAt: expected) else { throw CocoaError(.fileWriteUnknown) }
+        func replaceCache(
+            _ value: ScheduleCache, source: ScheduleCacheSaveSource, expected: Date? = nil
+        ) async throws {
+            guard
+                let saved = await repository.write(
+                    value, accountIdentifier: account.session.accountStorageIdentifier,
+                    legacyAccountIdentifier: account.session
+                        .legacyAccountDirectoryNameForMigration,
+                    source: source, expectedUpdatedAt: expected)
+            else { throw CocoaError(.fileWriteUnknown) }
             cache = saved
         }
 
@@ -202,26 +272,34 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor
     func testPhoneRoundTrip() async throws {
         let coordinator = try await uploadPhoneScores()
-        defer { coordinator.setEnabled(false); clearLocalSmokePreferences() }
+        defer {
+            coordinator.setEnabled(false)
+            clearLocalSmokePreferences()
+        }
         try await verifyPhoneScoresAndCleanup(coordinator: coordinator)
     }
 
     @MainActor
     private func uploadPhoneScores() async throws -> ExperimentalPreferenceCloudSync {
         let timestamp = Date()
-        let payload = ScoreCacheSyncPayload(rows: [ScoreRow(index: 0,
-            headers: ["课程名称", "成绩", "课程性质", "学分", "学期"],
-            values: ["功能验收", "95", "选修", "1", "验收学期"])],
+        let payload = ScoreCacheSyncPayload(
+            rows: [
+                ScoreRow(
+                    index: 0,
+                    headers: ["课程名称", "成绩", "课程性质", "学分", "学期"],
+                    values: ["功能验收", "95", "选修", "1", "验收学期"])
+            ],
             updatedAt: timestamp, detailedUpdatedAt: timestamp)
         try await restoreLocalAndCloudState(deleteCloudRecord: false)
         let schedule = try await ScheduleSmokeStore(session: smokeSession)
         try await schedule.replaceCache(scheduleFixture(stage: "phone"), source: .cloudBaseline)
-        await schedule.manager.pushLatestLocalCacheIfNeeded()
+        await schedule.manager.pushLatestCache()
         XCTAssertEqual(schedule.status, .synchronized, "CloudKit Production 应保存生产日程载荷")
         _ = try await schedule.transport.record(named: schedule.account.recordName)
         phoneSchedule = schedule
         let manager = try smokeCoordinator()
-        let prepared = try await manager.stores.scoreCache.applySynced(payload, for: nil, replacing: nil)
+        let prepared = try await manager.stores.scoreCache.applySynced(
+            payload, for: nil, replacing: nil)
         XCTAssertTrue(prepared)
         try await verifyReopenedScores(manager)
         try await schedule.verifyReopenedCache()
@@ -239,22 +317,34 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         coordination.preferenceVersions = try await publishPreferences(coordinator: manager)
         coordination.stage = .phoneUploaded
         try save(coordination)
-        print("ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\(payload.rows.count)")
+        print(
+            """
+            ICLOUD_SMOKE_PHONE_UPLOADED token=\(coordination.token) scores=\
+            \(payload.rows.count)
+            """
+        )
         return manager
     }
 
     @MainActor
     func testMacReceiveAndRestore() async throws {
-        let coordination = try await requireCoordination(stage: .phoneUploaded, selectPhoneAccount: true)
+        let coordination = try await requireCoordination(
+            stage: .phoneUploaded, selectPhoneAccount: true)
         let phoneVersion = try XCTUnwrap(coordination.phoneVersion)
         try clearLocalSmokeFiles()
         let coordinator = try smokeCoordinator()
-        defer { coordinator.setEnabled(false); clearLocalSmokePreferences() }
+        defer {
+            coordinator.setEnabled(false)
+            clearLocalSmokePreferences()
+        }
         coordinator.setEnabled(true)
         let received = await waitUntil {
             coordinator.reconcileCloudSnapshot()
-            return await self.localScoresMatch(coordination, version: phoneVersion, coordinator: coordinator)
-                && self.preferencesMatch(stage: "phone", versions: coordination.preferenceVersions, coordinator: coordinator)
+            return await self.localScoresMatch(
+                coordination, version: phoneVersion, coordinator: coordinator)
+                && self.preferencesMatch(
+                    stage: "phone", versions: coordination.preferenceVersions,
+                    coordinator: coordinator)
         }
         guard received else {
             XCTFail("Mac 接收本次成绩载荷和业务版本超时")
@@ -264,18 +354,23 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         await schedule.manager.refreshFromCloudIfNeeded()
         XCTAssertEqual(schedule.status, .synchronized)
         XCTAssertEqual(schedule.cache.primaryScheduleTitle, try runID() + "-phone")
-        XCTAssertTrue(try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "phone")))
+        XCTAssertTrue(
+            try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "phone")))
         try await verifyReopenedScores(coordinator)
         try await schedule.verifyReopenedCache()
-        let priorRecord = try await schedule.transport.record(named: schedule.account.recordName)
+        let priorRecord = try await schedule.transport.record(
+            named: schedule.account.recordName)
         var returningSchedule = try scheduleFixture(stage: "mac")
         returningSchedule.cloudSyncBaselineAt = schedule.cache.cloudSyncBaselineAt
         returningSchedule.cloudSyncBaselineRecordTag = schedule.cache.cloudSyncBaselineRecordTag
-        returningSchedule.syncData.cloudSyncBaselineUserState = schedule.cache.syncData.cloudSyncBaselineUserState
+        returningSchedule.syncData.cloudSyncBaselineUserState =
+            schedule.cache.syncData.cloudSyncBaselineUserState
         returningSchedule.updatedAt = Date().addingTimeInterval(1)
         returningSchedule.hasUnpushedCloudChanges = true
-        try await schedule.replaceCache(returningSchedule, source: .localWithoutCloudPush, expected: schedule.cache.updatedAt)
-        await schedule.manager.pushLatestLocalCacheIfNeeded()
+        try await schedule.replaceCache(
+            returningSchedule, source: .localWithoutCloudPush,
+            expected: schedule.cache.updatedAt)
+        await schedule.manager.pushLatestCache()
         XCTAssertEqual(schedule.status, .synchronized)
         do {
             _ = try await schedule.transport.save(priorRecord)
@@ -286,13 +381,16 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var completed = coordination
         let receivedCache = try await coordinator.stores.scoreCache.syncPayload(for: nil)
         let receivedPayload = try XCTUnwrap(receivedCache)
-        let returningPayload = try ICloudSmokeEvidence.returningPayload(receivedPayload, token: try runID() + "-mac")
-        let applied = try await coordinator.stores.scoreCache.applySynced(returningPayload, for: nil, replacing: nil)
+        let returningPayload = try ICloudSmokeEvidence.returningPayload(
+            receivedPayload, token: try runID() + "-mac")
+        let applied = try await coordinator.stores.scoreCache.applySynced(
+            returningPayload, for: nil, replacing: nil)
         XCTAssertTrue(applied)
         completed.scorePayload = try ICloudSmokeEvidence.encodedPayload(returningPayload)
         XCTAssertNotEqual(completed.scorePayload, coordination.scorePayload)
         completed.macVersion = try await publishScores(
-            encodedPayload: completed.scorePayload, after: phoneVersion, coordinator: coordinator
+            encodedPayload: completed.scorePayload, after: phoneVersion,
+            coordinator: coordinator
         )
         await configurePreferences(stage: "mac", coordinator: coordinator)
         completed.preferenceVersions = try await publishPreferences(coordinator: coordinator)
@@ -307,7 +405,9 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func verifyPhoneScoresAndCleanup(coordinator manager: ExperimentalPreferenceCloudSync) async throws {
+    private func verifyPhoneScoresAndCleanup(
+        coordinator manager: ExperimentalPreferenceCloudSync
+    ) async throws {
         let coordination = try await requireCoordination(stage: .macRestored)
         let macVersion = try XCTUnwrap(coordination.macVersion)
         let phoneVersion = try XCTUnwrap(coordination.phoneVersion)
@@ -315,8 +415,11 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         manager.setEnabled(true)
         let received = await waitUntil {
             manager.reconcileCloudSnapshot()
-            return await self.localScoresMatch(coordination, version: macVersion, coordinator: manager)
-                && self.preferencesMatch(stage: "mac", versions: coordination.preferenceVersions, coordinator: manager)
+            return await self.localScoresMatch(
+                coordination, version: macVersion, coordinator: manager)
+                && self.preferencesMatch(
+                    stage: "mac", versions: coordination.preferenceVersions,
+                    coordinator: manager)
         }
         guard received else {
             XCTFail("手机接收 Mac 发布的成绩载荷和业务版本超时")
@@ -327,7 +430,8 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         await schedule.manager.refreshFromCloudIfNeeded()
         XCTAssertEqual(schedule.status, .synchronized)
         XCTAssertEqual(schedule.cache.primaryScheduleTitle, try runID() + "-mac")
-        XCTAssertTrue(try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "mac")))
+        XCTAssertTrue(
+            try ScheduleCloudSyncState.matches(schedule.cache, scheduleFixture(stage: "mac")))
         try await verifyReopenedScores(manager)
         try await schedule.verifyReopenedCache()
         try await restoreLocalAndCloudState()
@@ -338,38 +442,52 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func smokeCoordinator() throws -> ExperimentalPreferenceCloudSync {
         let session = try smokeSession
         let defaults = try XCTUnwrap(UserDefaults(suiteName: preferenceDomain))
-        guard ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(account: session.accountDirectoryName) else {
-            throw NSError(domain: "BIT101.ICloudSmoke", code: 1,
+        guard
+            ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(
+                account: session.accountDirectoryName)
+        else {
+            throw NSError(
+                domain: "BIT101.ICloudSmoke", code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "遗留验收成绩密钥清理待完成，恢复标识已保留"])
         }
         defaults.removePersistentDomain(forName: preferenceDomain)
         let files = LocalAppFileService()
         let stores = AppAccountStores(
-            communityMessages: GalleryMessageReadStore(files: files, storageRoot: try Self.storageRoot, defaults: defaults, session: { session }),
-            composerDrafts: ComposerDraftStore(files: files, applicationSupport: try Self.storageRoot,
+            communityMessages: GalleryMessageReadStore(
+                files: files, storageRoot: try Self.storageRoot, defaults: defaults,
+                session: { session }),
+            composerDrafts: ComposerDraftStore(
+                files: files, applicationSupport: try Self.storageRoot,
                 session: { session }, prepareImageData: { $0 }),
             scoreCache: ScoreCacheStore(
                 files: files, storageRoot: try Self.storageRoot,
                 defaults: defaults, session: { session }
             ),
-            scoreFilterPreferences: ScoreFilterPreferenceStore(defaults: defaults, session: { session }),
+            scoreFilterPreferences: ScoreFilterPreferenceStore(
+                defaults: defaults, session: { session }),
             currentSession: { session }, scoreSession: { session }
         )
         return ExperimentalPreferenceCloudSync(
             settings: AppSettingsStore(defaults: defaults, session: { session }),
-            stores: stores, defaults: defaults, cloudStore: cloud, synchronizedDomains: Set(ExperimentalPreferenceSyncDomain.allCases)
+            stores: stores, defaults: defaults, cloudStore: cloud,
+            synchronizedDomains: Set(ExperimentalPreferenceSyncDomain.allCases)
         )
     }
 
     @MainActor
-    private func verifyReopenedScores(_ coordinator: ExperimentalPreferenceCloudSync) async throws {
+    private func verifyReopenedScores(_ coordinator: ExperimentalPreferenceCloudSync)
+        async throws
+    {
         let session = try smokeSession
-        let reopened = ScoreCacheStore(files: LocalAppFileService(), storageRoot: try Self.storageRoot,
-            defaults: try XCTUnwrap(UserDefaults(suiteName: preferenceDomain)), session: { session })
+        let reopened = ScoreCacheStore(
+            files: LocalAppFileService(), storageRoot: try Self.storageRoot,
+            defaults: try XCTUnwrap(UserDefaults(suiteName: preferenceDomain)),
+            session: { session })
         let current = try await coordinator.stores.scoreCache.syncPayload(for: nil)
         let persisted = try await reopened.syncPayload(for: nil)
-        XCTAssertEqual(try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(persisted)),
-                       try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(current)))
+        XCTAssertEqual(
+            try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(persisted)),
+            try ICloudSmokeEvidence.encodedPayload(XCTUnwrap(current)))
     }
 
     private func clearLocalSmokeFiles() throws {
@@ -385,16 +503,30 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         var cache = ScheduleCache()
         cache.iCloudSyncEnabled = true
         cache.primaryScheduleTitle = token + "-" + stage
-        let course = CourseRecord(id: "smoke-course", term: "smoke-term", name: token + stage,
+        let course = CourseRecord(
+            id: "smoke-course", term: "smoke-term", name: token + stage,
             teacher: "教师", classroom: "教室", description: "课程描述", weeks: [1, 3], weekday: 2,
             startSection: 1, endSection: 2, campus: "校区", number: "smoke", credit: 1, hour: 2,
             type: "选修", category: "自定义", department: "学院")
-        cache.manualCourseRulesByTerm = ["smoke-term": [ScheduleCourseRule(id: "smoke-rule",
-            sourceIdentity: "smoke-course", sourceCourses: [], replacementCourses: [course])]]
-        cache.customSchedules = [CustomScheduleRecord(id: "smoke-custom", title: token + stage,
-            subtitle: "地点", description: "日程描述", dateString: "2026-01-05", beginTime: "09:00", endTime: "10:00")]
-        cache.ddlEvents = [DDLEventRecord(id: "smoke-ddl", group: "custom", title: token + stage,
-            text: "DDL 正文", dueAt: Date(timeIntervalSince1970: 100), done: mac)]
+        cache.manualCourseRulesByTerm = [
+            "smoke-term": [
+                ScheduleCourseRule(
+                    id: "smoke-rule",
+                    sourceIdentity: "smoke-course", sourceCourses: [],
+                    replacementCourses: [course])
+            ]
+        ]
+        cache.customSchedules = [
+            CustomScheduleRecord(
+                id: "smoke-custom", title: token + stage,
+                subtitle: "地点", description: "日程描述", dateString: "2026-01-05",
+                beginTime: "09:00", endTime: "10:00")
+        ]
+        cache.ddlEvents = [
+            DDLEventRecord(
+                id: "smoke-ddl", group: "custom", title: token + stage,
+                text: "DDL 正文", dueAt: Date(timeIntervalSince1970: 100), done: mac)
+        ]
         cache.lexueDDLCompletionByID = ["smoke-school-ddl": mac]
         cache.ddlBeforeDay = mac ? 3 : 2
         cache.showSunday = mac
@@ -405,26 +537,37 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func configurePreferences(stage: String, coordinator: ExperimentalPreferenceCloudSync) async {
+    private func configurePreferences(
+        stage: String, coordinator: ExperimentalPreferenceCloudSync
+    ) async {
         let mac = stage == "mac"
-        coordinator.settings.updateGallerySettings(hideBotPosterInSearch: mac,
+        coordinator.settings.updateGallerySettings(
+            hideBotPosterInSearch: mac,
             hiddenUserIDs: [mac ? 202 : 101], hideAnonymousContent: mac, useWebView: mac)
-        coordinator.stores.scoreFilterPreferences.save(selectedTerms: [stage], selectedCourseTypes: [stage],
+        coordinator.stores.scoreFilterPreferences.save(
+            selectedTerms: [stage], selectedCourseTypes: [stage],
             sortIndex: mac ? .credit : .score, sortOrder: mac ? .ascending : .descending)
-        await coordinator.stores.communityMessages.markSeen(ids: [mac ? 202 : 101], for: .comment)
+        await coordinator.stores.communityMessages.markSeen(
+            ids: [mac ? 202 : 101], for: .comment)
     }
 
     @MainActor
-    private func publishPreferences(coordinator: ExperimentalPreferenceCloudSync) async throws -> [String: Date] {
-        let domains: [ExperimentalPreferenceSyncDomain] = [.appSettings, .scoreFilters, .galleryMessageRead]
+    private func publishPreferences(coordinator: ExperimentalPreferenceCloudSync) async throws
+        -> [String: Date]
+    {
+        let domains: [ExperimentalPreferenceSyncDomain] = [
+            .appSettings, .scoreFilters, .galleryMessageRead,
+        ]
         let account = try smokeSession.accountDirectoryName
         var versions: [String: Date] = [:]
         struct Version: Decodable { let updatedAt: Date }
         let uploaded = await waitUntil {
             for domain in domains {
                 let key = "preference-sync.v2.\(account).\(domain.rawValue)"
-                guard let data = self.cloud.data(forKey: key), let remote = try? JSONDecoder().decode(Version.self, from: data),
-                    remote.updatedAt == coordinator.synchronizedVersion(for: domain) else { return false }
+                guard let data = self.cloud.data(forKey: key),
+                    let remote = try? JSONDecoder().decode(Version.self, from: data),
+                    remote.updatedAt == coordinator.synchronizedVersion(for: domain)
+                else { return false }
                 versions[domain.rawValue] = remote.updatedAt
             }
             return true
@@ -434,15 +577,23 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func preferencesMatch(stage: String, versions: [String: Date], coordinator: ExperimentalPreferenceCloudSync) -> Bool {
+    private func preferencesMatch(
+        stage: String, versions: [String: Date], coordinator: ExperimentalPreferenceCloudSync
+    ) -> Bool {
         let mac = stage == "mac"
         let filters = coordinator.stores.scoreFilterPreferences.load()
-        let seen = Set(coordinator.stores.communityMessages.syncSnapshot().seenIDsByType[GalleryMessageType.comment.rawValue] ?? [])
-        return versions.count == 3 && versions.allSatisfy { name, version in
-            ExperimentalPreferenceSyncDomain(rawValue: name).map { coordinator.synchronizedVersion(for: $0) == version } == true
-        } && coordinator.settings.galleryHiddenUserIDs == [mac ? 202 : 101]
+        let seen = Set(
+            coordinator.stores.communityMessages.syncSnapshot().seenIDsByType[
+                GalleryMessageType.comment.rawValue] ?? [])
+        return versions.count == 3
+            && versions.allSatisfy { name, version in
+                ExperimentalPreferenceSyncDomain(rawValue: name).map {
+                    coordinator.synchronizedVersion(for: $0) == version
+                } == true
+            } && coordinator.settings.galleryHiddenUserIDs == [mac ? 202 : 101]
             && coordinator.settings.galleryHideBotPosterInSearch == mac
-            && coordinator.settings.galleryHideAnonymousContent == mac && coordinator.settings.galleryUseWebView == mac
+            && coordinator.settings.galleryHideAnonymousContent == mac
+            && coordinator.settings.galleryUseWebView == mac
             && filters?.selectedTerms == [stage] && filters?.selectedCourseTypes == [stage]
             && filters?.sortIndex == (mac ? ScoreSortIndex.credit : .score).rawValue
             && filters?.sortOrder == (mac ? ScoreSortOrder.ascending : .descending).rawValue
@@ -450,12 +601,17 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     }
 
     @MainActor
-    private func publishScores(encodedPayload: Data, after previousVersion: Date, coordinator: ExperimentalPreferenceCloudSync) async throws -> Date {
+    private func publishScores(
+        encodedPayload: Data, after previousVersion: Date,
+        coordinator: ExperimentalPreferenceCloudSync
+    ) async throws -> Date {
         coordinator.localValueDidChange(in: .scoreCache)
         var publishedVersion: Date?
         let uploaded = await waitUntil {
-            guard let envelope: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload> =
-                self.remoteEnvelope(account: coordinator.stores.currentSession().accountDirectoryName),
+            guard
+                let envelope: ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload> =
+                    self.remoteEnvelope(
+                        account: coordinator.stores.currentSession().accountDirectoryName),
                 envelope.updatedAt > previousVersion,
                 ICloudSmokeEvidence.matches(
                     envelope.payload, encodedPayload: encodedPayload,
@@ -467,18 +623,23 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
             return true
         }
         guard uploaded else {
-            throw NSError(domain: "ICloudCrossDeviceSmokeTests", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "本次成绩载荷和业务版本上传超时"])
+            throw NSError(
+                domain: "ICloudCrossDeviceSmokeTests", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "本次成绩载荷和业务版本上传超时"])
         }
         return try XCTUnwrap(publishedVersion)
     }
 
     @MainActor
-    private func localScoresMatch(_ coordination: Coordination, version: Date, coordinator: ExperimentalPreferenceCloudSync) async -> Bool {
+    private func localScoresMatch(
+        _ coordination: Coordination, version: Date,
+        coordinator: ExperimentalPreferenceCloudSync
+    ) async -> Bool {
         let payload = try? await coordinator.stores.scoreCache.syncPayload(for: nil)
         return ICloudSmokeEvidence.matches(
             payload, encodedPayload: coordination.scorePayload,
-            localVersion: coordinator.synchronizedVersion(for: .scoreCache), expectedVersion: version
+            localVersion: coordinator.synchronizedVersion(for: .scoreCache),
+            expectedVersion: version
         )
     }
 
@@ -496,8 +657,10 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     @MainActor
     private func verifyCloudCleanup(account: String) async {
         let cleaned = await waitUntil {
-            await ICloudSmokeEvidence.cleanupConfirmed(account: account, coordinationKey: self.coordinationKey(account: account),
-                objectForKey: { self.cloud.object(forKey: $0) }, cloudRecordDeleted: { try await self.cloudRecordWasDeleted() })
+            await ICloudSmokeEvidence.cleanupConfirmed(
+                account: account, coordinationKey: self.coordinationKey(account: account),
+                objectForKey: { self.cloud.object(forKey: $0) },
+                cloudRecordDeleted: { try await self.cloudRecordWasDeleted() })
         }
         XCTAssertTrue(cleaned, "Mac 应接收验收 KVS 与协调键删除，并确认 CloudKit 记录已删除")
     }
@@ -512,9 +675,12 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         clearLocalSmokePreferences()
         try clearLocalSmokeFiles()
         guard deleteCloudRecord else { return }
-        let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
+        let name = try ScheduleCloudAccount(
+            studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1
+        ).recordName
         do {
-            _ = try await CKContainer.default().privateCloudDatabase.deleteRecord(withID: CKRecord.ID(recordName: name))
+            _ = try await CKContainer.default().privateCloudDatabase.deleteRecord(
+                withID: CKRecord.ID(recordName: name))
         } catch let error as CKError where error.code == .unknownItem {
             print("CLOUDKIT_SMOKE_CLEANUP state=empty")
         }
@@ -524,40 +690,52 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func cloudRecordWasDeleted() async throws -> Bool {
-        let name = try ScheduleCloudAccount(studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1).recordName
+        let name = try ScheduleCloudAccount(
+            studentID: smokeSession.accountIdentifier, session: smokeSession, generation: 1
+        ).recordName
         do {
-            _ = try await CKContainer.default().privateCloudDatabase.record(for: CKRecord.ID(recordName: name))
+            _ = try await CKContainer.default().privateCloudDatabase.record(
+                for: CKRecord.ID(recordName: name))
             return false
         } catch let error as CKError where error.code == .unknownItem { return true }
     }
 
     @MainActor
     private func runID() throws -> String {
-        let value = try XCTUnwrap(ProcessInfo.processInfo.environment["BIT101_ICLOUD_SMOKE_RUN_ID"])
+        let value = try XCTUnwrap(
+            ProcessInfo.processInfo.environment["BIT101_ICLOUD_SMOKE_RUN_ID"])
         XCTAssertFalse(value.isEmpty)
         return value
     }
 
     @MainActor
-    private func requireCoordination(stage: Stage, selectPhoneAccount: Bool = false) async throws -> Coordination {
+    private func requireCoordination(stage: Stage, selectPhoneAccount: Bool = false)
+        async throws -> Coordination
+    {
         let account = try smokeSession.accountDirectoryName
         guard selectPhoneAccount || (account != "guest" && account != "__default__") else {
-            throw NSError(domain: "ICloudCrossDeviceSmokeTests", code: 2,
-                          userInfo: [NSLocalizedDescriptionKey: "请先在真机登录 BIT101 账号"])
+            throw NSError(
+                domain: "ICloudCrossDeviceSmokeTests", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "请先在真机登录 BIT101 账号"])
         }
         let token = try runID()
         var result: Coordination?
         let received = await waitUntil {
             let local = self.loadCoordination(account: account)
-            let selected = local?.token == token ? local
+            let selected =
+                local?.token == token
+                ? local
                 : (selectPhoneAccount ? self.loadCoordination(stage: stage, token: token) : nil)
-            guard let value = selected, value.token == token, value.stage == stage else { return false }
+            guard let value = selected, value.token == token, value.stage == stage else {
+                return false
+            }
             result = value
             return true
         }
         guard received else {
-            throw NSError(domain: "ICloudCrossDeviceSmokeTests", code: 3,
-                          userInfo: [NSLocalizedDescriptionKey: "跨设备 Smoke 协调状态接收超时：\(stage.rawValue)"])
+            throw NSError(
+                domain: "ICloudCrossDeviceSmokeTests", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "跨设备 Smoke 协调状态接收超时：\(stage.rawValue)"])
         }
         return try XCTUnwrap(result)
     }
@@ -566,11 +744,16 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
     private func waitUntil(condition: @escaping @MainActor () async -> Bool) async -> Bool {
         let started = Date()
         defer { print("ICLOUD_SMOKE_WAIT elapsed=\(Date().timeIntervalSince(started))") }
-        guard cloud.synchronize() else { XCTFail("iCloud KVS 同步请求失败"); return false }
+        guard cloud.synchronize() else {
+            XCTFail("iCloud KVS 同步请求失败")
+            return false
+        }
         let deadline = started.addingTimeInterval(300)
-        let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let (events, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1))
         let observer = NotificationCenter.default.addObserver(
-            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud, queue: .main
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification, object: cloud,
+            queue: .main
         ) { _ in continuation.yield(()) }
         let keychainWakeups = Task {
             while !Task.isCancelled {
@@ -593,19 +776,31 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func clearLocalSmokePreferences() {
-        guard let defaults = UserDefaults(suiteName: preferenceDomain), let session = try? smokeSession else { return }
-        let deleted = ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(account: session.accountDirectoryName)
+        guard let defaults = UserDefaults(suiteName: preferenceDomain),
+            let session = try? smokeSession
+        else { return }
+        let deleted = ScoreCacheSyncEncryption.production(defaults: defaults).removeActiveKey(
+            account: session.accountDirectoryName)
         XCTAssertTrue(deleted, "验收成绩密钥应从 iCloud 钥匙串删除")
         if deleted { defaults.removePersistentDomain(forName: preferenceDomain) }
     }
 
     @MainActor
-    private func remoteEnvelope(account: String) -> ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>? {
-        let key = "preference-sync.v2.\(account).\(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)"
+    private func remoteEnvelope(account: String) -> ExperimentalPreferenceSyncEnvelope<
+        ScoreCacheSyncPayload
+    >? {
+        let key =
+            """
+            preference-sync.v2.\(account).\
+            \(ExperimentalPreferenceSyncDomain.scoreCache.rawValue)
+            """
         guard let data = cloud.data(forKey: key) else { return nil }
         guard let defaults = UserDefaults(suiteName: preferenceDomain),
-              let clear = try? ScoreCacheSyncEncryption.production(defaults: defaults).open(data, account: account) else { return nil }
-        return try? ScoreCacheSyncPayloadCodec.decode(ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self, from: clear)
+            let clear = try? ScoreCacheSyncEncryption.production(defaults: defaults).open(
+                data, account: account)
+        else { return nil }
+        return try? ScoreCacheSyncPayloadCodec.decode(
+            ExperimentalPreferenceSyncEnvelope<ScoreCacheSyncPayload>.self, from: clear)
     }
 
     @MainActor
@@ -615,13 +810,17 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
 
     @MainActor
     private func save(_ coordination: Coordination) throws {
-        cloud.set(try JSONEncoder().encode(coordination), forKey: coordinationKey(account: coordination.account))
+        cloud.set(
+            try JSONEncoder().encode(coordination),
+            forKey: coordinationKey(account: coordination.account))
         guard cloud.synchronize() else { throw URLError(.cannotConnectToHost) }
     }
 
     @MainActor
     private func loadCoordination(account: String) -> Coordination? {
-        guard let data = cloud.data(forKey: coordinationKey(account: account)) else { return nil }
+        guard let data = cloud.data(forKey: coordinationKey(account: account)) else {
+            return nil
+        }
         return try? JSONDecoder().decode(Coordination.self, from: data)
     }
 
@@ -630,8 +829,9 @@ nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {
         let prefix = "manual.preference-cloud-sync.smoke.v1."
         let matches = cloud.dictionaryRepresentation.compactMap { key, value -> Coordination? in
             guard key.hasPrefix(prefix), let data = value as? Data,
-                  let coordination = try? JSONDecoder().decode(Coordination.self, from: data),
-                  coordination.stage == stage, coordination.token == token else { return nil }
+                let coordination = try? JSONDecoder().decode(Coordination.self, from: data),
+                coordination.stage == stage, coordination.token == token
+            else { return nil }
             return coordination
         }
         return matches.count == 1 ? matches.first : nil

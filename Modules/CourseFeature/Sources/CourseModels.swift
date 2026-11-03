@@ -1,12 +1,12 @@
 import CommunityCore
+import Foundation
+
 //
 //  CourseModels.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-04-02.
 //
-
-import Foundation
 
 /// 课程评分展示工具。
 ///
@@ -33,7 +33,9 @@ enum CourseRatingText {
 /// 课程列表单项。
 ///
 /// 模型保留课程列表与详情入口所需的基础字段。
-public nonisolated struct CourseSummary: CommunityResourceItem, Decodable, Identifiable, Equatable, Hashable, Sendable {
+public nonisolated struct CourseSummary: CommunityResourceItem, Decodable, Identifiable, Equatable,
+    Hashable, Sendable
+{
     public var communityObjectID: String { "course\(id)" }
     public var communityRate: Double? { rate }
     public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
@@ -72,7 +74,7 @@ public nonisolated struct CourseSummary: CommunityResourceItem, Decodable, Ident
         id = try container.decode(Int.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         number = try container.decode(String.self, forKey: .number)
-        credit = container.decodeFlexibleDoubleIfPresent(forKeys: [.credit, .credits])
+        credit = container.decodeOptionalDouble(forKeys: [.credit, .credits])
         likeNum = try container.decode(Int.self, forKey: .likeNum)
         commentNum = try container.decode(Int.self, forKey: .commentNum)
         rate = try container.decode(Double.self, forKey: .rate)
@@ -141,7 +143,9 @@ public struct CourseNavigationRequest: Identifiable, Hashable {
     }
 
     /// 从仅含教务字段的记录跳转到统一课程详情/评价页。
-    public static func lookup(courseName: String, courseNumber: String, teacher: String = "") -> Self {
+    public static func lookup(courseName: String, courseNumber: String, teacher: String = "")
+        -> Self
+    {
         Self(
             courseID: 0,
             lookupCourseName: courseName,
@@ -219,7 +223,7 @@ public nonisolated struct CourseDetail: CommunityResourceItem, Decodable, Hashab
         id = try container.decode(Int.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         number = try container.decode(String.self, forKey: .number)
-        credit = container.decodeFlexibleDoubleIfPresent(forKeys: [.credit, .credits])
+        credit = container.decodeOptionalDouble(forKeys: [.credit, .credits])
         likeNum = try container.decode(Int.self, forKey: .likeNum)
         commentNum = try container.decode(Int.self, forKey: .commentNum)
         rate = try container.decode(Double.self, forKey: .rate)
@@ -281,9 +285,9 @@ public nonisolated struct CourseHistoryGrade: Codable, Identifiable, Equatable, 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         term = try container.decode(String.self, forKey: .term)
-        avgScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.avgScore])
-        maxScore = container.decodeFlexibleDoubleIfPresent(forKeys: [.maxScore])
-        studentNum = container.decodeFlexibleIntIfPresent(forKeys: [.studentNum])
+        avgScore = container.decodeOptionalDouble(forKeys: [.avgScore])
+        maxScore = container.decodeOptionalDouble(forKeys: [.maxScore])
+        studentNum = container.decodeOptionalInt(forKeys: [.studentNum])
     }
 }
 
@@ -304,7 +308,7 @@ enum CourseHistoryMakeupPolicy {
         let lowCountTerms: Set<String> = Set(
             grades.compactMap { grade in
                 guard let studentNum = grade.studentNum,
-                      studentNum <= maximumExcludedStudentCount
+                    studentNum <= maximumExcludedStudentCount
                 else {
                     return nil
                 }
@@ -314,19 +318,21 @@ enum CourseHistoryMakeupPolicy {
 
         let normalizedNumber = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedNumber.hasPrefix(requiredCoursePrefix),
-              !normalizedNumber.hasPrefix(electiveCoursePrefix)
+            !normalizedNumber.hasPrefix(electiveCoursePrefix)
         else {
             return lowCountTerms
         }
 
-        let samples = grades
+        let samples =
+            grades
             .compactMap(ComparableGrade.init)
             .filter { sample in
                 guard let studentNum = sample.grade.studentNum else { return true }
                 return studentNum > maximumExcludedStudentCount
             }
         let groupedByAcademicYear = Dictionary(grouping: samples, by: \.academicYear)
-        let pairedYears = groupedByAcademicYear.values.compactMap { yearSamples -> [ComparableGrade]? in
+        let pairedYears = groupedByAcademicYear.values.compactMap {
+            yearSamples -> [ComparableGrade]? in
             guard yearSamples.count == 2 else { return nil }
             return yearSamples.sorted { $0.semester < $1.semester }
         }
@@ -351,8 +357,10 @@ enum CourseHistoryMakeupPolicy {
         var firstPassHiddenTerms = Set<String>()
         let strongPairs = pairComparisons.filter { $0.countRatio <= strongCountRatio }
         if strongPairs.count >= minimumPairedYears,
-           let dominantSemester = dominantLowerSemester(in: strongPairs),
-           strongPairs.filter({ $0.lower.semester == dominantSemester }).count * 2 > strongPairs.count {
+            let dominantSemester = dominantLowerSemester(in: strongPairs),
+            strongPairs.filter({ $0.lower.semester == dominantSemester }).count * 2
+                > strongPairs.count
+        {
             firstPassHiddenTerms.formUnion(
                 strongPairs
                     .filter { $0.lower.semester == dominantSemester }
@@ -369,7 +377,8 @@ enum CourseHistoryMakeupPolicy {
 
         let remainingSamples = samples.filter { !firstPassHiddenTerms.contains($0.grade.term) }
         let secondPassHiddenTerms = globalOutlierTerms(in: remainingSamples)
-        return lowCountTerms
+        return
+            lowCountTerms
             .union(firstPassHiddenTerms)
             .union(secondPassHiddenTerms)
     }
@@ -385,15 +394,16 @@ enum CourseHistoryMakeupPolicy {
             Int(ceil(Double(counts.count) * 0.75)) - 1
         )
         let upperBaseline = Double(counts[upperBaselineIndex])
-        return Set(samples.compactMap { sample in
-            guard
-                let count = sample.grade.studentNum,
-                Double(count) * globalOutlierMultiplier <= upperBaseline
-            else {
-                return nil
-            }
-            return sample.grade.term
-        })
+        return Set(
+            samples.compactMap { sample in
+                guard
+                    let count = sample.grade.studentNum,
+                    Double(count) * globalOutlierMultiplier <= upperBaseline
+                else {
+                    return nil
+                }
+                return sample.grade.term
+            })
     }
 
     private static func dominantLowerSemester(in pairs: [PairComparison]) -> Int? {
@@ -442,9 +452,11 @@ enum CourseHistoryGradeLoadStatus: Equatable {
     case loaded
     case failed(String)
 }
+nonisolated
 
-private nonisolated extension KeyedDecodingContainer {
-    func decodeFlexibleDoubleIfPresent(forKeys keys: [Key]) -> Double? {
+    extension KeyedDecodingContainer
+{
+    fileprivate func decodeOptionalDouble(forKeys keys: [Key]) -> Double? {
         for key in keys {
             if let value = try? decodeIfPresent(Double.self, forKey: key), value.isFinite {
                 return value
@@ -462,7 +474,7 @@ private nonisolated extension KeyedDecodingContainer {
         return nil
     }
 
-    func decodeFlexibleIntIfPresent(forKeys keys: [Key]) -> Int? {
+    fileprivate func decodeOptionalInt(forKeys keys: [Key]) -> Int? {
         for key in keys {
             if let value = try? decodeIfPresent(Int.self, forKey: key) {
                 return value

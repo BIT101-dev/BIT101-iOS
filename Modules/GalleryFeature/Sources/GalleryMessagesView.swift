@@ -38,7 +38,9 @@ struct GalleryMessagesView: View {
             Group {
                 if isInitialLoading {
                     AppLoadingState(title: "正在加载消息")
-                } else if case let .failed(message) = currentState.status, currentState.items.isEmpty {
+                } else if case .failed(let message) = currentState.status,
+                    currentState.items.isEmpty
+                {
                     AppFailureState(
                         title: "加载消息失败",
                         systemImage: "bell.badge",
@@ -62,7 +64,8 @@ struct GalleryMessagesView: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                         } else {
-                            ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
+                            ForEach(Array(currentState.items.enumerated()), id: \.element.id) {
+                                index, message in
                                 VStack(spacing: AppDesignSystem.Spacing.none) {
                                     GalleryMessageRow(
                                         type: type,
@@ -75,19 +78,26 @@ struct GalleryMessagesView: View {
 
                                     if index != currentState.items.count - 1 {
                                         Divider()
-                                            .padding(.leading, AppDesignSystem.Gallery.messageDividerLeading)
+                                            .padding(
+                                                .leading,
+                                                AppDesignSystem.Gallery.messageDividerLeading)
                                     }
                                 }
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(Color.clear)
                                 .task(id: viewModel.paginationTaskID(for: type)) {
-                                    await viewModel.loadMoreIfNeeded(for: type, currentMessage: message)
+                                    await viewModel.loadMoreIfNeeded(
+                                        for: type, currentMessage: message)
                                 }
                             }
 
-                            CommunityPaginationFooter(isLoading: currentState.isLoadingMore, errorMessage: currentState.paginationError) {
-                                await viewModel.loadMoreIfNeeded(for: type, currentMessage: state.items.last)
+                            CommunityPaginationFooter(
+                                isLoading: currentState.isLoadingMore,
+                                errorMessage: currentState.paginationError
+                            ) {
+                                await viewModel.loadMoreIfNeeded(
+                                    for: type, currentMessage: state.items.last)
                             }
                             .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
@@ -97,7 +107,8 @@ struct GalleryMessagesView: View {
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .refreshable {
-                    interactionEvidence?("interaction.GalleryMessagesView.refreshable", "refresh")
+                        interactionEvidence?(
+                            "interaction.GalleryMessagesView.refreshable", "refresh")
 
                         await viewModel.refreshSelectedType()
                     }
@@ -115,11 +126,13 @@ struct GalleryMessagesView: View {
                 Button("取消") {
                     dismiss()
                 }
-                    .accessibilityIdentifier("ui.gallery-messages-view.cancel")
+                .accessibilityIdentifier("ui.gallery-messages-view.cancel")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("全部已读") {
-                    viewModel.pendingOperations.enqueue { await viewModel.markCurrentTypeAsRead() }
+                    viewModel.pendingOperations.enqueue {
+                        await viewModel.markCurrentTypeAsRead()
+                    }
                 }
                 .disabled(!viewModel.hasUnreadInCurrentType)
             }
@@ -132,8 +145,11 @@ struct GalleryMessagesView: View {
             }
         }
         .task(id: viewModel.selectedType) {
-            if currentState.status == .idle { await viewModel.bootstrapIfNeeded() }
-            else { await viewModel.retrySelectedTypeIfNeeded() }
+            if currentState.status == .idle {
+                await viewModel.bootstrapIfNeeded()
+            } else {
+                await viewModel.retrySelectedTypeIfNeeded()
+            }
         }
         .onChange(of: networkObserver.snapshot.status) { _, newValue in
             guard newValue == .connected else { return }
@@ -154,15 +170,18 @@ struct GalleryMessagesView: View {
         .onDisappear { viewModel.pendingOperations.cancel() }
         .task(id: requestedMessage) {
             guard let message = requestedMessage else { return }
-            await viewModel.openMessage(message, in: viewModel.selectedType, using: dependencies.posterDetail)
+            await viewModel.openMessage(
+                message, in: viewModel.selectedType, using: dependencies.posterDetail)
             if requestedMessage == message { requestedMessage = nil }
         }
         .navigationDestination(item: $viewModel.destination) { destination in
             switch destination {
-            case let .poster(poster):
-                GalleryPosterDetailView(dependencies: dependencies, media: media, profiles: profiles, poster: poster.asPoster, initialDetail: poster)
-            case let .paper(id): papers.detail(id)
-            case let .course(id): courses.course(id)
+            case .poster(let poster):
+                GalleryPosterDetailView(
+                    dependencies: dependencies, media: media, profiles: profiles,
+                    poster: poster.asPoster, initialDetail: poster)
+            case .paper(let id): papers.detail(id)
+            case .course(let id): courses.course(id)
             }
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
@@ -170,8 +189,12 @@ struct GalleryMessagesView: View {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
                     Text("消息已读记录需要恢复").font(AppDesignSystem.Typography.title)
                     Text("当前消息继续展示。请重试读取，或确认恢复本机已读记录。")
-                    Button("重试读取") { viewModel.pendingOperations.enqueue { await viewModel.refreshSelectedType() } }
-                        .accessibilityIdentifier("messages.storage.retry")
+                    Button("重试读取") {
+                        viewModel.pendingOperations.enqueue {
+                            await viewModel.refreshSelectedType()
+                        }
+                    }
+                    .accessibilityIdentifier("messages.storage.retry")
                     Button("恢复已读状态") {
                         readRecovery = viewModel.readStateRecoveryAction()
                         showsReadRecoveryConfirmation = true
@@ -185,8 +208,10 @@ struct GalleryMessagesView: View {
             }
         }
         .alert("恢复消息已读状态？", isPresented: $showsReadRecoveryConfirmation) {
-            Button("恢复已读状态", role: .destructive) { viewModel.pendingOperations.enqueue { await readRecovery?() } }
-                .accessibilityIdentifier("messages.storage.confirm")
+            Button("恢复已读状态", role: .destructive) {
+                viewModel.pendingOperations.enqueue { await readRecovery?() }
+            }
+            .accessibilityIdentifier("messages.storage.confirm")
             Button("取消", role: .cancel) {}
         } message: {
             Text("当前账号的本机已读记录将重新建立，部分消息可能再次显示为未读。消息内容与其他资料继续保留。")
@@ -215,7 +240,7 @@ struct GalleryMessagesView: View {
 
     /// 消息分类左右切换手势。
     private var messageSwitchGesture: some Gesture {
-        makeHorizontalSwitchGesture(onStep: switchType)
+        horizontalSwitchGesture(onStep: switchType)
     }
 
     /// 顶部分段标题；有未读时在标题右侧追加计数。
@@ -259,11 +284,15 @@ private struct GalleryMessageRow: View {
                 GalleryMessageAvatarView(user: message.fromUser, type: type)
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                    HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
+                    HStack(
+                        alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular
+                    ) {
                         if isUnread {
                             Circle()
                                 .fill(AppDesignSystem.Palette.Accent.primary)
-                                .frame(width: AppDesignSystem.Gallery.unreadIndicator, height: AppDesignSystem.Gallery.unreadIndicator)
+                                .frame(
+                                    width: AppDesignSystem.Gallery.unreadIndicator,
+                                    height: AppDesignSystem.Gallery.unreadIndicator)
                         }
 
                         Text(message.fromUser.displayName)
@@ -273,9 +302,11 @@ private struct GalleryMessageRow: View {
 
                         Spacer(minLength: AppDesignSystem.Spacing.none)
 
-                        Text(AppDateText.relativeText(from: message.updateTime, fallback: "未知时间"))
-                            .font(AppDesignSystem.Typography.caption)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        Text(
+                            AppDateText.relativeText(from: message.updateTime, fallback: "未知时间")
+                        )
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
 
                     Text(type.actionText(for: message))
@@ -301,7 +332,11 @@ private struct GalleryMessageRow: View {
             .padding(.horizontal, AppDesignSystem.Spacing.content)
             .padding(.vertical, AppDesignSystem.Spacing.content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isUnread ? AppDesignSystem.Palette.Accent.surface : AppDesignSystem.Palette.Background.system)
+            .background(
+                isUnread
+                    ? AppDesignSystem.Palette.Accent.surface
+                    : AppDesignSystem.Palette.Background.system
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -326,7 +361,8 @@ private struct GalleryMessageAvatarView: View {
                 systemImage: type == .system ? "bell.fill" : "person.fill"
             )
         } else {
-            AppAvatarView(imageURL: user.avatar.preferredURL, fallbackImageURL: user.avatar.originalURL)
+            AppAvatarView(
+                imageURL: user.avatar.preferredURL, fallbackImageURL: user.avatar.originalURL)
         }
     }
 }

@@ -1,8 +1,8 @@
-import StorageCore
-import TransportCore
-import MediaKit
 import DesignSystemKit
+import MediaKit
+import StorageCore
 import SwiftUI
+import TransportCore
 
 struct GallerySettingsPage: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
@@ -19,7 +19,8 @@ struct GallerySettingsPage: View {
     @State private var diagnosisTask: Task<Void, Never>?
 
     init(media: MediaEnvironment, diagnosis: NetworkDiagnosisDependencies) {
-        _networkDiagnosis = StateObject(wrappedValue: NetworkDiagnosisRunner(dependencies: diagnosis))
+        _networkDiagnosis = StateObject(
+            wrappedValue: NetworkDiagnosisRunner(dependencies: diagnosis))
         self.media = media
         _imageCacheLimitMB = State(initialValue: media.cacheLimitMB)
     }
@@ -27,32 +28,44 @@ struct GallerySettingsPage: View {
     var body: some View {
         List {
             Section {
-                Toggle("隐藏机器人帖子", isOn: Binding(
-                    get: { settings.galleryHideBotPosterInSearch },
-                    set: { settings.updateGallerySettings(hideBotPosterInSearch: $0) }
-                ))
+                Toggle(
+                    "隐藏机器人帖子",
+                    isOn: Binding(
+                        get: { settings.galleryHideBotPosterInSearch },
+                        set: { settings.updateGallerySettings(hideBotPosterInSearch: $0) }
+                    )
+                )
                 .appSelectionFeedback(trigger: settings.galleryHideBotPosterInSearch)
                 .appInteractiveListRow()
 
-                Toggle("隐藏匿名内容", isOn: Binding(
-                    get: { settings.galleryHideAnonymousContent },
-                    set: { settings.updateGallerySettings(hideAnonymousContent: $0) }
-                ))
+                Toggle(
+                    "隐藏匿名内容",
+                    isOn: Binding(
+                        get: { settings.galleryHideAnonymousContent },
+                        set: { settings.updateGallerySettings(hideAnonymousContent: $0) }
+                    )
+                )
                 .appSelectionFeedback(trigger: settings.galleryHideAnonymousContent)
                 .appInteractiveListRow()
 
-                TextField("", text: $hiddenUserIDsText, prompt: AppInputPrompt.text("屏蔽用户 UID（逗号分隔）"))
-                    .keyboardType(.numbersAndPunctuation)
-                    .onSubmit {
+                TextField(
+                    "", text: $hiddenUserIDsText, prompt: AppInputPrompt.text("屏蔽用户 UID（逗号分隔）")
+                )
+                .keyboardType(.numbersAndPunctuation)
+                .onSubmit {
                     interactionEvidence?("interaction.GallerySettingsPage.onSubmit", "submit")
- saveHiddenUserIDs() }
+                    saveHiddenUserIDs()
+                }
             }
 
             Section("显示") {
-                Toggle("使用网页话廊", isOn: Binding(
-                    get: { settings.galleryUseWebView },
-                    set: { settings.updateGallerySettings(useWebView: $0) }
-                ))
+                Toggle(
+                    "使用网页话廊",
+                    isOn: Binding(
+                        get: { settings.galleryUseWebView },
+                        set: { settings.updateGallerySettings(useWebView: $0) }
+                    )
+                )
                 .appSelectionFeedback(trigger: settings.galleryUseWebView)
                 .appInteractiveListRow()
             }
@@ -81,8 +94,10 @@ struct GallerySettingsPage: View {
                         Text("测试网络并生成诊断报告")
                         Spacer()
                         if networkDiagnosis.isRunning {
-                            Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
-                                .foregroundStyle(.tint)
+                            Text(
+                                "\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)"
+                            )
+                            .foregroundStyle(.tint)
                         }
                     }
                 }
@@ -94,7 +109,8 @@ struct GallerySettingsPage: View {
                         total: Double(networkDiagnosis.totalCount)
                     )
                     .accessibilityLabel("网络诊断进度")
-                    .accessibilityValue("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
+                    .accessibilityValue(
+                        "\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
                 }
             } header: {
                 AppListSectionHeader("网络诊断")
@@ -106,7 +122,8 @@ struct GallerySettingsPage: View {
                         .keyboardType(.numberPad)
                         .focused($imageCacheLimitFocused)
                         .onSubmit {
-                            interactionEvidence?("interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
+                            interactionEvidence?(
+                                "interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
                             applyCacheLimit()
                         }
                         .onChange(of: imageCacheLimitFocused) { _, focused in
@@ -133,7 +150,8 @@ struct GallerySettingsPage: View {
         .diagnosticAlert(item: $diagnosisAlert)
         .task {
             imageCacheLimitMB = media.cacheLimitMB
-            hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(separator: ",")
+            hiddenUserIDsText = settings.galleryHiddenUserIDs.map(String.init).joined(
+                separator: ",")
             await refreshImageCacheUsage()
         }
         .onChange(of: settings.galleryHiddenUserIDs) { _, newValue in
@@ -205,18 +223,27 @@ struct AboutSettingsPage: View {
         List {
             Section("致谢") {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    Text("特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。")
+                    Text(
+                        """
+                        特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团\
+                        结、专业，共建你我引以为荣之社区。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。
+                        """
+                    )
                 }
                 .padding(.vertical, AppDesignSystem.Spacing.micro)
             }
 
             Section("联系我们") {
-                Link("项目仓库", destination: AppURL.required("https://github.com/BIT101-dev/BIT101-iOS"))
+                Link(
+                    "项目仓库", destination: AppURL.required("https://github.com/BIT101-dev/BIT101-iOS")
+                )
                 .appInteractiveListRow()
-                Link("QQ交流群", destination: AppURL.required("https://jq.qq.com/?_wv=1027&k=OTttwrzb"))
+                Link(
+                    "QQ交流群", destination: AppURL.required("https://jq.qq.com/?_wv=1027&k=OTttwrzb")
+                )
                 .appInteractiveListRow()
                 Link("邮箱", destination: AppURL.required("mailto:systemd@linux.do"))
-                .appInteractiveListRow()
+                    .appInteractiveListRow()
             }
 
             Section("关于本 APP") {
@@ -243,10 +270,13 @@ struct AboutSettingsPage: View {
             }
 
             Section("版本更新") {
-                Toggle("自动检查更新", isOn: Binding(
-                    get: { settings.automaticUpdateChecksEnabled },
-                    set: settings.setAutomaticUpdateChecksEnabled
-                ))
+                Toggle(
+                    "自动检查更新",
+                    isOn: Binding(
+                        get: { settings.automaticUpdateChecksEnabled },
+                        set: settings.setUpdateChecks
+                    )
+                )
                 .appSelectionFeedback(trigger: settings.automaticUpdateChecksEnabled)
                 .appInteractiveListRow()
 
@@ -309,7 +339,7 @@ struct AboutSettingsPage: View {
             Button("删除", role: .destructive) {
                 Task { await resetAllLocalData() }
             }
-                .accessibilityIdentifier("ui.about-settings-page.delete")
+            .accessibilityIdentifier("ui.about-settings-page.delete")
         } message: {
             Text("应用将清空本机数据并返回登录页，本机自建日程、待办和草稿将一并删除。学校课表可在重新登录后同步获取；已同步到 iCloud 的数据继续保留。")
         }
@@ -323,31 +353,35 @@ struct AboutSettingsPage: View {
 
         do {
             switch try await updates.checkManually() {
-            case let .update(release):
-                prompts.enqueue(AppPrompt(
-                    id: "manual-app-update-\(UUID().uuidString)",
-                    title: "发现新版本 \(release.version)",
-                    message: release.updateMessage,
-                    actions: [
-                        AppPromptAction(
-                            id: "open-store",
-                            title: "前往 App Store",
-                            isDefault: true
-                        ) {
-                            openURL(release.appStoreURL)
-                        },
-                        AppPromptAction(id: "dismiss", title: "本次忽略") {},
-                        AppPromptAction(id: "ignore-version", title: "忽略此版本") {
-                            updates.ignore(version: release.version)
+            case .update(let release):
+                prompts.enqueue(
+                    AppPrompt(
+                        id: "manual-app-update-\(UUID().uuidString)",
+                        title: "发现新版本 \(release.version)",
+                        message: release.updateMessage,
+                        actions: [
+                            AppPromptAction(
+                                id: "open-store",
+                                title: "前往 App Store",
+                                isDefault: true
+                            ) {
+                                openURL(release.appStoreURL)
+                            },
+                            AppPromptAction(id: "dismiss", title: "本次忽略") {},
+                            AppPromptAction(id: "ignore-version", title: "忽略此版本") {
+                                updates.ignore(version: release.version)
+                            },
+                        ],
+                        onPresent: {
+                            updates.markPresented(version: release.version)
                         }
-                    ],
-                    onPresent: {
-                        updates.markPresented(version: release.version)
-                    }
-                ))
+                    ))
             case .current:
-                let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-                let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+                let version =
+                    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+                    as? String ?? "?"
+                let build =
+                    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
                 alert = AppAlert(
                     title: "已是最新版本",
                     message: "当前版本：\(version) (\(build))"
@@ -365,10 +399,11 @@ struct AboutSettingsPage: View {
         defer { isResettingLocalData = false }
         let succeeded = await localData.resetAllLocalData(onLogout: onLogout)
         if !succeeded {
-            AppErrorPresenter.shared.present(AppAlert.informational(
-                title: "本机数据清理待完成",
-                message: localData.resetFailureMessage ?? "部分本机数据仍待清理，可稍后重试。"
-            ))
+            AppErrorPresenter.shared.present(
+                AppAlert.informational(
+                    title: "本机数据清理待完成",
+                    message: localData.resetFailureMessage ?? "部分本机数据仍待清理，可稍后重试。"
+                ))
         }
     }
 

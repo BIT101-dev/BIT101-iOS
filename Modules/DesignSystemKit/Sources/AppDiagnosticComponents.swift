@@ -1,4 +1,5 @@
 import Foundation
+
 #if os(iOS)
 import SwiftUI
 #endif
@@ -12,8 +13,8 @@ public nonisolated protocol DiagnosticAlertPresentable: Identifiable {
     var underlyingError: (any Error)? { get }
 }
 
-public extension DiagnosticAlertPresentable {
-    var underlyingError: (any Error)? { nil }
+extension DiagnosticAlertPresentable {
+    public var underlyingError: (any Error)? { nil }
 }
 
 public nonisolated enum AppRecoveryAction: Equatable, Sendable {
@@ -56,8 +57,10 @@ public nonisolated struct AppAlert: DiagnosticAlertPresentable {
         self.init(title: title, message: error.localizedDescription, underlyingError: error)
     }
 
-    public static func userInput(title: String, message: String, recoveryAction: AppRecoveryAction? = nil,
-        underlyingError: (any Error)? = nil) -> AppAlert {
+    public static func userInput(
+        title: String, message: String, recoveryAction: AppRecoveryAction? = nil,
+        underlyingError: (any Error)? = nil
+    ) -> AppAlert {
         AppAlert(
             title: title,
             message: message,
@@ -119,7 +122,9 @@ private struct DiagnosticAlertModifier<Item: DiagnosticAlertPresentable>: ViewMo
 }
 
 extension View {
-    public func diagnosticAlert<Item: DiagnosticAlertPresentable>(item: Binding<Item?>) -> some View {
+    public func diagnosticAlert<Item: DiagnosticAlertPresentable>(item: Binding<Item?>)
+        -> some View
+    {
         modifier(DiagnosticAlertModifier(item: item))
     }
 }

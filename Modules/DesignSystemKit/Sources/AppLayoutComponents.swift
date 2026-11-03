@@ -13,11 +13,15 @@ public struct AppWindowLayout: Equatable {
     public var divisionX: CGFloat?
     private var windowUsesTopTabBar: Bool?
     private var windowUsesSideToolbar: Bool?
-    public init(size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
-                availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
-                interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
-                safeAreaInsets: UIEdgeInsets = .zero, divisionX: CGFloat? = nil) {
-        self.size = size; self.isRegularWidth = isRegularWidth; self.usesAccessibilityText = usesAccessibilityText
+    public init(
+        size: CGSize = .zero, isRegularWidth: Bool = false, usesAccessibilityText: Bool = false,
+        availableWidth: CGFloat? = nil, availableHeight: CGFloat? = nil,
+        interfaceIdiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom,
+        safeAreaInsets: UIEdgeInsets = .zero, divisionX: CGFloat? = nil
+    ) {
+        self.size = size
+        self.isRegularWidth = isRegularWidth
+        self.usesAccessibilityText = usesAccessibilityText
         self.availableWidth = availableWidth
         self.availableHeight = availableHeight
         self.interfaceIdiom = interfaceIdiom
@@ -25,20 +29,27 @@ public struct AppWindowLayout: Equatable {
         self.divisionX = divisionX
     }
     public var sidebarWidth: CGFloat {
-        hasLandscapeDivision ? max((divisionX ?? 0) - safeAreaInsets.left, 0)
+        hasLandscapeDivision
+            ? max((divisionX ?? 0) - safeAreaInsets.left, 0)
             : (availableHeight ?? size.height) * AppDesignSystem.Size.Layout.sidebarAspectRatio
     }
     public var isLandscapeWindow: Bool { size.width > size.height }
     public var hasLandscapeDivision: Bool { divisionX != nil && isLandscapeWindow }
-    public var hasHorizontalSystemInsets: Bool { safeAreaInsets.left > 0 || safeAreaInsets.right > 0 }
+    public var hasHorizontalSystemInsets: Bool {
+        safeAreaInsets.left > 0 || safeAreaInsets.right > 0
+    }
     public var contentTopInset: CGFloat {
-        hasHorizontalSystemInsets && safeAreaInsets.top == 0 ? AppDesignSystem.Spacing.section : AppDesignSystem.Spacing.none
+        hasHorizontalSystemInsets && safeAreaInsets.top == 0
+            ? AppDesignSystem.Spacing.section : AppDesignSystem.Spacing.none
     }
     public var isLandscape: Bool {
         isRegularWidth && isLandscapeWindow && !usesAccessibilityText
-            && (availableWidth ?? size.width) >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
+            && (availableWidth ?? size.width)
+                >= AppDesignSystem.Size.Layout.landscapeColumnsMinimumWidth
     }
-    public var gridColumns: [GridItem] { Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1) }
+    public var gridColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible()), count: isLandscape ? 2 : 1)
+    }
     public var singleColumn: AppWindowLayout {
         var value = self
         value.windowUsesTopTabBar = usesTopTabBar
@@ -46,17 +57,25 @@ public struct AppWindowLayout: Equatable {
         value.isRegularWidth = false
         return value
     }
-    public var usesExpandedNavigation: Bool { isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth }
+    public var usesExpandedNavigation: Bool {
+        isLandscape && size.width >= AppDesignSystem.Size.Layout.expandedNavigationMinimumWidth
+    }
     public var usesTopTabBar: Bool {
         if let windowUsesTopTabBar { return windowUsesTopTabBar }
-        if #available(iOS 18.0, *) { return isRegularWidth && usesOpaqueNavigation } else { return false }
+        if #available(iOS 18.0, *) {
+            return isRegularWidth && usesOpaqueNavigation
+        } else {
+            return false
+        }
     }
     public var usesBottomTabBar: Bool { !usesTopTabBar && !hasHorizontalSystemInsets }
     public var usesSideToolbar: Bool {
         if let windowUsesSideToolbar { return windowUsesSideToolbar }
-#if !targetEnvironment(macCatalyst)
-        if #available(iOS 27.1, *) { return hasHorizontalSystemInsets && !isLandscapeWindow && !isRegularWidth }
-#endif
+        #if !targetEnvironment(macCatalyst)
+        if #available(iOS 27.1, *) {
+            return hasHorizontalSystemInsets && !isLandscapeWindow && !isRegularWidth
+        }
+        #endif
         return false
     }
     public var usesOpaqueNavigation: Bool {
@@ -95,11 +114,16 @@ public struct AppPairedPages<First: View, Second: View>: View {
     private let second: Second
     @State private var hasShownFirst: Bool
     @State private var hasShownSecond: Bool
-    public init(showsFirst: Bool, pairsInLandscape: Bool = true,
-                @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second) {
-        self.showsFirst = showsFirst; self.first = first(); self.second = second()
+    public init(
+        showsFirst: Bool, pairsInLandscape: Bool = true,
+        @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second
+    ) {
+        self.showsFirst = showsFirst
+        self.first = first()
+        self.second = second()
         self.pairsInLandscape = pairsInLandscape
-        _hasShownFirst = State(initialValue: showsFirst); _hasShownSecond = State(initialValue: !showsFirst)
+        _hasShownFirst = State(initialValue: showsFirst)
+        _hasShownSecond = State(initialValue: !showsFirst)
     }
     public var body: some View {
         let isPaired = pairsInLandscape && layout.isLandscape
@@ -108,16 +132,24 @@ public struct AppPairedPages<First: View, Second: View>: View {
         HStack(spacing: AppDesignSystem.Spacing.none) {
             if hasShownFirst || firstVisible {
                 pane(first, visible: firstVisible)
-                    .frame(width: isPaired && layout.hasLandscapeDivision ? layout.sidebarWidth : nil)
+                    .frame(
+                        width: isPaired && layout.hasLandscapeDivision
+                            ? layout.sidebarWidth : nil
+                    )
                     .environment(\.appContentColumn, isPaired ? .leading : nil)
             }
             if isPaired { Divider() }
             if hasShownSecond || secondVisible {
-                pane(second, visible: secondVisible).environment(\.appContentColumn, isPaired ? .trailing : nil)
+                pane(second, visible: secondVisible).environment(
+                    \.appContentColumn, isPaired ? .trailing : nil)
             }
         }
-        .onChange(of: firstVisible, initial: true) { _, visible in if visible { hasShownFirst = true } }
-        .onChange(of: secondVisible, initial: true) { _, visible in if visible { hasShownSecond = true } }
+        .onChange(of: firstVisible, initial: true) { _, visible in
+            if visible { hasShownFirst = true }
+        }
+        .onChange(of: secondVisible, initial: true) { _, visible in
+            if visible { hasShownSecond = true }
+        }
     }
     private func pane(_ content: some View, visible: Bool) -> some View {
         content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
@@ -128,7 +160,9 @@ public struct AppPairedPages<First: View, Second: View>: View {
     }
 }
 
-public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, DefaultDetail: View>: View {
+public struct AppBrowserLayout<
+    Selection: Hashable, Master: View, Detail: View, DefaultDetail: View
+>: View {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.appBrowserHeader) private var header
     @Environment(\.appPageIsVisible) private var isVisible
@@ -137,18 +171,27 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
     private let master: Master
     private let detail: (Selection) -> Detail
     private let defaultDetail: DefaultDetail
-    public init(selection: Binding<Selection?>, title: String, symbol: String,
-                @ViewBuilder master: () -> Master, @ViewBuilder detail: @escaping (Selection) -> Detail)
-                where DefaultDetail == AppEmptyState {
-        self.init(selection: selection, master: master,
-            defaultDetail: { AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容") },
+    public init(
+        selection: Binding<Selection?>, title: String, symbol: String,
+        @ViewBuilder master: () -> Master, @ViewBuilder detail: @escaping (Selection) -> Detail
+    )
+    where DefaultDetail == AppEmptyState {
+        self.init(
+            selection: selection, master: master,
+            defaultDetail: {
+                AppEmptyState(title: title, systemImage: symbol, message: "从左侧列表选择内容")
+            },
             detail: detail)
     }
-    public init(selection: Binding<Selection?>, @ViewBuilder master: () -> Master,
-                @ViewBuilder defaultDetail: () -> DefaultDetail,
-                @ViewBuilder detail: @escaping (Selection) -> Detail) {
-        _selection = selection; self.defaultDetail = defaultDetail()
-        self.master = master(); self.detail = detail
+    public init(
+        selection: Binding<Selection?>, @ViewBuilder master: () -> Master,
+        @ViewBuilder defaultDetail: () -> DefaultDetail,
+        @ViewBuilder detail: @escaping (Selection) -> Detail
+    ) {
+        _selection = selection
+        self.defaultDetail = defaultDetail()
+        self.master = master()
+        self.detail = detail
     }
     public var body: some View {
         Group {
@@ -158,7 +201,10 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
                         .environment(\.appContentColumn, .leading)
                         .frame(width: layout.sidebarWidth)
                     Divider()
-                    NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
+                    NavigationStack(
+                        path: Binding(
+                            get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })
+                    ) {
                         defaultDetail
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(AppDesignSystem.Palette.Background.grouped)
@@ -166,26 +212,44 @@ public struct AppBrowserLayout<Selection: Hashable, Master: View, Detail: View, 
                             .toolbar(.visible, for: .navigationBar)
                             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                             .navigationDestination(for: Selection.self) { selected in
-                                detailContent(selected).appPaneBackButton(isPresented: true) { selection = nil }
+                                detailContent(selected).appPaneBackButton(isPresented: true) {
+                                    selection = nil
+                                }
                             }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
+                    .accessibilityElement(children: .contain).accessibilityIdentifier(
+                        "browser.detail"
+                    )
                     .environment(\.appContentColumn, .trailing)
-                    .padding(.top, layout.usesTopTabBar ? AppDesignSystem.Size.Control.touchTarget : AppDesignSystem.Spacing.none)
-                    .padding(.top, header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
+                    .padding(
+                        .top,
+                        layout.usesTopTabBar
+                            ? AppDesignSystem.Size.Control.touchTarget
+                            : AppDesignSystem.Spacing.none
+                    )
+                    .padding(
+                        .top,
+                        header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
                 }
             } else {
-                NavigationStack(path: Binding(get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })) {
+                NavigationStack(
+                    path: Binding(
+                        get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })
+                ) {
                     masterContent
                         .environment(\.appPageIsVisible, isVisible && selection == nil)
                         .navigationDestination(for: Selection.self) { selected in
                             detailContent(selected)
-                                .accessibilityElement(children: .contain).accessibilityIdentifier("browser.detail")
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("browser.detail")
                         }
                 }
-                .padding(.top, layout.usesTopTabBar && selection != nil
-                    ? AppDesignSystem.Size.Control.touchTarget : AppDesignSystem.Spacing.none)
+                .padding(
+                    .top,
+                    layout.usesTopTabBar && selection != nil
+                        ? AppDesignSystem.Size.Control.touchTarget
+                        : AppDesignSystem.Spacing.none)
             }
         }
         .padding(.top, header == nil ? layout.contentTopInset : AppDesignSystem.Spacing.none)
@@ -227,8 +291,12 @@ public struct AppBrowserListRow<Content: View>: View {
     private let isSelected: Bool
     private let action: () -> Void
     private let content: Content
-    public init(isSelected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content) {
-        self.isSelected = isSelected; self.action = action; self.content = content()
+    public init(
+        isSelected: Bool, action: @escaping () -> Void, @ViewBuilder content: () -> Content
+    ) {
+        self.isSelected = isSelected
+        self.action = action
+        self.content = content()
     }
     public var body: some View {
         Button(action: action) {
@@ -258,7 +326,8 @@ private struct AppWindowLayoutModifier: ViewModifier {
         var layout = measurement
         layout.isRegularWidth = horizontalSizeClass == .regular
         layout.usesAccessibilityText = dynamicTypeSize.isAccessibilitySize
-        return content
+        return
+            content
             .background(AppWindowSizeReader(onChange: { measurement = $0 }))
             .environment(\.appWindowLayout, layout)
     }
@@ -267,7 +336,10 @@ private struct AppWindowLayoutModifier: ViewModifier {
 private struct AppWindowSizeReader: UIViewRepresentable {
     let onChange: (AppWindowLayout) -> Void
     func makeUIView(context: Context) -> ProbeView { ProbeView(onChange: onChange) }
-    func updateUIView(_ view: ProbeView, context: Context) { view.onChange = onChange; view.measure() }
+    func updateUIView(_ view: ProbeView, context: Context) {
+        view.onChange = onChange
+        view.measure()
+    }
     final class ProbeView: UIView {
         var onChange: (AppWindowLayout) -> Void
         private var lastMeasurement: AppWindowLayout?
@@ -277,21 +349,36 @@ private struct AppWindowSizeReader: UIViewRepresentable {
             isUserInteractionEnabled = false
         }
         required init?(coder: NSCoder) { return nil }
-        override func didMoveToWindow() { super.didMoveToWindow(); measure() }
-        override func layoutSubviews() { super.layoutSubviews(); measure() }
-        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); measure() }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            measure()
+        }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            measure()
+        }
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            measure()
+        }
         func measure() {
             guard let window, bounds.width > 0 else { return }
             var divisionX: CGFloat?
-#if !targetEnvironment(macCatalyst)
+            #if !targetEnvironment(macCatalyst)
             if #available(iOS 27.1, *) {
-                divisionX = window.reservedRegions(kind: .division, options: .includeInactive)
-                    .first { $0.frame.height > $0.frame.width && $0.frame.midX > 0 && $0.frame.midX < window.bounds.width }?.frame.midX
+                divisionX =
+                    window.reservedRegions(kind: .division, options: .includeInactive)
+                    .first {
+                        $0.frame.height > $0.frame.width && $0.frame.midX > 0
+                            && $0.frame.midX < window.bounds.width
+                    }?.frame.midX
             }
-#endif
-            let value = AppWindowLayout(size: window.bounds.size, availableWidth: bounds.width,
+            #endif
+            let value = AppWindowLayout(
+                size: window.bounds.size, availableWidth: bounds.width,
                 availableHeight: window.safeAreaLayoutGuide.layoutFrame.height,
-                interfaceIdiom: window.traitCollection.userInterfaceIdiom, safeAreaInsets: window.safeAreaInsets, divisionX: divisionX)
+                interfaceIdiom: window.traitCollection.userInterfaceIdiom,
+                safeAreaInsets: window.safeAreaInsets, divisionX: divisionX)
             guard value != lastMeasurement else { return }
             lastMeasurement = value
             Task { @MainActor [weak self] in
@@ -311,14 +398,20 @@ extension View {
     public func appReadableContent(fillsAvailableWidth: Bool = false) -> some View {
         modifier(AppReadableContentModifier(fillsAvailableWidth: fillsAvailableWidth))
     }
-    public func appBrowserHeader<Header: View>(isPresented: Bool = true, @ViewBuilder content: () -> Header) -> some View {
+    public func appBrowserHeader<Header: View>(
+        isPresented: Bool = true, @ViewBuilder content: () -> Header
+    ) -> some View {
         environment(\.appBrowserHeader, isPresented ? AnyView(content()) : nil)
     }
     public func appNativeBarBackground(isPresented: Bool) -> some View {
-        toolbarBackground(isPresented ? AnyShapeStyle(AppDesignSystem.Palette.Background.grouped) : AnyShapeStyle(Material.bar),
-                          for: .tabBar, .navigationBar)
-            .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
-            .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
+        toolbarBackground(
+            isPresented
+                ? AnyShapeStyle(AppDesignSystem.Palette.Background.grouped)
+                : AnyShapeStyle(Material.bar),
+            for: .tabBar, .navigationBar
+        )
+        .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
+        .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
     }
 }
 
@@ -329,12 +422,15 @@ private struct AppPaneBackButtonModifier: ViewModifier {
         content.navigationBarBackButtonHidden(isPresented)
             .toolbar {
                 if isPresented {
-#if !targetEnvironment(macCatalyst)
-                    if #available(iOS 27.1, *) { backItem.axisBehavior(.horizontalOnly) }
-                    else { backItem }
-#else
+                    #if !targetEnvironment(macCatalyst)
+                    if #available(iOS 27.1, *) {
+                        backItem.axisBehavior(.horizontalOnly)
+                    } else {
+                        backItem
+                    }
+                    #else
                     backItem
-#endif
+                    #endif
                 }
             }
     }
@@ -350,8 +446,10 @@ private struct AppPaneBackButtonModifier: ViewModifier {
 private struct AppReadableContentModifier: ViewModifier {
     let fillsAvailableWidth: Bool
     func body(content: Content) -> some View {
-        content.frame(maxWidth: fillsAvailableWidth ? .infinity : AppDesignSystem.Size.Layout.readingWidth)
-            .frame(maxWidth: .infinity)
+        content.frame(
+            maxWidth: fillsAvailableWidth ? .infinity : AppDesignSystem.Size.Layout.readingWidth
+        )
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -466,7 +564,7 @@ public struct AppDetailCircleButton<Label: View>: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
-            .accessibilityIdentifier("ui.app-detail-circle-button.action")
+        .accessibilityIdentifier("ui.app-detail-circle-button.action")
     }
 }
 
@@ -502,7 +600,9 @@ public struct AppFloatingActionButton: View {
                     .badge(badgeText.map { Text($0) })
                     .accessibilityLabel(accessibilityLabel)
                     .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                    .accessibilityIdentifier(accessibilityIdentifier ?? "ui.app-floating-action-button.toolbar-action")
+                    .accessibilityIdentifier(
+                        accessibilityIdentifier
+                            ?? "ui.app-floating-action-button.toolbar-action")
             } else {
                 Button(action: performAction) {
                     ZStack(alignment: .topTrailing) {
@@ -517,15 +617,20 @@ public struct AppFloatingActionButton: View {
                                     minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
                                     minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
                                 )
-                                .background(AppDesignSystem.Palette.Status.danger, in: Capsule())
-                                .offset(x: AppDesignSystem.Spacing.tiny, y: -AppDesignSystem.Spacing.tiny)
+                                .background(
+                                    AppDesignSystem.Palette.Status.danger, in: Capsule()
+                                )
+                                .offset(
+                                    x: AppDesignSystem.Spacing.tiny,
+                                    y: -AppDesignSystem.Spacing.tiny)
                         }
                     }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(accessibilityLabel)
                 .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                .accessibilityIdentifier(accessibilityIdentifier ?? "ui.app-floating-action-button.action")
+                .accessibilityIdentifier(
+                    accessibilityIdentifier ?? "ui.app-floating-action-button.action")
             }
         }
         .appImpactFeedback(trigger: feedbackToken)
@@ -592,42 +697,59 @@ public struct AppFloatingActionStack<Content: View>: View {
     }
 
     public var body: some View {
-        let layout = axis == .horizontal
+        let layout =
+            axis == .horizontal
             ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.regular))
-            : AnyLayout(VStackLayout(alignment: .trailing, spacing: AppDesignSystem.Spacing.regular))
+            : AnyLayout(
+                VStackLayout(alignment: .trailing, spacing: AppDesignSystem.Spacing.regular))
         layout {
             content
         }
         .padding(.trailing, AppDesignSystem.Spacing.regular)
-        .padding(.bottom, windowLayout.isLandscapeWindow ? AppDesignSystem.Spacing.none
-            : AppDesignSystem.Size.Layout.floatingActionBottomInset)
+        .padding(
+            .bottom,
+            windowLayout.isLandscapeWindow
+                ? AppDesignSystem.Spacing.none
+                : AppDesignSystem.Size.Layout.floatingActionBottomInset)
     }
 }
 
 extension View {
-    public func appBrowserActions<Actions: View>(floatingBottomInset: CGFloat = 0,
-        @ViewBuilder actions: () -> Actions) -> some View {
+    public func appBrowserActions<Actions: View>(
+        floatingBottomInset: CGFloat = 0,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
         appBrowserFloatingActions(bottomInset: floatingBottomInset, actions: actions)
             .appSideToolbarActions(actions: actions)
     }
 
-    public func appBrowserFloatingActions<Actions: View>(bottomInset: CGFloat = 0,
-        @ViewBuilder actions: () -> Actions) -> some View {
-        modifier(AppBrowserFloatingActionsModifier(actions: actions(), bottomInset: bottomInset))
+    public func appBrowserFloatingActions<Actions: View>(
+        bottomInset: CGFloat = 0,
+        @ViewBuilder actions: () -> Actions
+    ) -> some View {
+        modifier(
+            AppBrowserFloatingActionsModifier(actions: actions(), bottomInset: bottomInset))
     }
 
-    public func appSideToolbarActions<Actions: View>(@ViewBuilder actions: () -> Actions) -> some View {
+    public func appSideToolbarActions<Actions: View>(@ViewBuilder actions: () -> Actions)
+        -> some View
+    {
         modifier(AppSideToolbarActionsModifier(actions: actions()))
     }
 
-    public func appBrowserNavigationBar() -> some View { modifier(AppBrowserNavigationBarModifier()) }
+    public func appBrowserNavigationBar() -> some View {
+        modifier(AppBrowserNavigationBarModifier())
+    }
 }
 
 private struct AppBrowserNavigationBarModifier: ViewModifier {
     @Environment(\.appWindowLayout) private var layout
     func body(content: Content) -> some View {
         content.background(AppDesignSystem.Palette.Background.grouped)
-            .toolbar(layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden, for: .navigationBar)
+            .toolbar(
+                layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden,
+                for: .navigationBar
+            )
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
     }
 }
@@ -652,14 +774,14 @@ private struct AppSideToolbarActionsModifier<Actions: View>: ViewModifier {
     let actions: Actions
     func body(content: Content) -> some View {
         content.toolbar {
-#if !targetEnvironment(macCatalyst)
+            #if !targetEnvironment(macCatalyst)
             if #available(iOS 27.1, *), layout.usesSideToolbar && isVisible {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     actions.environment(\.appUsesNativeToolbarActions, true)
                 }
                 .axisBehavior(.verticalPreferred)
             }
-#endif
+            #endif
         }
     }
 }
@@ -670,9 +792,10 @@ private struct AppInteractiveLabeledContentStyle: LabeledContentStyle {
         LabeledContent {
             configuration.content.foregroundStyle(.tint)
         } label: {
-            configuration.label.foregroundStyle(isDestructive
-                ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
-                : AnyShapeStyle(AppDesignSystem.Foreground.primary))
+            configuration.label.foregroundStyle(
+                isDestructive
+                    ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
+                    : AnyShapeStyle(AppDesignSystem.Foreground.primary))
         }
         .labeledContentStyle(.automatic)
     }
@@ -692,16 +815,21 @@ private struct AppSelectableRowBackground: View {
 /// 统一所有分组列表的系统样式、section 间距和横向内容边距。
 extension View {
     /// 列表标题沿系统主文字色，右侧值沿页面主题，删除动作沿警示色。
-    @ViewBuilder public func appInteractiveListRow(isDestructive: Bool = false, isSelected: Bool? = nil) -> some View {
-        let row = foregroundStyle(isDestructive
-            ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
-            : AnyShapeStyle(AppDesignSystem.Foreground.primary))
-            .labeledContentStyle(AppInteractiveLabeledContentStyle(isDestructive: isDestructive))
+    @ViewBuilder public func appInteractiveListRow(
+        isDestructive: Bool = false, isSelected: Bool? = nil
+    ) -> some View {
+        let row = foregroundStyle(
+            isDestructive
+                ? AnyShapeStyle(AppDesignSystem.Palette.Status.danger)
+                : AnyShapeStyle(AppDesignSystem.Foreground.primary)
+        )
+        .labeledContentStyle(AppInteractiveLabeledContentStyle(isDestructive: isDestructive))
         if let isSelected {
             row.listRowBackground(AppSelectableRowBackground(isSelected: isSelected))
                 .focusEffectDisabled()
+        } else {
+            row.listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
         }
-        else { row.listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped) }
     }
 
     public func appGroupedListStyle(insetViewport: Bool = false) -> some View {
@@ -716,12 +844,19 @@ private struct AppGroupedListStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         let inset = insetViewport || (layout.hasHorizontalSystemInsets && column != .leading)
         content.listStyle(.insetGrouped)
-            .environment(\.defaultMinListRowHeight, AppDesignSystem.Size.Control.refreshStatusRowHeight)
+            .environment(
+                \.defaultMinListRowHeight, AppDesignSystem.Size.Control.refreshStatusRowHeight
+            )
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
-            .contentMargins(.horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,
-                            for: .scrollContent)
-            .padding(.horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.none)
+            .contentMargins(
+                .horizontal,
+                inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular,
+                for: .scrollContent
+            )
+            .padding(
+                .horizontal, inset ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.none
+            )
     }
 }
 
@@ -733,12 +868,13 @@ extension View {
 
     /// 在实际列表行上设置内容边距。
     public func appListRowInsets() -> some View {
-        listRowInsets(EdgeInsets(
-            top: AppDesignSystem.Spacing.tiny,
-            leading: AppDesignSystem.Spacing.content,
-            bottom: AppDesignSystem.Spacing.tiny,
-            trailing: AppDesignSystem.Spacing.content
-        ))
+        listRowInsets(
+            EdgeInsets(
+                top: AppDesignSystem.Spacing.tiny,
+                leading: AppDesignSystem.Spacing.content,
+                bottom: AppDesignSystem.Spacing.tiny,
+                trailing: AppDesignSystem.Spacing.content
+            ))
     }
 
     public func appCommentSectionStyle() -> some View {
@@ -762,7 +898,10 @@ private struct AppFeedCardStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.padding(AppDesignSystem.Spacing.content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppSelectableRowBackground(isSelected: isSelected, color: AppDesignSystem.Palette.Background.system))
+            .background(
+                AppSelectableRowBackground(
+                    isSelected: isSelected, color: AppDesignSystem.Palette.Background.system)
+            )
             .contentShape(Rectangle())
     }
 }

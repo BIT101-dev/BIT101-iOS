@@ -27,10 +27,11 @@ public nonisolated enum ScheduleCourseEditor {
 
         for rule in rules {
             let matchingCourses = incomingCourses.filter {
-                scheduleCourseSourceIdentity($0) == rule.sourceIdentity
+                courseSourceIdentity($0) == rule.sourceIdentity
             }
-            let sourceMatches = rule.isLocalAddition
-                || scheduleCourseSourceRecordsEqual(matchingCourses, rule.sourceCourses)
+            let sourceMatches =
+                rule.isLocalAddition
+                || courseSourcesEqual(matchingCourses, rule.sourceCourses)
             guard sourceMatches else {
                 invalidRules.append(rule)
                 continue
@@ -39,7 +40,7 @@ public nonisolated enum ScheduleCourseEditor {
             validRules.append(rule)
             if !rule.isLocalAddition {
                 projectedCourses.removeAll {
-                    scheduleCourseSourceIdentity($0) == rule.sourceIdentity
+                    courseSourceIdentity($0) == rule.sourceIdentity
                 }
             }
             projectedCourses.append(contentsOf: rule.replacementCourses)
@@ -60,12 +61,15 @@ public nonisolated enum ScheduleCourseEditor {
     ) -> [ScheduleCourseRule] {
         var updatedRules = rules
         let previousIDs = Set(previousCourses.map(\.id))
-        let previousSourceIdentities = Set(previousCourses.map(scheduleCourseSourceIdentity))
-        let previousBySource = Dictionary(grouping: previousCourses, by: scheduleCourseSourceIdentity)
-        let baselineBySource = Dictionary(grouping: baselineCourses, by: scheduleCourseSourceIdentity)
-        let currentIndicesBySource = Dictionary(grouping: currentCourses.indices, by: { scheduleCourseSourceIdentity(currentCourses[$0]) })
-        let currentIndicesByID = Dictionary(grouping: currentCourses.indices, by: { currentCourses[$0].id })
-        let currentIndicesByNumber = Dictionary(grouping: currentCourses.indices, by: { currentCourses[$0].number })
+        let previousSourceIdentities = Set(previousCourses.map(courseSourceIdentity))
+        let previousBySource = Dictionary(grouping: previousCourses, by: courseSourceIdentity)
+        let baselineBySource = Dictionary(grouping: baselineCourses, by: courseSourceIdentity)
+        let currentIndicesBySource = Dictionary(
+            grouping: currentCourses.indices, by: { courseSourceIdentity(currentCourses[$0]) })
+        let currentIndicesByID = Dictionary(
+            grouping: currentCourses.indices, by: { currentCourses[$0].id })
+        let currentIndicesByNumber = Dictionary(
+            grouping: currentCourses.indices, by: { currentCourses[$0].number })
         let previousNumbers = Set(previousCourses.map(\.number).filter { !$0.isEmpty })
 
         for sourceIdentity in previousSourceIdentities.sorted() {
@@ -73,10 +77,14 @@ public nonisolated enum ScheduleCourseEditor {
             let previousIDsForSource = Set(previous.map(\.id))
             let sourceNumbers = Set(previous.map(\.number).filter { !$0.isEmpty })
             var currentIndices = Set(currentIndicesBySource[sourceIdentity] ?? [])
-            for id in previousIDsForSource { currentIndices.formUnion(currentIndicesByID[id] ?? []) }
-            for number in sourceNumbers { currentIndices.formUnion(currentIndicesByNumber[number] ?? []) }
+            for id in previousIDsForSource {
+                currentIndices.formUnion(currentIndicesByID[id] ?? [])
+            }
+            for number in sourceNumbers {
+                currentIndices.formUnion(currentIndicesByNumber[number] ?? [])
+            }
             let current = currentIndices.sorted().map { currentCourses[$0] }
-            guard !scheduleCourseDisplayRecordsEqual(previous, current) else { continue }
+            guard !courseDisplaysEqual(previous, current) else { continue }
 
             let changedIDs = Set(previous.map(\.id) + current.map(\.id))
             let existingIndex = updatedRules.lastIndex { rule in
@@ -85,7 +93,8 @@ public nonisolated enum ScheduleCourseEditor {
             }
             let existingRule = existingIndex.map { updatedRules[$0] }
             let ruleIdentity = existingRule?.sourceIdentity ?? sourceIdentity
-            let sourceCourses = existingRule?.sourceCourses
+            let sourceCourses =
+                existingRule?.sourceCourses
                 ?? baselineBySource[sourceIdentity] ?? []
             let ruleID = existingRule?.id ?? UUID().uuidString
 
@@ -101,8 +110,9 @@ public nonisolated enum ScheduleCourseEditor {
         }
 
         for course in currentCourses where !previousIDs.contains(course.id) {
-            let sourceIdentity = scheduleCourseSourceIdentity(course)
-            let relatedToPreviousCourse = previousSourceIdentities.contains(sourceIdentity)
+            let sourceIdentity = courseSourceIdentity(course)
+            let relatedToPreviousCourse =
+                previousSourceIdentities.contains(sourceIdentity)
                 || (!course.number.isEmpty && previousNumbers.contains(course.number))
             guard !relatedToPreviousCourse else { continue }
             let existingRule = updatedRules.last {
@@ -123,19 +133,20 @@ public nonisolated enum ScheduleCourseEditor {
     }
 
     /// 把编辑结果应用到显示缓存，同时保留学校课程快照供成绩和后续同步使用。
-    public static func updateCacheForManualCourseChange(
+    public static func updateCourseEditCache(
         in cache: inout ScheduleCache,
         previousCourses: [CourseRecord],
         currentCourses: [CourseRecord]
     ) {
         let term = cache.currentTerm
         let baselineCourses = cache.courseData.schoolCourses(for: term)
-        cache.courseData.setRules(updatingRules(
-            existing: cache.manualCourseRulesByTerm[term] ?? [],
-            baselineCourses: baselineCourses,
-            previousCourses: previousCourses,
-            currentCourses: currentCourses
-        ), for: term)
+        cache.courseData.setRules(
+            updatingRules(
+                existing: cache.manualCourseRulesByTerm[term] ?? [],
+                baselineCourses: baselineCourses,
+                previousCourses: previousCourses,
+                currentCourses: currentCourses
+            ), for: term)
     }
 
     public struct ResolvedDraft: Equatable {
@@ -149,7 +160,8 @@ public nonisolated enum ScheduleCourseEditor {
     }
 
     public static func parseWeeks(_ text: String) throws -> [Int] {
-        let segments = text
+        let segments =
+            text
             .replacingOccurrences(of: "，", with: ",")
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -164,7 +176,8 @@ public nonisolated enum ScheduleCourseEditor {
             let value = String(segment)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let firstRangeSeparatorIndex: String.Index? = {
-                let searchStart = value.first == "-"
+                let searchStart =
+                    value.first == "-"
                     ? value.index(after: value.startIndex)
                     : value.startIndex
                 return value[searchStart...].firstIndex {
@@ -173,7 +186,8 @@ public nonisolated enum ScheduleCourseEditor {
             }()
 
             if let separatorIndex = firstRangeSeparatorIndex {
-                let lowerText = value[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                let lowerText = value[..<separatorIndex].trimmingCharacters(
+                    in: .whitespacesAndNewlines)
                 let upperText = value[value.index(after: separatorIndex)...]
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard
@@ -185,7 +199,7 @@ public nonisolated enum ScheduleCourseEditor {
                 else {
                     throw invalidWeeksError
                 }
-                weeks.formUnion((lower ... upper).filter { $0 != 0 })
+                weeks.formUnion((lower...upper).filter { $0 != 0 })
                 continue
             }
 
@@ -197,41 +211,48 @@ public nonisolated enum ScheduleCourseEditor {
         return weeks.sorted()
     }
 
-
-    public static func resolve(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws -> ResolvedDraft {
+    public static func resolve(_ draft: CourseDraft, fixedWeeks: [Int]? = nil) throws
+        -> ResolvedDraft
+    {
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw validationError("请输入课程名称。") }
         let teacher = draft.teacher.trimmingCharacters(in: .whitespacesAndNewlines)
         let classroom = resolvedClassroom(from: draft)
         for (label, value) in [("课程名称", title), ("教师", teacher), ("教室", classroom)] {
             guard value.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes else {
-                throw validationError("\(label)长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。")
+                throw validationError(
+                    "\(label)长度上限为 \(ScheduleCourseConstraints.maximumFieldBytes) UTF-8 字节。")
             }
         }
-        guard (1 ... 7).contains(draft.weekday) else { throw validationError("星期设置不合法。") }
+        guard (1...7).contains(draft.weekday) else { throw validationError("星期设置不合法。") }
 
         let sectionIDs: [Int]
         if let selectedSections = draft.selectedSections {
             sectionIDs = Array(Set(selectedSections)).sorted()
         } else {
             guard draft.startSection > 0, draft.endSection >= draft.startSection,
-                  draft.endSection <= ScheduleCourseConstraints.maximumSection else {
+                draft.endSection <= ScheduleCourseConstraints.maximumSection
+            else {
                 throw validationError("至少选择一节课。")
             }
-            sectionIDs = Array(draft.startSection ... draft.endSection)
+            sectionIDs = Array(draft.startSection...draft.endSection)
         }
-        guard !sectionIDs.isEmpty, sectionIDs.allSatisfy({ (1...ScheduleCourseConstraints.maximumSection).contains($0) }) else {
+        guard !sectionIDs.isEmpty,
+            sectionIDs.allSatisfy({ (1...ScheduleCourseConstraints.maximumSection).contains($0) })
+        else {
             throw validationError("至少选择一节课。")
         }
         guard let firstSection = sectionIDs.first,
-              let lastSection = sectionIDs.last,
-              sectionIDs == Array(firstSection ... lastSection) else {
+            let lastSection = sectionIDs.last,
+            sectionIDs == Array(firstSection...lastSection)
+        else {
             throw validationError("节次必须连续。")
         }
 
         let weeks: [Int]
         if let fixedWeeks {
-            guard !fixedWeeks.isEmpty, fixedWeeks.allSatisfy(ScheduleCourseConstraints.isValidWeek) else {
+            guard !fixedWeeks.isEmpty, fixedWeeks.allSatisfy(ScheduleCourseConstraints.isValidWeek)
+            else {
                 throw invalidWeeksError
             }
             weeks = Array(Set(fixedWeeks)).sorted()
@@ -270,25 +291,27 @@ public nonisolated enum ScheduleCourseEditor {
         id: String = UUID().uuidString
     ) throws -> [CourseRecord] {
         let resolved = try resolve(draft)
-        return courses + [CourseRecord(
-            id: id,
-            term: term,
-            name: resolved.title,
-            teacher: resolved.teacher,
-            classroom: resolved.classroom,
-            description: "",
-            weeks: resolved.weeks,
-            weekday: resolved.weekday,
-            startSection: resolved.startSection,
-            endSection: resolved.endSection,
-            campus: "",
-            number: "",
-            credit: 0,
-            hour: 0,
-            type: "",
-            category: "",
-            department: ""
-        )]
+        return courses + [
+            CourseRecord(
+                id: id,
+                term: term,
+                name: resolved.title,
+                teacher: resolved.teacher,
+                classroom: resolved.classroom,
+                description: "",
+                weeks: resolved.weeks,
+                weekday: resolved.weekday,
+                startSection: resolved.startSection,
+                endSection: resolved.endSection,
+                campus: "",
+                number: "",
+                credit: 0,
+                hour: 0,
+                type: "",
+                category: "",
+                department: ""
+            )
+        ]
     }
 
     public static func updatingArrangements(
@@ -300,10 +323,10 @@ public nonisolated enum ScheduleCourseEditor {
         for arrangement in arrangements {
             guard let anchor = courses.first(where: { $0.id == arrangement.id }) else { continue }
             let resolved = try resolve(arrangement.draft)
-            identities.insert(scheduleCourseArrangementIdentity(anchor))
+            identities.insert(arrangementIdentity(anchor))
             replacements.append(applying(resolved, to: anchor))
         }
-        return courses.filter { !identities.contains(scheduleCourseArrangementIdentity($0)) } + replacements
+        return courses.filter { !identities.contains(arrangementIdentity($0)) } + replacements
     }
 
     public static func updatingOccurrence(
@@ -334,12 +357,14 @@ public nonisolated enum ScheduleCourseEditor {
         let original = courses[index]
         let selectedWeeks = Array(Set(weeks)).sorted()
         guard !selectedWeeks.isEmpty,
-              selectedWeeks.allSatisfy({ original.weeks.contains($0) }) else {
+            selectedWeeks.allSatisfy({ original.weeks.contains($0) })
+        else {
             throw validationError("请选择原课程包含的周次。")
         }
         let resolved = try resolve(draft, fixedWeeks: selectedWeeks)
         let remainingWeeks = original.weeks.filter { !selectedWeeks.contains($0) }
-        let adjustedCourse = applying(resolved, to: original, id: remainingWeeks.isEmpty ? original.id : adjustedID)
+        let adjustedCourse = applying(
+            resolved, to: original, id: remainingWeeks.isEmpty ? original.id : adjustedID)
 
         if remainingWeeks.isEmpty {
             courses[index] = adjustedCourse
@@ -394,17 +419,20 @@ public nonisolated enum ScheduleCourseEditor {
         toWeekday: Int,
         makeID: () -> String = { UUID().uuidString }
     ) throws -> [CourseRecord] {
-        guard ScheduleCourseConstraints.isValidWeek(fromWeek), ScheduleCourseConstraints.isValidWeek(toWeek),
-              (1...7).contains(fromWeekday), (1...7).contains(toWeekday) else { throw invalidWeeksError }
+        guard ScheduleCourseConstraints.isValidWeek(fromWeek),
+            ScheduleCourseConstraints.isValidWeek(toWeek),
+            (1...7).contains(fromWeekday), (1...7).contains(toWeekday)
+        else { throw invalidWeeksError }
         guard fromWeek != toWeek || fromWeekday != toWeekday else { return courses }
         let sourceCourses = courses.filter {
             $0.weekday == fromWeekday && $0.weeks.contains(fromWeek)
         }
         var result = removingOccurrences(from: courses, week: fromWeek, weekday: fromWeekday)
         result = removingOccurrences(from: result, week: toWeek, weekday: toWeekday)
-        result.append(contentsOf: sourceCourses.map {
-            copying($0, id: makeID(), weeks: [toWeek], weekday: toWeekday)
-        })
+        result.append(
+            contentsOf: sourceCourses.map {
+                copying($0, id: makeID(), weeks: [toWeek], weekday: toWeekday)
+            })
         return result
     }
 
@@ -446,7 +474,8 @@ public nonisolated enum ScheduleCourseEditor {
                 guard candidate.weekday == other.weekday else { continue }
                 guard !Set(candidate.weeks).isDisjoint(with: other.weeks) else { continue }
                 guard candidate.startSection <= other.endSection,
-                      other.startSection <= candidate.endSection else { continue }
+                    other.startSection <= candidate.endSection
+                else { continue }
                 return (candidate, other)
             }
         }
@@ -455,8 +484,14 @@ public nonisolated enum ScheduleCourseEditor {
 
     private static func conflictMessage(for conflict: (CourseRecord, CourseRecord)) -> String {
         let (candidate, other) = conflict
-        let weeks = ScheduleWeekCodec.formatWeeks(Array(Set(candidate.weeks).intersection(other.weeks)))
-        return "\(candidate.name)与\(other.name)在第\(weeks)周周\(weekdayText(candidate.weekday))第\(max(candidate.startSection, other.startSection))-\(min(candidate.endSection, other.endSection))节发生冲突。"
+        let weeks = ScheduleWeekCodec.formatWeeks(
+            Array(Set(candidate.weeks).intersection(other.weeks)))
+        return
+            """
+            \(candidate.name)与\(other.name)在第\(weeks)周周\(weekdayText(candidate.weekday))第\
+            \(max(candidate.startSection, other.startSection))-\
+            \(min(candidate.endSection, other.endSection))节发生冲突。
+            """
     }
 
     private static func weekdayText(_ weekday: Int) -> String {

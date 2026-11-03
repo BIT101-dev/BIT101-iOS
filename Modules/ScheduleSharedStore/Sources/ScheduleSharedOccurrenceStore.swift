@@ -1,9 +1,9 @@
 import Foundation
 import ScheduleContracts
 
-public extension ScheduleOccurrenceResolver {
+extension ScheduleOccurrenceResolver {
     /// 文件读取、解码和学期展开在后台执行，取消由所属刷新任务传递。
-    nonisolated static func loadResolvedSnapshotAsync(
+    public nonisolated static func loadResolvedSnapshotAsync(
         store: ScheduleExternalSnapshotStore,
         now: Date = Date(),
         limit: Int? = nil
@@ -13,38 +13,47 @@ public extension ScheduleOccurrenceResolver {
         }
         return await withTaskCancellationHandler {
             await operation.value
-        } onCancel: { operation.cancel() }
+        } onCancel: {
+            operation.cancel()
+        }
     }
 
     /// 直接从共享仓库读取并解析。
-    nonisolated static func loadResolvedSnapshot(
+    public nonisolated static func loadResolvedSnapshot(
         store: ScheduleExternalSnapshotStore,
         now: Date = Date(),
         currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
         limit: Int? = nil
     ) -> ScheduleExternalResolvedSnapshot {
         do {
-            return resolvedSnapshot(from: try store.read(), now: now,
+            return resolvedSnapshot(
+                from: try store.read(), now: now,
                 currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
         } catch {
             return readFailure(error)
         }
     }
 
-    nonisolated static func loadResolvedTimeline(
+    public nonisolated static func loadResolvedTimeline(
         store: ScheduleExternalSnapshotStore, now: Date = Date(), includeDisplayUntilDates: Bool,
-        currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration, limit: Int? = nil
+        currentCourseDisplayDuration: TimeInterval = defaultCurrentCourseDisplayDuration,
+        limit: Int? = nil
     ) -> [ScheduleExternalTimelineEntry] {
         do {
-            return resolvedTimeline(from: try store.read(), now: now, includeDisplayUntilDates: includeDisplayUntilDates,
+            return resolvedTimeline(
+                from: try store.read(), now: now,
+                includeDisplayUntilDates: includeDisplayUntilDates,
                 currentCourseDisplayDuration: currentCourseDisplayDuration, limit: limit)
         } catch {
             return [ScheduleExternalTimelineEntry(date: now, resolved: readFailure(error))]
         }
     }
 
-    private nonisolated static func readFailure(_ error: Error) -> ScheduleExternalResolvedSnapshot {
-        ScheduleExternalResolvedSnapshot(snapshot: nil, upcomingOccurrences: [],
-            contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot ? .invalid : .unavailable)
+    private nonisolated static func readFailure(_ error: Error) -> ScheduleExternalResolvedSnapshot
+    {
+        ScheduleExternalResolvedSnapshot(
+            snapshot: nil, upcomingOccurrences: [],
+            contentState: error as? ScheduleExternalSnapshotStoreError == .invalidSnapshot
+                ? .invalid : .unavailable)
     }
 }

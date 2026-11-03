@@ -29,26 +29,35 @@ enum AppDeepLinkRoute: Equatable {
         guard let routeHead = routeComponents.first?.lowercased() else { return nil }
 
         switch routeHead {
-        case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "courses":
+        case "schedule"
+        where routeComponents.count == 2 && routeComponents[1].lowercased() == "courses":
             self = .scheduleCourses
-        case "schedule" where routeComponents.count == 2 && routeComponents[1].lowercased() == "ddl":
+        case "schedule"
+        where routeComponents.count == 2 && routeComponents[1].lowercased() == "ddl":
             self = .scheduleDDL
         case "paper":
-            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1])
+            else { return nil }
             self = .paper(id)
         case "gallery":
-            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1])
+            else { return nil }
             self = .gallery(id)
         case "course":
-            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1]) else { return nil }
+            guard routeComponents.count == 2, let id = Self.positiveID(from: routeComponents[1])
+            else { return nil }
             self = .course(id)
         case "calendar-course":
             guard routeComponents.count >= 2,
-                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  let term = components.queryItems?.first(where: { $0.name == "term" })?.value, !term.isEmpty,
-                  let account = components.queryItems?.first(where: { $0.name == "account" })?.value, !account.isEmpty
+                let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                let term = components.queryItems?.first(where: { $0.name == "term" })?.value,
+                !term.isEmpty,
+                let account = components.queryItems?.first(where: { $0.name == "account" })?.value,
+                !account.isEmpty
             else { return nil }
-            self = .calendarEvent(markerID: routeComponents.dropFirst().joined(separator: "/"), term: term, account: account)
+            self = .calendarEvent(
+                markerID: routeComponents.dropFirst().joined(separator: "/"), term: term,
+                account: account)
         default:
             return nil
         }

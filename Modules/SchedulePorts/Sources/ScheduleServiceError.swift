@@ -27,7 +27,8 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
         case .teachingCenterSessionExpired: return .sessionExpired
         case .authenticationFailed(let message), .challengeInvalid(let message):
             return SchoolServiceFailure.authenticationResponse(message)
-        case .schoolResponse(let message), .schoolSMSUnavailable(let message), .schoolSMSCodeInvalid(let message):
+        case .schoolResponse(let message), .schoolSMSUnavailable(let message),
+            .schoolSMSCodeInvalid(let message):
             return SchoolServiceFailure.schoolResponse(message)
         default: return nil
         }
@@ -36,14 +37,17 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
     /// 页面文案与原始解析原因共同进入标准 NSError 链路。
     public func caused(by error: any Error) -> NSError {
         let failure = self as NSError
-        return NSError(domain: failure.domain, code: failure.code, userInfo: failure.userInfo.merging([
-            NSUnderlyingErrorKey: error, NSLocalizedDescriptionKey: failure.localizedDescription,
-            NSDebugDescriptionErrorKey: String(describing: error)
-        ]) { _, value in value })
+        return NSError(
+            domain: failure.domain, code: failure.code,
+            userInfo: failure.userInfo.merging([
+                NSUnderlyingErrorKey: error,
+                NSLocalizedDescriptionKey: failure.localizedDescription,
+                NSDebugDescriptionErrorKey: String(describing: error),
+            ]) { _, value in value })
     }
 
     public var isUnpublishedCourseSchedule: Bool {
-        guard case let .schoolResponse(message) = self else { return false }
+        guard case .schoolResponse(let message) = self else { return false }
         return message.contains("课表未发布") || message.contains("课表尚未发布")
     }
 
@@ -53,7 +57,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
         switch self {
         case .schoolTransportFailure:
             return true
-        case let .challengeInvalid(message), let .authenticationFailed(message):
+        case .challengeInvalid(let message), .authenticationFailed(let message):
             return Self.looksLikeTransportFailure(message)
         default:
             return false
@@ -82,19 +86,19 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
             return "当前登录状态无效，请重新登录后再同步日程。"
         case .secondFactorRequired:
             return "需要完成学校验证码验证才能继续访问学校教务服务。"
-        case let .challengeInvalid(message):
+        case .challengeInvalid(let message):
             return message
         case .teachingCenterSessionExpired:
             return "学校教务服务暂时无法恢复会话，请稍后重试。"
-        case let .authenticationFailed(message):
+        case .authenticationFailed(let message):
             return message
         case .schoolTransportFailure:
             return schoolTransportFailureMessage
         case .schoolSecondFactorRequired:
             return "学校仍要求短信验证，请在 App 中重试当前操作，并完成弹出的学校验证。"
-        case let .schoolSMSCodeInvalid(message):
+        case .schoolSMSCodeInvalid(let message):
             return message
-        case let .schoolSMSUnavailable(message):
+        case .schoolSMSUnavailable(let message):
             return message
         case .invalidResponse:
             return "服务器返回了无法识别的数据。"
@@ -106,7 +110,7 @@ public nonisolated enum ScheduleServiceError: LocalizedError, SchoolServiceFailu
             return "乐学日历数据解析失败。"
         case .eclassAuthenticationFailed:
             return "课程中心认证失败，请重新刷新日程。"
-        case let .schoolResponse(message):
+        case .schoolResponse(let message):
             return message
         }
     }

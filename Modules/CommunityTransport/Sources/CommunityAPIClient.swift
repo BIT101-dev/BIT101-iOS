@@ -15,8 +15,10 @@ public struct CommunityCreateCommentRequest: Encodable {
     public let rate: Int?
     public let imageMids: [String]
 
-    public init(obj: String, text: String, replyObj: String?, replyUid: Int?, anonymous: Bool?,
-                rate: Int? = nil, imageMids: [String]) {
+    public init(
+        obj: String, text: String, replyObj: String?, replyUid: Int?, anonymous: Bool?,
+        rate: Int? = nil, imageMids: [String]
+    ) {
         self.obj = obj
         self.text = text
         self.replyObj = replyObj
@@ -55,7 +57,12 @@ public struct CommunityUpdateOutcomeUnknown: LocalizedError, CustomNSError {
     public let underlying: any Error
     public init(underlying: any Error) { self.underlying = underlying }
     public var errorDescription: String? { "更新请求已发出，保存结果待确认。请刷新内容核对结果后再操作。" }
-    public var errorUserInfo: [String: Any] { [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "保存结果待确认。"] }
+    public var errorUserInfo: [String: Any] {
+        [
+            NSUnderlyingErrorKey: underlying,
+            NSLocalizedDescriptionKey: errorDescription ?? "保存结果待确认。",
+        ]
+    }
 }
 
 public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
@@ -68,7 +75,10 @@ public struct CommunityCreateOutcomeUnknown: LocalizedError, CustomNSError {
         Self.reviewMessage
     }
     public var errorUserInfo: [String: Any] {
-        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "发布结果待确认。"]
+        [
+            NSUnderlyingErrorKey: underlying,
+            NSLocalizedDescriptionKey: errorDescription ?? "发布结果待确认。",
+        ]
     }
 }
 
@@ -102,9 +112,13 @@ public nonisolated struct CommunityAPIResponse<Value: Sendable>: Sendable {
     public let isAuthenticated: Bool
     private let transportResponse: HTTPResponse
     init(value: Value, isAuthenticated: Bool, transportResponse: HTTPResponse) {
-        self.value = value; self.isAuthenticated = isAuthenticated; self.transportResponse = transportResponse
+        self.value = value
+        self.isAuthenticated = isAuthenticated
+        self.transportResponse = transportResponse
     }
-    public func reportValidationFailure(_ error: any Error) async { await transportResponse.reportValidationFailure(error) }
+    public func reportValidationFailure(_ error: any Error) async {
+        await transportResponse.reportValidationFailure(error)
+    }
 }
 
 /// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
@@ -144,9 +158,11 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         mutation: CommunityMutationKind? = nil,
         validate: (@Sendable (Response) throws -> Void)? = nil
     ) async throws -> Response {
-        let result: CommunityAPIResponse<Response> = try await response(path: path, pathComponent: pathComponent,
+        let result: CommunityAPIResponse<Response> = try await response(
+            path: path, pathComponent: pathComponent,
             queryItems: queryItems, method: method, body: body, contentType: contentType,
-            authentication: authentication, retryPolicy: retryPolicy, mutation: mutation, validate: validate)
+            authentication: authentication, retryPolicy: retryPolicy, mutation: mutation,
+            validate: validate)
         return result.value
     }
 
@@ -164,7 +180,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     ) async throws -> CommunityAPIResponse<Response> {
         let identity = authentication == .none ? nil : credentials().identity
         return try await withMutationOutcome(mutation) {
-            let wire = try await send(path: path, pathComponent: pathComponent,
+            let wire = try await send(
+                path: path, pathComponent: pathComponent,
                 queryItems: queryItems, method: method, body: body, contentType: contentType,
                 authentication: authentication, retryPolicy: retryPolicy)
             let response = wire.response
@@ -177,21 +194,28 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
                 await response.reportValidationFailure(error)
                 if let failure = error as? Failure { throw failure }
                 let failure = Failure.communityInvalidResponse as NSError
-                throw NSError(domain: failure.domain, code: failure.code,
-                    userInfo: failure.userInfo.merging([NSUnderlyingErrorKey: error,
-                        NSLocalizedDescriptionKey: failure.localizedDescription]) { _, value in value })
+                throw NSError(
+                    domain: failure.domain, code: failure.code,
+                    userInfo: failure.userInfo.merging([
+                        NSUnderlyingErrorKey: error,
+                        NSLocalizedDescriptionKey: failure.localizedDescription,
+                    ]) { _, value in value })
             }
             try validateIdentity(identity)
-            return CommunityAPIResponse(value: value, isAuthenticated: wire.isAuthenticated, transportResponse: response)
+            return CommunityAPIResponse(
+                value: value, isAuthenticated: wire.isAuthenticated, transportResponse: response)
         }
     }
 
-    private func withMutationOutcome<Value: Sendable>(_ kind: CommunityMutationKind?,
-        operation: () async throws -> Value) async throws -> Value {
+    private func withMutationOutcome<Value: Sendable>(
+        _ kind: CommunityMutationKind?,
+        operation: () async throws -> Value
+    ) async throws -> Value {
         guard let kind else { return try await operation() }
         do {
             return try await HTTPRequestEvidenceContext.withMutationOutcome(
-                isTrackingRequest: { !CommunityCredentialRefreshContext.isRestoring }, operation: operation)
+                isTrackingRequest: { !CommunityCredentialRefreshContext.isRestoring },
+                operation: operation)
         } catch let error as HTTPMutationOutcomeUnknown {
             switch kind {
             case .toggle: throw CommunityToggleOutcomeUnknown(underlying: error.underlying)
@@ -232,12 +256,12 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     ) async throws {
         _ = try await withMutationOutcome(mutation) {
             try await send(
-            path: path,
-            method: method,
-            body: body,
-            contentType: contentType,
-            authentication: authentication,
-            retryPolicy: retryPolicy
+                path: path,
+                method: method,
+                body: body,
+                contentType: contentType,
+                authentication: authentication,
+                retryPolicy: retryPolicy
             )
         }
     }
@@ -277,7 +301,8 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         if let pathComponent {
             var allowed = CharacterSet.urlPathAllowed
             allowed.remove(charactersIn: "/%?#[]@!$&'()*+,;=")
-            guard let encoded = pathComponent.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            guard let encoded = pathComponent.addingPercentEncoding(withAllowedCharacters: allowed)
+            else {
                 throw Failure.communityInvalidResponse
             }
             components?.percentEncodedPath += "/" + encoded
@@ -302,9 +327,12 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         let identity = authentication == .none ? nil : observed.identity
         var effectiveRetryPolicy = retryPolicy
         if authentication == .required, observed.cookie.isEmpty, observed.allowsSilentRestoration,
-           retryPolicy == .afterCredentialRefresh, !CommunityCredentialRefreshContext.isRestoring {
+            retryPolicy == .afterCredentialRefresh, !CommunityCredentialRefreshContext.isRestoring
+        {
             do {
-                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
+                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) {
+                    try await refreshHandler(observed)
+                }
             } catch is CommunitySessionRestorationError { throw Failure.communityNotLoggedIn }
             try validateIdentity(identity)
             observed = credentials()
@@ -328,18 +356,28 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
 
         do {
-            let result = try await sendWithCredentialRecovery(request, observed: observed, identity: identity,
+            let result = try await sendRecoveringCredentials(
+                request, observed: observed, identity: identity,
                 authentication: authentication, retryPolicy: effectiveRetryPolicy)
-            if authentication == .optional, observed.cookie.isEmpty, observed.allowsSilentRestoration,
-               retryPolicy == .afterCredentialRefresh, !CommunityCredentialRefreshContext.isRestoring,
-               credentials() == observed, let backgroundRefresh {
-                CommunityCredentialRefreshContext.$isRestoring.withValue(true) { backgroundRefresh(observed) }
+            if authentication == .optional, observed.cookie.isEmpty,
+                observed.allowsSilentRestoration,
+                retryPolicy == .afterCredentialRefresh,
+                !CommunityCredentialRefreshContext.isRestoring,
+                credentials() == observed, let backgroundRefresh
+            {
+                CommunityCredentialRefreshContext.$isRestoring.withValue(true) {
+                    backgroundRefresh(observed)
+                }
             }
             return result
         } catch let HTTPClientError.unacceptableStatus(code, message) {
             try validateIdentity(identity)
             if code == 401 { throw Failure.communityNotLoggedIn }
-            if method == "GET", let failure = Failure.communityResourceFailure(path: path, message: message) { throw failure }
+            if method == "GET",
+                let failure = Failure.communityResourceFailure(path: path, message: message)
+            {
+                throw failure
+            }
             throw NSError(
                 domain: errorDomain,
                 code: code,
@@ -355,68 +393,90 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
         }
     }
 
-    private func sendWithCredentialRecovery(_ request: URLRequest, observed: CommunityCredentials,
+    private func sendRecoveringCredentials(
+        _ request: URLRequest, observed: CommunityCredentials,
         identity: CommunitySessionIdentity?, authentication: CommunityAuthentication,
-        retryPolicy: CommunityRetryPolicy) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
-        do { return try await sendResponse(request, identity: identity) }
-        catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && authentication != .none
-            && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh {
+        retryPolicy: CommunityRetryPolicy
+    ) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+        do { return try await sendResponse(request, identity: identity) } catch let
+            HTTPClientError.unacceptableStatus(code, _)
+            where code == 401 && authentication != .none
+            && !observed.cookie.isEmpty && retryPolicy == .afterCredentialRefresh
+        {
             let allowsPublicRead = authentication == .optional && request.httpMethod == "GET"
             var attemptedPublicRead = false
             if allowsPublicRead, let backgroundRefresh {
                 try validateIdentity(identity)
-                CommunityCredentialRefreshContext.$isRestoring.withValue(true) { backgroundRefresh(observed) }
+                CommunityCredentialRefreshContext.$isRestoring.withValue(true) {
+                    backgroundRefresh(observed)
+                }
                 attemptedPublicRead = true
-                do { return try await sendPublicRead(request, identity: identity) }
-                catch {
+                do { return try await sendPublicRead(request, identity: identity) } catch {
                     try validateIdentity(identity)
                     if TaskCancellation.matches(error) { throw error }
                 }
             }
             do {
                 try validateIdentity(identity)
-                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) { try await refreshHandler(observed) }
+                try await CommunityCredentialRefreshContext.$isRestoring.withValue(true) {
+                    try await refreshHandler(observed)
+                }
             } catch {
                 try validateIdentity(identity)
                 if TaskCancellation.matches(error) { throw error }
-                if allowsPublicRead && !attemptedPublicRead { return try await sendPublicRead(request, identity: identity) }
+                if allowsPublicRead && !attemptedPublicRead {
+                    return try await sendPublicRead(request, identity: identity)
+                }
                 if error is CommunitySessionRestorationError { throw Failure.communityNotLoggedIn }
                 throw error
             }
             try validateIdentity(identity)
             let refreshedCookie = credentials().cookie
             guard !refreshedCookie.isEmpty else {
-                if allowsPublicRead && !attemptedPublicRead { return try await sendPublicRead(request, identity: identity) }
+                if allowsPublicRead && !attemptedPublicRead {
+                    return try await sendPublicRead(request, identity: identity)
+                }
                 throw Failure.communityNotLoggedIn
             }
             var retry = request
             retry.setValue(refreshedCookie, forHTTPHeaderField: "fake-cookie")
-            do { return try await sendResponse(retry, identity: identity) }
-            catch let HTTPClientError.unacceptableStatus(code, _) where code == 401 && allowsPublicRead && !attemptedPublicRead {
+            do { return try await sendResponse(retry, identity: identity) } catch let
+                HTTPClientError.unacceptableStatus(code, _)
+                where code == 401 && allowsPublicRead && !attemptedPublicRead
+            {
                 return try await sendPublicRead(request, identity: identity)
             }
         }
     }
 
-    private func sendPublicRead(_ request: URLRequest, identity: CommunitySessionIdentity?) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+    private func sendPublicRead(_ request: URLRequest, identity: CommunitySessionIdentity?)
+        async throws -> (response: HTTPResponse, isAuthenticated: Bool)
+    {
         try validateIdentity(identity)
         var publicRequest = request
         publicRequest.setValue(nil, forHTTPHeaderField: "fake-cookie")
         return try await sendResponse(publicRequest, identity: identity)
     }
 
-    private func sendResponse(_ request: URLRequest, identity: CommunitySessionIdentity?) async throws -> (response: HTTPResponse, isAuthenticated: Bool) {
+    private func sendResponse(_ request: URLRequest, identity: CommunitySessionIdentity?)
+        async throws -> (response: HTTPResponse, isAuthenticated: Bool)
+    {
         // DELETE 的目标已消失时，沿同一端点与账号校验完成幂等删除。
-        let response = try await httpClient.send(request, alsoAccepting: request.httpMethod == "DELETE" ? [404] : [])
+        let response = try await httpClient.send(
+            request, alsoAccepting: request.httpMethod == "DELETE" ? [404] : [])
         do {
             try validateResponse(response, request: request)
             try validateIdentity(identity)
-        } catch { await response.reportValidationFailure(error); throw error }
+        } catch {
+            await response.reportValidationFailure(error)
+            throw error
+        }
         return (response, request.value(forHTTPHeaderField: "fake-cookie")?.isEmpty == false)
     }
 
     private func validateResponse(_ response: HTTPResponse, request: URLRequest) throws {
-        let evidence = HTTPRequestEvidence(request: request, response: response.response, finalRequest: response.finalRequest)
+        let evidence = HTTPRequestEvidence(
+            request: request, response: response.response, finalRequest: response.finalRequest)
         guard response.response.url == request.url, evidence.method == evidence.finalMethod else {
             throw Failure.communityInvalidResponse
         }
@@ -430,13 +490,21 @@ public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
 }
 
 public enum MultipartFormData {
-    public static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (body: Data, contentType: String) {
+    public static func jpegFile(data: Data, filename: String, fieldName: String = "file") -> (
+        body: Data, contentType: String
+    ) {
         let boundary = "Boundary-\(UUID().uuidString)"
         let safeFieldName = escapedHeaderParameter(fieldName)
         let safeFilename = escapedHeaderParameter(filename)
         var body = Data()
         body.append(Data("--\(boundary)\r\n".utf8))
-        body.append(Data("Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\(safeFilename)\"\r\n".utf8))
+        body.append(
+            Data(
+                """
+                Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\
+                \(safeFilename)\"\r\n
+                """
+                .utf8))
         body.append(Data("Content-Type: image/jpeg\r\n\r\n".utf8))
         body.append(data)
         body.append(Data("\r\n--\(boundary)--\r\n".utf8))

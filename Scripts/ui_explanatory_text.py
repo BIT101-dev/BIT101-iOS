@@ -1,10 +1,20 @@
 """Write permanent source-text review candidates to their fixed report."""
+
 from pathlib import Path
 from swift_source_index import swift_syntax_index
 
 
 def write_report(root: Path) -> None:
-    production_roots = tuple(root / name for name in ("Modules", "BIT101-iOS", "BIT101ScheduleWidgets", "BIT101Watch", "BIT101WatchWidgets"))
+    production_roots = tuple(
+        root / name
+        for name in (
+            "Modules",
+            "BIT101-iOS",
+            "BIT101ScheduleWidgets",
+            "BIT101Watch",
+            "BIT101WatchWidgets",
+        )
+    )
     report = root / ".build/explanatory-text-report.txt"
     # 用户确认的文案进入白名单，其余候选写入固定报告。
     APPROVED_TEXTS = {
@@ -16,40 +26,63 @@ def write_report(root: Path) -> None:
         "请调整学期或种类筛选条件。",
     }
 
-
     footer_items: list[tuple[str, int, list[str]]] = []
     description_items: list[tuple[str, int, list[str]]] = []
-    paths = sorted(path for source_root in production_roots for path in source_root.rglob("*.swift"))
+    paths = sorted(
+        path for source_root in production_roots for path in source_root.rglob("*.swift")
+    )
     index = swift_syntax_index(paths)
     for path in paths:
         facts = index[str(path)]
-        source = facts['source'].encode('utf-8')
+        source = facts["source"].encode("utf-8")
         relative_path = path.relative_to(root).as_posix()
 
         def approved(expression: str) -> bool:
-            return expression == 'nil' or expression.startswith('"') and expression[1:-1] in APPROVED_TEXTS
+            return (
+                expression == "nil"
+                or expression.startswith('"')
+                and expression[1:-1] in APPROVED_TEXTS
+            )
 
-        for call in facts['invocations']:
-            name = call['calledExpression'].removeprefix('SwiftUI.')
-            if name not in {'Section', 'ContentUnavailableView', 'AppEmptyState', 'AppFailureState'}: continue
-            label = 'footer' if name == 'Section' else 'description'
-            if label == 'footer' and path.name == 'ErrorReportSupport.swift': continue
-            arguments, labels = call.get('arguments', []), call.get('argumentLabels', [])
+        for call in facts["invocations"]:
+            name = call["calledExpression"].removeprefix("SwiftUI.")
+            if name not in {
+                "Section",
+                "ContentUnavailableView",
+                "AppEmptyState",
+                "AppFailureState",
+            }:
+                continue
+            label = "footer" if name == "Section" else "description"
+            if label == "footer" and path.name == "ErrorReportSupport.swift":
+                continue
+            arguments, labels = call.get("arguments", []), call.get("argumentLabels", [])
             expressions, ranges = [], []
-            if name in {'AppEmptyState', 'AppFailureState'}:
-                expressions = [arguments[i] for i, item in enumerate(labels) if item == 'message']
+            if name in {"AppEmptyState", "AppFailureState"}:
+                expressions = [arguments[i] for i, item in enumerate(labels) if item == "message"]
             else:
-                all_labels = labels + call.get('trailingClosureLabels', [])
-                ranges.extend(call['argumentRanges'][i] for i, item in enumerate(labels) if item == label)
-                ranges.extend([start, end] for i, start, end in call.get('closureArguments', []) if all_labels[i] == label)
-                expressions = [text['arguments'][0] for text in facts['invocations']
-                    if text['calledExpression'] in {'Text', 'SwiftUI.Text'} and text.get('arguments')
-                    and any(start <= text['start'] < end for start, end in ranges)]
+                all_labels = labels + call.get("trailingClosureLabels", [])
+                ranges.extend(
+                    call["argumentRanges"][i] for i, item in enumerate(labels) if item == label
+                )
+                ranges.extend(
+                    [start, end]
+                    for i, start, end in call.get("closureArguments", [])
+                    if all_labels[i] == label
+                )
+                expressions = [
+                    text["arguments"][0]
+                    for text in facts["invocations"]
+                    if text["calledExpression"] in {"Text", "SwiftUI.Text"}
+                    and text.get("arguments")
+                    and any(start <= text["start"] < end for start, end in ranges)
+                ]
             expressions = [expression for expression in expressions if not approved(expression)]
             if expressions:
-                items = footer_items if label == 'footer' else description_items
-                items.append((relative_path, source.count(b'\n', 0, call['start']) + 1, expressions))
-
+                items = footer_items if label == "footer" else description_items
+                items.append(
+                    (relative_path, source.count(b"\n", 0, call["start"]) + 1, expressions)
+                )
 
     lines = [
         "# List/Form 与 ContentUnavailableView 解释文案审查候选",

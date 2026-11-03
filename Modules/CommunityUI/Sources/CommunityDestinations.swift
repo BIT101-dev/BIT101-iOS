@@ -24,8 +24,12 @@ public struct CommunityPosterRequest {
     public let onUpdated: (() -> Void)?
     public let onDeleted: (() -> Void)?
 
-    public init(poster: CommunityPoster, onUpdated: (() -> Void)? = nil, onDeleted: (() -> Void)? = nil) {
-        self.poster = poster; self.onUpdated = onUpdated; self.onDeleted = onDeleted
+    public init(
+        poster: CommunityPoster, onUpdated: (() -> Void)? = nil, onDeleted: (() -> Void)? = nil
+    ) {
+        self.poster = poster
+        self.onUpdated = onUpdated
+        self.onDeleted = onDeleted
     }
 }
 
@@ -33,8 +37,10 @@ public struct CommunityPosterRequest {
 public struct CommunityPaperDestination {
     public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
     public let detail: (Int) -> AnyView
-    public init(papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView,
-        detail: @escaping (Int) -> AnyView) {
+    public init(
+        papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView,
+        detail: @escaping (Int) -> AnyView
+    ) {
         self.papers = papers
         self.detail = detail
     }
@@ -52,9 +58,11 @@ public struct CommunitySettingsDestinations {
     public let settings: (CommunitySettingsRequest) -> AnyView
     public let suggestion: () -> AnyView
 
-    public init(settingsEntries: [CommunitySettingsEntry],
-                settings: @escaping (CommunitySettingsRequest) -> AnyView,
-                suggestion: @escaping () -> AnyView) {
+    public init(
+        settingsEntries: [CommunitySettingsEntry],
+        settings: @escaping (CommunitySettingsRequest) -> AnyView,
+        suggestion: @escaping () -> AnyView
+    ) {
         self.settingsEntries = settingsEntries
         self.settings = settings
         self.suggestion = suggestion
@@ -78,7 +86,9 @@ public struct CommunitySettingsRequest {
     public let studentID: String
     public let onLogout: () -> Void
 
-    public init(entry: CommunitySettingsEntry, studentID: String, onLogout: @escaping () -> Void) {
+    public init(
+        entry: CommunitySettingsEntry, studentID: String, onLogout: @escaping () -> Void
+    ) {
         self.entry = entry
         self.studentID = studentID
         self.onLogout = onLogout

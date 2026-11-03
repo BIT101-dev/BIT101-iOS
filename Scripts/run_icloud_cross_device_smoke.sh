@@ -39,9 +39,20 @@ import sys
 
 path = Path(sys.argv[1])
 if path.suffix == ".xcresult":
-    summary = json.loads(subprocess.check_output([
-        "xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(path),
-    ], text=True))
+    summary = json.loads(
+        subprocess.check_output(
+            [
+                "xcrun",
+                "xcresulttool",
+                "get",
+                "test-results",
+                "summary",
+                "--path",
+                str(path),
+            ],
+            text=True,
+        )
+    )
     rows = [dict(summary, stage="测试结果")]
 else:
     report = json.loads(path.read_text())
@@ -54,7 +65,19 @@ else:
     if "macCleanup" in report:
         rows = [*rows, report["macCleanup"]]
 for row in rows:
-    print(f"{row['stage']}：通过 {row.get('passedTests', 0)}，失败 {row.get('failedTests', 0)}，跳过 {row.get('skippedTests', 0)}，状态 {row.get('exitCode', '?')}")
+    print(
+        (
+            f"{row['stage']}"
+            f"：通过 "
+            f"{row.get('passedTests', 0)}"
+            f"，失败 "
+            f"{row.get('failedTests', 0)}"
+            f"，跳过 "
+            f"{row.get('skippedTests', 0)}"
+            f"，状态 "
+            f"{row.get('exitCode', '?')}"
+        )
+    )
     for failure in row.get("testFailures", []):
         print(failure.get("failureText", failure))
 PYREPORT
@@ -66,7 +89,8 @@ if [[ "${1:-}" == report ]]; then
   exit $?
 fi
 bit101_acquire_workflow_lock "$0" "$@"
-bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/icloud-smoke.lock" BIT101_ICLOUD_HOST_LOCK_HELD "$0" "$@"
+bit101_acquire_script_lock "$HOME/Library/Caches/BIT101-iOS/icloud-smoke.lock" \
+  BIT101_ICLOUD_HOST_LOCK_HELD "$0" "$@"
 CLEANUP_ONLY=false
 if [[ "${1:-}" == cleanup ]]; then
   CLEANUP_ONLY=true
@@ -80,12 +104,27 @@ from pathlib import Path
 import sys
 
 report = json.loads(Path(sys.argv[1]).read_text())
-phone = next((row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {})
-mac = next((row for row in report.get("stages", []) if row.get("stage") == "testMacReceiveAndRestore"), {})
+phone = next(
+    (row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {}
+)
+mac = next(
+    (row for row in report.get("stages", []) if row.get("stage") == "testMacReceiveAndRestore"), {}
+)
+
+
 def successful(row):
-    return row.get("exitCode") == 0 and row.get("totalTestCount") == row.get("passedTests") == 1 \
+    return (
+        row.get("exitCode") == 0
+        and row.get("totalTestCount") == row.get("passedTests") == 1
         and row.get("failedTests", 0) == row.get("skippedTests", 0) == 0
-cleared = report.get("testsStarted") is False or successful(report.get("cleanup", phone)) and successful(report.get("macCleanup", mac))
+    )
+
+
+cleared = (
+    report.get("testsStarted") is False
+    or successful(report.get("cleanup", phone))
+    and successful(report.get("macCleanup", mac))
+)
 print("" if cleared else "cleanup")
 PY
 )"
@@ -102,7 +141,9 @@ from uuid import UUID
 report = json.loads(Path(sys.argv[1]).read_text())
 run_id = report["runID"]
 UUID(run_id)
-phone = next((row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {})
+phone = next(
+    (row for row in report.get("stages", []) if row.get("stage") == "testPhoneRoundTrip"), {}
+)
 recorded = report.get("phoneDeviceIdentifier")
 observed = phone.get("destination", {}).get("deviceIdentifier")
 device = recorded or observed
@@ -124,12 +165,14 @@ fi
 BIT101_VALIDATION_RUN_ID="$RUN_ID"
 validation_group=icloud
 if $CLEANUP_ONLY; then validation_group=icloud-cleanup; fi
-BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest "$validation_group")"
+BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest \
+  "$validation_group")"
 export BIT101_VALIDATION_INPUT_IDENTITY BIT101_VALIDATION_RUN_ID
 finish_early_validation() {
   local smoke_status=$?
   trap - EXIT ZERR INT TERM
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || smoke_status=$?
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || \
+    smoke_status=$?
   exit "$smoke_status"
 }
 trap finish_early_validation EXIT
@@ -144,7 +187,8 @@ entitlements = plistlib.loads(Path(sys.argv[1]).read_bytes())
 entitlements["com.apple.developer.icloud-container-environment"] = "Production"
 Path(sys.argv[2]).write_bytes(plistlib.dumps(entitlements))
 PY
-PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" "$DEVICE_ID" "$CLEANUP_ONLY" <<'PY'
+PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$RUN_ID" \
+  "$DEVICE_ID" "$CLEANUP_ONLY" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,13 +197,18 @@ from validation_evidence import report_lock, write_report
 
 path = Path(sys.argv[1])
 with report_lock(path=path):
-    if sys.argv[4] == 'true':
+    if sys.argv[4] == "true":
         report = json.loads(path.read_text())
-        report['cleanupStartedAt'] = datetime.now(timezone.utc).isoformat()
-        report.pop('cleanupFinishedAt', None)
+        report["cleanupStartedAt"] = datetime.now(timezone.utc).isoformat()
+        report.pop("cleanupFinishedAt", None)
     else:
-        report = {"runID": sys.argv[2], "phoneDeviceIdentifier": sys.argv[3],
-            "startedAt": datetime.now(timezone.utc).isoformat(), "stages": [], "testsStarted": False}
+        report = {
+            "runID": sys.argv[2],
+            "phoneDeviceIdentifier": sys.argv[3],
+            "startedAt": datetime.now(timezone.utc).isoformat(),
+            "stages": [],
+            "testsStarted": False,
+        }
     write_report(report, path=path)
 PY
 
@@ -200,7 +249,8 @@ finish_smoke() {
       if (( smoke_status == 0 )); then smoke_status=1; fi
     fi
   fi
-  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" "$smoke_status" "$CLEANUP_ONLY" <<'PY'
+  PYTHONPATH="$ROOT_DIR/Scripts${PYTHONPATH:+:$PYTHONPATH}" python3 - "$SUMMARY_PATH" \
+    "$smoke_status" "$CLEANUP_ONLY" <<'PY'
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -220,7 +270,8 @@ with report_lock(path=path):
     write_report(report, path=path)
 PY
   report_result "$SUMMARY_PATH"
-  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || smoke_status=$?
+  python3 "$ROOT_DIR/Scripts/validation_evidence.py" record "$validation_group" "$smoke_status" || \
+    smoke_status=$?
   if (( smoke_status == 0 )); then
     echo "iCloud Smoke 验证与清理完成。"
   fi
@@ -267,7 +318,11 @@ import sys
 root = Path(sys.argv[1])
 for host, platform in (("Phone", "iphoneos"), ("Mac", "maccatalyst")):
     app = root / host / "Build/Products" / f"Release-{platform}/BIT101-iOS.app"
-    result = subprocess.run(["codesign", "-d", "--entitlements", "-", "--xml", str(app)], capture_output=True, check=True)
+    result = subprocess.run(
+        ["codesign", "-d", "--entitlements", "-", "--xml", str(app)],
+        capture_output=True,
+        check=True,
+    )
     entitlements = plistlib.loads(result.stdout)
     if entitlements.get("com.apple.developer.icloud-container-environment") != "Production":
         raise SystemExit(f"{host} 验收宿主需要 CloudKit Production 签名环境")
@@ -278,10 +333,11 @@ import json
 from pathlib import Path
 import sys
 from validation_evidence import report_lock, write_report
+
 path = Path(sys.argv[1])
 with report_lock(path=path):
     report = json.loads(path.read_text())
-    report['testsStarted'] = True
+    report["testsStarted"] = True
     write_report(report, path=path)
 PYSTARTED
 PHONE_TESTS_STARTED=true
@@ -295,7 +351,7 @@ import subprocess
 import sys
 import time
 
-worker = r'''
+worker = r"""
 set -euo pipefail
 ROOT_DIR="$1"
 DERIVED_ROOT="$2"
@@ -308,27 +364,35 @@ common_args=("$@")
 source "$ROOT_DIR/Scripts/script-support.sh"
 source "$ROOT_DIR/Scripts/icloud-smoke-support.sh"
 run_phone_test testPhoneRoundTrip
-'''
-process = subprocess.Popen(["zsh", "-c", worker, "phone-smoke", *sys.argv[1:]], start_new_session=True)
+"""
+process = subprocess.Popen(
+    ["zsh", "-c", worker, "phone-smoke", *sys.argv[1:]], start_new_session=True
+)
+
 
 def interrupt(signum, _frame):
-    for pending in (signal.SIGINT, signal.SIGTERM): signal.signal(pending, signal.SIG_IGN)
+    for pending in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(pending, signal.SIG_IGN)
     try:
         os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
     raise SystemExit(128 + signum)
 
+
 for signum in (signal.SIGINT, signal.SIGTERM):
     signal.signal(signum, interrupt)
 try:
     result = process.wait()
 except SystemExit:
-    deadline = float(os.environ.get('BIT101_WORKFLOW_DEADLINE', time.monotonic() + 5 * 60))
-    try: process.wait(timeout=max(0, min(5 * 60, deadline - time.monotonic())))
+    deadline = float(os.environ.get("BIT101_WORKFLOW_DEADLINE", time.monotonic() + 5 * 60))
+    try:
+        process.wait(timeout=max(0, min(5 * 60, deadline - time.monotonic())))
     except subprocess.TimeoutExpired:
-        try: os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError: pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         process.wait()
     raise
 raise SystemExit(result if result >= 0 else 128 - result)
@@ -339,7 +403,8 @@ MAC_LOG="$DERIVED_ROOT/mac-receive.log"
 MAC_STATUS=0
 MAC_TESTS_STARTED=true
 rm -rf "$DERIVED_ROOT/Mac/Logs/Test"
-bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building "${common_args[@]}" \
+bit101_run_logged "$MAC_LOG" "Mac Catalyst 接收测试" xcodebuild test-without-building \
+  "${common_args[@]}" \
   -test-timeouts-enabled YES \
   -destination 'platform=macOS,variant=Mac Catalyst' -derivedDataPath "$DERIVED_ROOT/Mac" \
   ONLY_ACTIVE_ARCH=YES \

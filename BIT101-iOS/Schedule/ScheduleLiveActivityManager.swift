@@ -1,9 +1,10 @@
+import Foundation
 import ScheduleActivityContracts
+import ScheduleContracts
+import ScheduleDomain
 import StorageCore
 import TransportCore
-import Foundation
-import ScheduleDomain
-import ScheduleContracts
+
 //
 //  ScheduleLiveActivityManager.swift
 //  BIT101-iOS
@@ -24,11 +25,14 @@ struct ScheduleReminderContext {
     let isSessionResolved: () -> Bool
     let loadCache: (AppStorageSession) async -> ScheduleCacheLoadResult
 
-    func loadCurrentCache() async throws -> (session: ScheduleReminderSession, cache: ScheduleCache) {
+    func loadCurrentCache() async throws -> (session: ScheduleReminderSession, cache: ScheduleCache)
+    {
         guard isSessionResolved() else { throw CocoaError(.fileReadNoPermission) }
         let session = currentSession()
         let result = await loadCache(session.storage)
-        guard isSessionResolved(), currentSession() == session, !Task.isCancelled else { throw CancellationError() }
+        guard isSessionResolved(), currentSession() == session, !Task.isCancelled else {
+            throw CancellationError()
+        }
         guard let cache = result.cacheIfReadable else { throw CocoaError(.fileReadCorruptFile) }
         return (session, cache)
     }
@@ -103,7 +107,10 @@ final class ScheduleLiveActivityManager {
     private var activityOperationTask: Task<Void, Never>?
     private var activityOperationID: UUID?
 
-    init(context: ScheduleReminderContext, notificationCenter: any ScheduleReminderNotificationCenter) {
+    init(
+        context: ScheduleReminderContext,
+        notificationCenter: any ScheduleReminderNotificationCenter
+    ) {
         self.context = context
         self.notifications = ScheduleReminderNotifications(center: notificationCenter)
     }
@@ -124,21 +131,25 @@ final class ScheduleLiveActivityManager {
         if let previousTask = refreshTask {
             await previousTask.value
         }
-        guard !Task.isCancelled, context.isSessionResolved(), requestGeneration == refreshRequestGeneration else { return }
+        guard !Task.isCancelled, context.isSessionResolved(),
+            requestGeneration == refreshRequestGeneration
+        else { return }
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performRefreshFromCurrentCache(trigger: trigger)
+            await self.refreshFromCache(trigger: trigger)
         }
         refreshTask = task
-        await withTaskCancellationHandler(operation: {
-            await task.value
-        }, onCancel: {
-            task.cancel()
-        })
+        await withTaskCancellationHandler(
+            operation: {
+                await task.value
+            },
+            onCancel: {
+                task.cancel()
+            })
     }
 
-    private func performRefreshFromCurrentCache(trigger: String) async {
+    private func refreshFromCache(trigger: String) async {
         guard context.isSessionResolved() else { return }
         logger.debug("refreshFromCurrentCache trigger=\(trigger, privacy: .public)")
 
@@ -146,17 +157,19 @@ final class ScheduleLiveActivityManager {
         let session = context.currentSession()
         guard session.signedIn else {
             logger.debug("local session resolved as signed out; ending all activities")
-            await clearFallbackNotifications()
+            await clearFallbackNotices()
             guard !Task.isCancelled else { return }
             await endAllActivities(invalidateRefresh: false)
             return
         }
 
-        guard let loaded = try? await context.loadCurrentCache(), loaded.session == session else { return }
+        guard let loaded = try? await context.loadCurrentCache(), loaded.session == session
+        else { return }
         let cache = loaded.cache
         guard cache.showCourseLiveActivityReminder else {
-            logger.debug("course live activity reminder disabled in settings; ending all activities")
-            await clearFallbackNotifications()
+            logger.debug(
+                "course live activity reminder disabled in settings; ending all activities")
+            await clearFallbackNotices()
             await endAllActivities(invalidateRefresh: false)
             return
         }
@@ -164,59 +177,100 @@ final class ScheduleLiveActivityManager {
         let leadMinutes = cache.courseLiveActivityLeadMinutes
         let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
         do {
-            _ = try await notifications.synchronize(for: occurrences, leadMinutes: leadMinutes, session: session,
+            _ = try await notifications.synchronize(
+                for: occurrences, leadMinutes: leadMinutes, session: session,
                 isCurrent: { self.isCurrentSession(session) })
         } catch {
             if TaskCancellation.matches(error) { return }
-            logger.error("fallback reminder replacement failed: \(error.localizedDescription, privacy: .public)")
+            logger.error(
+                """
+                fallback reminder replacement failed: \
+                \(error.localizedDescription, privacy: .public)
+                """
+            )
         }
 
         guard !Task.isCancelled else { return }
         guard isCurrentSession(session) else {
-            await clearFallbackNotifications()
+            await clearFallbackNotices()
             await endAllActivities(invalidateRefresh: false)
             return
         }
 
         guard #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else {
-            logger.debug("live activity unavailable or disabled by system; keeping fallback notifications only")
+            logger.debug(
+                """
+                live activity unavailable or disabled by system; keeping fallback notificat\
+                ions only
+                """
+            )
             await endAllActivities(invalidateRefresh: false)
             return
         }
 
-        logger.debug("resolved occurrences count=\(occurrences.count, privacy: .public) leadMinutes=\(leadMinutes, privacy: .public)")
+        logger.debug(
+            """
+            resolved occurrences count=\(occurrences.count, privacy: .public) leadMinutes=\
+            \(leadMinutes, privacy: .public)
+            """
+        )
 
         // 在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
-        let currentOccurrence = zip(occurrences, ScheduleReminderPlanner.displayWindowStarts(for: occurrences, leadMinutes: leadMinutes))
-            .first { occurrence, displayWindowStart in now >= displayWindowStart && now < occurrence.startDate }?.0
+        let currentOccurrence = zip(
+            occurrences,
+            ScheduleReminderPlanner.displayWindowStarts(
+                for: occurrences, leadMinutes: leadMinutes)
+        )
+        .first { occurrence, displayWindowStart in
+            now >= displayWindowStart && now < occurrence.startDate
+        }?.0
 
         if let currentOccurrence {
+            var startText: String {
+                Self.debugDateFormatter.string(from: currentOccurrence.startDate)
+            }
+            var endText: String {
+                Self.debugDateFormatter.string(from: currentOccurrence.endDate)
+            }
             logger.debug(
-                "selected occurrence kind=\(currentOccurrence.kindText, privacy: .public) title=\(currentOccurrence.title, privacy: .private) start=\(Self.debugDateFormatter.string(from: currentOccurrence.startDate), privacy: .private) end=\(Self.debugDateFormatter.string(from: currentOccurrence.endDate), privacy: .private)"
+                """
+                selected occurrence kind=\(currentOccurrence.kindText, privacy: .public) ti\
+                tle=\(currentOccurrence.title, privacy: .private) start=\
+                \(startText, privacy: .private)\
+                 end=\
+                \(endText, privacy: .private)
+                """
             )
         } else {
-            logger.debug("selected occurrence is nil for current time=\(Self.debugDateFormatter.string(from: now), privacy: .public)")
+            logger.debug(
+                """
+                selected occurrence is nil for current time=\
+                \(Self.debugDateFormatter.string(from: now), privacy: .public)
+                """
+            )
         }
 
         // 先安排进程可执行时的提醒边界任务，再同步当前状态。
         // 系统恢复执行或 App 回到前台时重新计算；本地通知承接挂起期间的提醒。
         scheduleNextRefresh(for: occurrences, leadMinutes: leadMinutes)
-        scheduleEndForDisplayedOccurrence(currentOccurrence)
+        displayedOccurrenceEnd(currentOccurrence)
 
         await syncActivity(with: currentOccurrence, session: session)
     }
 
-    func requestNotificationAuthorizationIfNeeded() async -> Bool {
-        await notifications.requestAuthorizationIfNeeded()
+    func authorizeNotifications() async -> Bool {
+        await notifications.authorizeIfNeeded()
     }
 
-    func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState {
-        guard let loaded = try? await context.loadCurrentCache(), loaded.cache.showCourseLiveActivityReminder else { return .allowed }
+    func reminderAuthorization() async -> NotificationAuthorizationState {
+        guard let loaded = try? await context.loadCurrentCache(),
+            loaded.cache.showCourseLiveActivityReminder
+        else { return .allowed }
         return await notifications.authorizationState()
     }
 
-    func clearFallbackNotifications() async { await notifications.clear() }
+    func clearFallbackNotices() async { await notifications.clear() }
 
     /// 将当前计算出的提醒对象同步到 ActivityKit。
     ///
@@ -227,13 +281,17 @@ final class ScheduleLiveActivityManager {
     /// - activity 不存在：创建新的 activity
     ///
     /// activity 记录 `studentID`，按账号匹配提醒。
-    private func syncActivity(with occurrence: CourseReminderOccurrence?, session: ScheduleReminderSession) async {
-        await performSerializedActivityOperation {
+    private func syncActivity(
+        with occurrence: CourseReminderOccurrence?, session: ScheduleReminderSession
+    ) async {
+        await withActivityOperation {
             await self.syncActivitySerially(with: occurrence, session: session)
         }
     }
 
-    private func syncActivitySerially(with occurrence: CourseReminderOccurrence?, session: ScheduleReminderSession) async {
+    private func syncActivitySerially(
+        with occurrence: CourseReminderOccurrence?, session: ScheduleReminderSession
+    ) async {
         let studentID = session.studentID
         guard !Task.isCancelled, isCurrentSession(session) else { return }
 
@@ -244,7 +302,12 @@ final class ScheduleLiveActivityManager {
                 return !Task.isCancelled && self.isCurrentSession(session)
             }
             for activityID in report.endedActivityIDs {
-                logger.debug("ending activity id=\(activityID, privacy: .public) because occurrence is nil")
+                logger.debug(
+                    """
+                    ending activity id=\(activityID, privacy: .public) because occurrence i\
+                    s nil
+                    """
+                )
             }
             if report.activityCount == 0 {
                 logger.debug("no occurrence and no active activity; nothing to end")
@@ -258,18 +321,23 @@ final class ScheduleLiveActivityManager {
             title: occ.title,
             classroom: occ.classroom,
             teacher: occ.teacher,
-            timeRangeText: ScheduleReminderPlanner.timeRangeText(start: occ.startDate, end: occ.endDate),
+            timeRangeText: ScheduleReminderPlanner.timeRangeText(
+                start: occ.startDate, end: occ.endDate),
             countdownTargetDate: occ.startDate
         )
 
         let newState: CourseReminderActivityAttributes.ContentState
-        do { newState = try attributes.boundedContentState(rawState) }
-        catch {
-            logger.error("Activity payload encoding failed: \(String(describing: error), privacy: .public)")
+        do { newState = try attributes.boundedContentState(rawState) } catch {
+            logger.error(
+                """
+                Activity payload encoding failed: \
+                \(String(describing: error), privacy: .public)
+                """
+            )
             return
         }
 
-        let result = await Self.synchronizeExistingActivities(
+        let result = await Self.syncExistingActivities(
             studentID: studentID,
             contentState: newState,
             staleDate: occ.startDate
@@ -278,13 +346,27 @@ final class ScheduleLiveActivityManager {
             return !Task.isCancelled && self.isCurrentSession(session)
         }
 
-        logger.debug("syncActivity activeCount=\(result.activityCount, privacy: .public) currentStudentID=\(studentID, privacy: .private(mask: .hash))")
+        logger.debug(
+            """
+            syncActivity activeCount=\(result.activityCount, privacy: .public) currentStude\
+            ntID=\(studentID, privacy: .private(mask: .hash))
+            """
+        )
         for activityID in result.endedActivityIDs {
-            logger.debug("ending stale activity id=\(activityID, privacy: .public) before syncing current occurrence")
+            logger.debug(
+                """
+                ending stale activity id=\(activityID, privacy: .public) before syncing cur\
+                rent occurrence
+                """
+            )
         }
         if let activeSnapshot = result.activeSnapshot {
             logger.debug(
-                "active activity id=\(activeSnapshot.id, privacy: .public) state=\(Self.describe(activeSnapshot.contentState), privacy: .private) next=\(Self.describe(newState), privacy: .private)"
+                """
+                active activity id=\(activeSnapshot.id, privacy: .public) state=\
+                \(Self.describe(activeSnapshot.contentState), privacy: .private) next=\
+                \(Self.describe(newState), privacy: .private)
+                """
             )
         }
 
@@ -293,7 +375,8 @@ final class ScheduleLiveActivityManager {
         case .needsRequest:
             // 当前没有 activity 时创建新的 activity。
             let content = ActivityContent(state: newState, staleDate: occ.startDate)
-            await requestActivity(attributes: attributes, content: content, reason: "no_active_activity")
+            await requestActivity(
+                attributes: attributes, content: content, reason: "no_active_activity")
         case .unchanged:
             logger.debug("skipping update because content state is unchanged")
         case .updated:
@@ -308,18 +391,29 @@ final class ScheduleLiveActivityManager {
     /// 刷新任务关注两个边界：
     /// - 某条课/日程进入提醒窗口
     /// - 某条课/日程正式开始，提醒结束
-    private func scheduleNextRefresh(for occurrences: [CourseReminderOccurrence], leadMinutes: Int) {
+    private func scheduleNextRefresh(
+        for occurrences: [CourseReminderOccurrence], leadMinutes: Int
+    ) {
         refreshTimer.cancel()
 
         let now = Date()
-        guard let nextDate = ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else {
+        guard
+            let nextDate = ScheduleReminderPlanner.nextFutureRefreshPoint(
+                for: occurrences, leadMinutes: leadMinutes, now: now)
+        else {
             logger.debug("scheduleNextRefresh: no future refresh point")
             return
         }
 
-        logger.debug("scheduleNextRefresh nextDate=\(Self.debugDateFormatter.string(from: nextDate), privacy: .public)")
+        logger.debug(
+            """
+            scheduleNextRefresh nextDate=\
+            \(Self.debugDateFormatter.string(from: nextDate), privacy: .public)
+            """
+        )
 
-        refreshTimer.schedule(after: .seconds(max(0, nextDate.timeIntervalSinceNow))) { [weak self] in
+        refreshTimer.schedule(after: .seconds(max(0, nextDate.timeIntervalSinceNow))) {
+            [weak self] in
             await self?.refreshFromCurrentCache(trigger: "scheduled_refresh")
         }
     }
@@ -327,7 +421,7 @@ final class ScheduleLiveActivityManager {
     /// 为当前展示的提醒安排到点结束任务。
     ///
     /// 该任务与常规 refresh 并存，用于在倒计时到点时结束旧提醒。
-    private func scheduleEndForDisplayedOccurrence(_ occurrence: CourseReminderOccurrence?) {
+    private func displayedOccurrenceEnd(_ occurrence: CourseReminderOccurrence?) {
         endTimer.cancel()
 
         guard let occurrence else { return }
@@ -338,14 +432,18 @@ final class ScheduleLiveActivityManager {
         let expectedTarget = occurrence.startDate
         let expectedSession = context.currentSession()
 
-        endTimer.schedule(after: .seconds(expectedTarget.timeIntervalSince(now))) { [weak self] in
-            await self?.endActivityIfStillMatching(expectedTarget: expectedTarget, expectedSession: expectedSession)
+        endTimer.schedule(after: .seconds(expectedTarget.timeIntervalSince(now))) {
+            [weak self] in
+            await self?.endMatchingActivity(
+                expectedTarget: expectedTarget, expectedSession: expectedSession)
         }
     }
 
     /// 仅当当前 activity 仍然对应同一条提醒时，才在到点时结束它。
-    private func endActivityIfStillMatching(expectedTarget: Date, expectedSession: ScheduleReminderSession) async {
-        await performSerializedActivityOperation {
+    private func endMatchingActivity(
+        expectedTarget: Date, expectedSession: ScheduleReminderSession
+    ) async {
+        await withActivityOperation {
             guard !Task.isCancelled, self.isCurrentSession(expectedSession) else { return }
             guard #available(iOS 16.2, *) else { return }
             let report = await Self.endActivities(
@@ -356,7 +454,12 @@ final class ScheduleLiveActivityManager {
                 return !Task.isCancelled && self.isCurrentSession(expectedSession)
             }
             for activityID in report.endedActivityIDs {
-                self.logger.debug("ending activity id=\(activityID, privacy: .public) because countdown target reached")
+                self.logger.debug(
+                    """
+                    ending activity id=\(activityID, privacy: .public) because countdown ta\
+                    rget reached
+                    """
+                )
             }
         }
     }
@@ -378,9 +481,9 @@ final class ScheduleLiveActivityManager {
             await refreshTaskToCancel.value
         }
         if !context.currentSession().signedIn {
-            await clearFallbackNotifications()
+            await clearFallbackNotices()
         }
-        await performSerializedActivityOperation {
+        await withActivityOperation {
             guard !Task.isCancelled, #available(iOS 16.2, *) else { return }
             let report = await Self.endActivities { !Task.isCancelled }
             for activityID in report.endedActivityIDs {
@@ -389,7 +492,7 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    private func performSerializedActivityOperation(
+    private func withActivityOperation(
         _ operation: @escaping @MainActor () async -> Void
     ) async {
         guard !Task.isCancelled else { return }
@@ -419,7 +522,7 @@ final class ScheduleLiveActivityManager {
     ///
     /// 该值表示系统可开始安排后台时间的最早时刻，实际启动时间由系统后台调度策略决定。
     /// 申请时间比真实边界提前 5 分钟。
-    func preferredBackgroundRefreshBeginDate() async throws -> Date? {
+    func backgroundRefreshDate() async throws -> Date? {
         let loaded = try await context.loadCurrentCache()
         guard loaded.session.signedIn else { return nil }
         let cache = loaded.cache
@@ -428,7 +531,10 @@ final class ScheduleLiveActivityManager {
         let leadMinutes = cache.courseLiveActivityLeadMinutes
         let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
         let now = Date()
-        guard let nextPoint = ScheduleReminderPlanner.nextFutureRefreshPoint(for: occurrences, leadMinutes: leadMinutes, now: now) else { return nil }
+        guard
+            let nextPoint = ScheduleReminderPlanner.nextFutureRefreshPoint(
+                for: occurrences, leadMinutes: leadMinutes, now: now)
+        else { return nil }
         let desiredBeginDate = nextPoint.addingTimeInterval(-5 * 60)
         return max(now.addingTimeInterval(60), desiredBeginDate)
     }
@@ -440,14 +546,28 @@ final class ScheduleLiveActivityManager {
         reason: StaticString
     ) async {
         logger.debug(
-            "requesting new activity reason=\(reason, privacy: .public) state=\(Self.describe(content.state), privacy: .private)"
+            """
+            requesting new activity reason=\(reason, privacy: .public) state=\
+            \(Self.describe(content.state), privacy: .private)
+            """
         )
         do {
             let activity = try Activity.request(attributes: attributes, content: content)
-            logger.debug("Activity created id=\(activity.id, privacy: .public) reason=\(reason, privacy: .public)")
+            logger.debug(
+                """
+                Activity created id=\(activity.id, privacy: .public) reason=\
+                \(reason, privacy: .public)
+                """
+            )
         } catch {
             let failure = error as NSError
-            logger.error("Activity creation failed reason=\(reason, privacy: .public) domain=\(failure.domain, privacy: .public) code=\(failure.code) description=\(failure.localizedDescription, privacy: .private)")
+            logger.error(
+                """
+                Activity creation failed reason=\(reason, privacy: .public) domain=\
+                \(failure.domain, privacy: .public) code=\(failure.code) description=\
+                \(failure.localizedDescription, privacy: .private)
+                """
+            )
         }
     }
 
@@ -461,7 +581,8 @@ final class ScheduleLiveActivityManager {
         var endedActivityIDs: [String] = []
         for activity in activities {
             guard !Task.isCancelled, await shouldContinue() else {
-                return ActivityEndingReport(endedActivityIDs: endedActivityIDs, activityCount: activities.count)
+                return ActivityEndingReport(
+                    endedActivityIDs: endedActivityIDs, activityCount: activities.count)
             }
             if let matchingStudentID, activity.attributes.studentID != matchingStudentID {
                 continue
@@ -472,11 +593,12 @@ final class ScheduleLiveActivityManager {
             endedActivityIDs.append(activity.id)
             await activity.end(nil, dismissalPolicy: .immediate)
         }
-        return ActivityEndingReport(endedActivityIDs: endedActivityIDs, activityCount: activities.count)
+        return ActivityEndingReport(
+            endedActivityIDs: endedActivityIDs, activityCount: activities.count)
     }
 
     @concurrent
-    private static func synchronizeExistingActivities(
+    private static func syncExistingActivities(
         studentID: String,
         contentState: CourseReminderActivityAttributes.ContentState,
         staleDate: Date,
@@ -536,8 +658,13 @@ final class ScheduleLiveActivityManager {
         )
     }
 
-    private static func describe(_ state: CourseReminderActivityAttributes.ContentState) -> String {
-        "\(state.kindText) | \(state.title) | \(state.classroom) | \(state.timeRangeText) | target=\(debugDateFormatter.string(from: state.countdownTargetDate))"
+    private static func describe(_ state: CourseReminderActivityAttributes.ContentState)
+        -> String
+    {
+        """
+        \(state.kindText) | \(state.title) | \(state.classroom) | \(state.timeRangeText) | \
+        target=\(debugDateFormatter.string(from: state.countdownTargetDate))
+        """
     }
 
     private func isCurrentSession(_ session: ScheduleReminderSession) -> Bool {
@@ -569,19 +696,19 @@ final class ScheduleLiveActivityManager {
     func refreshFromCurrentCache(trigger: String = "unspecified") async {}
 
     /// Catalyst 版将本地通知权限请求视为已完成。
-    func requestNotificationAuthorizationIfNeeded() async -> Bool { true }
+    func authorizeNotifications() async -> Bool { true }
 
     /// Mac 预览使用固定的通知已授权状态。
-    func notificationAuthorizationStateForReminderFallback() async -> NotificationAuthorizationState { .allowed }
+    func reminderAuthorization() async -> NotificationAuthorizationState { .allowed }
 
     /// Catalyst 下没有 Activity，保持空操作。
     func endAllActivities() async {}
 
     /// Catalyst 下没有本地提醒，保持空操作。
-    func clearFallbackNotifications() async {}
+    func clearFallbackNotices() async {}
 
     /// Catalyst 下保持 BGAppRefreshTask 链路关闭。
-    func preferredBackgroundRefreshBeginDate() async throws -> Date? { nil }
+    func backgroundRefreshDate() async throws -> Date? { nil }
 }
 
 #endif

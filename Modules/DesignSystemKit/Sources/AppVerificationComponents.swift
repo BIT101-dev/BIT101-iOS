@@ -6,13 +6,20 @@ public nonisolated enum AppVerificationCode {
     private static let captchaMaximumLength = 16
 
     public static func normalize(_ value: String, isCaptcha: Bool = false) -> String {
-        if isCaptcha { return String(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(captchaMaximumLength)) }
+        if isCaptcha {
+            return String(
+                value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(captchaMaximumLength))
+        }
         return String(decimalDigits(value).prefix(maximumLength))
     }
 
     public static func isValid(_ value: String, isCaptcha: Bool = false) -> Bool {
-        if isCaptcha { return !value.isEmpty && value.count <= captchaMaximumLength && value.allSatisfy { !$0.isWhitespace } }
-        return (minimumLength ... maximumLength).contains(value.utf8.count) && value.utf8.allSatisfy { (48...57).contains($0) }
+        if isCaptcha {
+            return !value.isEmpty && value.count <= captchaMaximumLength
+                && value.allSatisfy { !$0.isWhitespace }
+        }
+        return (minimumLength...maximumLength).contains(value.utf8.count)
+            && value.utf8.allSatisfy { (48...57).contains($0) }
     }
 
     public static func validationMessage(isCaptcha: Bool) -> String {
@@ -20,15 +27,19 @@ public nonisolated enum AppVerificationCode {
     }
 
     private static func decimalDigits(_ value: String) -> String {
-        String(value.compactMap { character -> Character? in
-            guard character.unicodeScalars.count == 1,
-                  character.unicodeScalars.first?.properties.generalCategory == .decimalNumber,
-                  let digit = character.wholeNumberValue else { return nil }
-            return Character(String(digit))
-        })
+        String(
+            value.compactMap { character -> Character? in
+                guard character.unicodeScalars.count == 1,
+                    character.unicodeScalars.first?.properties.generalCategory == .decimalNumber,
+                    let digit = character.wholeNumberValue
+                else { return nil }
+                return Character(String(digit))
+            })
     }
 
-    static func shouldSubmitAutomatically(insertedText: String, code: String, isCaptcha: Bool = false) -> Bool {
+    static func shouldSubmitAutomatically(
+        insertedText: String, code: String, isCaptcha: Bool = false
+    ) -> Bool {
         if isCaptcha { return false }
         let insertedCode = decimalDigits(insertedText)
         return isValid(insertedCode) && insertedCode == code
@@ -50,8 +61,9 @@ private struct VerificationCodeField: UIViewRepresentable {
     func makeUIView(context: Context) -> CodeTextField {
         let field = CodeTextField()
         field.delegate = context.coordinator
-        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.textChanged),
-                                               name: UITextField.textDidChangeNotification, object: field)
+        NotificationCenter.default.addObserver(
+            context.coordinator, selector: #selector(Coordinator.textChanged),
+            name: UITextField.textDidChangeNotification, object: field)
         field.autocorrectionType = .no
         field.autocapitalizationType = .none
         field.textAlignment = .center
@@ -64,19 +76,27 @@ private struct VerificationCodeField: UIViewRepresentable {
         context.coordinator.parent = self
         let isEnabled = context.environment.isEnabled
         let keyboard: UIKeyboardType = isCaptcha ? .asciiCapable : .numberPad
-        if field.keyboardType != keyboard { field.keyboardType = keyboard; field.reloadInputViews() }
+        if field.keyboardType != keyboard {
+            field.keyboardType = keyboard
+            field.reloadInputViews()
+        }
         field.textContentType = isCaptcha ? nil : .oneTimeCode
         let label = isCaptcha ? "图形验证码" : "短信验证码"
         field.accessibilityLabel = label
         if field.text != code { field.text = code }
         field.font = .monospacedDigitSystemFont(
-            ofSize: UIFont.preferredFont(forTextStyle: .headline, compatibleWith: field.traitCollection).pointSize,
+            ofSize: UIFont.preferredFont(
+                forTextStyle: .headline, compatibleWith: field.traitCollection
+            ).pointSize,
             weight: .semibold
         )
-        field.attributedPlaceholder = NSAttributedString(string: label, attributes: [
-            .font: UIFont.preferredFont(forTextStyle: .body, compatibleWith: field.traitCollection),
-            .foregroundColor: UIColor.placeholderText,
-        ])
+        field.attributedPlaceholder = NSAttributedString(
+            string: label,
+            attributes: [
+                .font: UIFont.preferredFont(
+                    forTextStyle: .body, compatibleWith: field.traitCollection),
+                .foregroundColor: UIColor.placeholderText,
+            ])
         field.isEnabled = isEnabled
         field.shouldFocus = isFocused && isEnabled
         if field.shouldFocus, field.window != nil, !field.isFirstResponder {
@@ -86,12 +106,17 @@ private struct VerificationCodeField: UIViewRepresentable {
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: CodeTextField, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? uiView.intrinsicContentSize.width, height: uiView.intrinsicContentSize.height)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: CodeTextField, context: Context)
+        -> CGSize?
+    {
+        CGSize(
+            width: proposal.width ?? uiView.intrinsicContentSize.width,
+            height: uiView.intrinsicContentSize.height)
     }
 
     static func dismantleUIView(_ field: CodeTextField, coordinator: Coordinator) {
-        NotificationCenter.default.removeObserver(coordinator, name: UITextField.textDidChangeNotification, object: field)
+        NotificationCenter.default.removeObserver(
+            coordinator, name: UITextField.textDidChangeNotification, object: field)
         field.delegate = nil
         field.shouldFocus = false
         field.resignFirstResponder()
@@ -119,13 +144,19 @@ private struct VerificationCodeField: UIViewRepresentable {
 
         func recordInsertion(_ text: String) { insertedText = text }
 
-        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        func textField(
+            _ textField: UITextField, shouldChangeCharactersIn range: NSRange,
+            replacementString string: String
+        ) -> Bool {
             recordInsertion(string)
             return true
         }
 
         @available(iOS 26.0, *)
-        func textField(_ textField: UITextField, shouldChangeCharactersInRanges ranges: [NSValue], replacementString string: String) -> Bool {
+        func textField(
+            _ textField: UITextField, shouldChangeCharactersInRanges ranges: [NSValue],
+            replacementString string: String
+        ) -> Bool {
             recordInsertion(string)
             return true
         }
@@ -134,10 +165,13 @@ private struct VerificationCodeField: UIViewRepresentable {
             guard let field = notification.object as? CodeTextField else { return }
             let insertion = insertedText
             insertedText = ""
-            let digits = AppVerificationCode.normalize(field.text ?? "", isCaptcha: parent.isCaptcha)
+            let digits = AppVerificationCode.normalize(
+                field.text ?? "", isCaptcha: parent.isCaptcha)
             if field.text != digits { field.text = digits }
             parent.code = digits
-            if AppVerificationCode.shouldSubmitAutomatically(insertedText: insertion, code: digits, isCaptcha: parent.isCaptcha) {
+            if AppVerificationCode.shouldSubmitAutomatically(
+                insertedText: insertion, code: digits, isCaptcha: parent.isCaptcha)
+            {
                 field.shouldFocus = false
                 parent.isFocused = false
                 field.resignFirstResponder()
@@ -247,7 +281,11 @@ public struct AppVerificationSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(submissionInProgress || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha) || isCaptcha && image == nil)
+                    .disabled(
+                        submissionInProgress
+                            || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha)
+                            || isCaptcha && image == nil
+                    )
                     .appInteractiveListRow()
                 }
             }
@@ -261,7 +299,10 @@ public struct AppVerificationSheet: View {
                 }
             }
             .interactiveDismissDisabled(submissionInProgress)
-            .onAppear { modalActivity?(presentationID, true); isCodeFieldFocused = true }
+            .onAppear {
+                modalActivity?(presentationID, true)
+                isCodeFieldFocused = true
+            }
             .onDisappear { modalActivity?(presentationID, false) }
             .onChange(of: isCaptcha) { _, _ in resetInput() }
             .onChange(of: captchaImage) { _, _ in resetInput() }
@@ -274,10 +315,15 @@ public struct AppVerificationSheet: View {
 
     private var submissionInProgress: Bool { isSubmitting || isSubmitInFlight }
 
-    private func resetInput() { code = ""; isCodeFieldFocused = true }
+    private func resetInput() {
+        code = ""
+        isCodeFieldFocused = true
+    }
 
     private func submitCode(_ submittedCode: String) {
-        guard !submissionInProgress, AppVerificationCode.isValid(submittedCode, isCaptcha: isCaptcha) else { return }
+        guard !submissionInProgress,
+            AppVerificationCode.isValid(submittedCode, isCaptcha: isCaptcha)
+        else { return }
         isSubmitInFlight = true
         isCodeFieldFocused = false
         Task {

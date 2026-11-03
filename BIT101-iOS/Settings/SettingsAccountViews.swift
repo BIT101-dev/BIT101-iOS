@@ -1,18 +1,18 @@
-import MineFeature
-import CommunityUI
-import TransportCore
-import MediaKit
 import CommunityCore
 import CommunityTransport
+import CommunityUI
 import DesignSystemKit
+import MediaKit
+import MineFeature
+import PhotosUI
+import SwiftUI
+import TransportCore
+
 //
 //  SettingsAccountViews.swift
 //  BIT101-iOS
 //
 //
-
-import PhotosUI
-import SwiftUI
 
 struct AccountSettingsPage: View {
     @Environment(MediaEnvironment.self) private var media
@@ -36,7 +36,9 @@ struct AccountSettingsPage: View {
     @State private var imagePreparer = ComposerImagePreparer()
     @State private var isShowingPhotoPicker = false
 
-    init(dependencies: SettingsAccountDependencies, studentID: String, onLogout: @escaping () -> Void) {
+    init(
+        dependencies: SettingsAccountDependencies, studentID: String, onLogout: @escaping () -> Void
+    ) {
         self.dependencies = dependencies
         self.studentID = studentID
         self.onLogout = onLogout
@@ -85,7 +87,8 @@ struct AccountSettingsPage: View {
                         mottoText = profile.user.motto
                         showMottoEditor = true
                     } label: {
-                        LabeledContent("个性签名", value: profile.user.motto.isEmpty ? "空" : profile.user.motto)
+                        LabeledContent(
+                            "个性签名", value: profile.user.motto.isEmpty ? "空" : profile.user.motto)
                     }
                     .disabled(isBusy)
                     .appInteractiveListRow()
@@ -109,7 +112,9 @@ struct AccountSettingsPage: View {
                     if model.isLoadingProfile {
                         AppInlineLoadingState("正在加载个人信息")
                     } else if let error = model.profileLoadError {
-                        AppFailureState(title: "个人信息加载失败", systemImage: "person.crop.circle.badge.exclamationmark",
+                        AppFailureState(
+                            title: "个人信息加载失败",
+                            systemImage: "person.crop.circle.badge.exclamationmark",
                             message: error.localizedDescription,
                             onRetry: { profileMutation.start { await model.loadProfile() } })
                     }
@@ -138,7 +143,7 @@ struct AccountSettingsPage: View {
                 Button("退出登录", role: .destructive, action: onLogout)
                     .accessibilityIdentifier("settings.account.logout")
                     .disabled(isBusy)
-                .appInteractiveListRow(isDestructive: true)
+                    .appInteractiveListRow(isDestructive: true)
             }
         }
         .accessibilityIdentifier("interaction.AccountSettingsPage.list")
@@ -150,7 +155,9 @@ struct AccountSettingsPage: View {
         }
         .onChange(of: selectedPhoto) { _, newValue in
             guard let newValue else { return }
-            if !profileMutation.start({ await updateAvatar(with: newValue) }) { selectedPhoto = nil }
+            if !profileMutation.start({ await updateAvatar(with: newValue) }) {
+                selectedPhoto = nil
+            }
         }
         .sheet(isPresented: $showNicknameEditor) {
             SettingsTextEditSheet(
@@ -158,7 +165,9 @@ struct AccountSettingsPage: View {
                 text: $nicknameText,
                 isSubmitting: isBusy,
                 onSubmit: {
-                    profileMutation.start { await updateProfile(nickname: nicknameText, motto: nil) }
+                    profileMutation.start {
+                        await updateProfile(nickname: nicknameText, motto: nil)
+                    }
                 }
             )
         }
@@ -220,7 +229,9 @@ private struct SettingsSensitiveValueRow: View {
                         .blur(radius: AppDesignSystem.Size.Effect.blurRadius)
                         .padding(.horizontal, AppDesignSystem.Spacing.tiny)
                         .padding(.vertical, AppDesignSystem.Spacing.micro)
-                        .background(.ultraThinMaterial, in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
+                        .background(
+                            .ultraThinMaterial,
+                            in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.small))
                 }
             }
             .contentShape(Rectangle())
@@ -232,6 +243,6 @@ private struct SettingsSensitiveValueRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityHint(isRevealed ? "轻点隐藏\(title)" : "轻点显示\(title)")
         .appInteractiveListRow()
-            .accessibilityIdentifier("ui.settings-sensitive-value-row.reveal")
+        .accessibilityIdentifier("ui.settings-sensitive-value-row.reveal")
     }
 }

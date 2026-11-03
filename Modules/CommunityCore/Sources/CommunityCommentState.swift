@@ -9,11 +9,17 @@ public nonisolated struct CommunityCommentSubmission: Hashable, Sendable {
     public let rate: Int?
     public let imageMids: [String]
 
-    public init(objectID: String, text: String, anonymous: Bool, replyObjectID: String?, replyUID: Int?,
-        rate: Int? = nil, imageMids: [String] = []) {
-        self.objectID = objectID; self.text = text; self.anonymous = anonymous
-        self.replyObjectID = replyObjectID; self.replyUID = replyUID
-        self.rate = rate; self.imageMids = imageMids
+    public init(
+        objectID: String, text: String, anonymous: Bool, replyObjectID: String?, replyUID: Int?,
+        rate: Int? = nil, imageMids: [String] = []
+    ) {
+        self.objectID = objectID
+        self.text = text
+        self.anonymous = anonymous
+        self.replyObjectID = replyObjectID
+        self.replyUID = replyUID
+        self.rate = rate
+        self.imageMids = imageMids
     }
 }
 
@@ -21,8 +27,10 @@ public struct CommunityCommentReviewActions {
     public let needsReview: @MainActor (CommunityCommentSubmission) -> Bool
     public let acknowledge: @MainActor (CommunityCommentSubmission) -> Void
 
-    public init(needsReview: @escaping @MainActor (CommunityCommentSubmission) -> Bool,
-        acknowledge: @escaping @MainActor (CommunityCommentSubmission) -> Void) {
+    public init(
+        needsReview: @escaping @MainActor (CommunityCommentSubmission) -> Bool,
+        acknowledge: @escaping @MainActor (CommunityCommentSubmission) -> Void
+    ) {
         self.needsReview = needsReview
         self.acknowledge = acknowledge
     }
@@ -72,7 +80,7 @@ public struct CommunityCommentState {
         uncertainSubmissions.insert(submission)
     }
 
-    public mutating func acknowledgeSubmissionReview(_ submission: CommunityCommentSubmission) {
+    public mutating func confirmSubmissionReview(_ submission: CommunityCommentSubmission) {
         uncertainSubmissions.remove(submission)
     }
 
@@ -108,7 +116,9 @@ public struct CommunityCommentState {
         confirmedCreations.removeAll { readIDs.contains($0.comment.id) }
     }
 
-    public mutating func recordCreated(_ comment: CommunityComment, replyingTo parent: CommunityComment? = nil) {
+    public mutating func recordCreated(
+        _ comment: CommunityComment, replyingTo parent: CommunityComment? = nil
+    ) {
         confirmedDeletions.remove(comment.id)
         confirmedCreations.removeAll { $0.comment.id == comment.id }
         confirmedCreations.append(.init(comment: comment, parent: parent))
@@ -129,7 +139,9 @@ public struct CommunityCommentState {
         items = applyingLocalChanges(to: items, since: previousRevision)
     }
 
-    public func applyingLocalChanges(to comments: [CommunityComment], since revision: Int) -> [CommunityComment] {
+    public func applyingLocalChanges(to comments: [CommunityComment], since revision: Int)
+        -> [CommunityComment]
+    {
         func retainingComments(_ comments: [CommunityComment]) -> [CommunityComment] {
             comments.filter { !confirmedDeletions.contains($0.id) }.map { comment in
                 comment.replacingSubComments(retainingComments(comment.sub))
@@ -140,21 +152,33 @@ public struct CommunityCommentState {
             if let parent = creation.parent {
                 let index = result.firstIndex { $0.id == parent.id }
                 let current = index.map { result[$0] } ?? parent
-                if current.flattenedReplies.contains(where: { $0.id == creation.comment.id }) { continue }
-                let replies = current.sub.filter { $0.id != creation.comment.id } + [creation.comment]
+                if current.flattenedReplies.contains(where: { $0.id == creation.comment.id }) {
+                    continue
+                }
+                let replies =
+                    current.sub.filter { $0.id != creation.comment.id } + [creation.comment]
                 let updated = current.replacingSubComments(replies)
-                if let index { result[index] = updated }
-                else if order == .newest { result.insert(updated, at: 0) }
-                else { result.append(updated) }
+                if let index {
+                    result[index] = updated
+                } else if order == .newest {
+                    result.insert(updated, at: 0)
+                } else {
+                    result.append(updated)
+                }
             } else if !result.contains(where: { $0.id == creation.comment.id }) {
-                if order == .newest { result.insert(creation.comment, at: 0) }
-                else { result.append(creation.comment) }
+                if order == .newest {
+                    result.insert(creation.comment, at: 0)
+                } else {
+                    result.append(creation.comment)
+                }
             }
         }
         return applyingLikeChanges(to: result, since: revision).comments
     }
 
-    private func applyingLikeChanges(to comments: [CommunityComment], since revision: Int) -> (comments: [CommunityComment], changed: Bool) {
+    private func applyingLikeChanges(to comments: [CommunityComment], since revision: Int) -> (
+        comments: [CommunityComment], changed: Bool
+    ) {
         var result = comments
         var changed = false
         for (index, comment) in comments.enumerated() {
@@ -165,12 +189,17 @@ public struct CommunityCommentState {
                 updated = updated.updatingLike(change.result.like, likeNum: change.result.likeNum)
                 hasChange = true
             }
-            if hasChange { result[index] = updated; changed = true }
+            if hasChange {
+                result[index] = updated
+                changed = true
+            }
         }
         return (result, changed)
     }
 
-    public mutating func restoreAfterRefreshFailure(_ previous: Self, failureStatus: CommunityLoadStatus? = nil) {
+    public mutating func restoreFailedRefresh(
+        _ previous: Self, failureStatus: CommunityLoadStatus? = nil
+    ) {
         let currentResults = likeResults
         let currentRevision = likeRevision
         let currentPending = likesNeedingReview
@@ -187,9 +216,13 @@ public struct CommunityCommentState {
         uncertainSubmissions = currentSubmissions
         items = applyingLocalChanges(to: items, since: previous.likeRevision)
         isLoadingMore = false
-        if !items.isEmpty { status = .loaded }
-        else if let failureStatus { status = failureStatus }
-        else if status == .loading { status = .idle }
+        if !items.isEmpty {
+            status = .loaded
+        } else if let failureStatus {
+            status = failureStatus
+        } else if status == .loading {
+            status = .idle
+        }
     }
 }
 
@@ -213,7 +246,9 @@ extension CommunityCommentState: PagedItemsState {}
         hasBootstrapped = completed
     }
 
-    public static func loadResult<Value: Sendable>(_ operation: @MainActor () async throws -> Value) async -> Result<Value, Error> {
+    public static func loadResult<Value: Sendable>(_ operation: @MainActor () async throws -> Value)
+        async -> Result<Value, Error>
+    {
         do {
             try Task.checkCancellation()
             let value = try await operation()
@@ -224,12 +259,18 @@ extension CommunityCommentState: PagedItemsState {}
 
     public init() {}
 
-    public static func recoverComments(_ state: CommunityCommentState,
-        refresh: @MainActor () async -> Void, loadMore: @MainActor () async -> Void) async {
+    public static func recoverComments(
+        _ state: CommunityCommentState,
+        refresh: @MainActor () async -> Void, loadMore: @MainActor () async -> Void
+    ) async {
         guard !Task.isCancelled, state.status != .loading, !state.isLoadingMore else { return }
-        if state.needsRefresh { await refresh() }
-        else if case .failed = state.status { await refresh() }
-        else if state.paginationError != nil { await loadMore() }
+        if state.needsRefresh {
+            await refresh()
+        } else if case .failed = state.status {
+            await refresh()
+        } else if state.paginationError != nil {
+            await loadMore()
+        }
     }
 
     deinit { tasks.values.forEach { $0.cancel() } }

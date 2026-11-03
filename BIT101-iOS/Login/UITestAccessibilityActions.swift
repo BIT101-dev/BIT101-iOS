@@ -1,10 +1,13 @@
 #if BIT101_UI_TESTING || EXTENDED_AUTOMATION
 nonisolated enum UITestControlIdentity {
-    static func key(scope: String, ancestors: [String], identifier: String, label: String, type: Int) -> String {
+    static func key(
+        scope: String, ancestors: [String], identifier: String, label: String, type: Int
+    ) -> String {
         let control = identifier.isEmpty ? "\(type):\(label)" : identifier
         var path = ancestors
         while !identifier.isEmpty && path.last == identifier { path.removeLast() }
-        return ([scope] + path + [control]).map { "\($0.utf8.count):\($0)" }.joined(separator: ":")
+        return ([scope] + path + [control]).map { "\($0.utf8.count):\($0)" }.joined(
+            separator: ":")
     }
 }
 
@@ -30,11 +33,18 @@ enum UITestAccessibilityActions {
         var keyboardVisible = false
         override init() {
             super.init()
-            CADisplayLink(target: self, selector: #selector(tick)).add(to: .main, forMode: .common)
-            for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardDidShowNotification] {
-                NotificationCenter.default.addObserver(self, selector: #selector(keyboardShown), name: name, object: nil)
+            CADisplayLink(target: self, selector: #selector(tick)).add(
+                to: .main, forMode: .common)
+            for name in [
+                UIResponder.keyboardWillShowNotification,
+                UIResponder.keyboardDidShowNotification,
+            ] {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(keyboardShown), name: name, object: nil)
             }
-            NotificationCenter.default.addObserver(self, selector: #selector(keyboardHidden), name: UIResponder.keyboardDidHideNotification, object: nil)
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(keyboardHidden),
+                name: UIResponder.keyboardDidHideNotification, object: nil)
         }
         @objc private func tick() {
             UITestAccessibilityActions.invalidate()
@@ -54,7 +64,7 @@ enum UITestAccessibilityActions {
     private static var unidentified = Set<String>()
     private static var currentScope = ""
     private static weak var presentedController: UIViewController?
-    private static weak var occlusionView: UIView?
+    static weak var occlusionView: UIView?
     private static var presentationGeneration = 0
 
     static func invalidate() {
@@ -63,16 +73,27 @@ enum UITestAccessibilityActions {
     }
 
     @discardableResult
-    static func record(_ identifier: String, label: String = "", type: Int = 0, scope: String? = nil, instance: String? = nil, action: String = "activate") -> Bool {
+    static func record(
+        _ identifier: String, label: String = "", type: Int = 0, scope: String? = nil,
+        instance: String? = nil, action: String = "activate"
+    ) -> Bool {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
-        guard let identity = instance, observed.contains(identity), let captured = observations[identity],
-              captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
-              !identifier.isEmpty || captured["label"] as? String == label,
-              captured["scope"] as? String == scope else { return false }
+        guard let identity = instance, observed.contains(identity),
+            let captured = observations[identity],
+            captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
+            !identifier.isEmpty || captured["label"] as? String == label,
+            captured["scope"] as? String == scope
+        else { return false }
         if !key.isEmpty {
             visited.insert(identity)
-            let actions = Set(visitedControls[identity]?["actions"] as? [String] ?? []).union([action])
-            visitedControls[identity] = ["identifier": identifier, "label": label, "type": type, "scope": scope ?? currentScope, "instance": identity, "actions": actions.sorted()]
+            let actions = Set(visitedControls[identity]?["actions"] as? [String] ?? []).union([
+                action
+            ])
+            visitedControls[identity] = [
+                "identifier": identifier, "label": label, "type": type,
+                "scope": scope ?? currentScope, "instance": identity,
+                "actions": actions.sorted(),
+            ]
         }
         return !key.isEmpty
     }
@@ -80,36 +101,61 @@ enum UITestAccessibilityActions {
     /// 事件回调来自绑定控件的实际执行路径，沿独立身份登记观察与动作。
     static func recordCallback(_ identifier: String, action: String) {
         guard !identifier.isEmpty else { return }
-        let identity = UITestControlIdentity.key(scope: currentScope, ancestors: ["callback"], identifier: identifier, label: "", type: 0) + "#0"
-        observations[identity] = ["identifier": identifier, "label": "", "type": 0, "scope": currentScope]
+        let identity =
+            UITestControlIdentity.key(
+                scope: currentScope, ancestors: ["callback"], identifier: identifier, label: "",
+                type: 0) + "#0"
+        observations[identity] = [
+            "identifier": identifier, "label": "", "type": 0, "scope": currentScope,
+        ]
         observed.insert(identity)
         record(identifier, type: 0, scope: currentScope, instance: identity, action: action)
     }
 
     /// 平台界面的控件由操作前的 XCTest 原生快照捕获。
     static func nativeIdentity(_ parameters: [String: String]) -> String {
-        let identifier = parameters["identifier"] ?? "", label = parameters["label"] ?? ""
-        let frame = ["x", "y", "width", "height"].compactMap { parameters[$0].flatMap(Double.init) }
+        let identifier = parameters["identifier"] ?? ""
+        let label = parameters["label"] ?? ""
+        let frame = ["x", "y", "width", "height"].compactMap {
+            parameters[$0].flatMap(Double.init)
+        }
         guard !identifier.isEmpty || !label.isEmpty, parameters["scope"] == currentScope,
-              let type = parameters["type"].flatMap(Int.init), type > 0,
-              frame.count == 4, frame.allSatisfy(\.isFinite), frame[2] > 0, frame[3] > 0,
-              ["0", "1"].contains(parameters["enabled"] ?? "") else { return "" }
-        let identity = UITestControlIdentity.key(scope: currentScope, ancestors: ["XCTest"], identifier: identifier, label: label, type: type) + "#0"
-        observations[identity] = ["identifier": identifier, "label": label, "type": type, "scope": currentScope]
-        if parameters["enabled"] == "1" { observed.insert(identity) } else { disabledObserved.insert(identity) }
+            let type = parameters["type"].flatMap(Int.init), type > 0,
+            frame.count == 4, frame.allSatisfy(\.isFinite), frame[2] > 0, frame[3] > 0,
+            ["0", "1"].contains(parameters["enabled"] ?? "")
+        else { return "" }
+        let identity =
+            UITestControlIdentity.key(
+                scope: currentScope, ancestors: ["XCTest"], identifier: identifier,
+                label: label, type: type) + "#0"
+        observations[identity] = [
+            "identifier": identifier, "label": label, "type": type, "scope": currentScope,
+        ]
+        if parameters["enabled"] == "1" {
+            observed.insert(identity)
+        } else {
+            disabledObserved.insert(identity)
+        }
         return identity
     }
 
-    private static func record(_ attributes: [String: Any], action: String = "activate") {
-        record(attributes["identifier"] as? String ?? "", label: attributes["label"] as? String ?? "",
-               type: attributes["elementType"] as? Int ?? 0, scope: attributes["scope"] as? String, instance: attributes["instance"] as? String, action: action)
+    static func record(_ attributes: [String: Any], action: String = "activate") {
+        record(
+            attributes["identifier"] as? String ?? "",
+            label: attributes["label"] as? String ?? "",
+            type: attributes["elementType"] as? Int ?? 0, scope: attributes["scope"] as? String,
+            instance: attributes["instance"] as? String, action: action)
     }
 
-    static func checkDisabled(_ identifier: String, label: String, type: Int, scope: String?, instance: String?) {
+    static func checkDisabled(
+        _ identifier: String, label: String, type: Int, scope: String?, instance: String?
+    ) {
         let key = identifier.isEmpty && !label.isEmpty ? "\(type):\(label)" : identifier
-        if !key.isEmpty, let instance, disabledObserved.contains(instance), let captured = observations[instance],
-           captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
-           captured["scope"] as? String == scope {
+        if !key.isEmpty, let instance, disabledObserved.contains(instance),
+            let captured = observations[instance],
+            captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
+            captured["scope"] as? String == scope
+        {
             disabledChecked.insert(instance)
         }
     }
@@ -117,194 +163,35 @@ enum UITestAccessibilityActions {
     static func identity(_ parameters: [String: String]) -> String {
         guard let tree = tree() else { return "" }
         let identifier = parameters["identifier"] ?? ""
-        let frame = ["x", "y", "width", "height"].compactMap { parameters[$0].flatMap(Double.init) }
+        let frame = ["x", "y", "width", "height"].compactMap {
+            parameters[$0].flatMap(Double.init)
+        }
         guard frame.count == 4 else { return "" }
         let matches = tree.descendants.filter { element in
             let attributes = element.attributes
             guard let bounds = attributes["frame"] as? [Double], bounds.count == 4,
                 attributes["elementType"] as? Int == Int(parameters["type"] ?? ""),
-                identifier.isEmpty ? attributes["label"] as? String == parameters["label"] : attributes["identifier"] as? String == identifier
+                identifier.isEmpty
+                    ? attributes["label"] as? String == parameters["label"]
+                    : attributes["identifier"] as? String == identifier
             else { return false }
             return zip(bounds, frame).allSatisfy { abs($0 - $1) <= 1 }
         }
-        let instances = Set(matches.compactMap { $0.attributes["instance"] as? String }.filter { !$0.isEmpty })
+        let instances = Set(
+            matches.compactMap { $0.attributes["instance"] as? String }.filter { !$0.isEmpty })
         return instances.count == 1 ? instances.first ?? "" : ""
     }
 
     @discardableResult
-    static func observe() -> String { _ = tree(); return currentScope }
-
-    static func mapCamera() throws -> Data {
-        func find(in view: UIView) -> MKMapView? {
-            guard !view.isHidden, view.alpha > 0 else { return nil }
-            if let map = view as? MKMapView, let window = map.window,
-               map.convert(map.bounds, to: window).intersects(window.bounds) { return map }
-            return view.subviews.lazy.compactMap { find(in: $0) }.first
-        }
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }
-        guard let map = windows.lazy.compactMap({ find(in: $0) }).first else {
-            throw NSError(domain: "BIT101.UITest", code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "地图相机采样需要当前可见的原生地图。"])
-        }
-        return try JSONSerialization.data(withJSONObject: [
-            "latitude": map.region.center.latitude, "longitude": map.region.center.longitude,
-            "latitudeDelta": map.region.span.latitudeDelta, "longitudeDelta": map.region.span.longitudeDelta,
-            "distance": map.camera.centerCoordinateDistance,
-            "configuration": String(describing: type(of: map.preferredConfiguration)),
-            "scrollEnabled": map.isScrollEnabled, "zoomEnabled": map.isZoomEnabled
-        ])
+    static func observe() -> String {
+        _ = tree()
+        return currentScope
     }
-
-    static func previewPage(details: Bool = false) throws -> Data {
-        func find(in controller: UIViewController) -> QLPreviewController? {
-            if let preview = controller as? QLPreviewController, preview.viewIfLoaded?.window != nil { return preview }
-            if let presented = controller.presentedViewController, let preview = find(in: presented) { return preview }
-            return controller.children.lazy.compactMap { find(in: $0) }.first
-        }
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }
-        guard let preview = windows.compactMap(\.rootViewController).lazy.compactMap({ find(in: $0) }).first,
-              let source = preview.dataSource else {
-            throw NSError(domain: "BIT101.UITest", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "预览分页采样需要当前展示的系统预览器。"])
-        }
-        var result: [String: Any] = [
-            "index": preview.currentPreviewItemIndex, "count": source.numberOfPreviewItems(in: preview)
-        ]
-        if details {
-            result["items"] = (0..<source.numberOfPreviewItems(in: preview)).map { index -> [String: Any] in
-                let item = source.previewController(preview, previewItemAt: index)
-                guard let url = item.previewItemURL else { return ["index": index, "readable": false] }
-                let data = try? AppFileDirectories.files.readData(at: url)
-                return ["index": index, "extension": url.pathExtension,
-                    "readable": data != nil,
-                    "imageDecodable": data.flatMap { UIImage(data: $0) } != nil,
-                    "canPreview": QLPreviewController.canPreview(item)]
-            }
-            func viewTypes(_ view: UIView) -> [String] { [String(describing: type(of: view))] + view.subviews.flatMap(viewTypes) }
-            result["viewTypes"] = viewTypes(preview.view)
-        }
-        return try JSONSerialization.data(withJSONObject: result)
-    }
-
-    static func scroll(_ parameters: [String: String]) throws -> Data {
-        invalidate()
-        let elements = tree()?.descendants.filter {
-            [26, 32, 46].contains($0.attributes["elementType"] as? Int ?? 0)
-                && !($0.attributes["instance"] as? String ?? "").isEmpty && $0.object is UIScrollView
-        } ?? []
-        if parameters["command"] == "scroll-inventory" {
-            return try JSONSerialization.data(withJSONObject: elements.compactMap { element -> [String: Any]? in
-                guard let scroll = element.object as? UIScrollView, scroll.isScrollEnabled,
-                      let window = scroll.window, let scene = window.windowScene,
-                      scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
-                else { return nil }
-                var values = element.attributes
-                values["scrollInstance"] = String(describing: ObjectIdentifier(scroll))
-                values["hasRefreshControl"] = scroll.refreshControl != nil
-                values["refreshing"] = scroll.refreshControl?.isRefreshing ?? false
-                values["scrolling"] = scroll.isDragging || scroll.isDecelerating || scroll.isTracking
-                values["bounces"] = scroll.bounces
-                values["alwaysBounceVertical"] = scroll.alwaysBounceVertical
-                let insets = scroll.adjustedContentInset
-                let viewport = scroll.convert(scroll.bounds.inset(by: UIEdgeInsets(top: insets.top, left: 0,
-                    bottom: insets.bottom, right: 0)), to: window)
-                    .intersection(window.safeAreaLayoutGuide.layoutFrame)
-                if !viewport.isEmpty {
-                    let visible = window.convert(viewport, to: scene.screen.coordinateSpace)
-                    values["viewport"] = [Double(visible.minX), Double(visible.minY), Double(visible.width), Double(visible.height)]
-                }
-                let scale = Double(window.screen.scale)
-                func distance(_ points: CGFloat) -> Double {
-                    UITestScrollGeometry.visibleDistance(Double(points), scale: scale)
-                }
-                values["offset"] = [Double(scroll.contentOffset.x), Double(scroll.contentOffset.y)]
-                values["range"] = [distance(scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width),
-                    distance(scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height)]
-                values["remaining"] = [distance(scroll.contentSize.width + scroll.adjustedContentInset.right - scroll.bounds.width - scroll.contentOffset.x),
-                    distance(scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height - scroll.contentOffset.y)]
-                return values
-            })
-        }
-        guard let element = elements.first(where: { element in
-                  guard let scroll = element.object as? UIScrollView else { return false }
-                  return String(describing: ObjectIdentifier(scroll)) == parameters["scrollInstance"]
-              }),
-              let scroll = element.object as? UIScrollView,
-              let window = scroll.window,
-              let x = parameters["offsetX"].flatMap(Double.init), let y = parameters["offsetY"].flatMap(Double.init)
-        else { return Data("target missing".utf8) }
-        if parameters["command"] == "scroll-restore" {
-            guard !scroll.isDragging, !scroll.isDecelerating, !scroll.isTracking else { return Data("scrolling".utf8) }
-            scroll.setContentOffset(CGPoint(x: x, y: y), animated: false)
-            scroll.layoutIfNeeded()
-            invalidate()
-            let tolerance = 1 / window.screen.scale
-            let restored = abs(scroll.contentOffset.x - x) <= tolerance && abs(scroll.contentOffset.y - y) <= tolerance
-            return Data((restored ? "restored" : "layout pending").utf8)
-        }
-        let scale = Double(window.screen.scale)
-        let fits = UITestScrollGeometry.visibleDistance(Double(scroll.contentSize.width + scroll.adjustedContentInset.left + scroll.adjustedContentInset.right - scroll.bounds.width), scale: scale) == 0
-            && UITestScrollGeometry.visibleDistance(Double(scroll.contentSize.height + scroll.adjustedContentInset.top + scroll.adjustedContentInset.bottom - scroll.bounds.height), scale: scale) == 0
-        guard fits || scroll.contentOffset != CGPoint(x: x, y: y) else { return Data("unchanged".utf8) }
-        record(element.attributes["identifier"] as? String ?? "", label: element.attributes["label"] as? String ?? "",
-            type: element.attributes["elementType"] as? Int ?? 0, scope: element.attributes["scope"] as? String,
-            instance: element.attributes["instance"] as? String, action: fits ? "scroll-fit" : "scroll")
-        return Data((fits ? "fit" : "scrolled").utf8)
-    }
-
-    static func occlude(_ parameters: [String: String]) -> String {
-        occlusionView?.removeFromSuperview()
-        invalidate()
-        guard parameters["enabled"] == "1" else { return "cleared" }
-        guard let target = tree()?.descendants.first(where: { $0.attributes["identifier"] as? String == parameters["identifier"] })?.object,
-              let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-                .flatMap(\.windows).last(where: { !$0.isHidden && $0.windowLevel == .normal }),
-              var controller = window.rootViewController else { return "target missing" }
-        while let presented = controller.presentedViewController { controller = presented }
-        let overlay = UIButton(type: .system)
-        overlay.frame = controller.view.convert(target.accessibilityFrame, from: window.screen.coordinateSpace)
-        overlay.backgroundColor = .systemBackground
-        overlay.isAccessibilityElement = true
-        overlay.accessibilityIdentifier = "ui-test.occlusion"
-        overlay.accessibilityLabel = "遮挡测试覆盖层"
-        controller.view.addSubview(overlay)
-        occlusionView = overlay
-        return "covered"
-    }
-
-    private static var windowTraitValues: [[String: Any]] {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        return windows.filter { !$0.isHidden && $0.windowLevel == .normal }.map { window in
-            let sceneSize: CGSize
-            if #available(iOS 26.0, *) { sceneSize = window.windowScene?.effectiveGeometry.coordinateSpace.bounds.size ?? .zero }
-            else { sceneSize = window.bounds.size }
-            let divisionX: CGFloat
-            if #available(iOS 27.1, *) {
-                divisionX = window.reservedRegions(kind: .division, options: .includeInactive)
-                    .first { $0.frame.height > $0.frame.width }?.frame.midX ?? -1
-            } else { divisionX = -1 }
-            return ["idiom": window.traitCollection.userInterfaceIdiom.rawValue,
-                "horizontal": window.traitCollection.horizontalSizeClass.rawValue,
-                "vertical": window.traitCollection.verticalSizeClass.rawValue,
-                "width": window.bounds.width, "height": window.bounds.height,
-                "sceneWidth": sceneSize.width, "sceneHeight": sceneSize.height,
-                "sceneHorizontal": window.windowScene?.traitCollection.horizontalSizeClass.rawValue ?? 0,
-                "sceneVertical": window.windowScene?.traitCollection.verticalSizeClass.rawValue ?? 0,
-                "safeTop": window.safeAreaInsets.top, "safeBottom": window.safeAreaInsets.bottom,
-                "safeLeading": window.safeAreaInsets.left, "safeTrailing": window.safeAreaInsets.right,
-                "divisionX": divisionX,
-                "orientation": window.windowScene?.effectiveGeometry.interfaceOrientation.rawValue ?? 0]
-        }
-    }
-
-    static func windowLayout() throws -> Data { try JSONSerialization.data(withJSONObject: windowTraitValues) }
-
 
     static func coverage() throws -> Data {
         observe()
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
         return try JSONSerialization.data(withJSONObject: [
             "processIdentifier": ProcessInfo.processInfo.processIdentifier,
             "observed": observed.count, "visited": visited.count,
@@ -314,15 +201,18 @@ enum UITestAccessibilityActions {
             "scope": "mounted-controls", "unidentifiedControls": unidentified.count,
             "unidentifiedInstances": unidentified.sorted(),
             "disabledObserved": disabledObserved.count,
-            "disabledControls": disabledObserved.sorted(), "checkedDisabledControls": disabledChecked.sorted(),
+            "disabledControls": disabledObserved.sorted(),
+            "checkedDisabledControls": disabledChecked.sorted(),
             "pendingDisabled": disabledObserved.subtracting(disabledChecked).sorted(),
             "identityScope": "testCaseNavigationPresentationAndOccurrence",
-            "animationSpeeds": windows.filter { $0.windowLevel == .normal }.map { $0.layer.speed },
+            "animationSpeeds": windows.filter { $0.windowLevel == .normal }.map {
+                $0.layer.speed
+            },
             "animationsEnabled": UIView.areAnimationsEnabled,
             "windowTraits": windowTraitValues,
         ])
     }
-    private struct Element {
+    struct Element {
         let object: NSObject
         let attributes: [String: Any]
         let children: [Element]
@@ -333,15 +223,23 @@ enum UITestAccessibilityActions {
 
     static func read(_ parameters: [String: String]) throws -> Data {
         if parameters["command"] == "query-activate", parameters["hittable"] == "1",
-           performVisibleMenuAction(parameters["label"] ?? "") {
+            performVisibleMenuAction(parameters["label"] ?? "")
+        {
             recordCallback(parameters["label"] ?? "", action: "activate")
             invalidate()
             return Data("control".utf8)
         }
         guard let query = parameters["query"],
-              let steps = try JSONSerialization.jsonObject(with: Data(query.utf8)) as? [[String: String]],
-              let root = tree() else { return Data("native".utf8) }
-        if parameters["command"] == "query", !steps.contains(where: { ["5", "7"].contains($0["type"] ?? "") }), root.descendants.contains(where: { [5, 7].contains($0.attributes["elementType"] as? Int ?? -1) }) {
+            let steps = try JSONSerialization.jsonObject(with: Data(query.utf8))
+                as? [[String: String]],
+            let root = tree()
+        else { return Data("native".utf8) }
+        if parameters["command"] == "query",
+            !steps.contains(where: { ["5", "7"].contains($0["type"] ?? "") }),
+            root.descendants.contains(where: {
+                [5, 7].contains($0.attributes["elementType"] as? Int ?? -1)
+            })
+        {
             return Data("native".utf8)
         }
         var elements = [root]
@@ -361,18 +259,25 @@ enum UITestAccessibilityActions {
         }
         if parameters["command"] == "query-accessibility-action" {
             guard let element = elements.first, element.attributes["enabled"] as? Bool == true,
-                  let name = parameters["name"] else {
+                let name = parameters["name"]
+            else {
                 return Data("action missing".utf8)
             }
             let attributes = element.attributes
             let performed: Bool
             if name == "activate" {
                 performed = element.object.accessibilityActivate()
-            } else if let action = element.object.accessibilityCustomActions?.first(where: { $0.name == name }) {
-                if let handler = action.actionHandler { performed = handler(action) }
-                else if let target = action.target {
-                    performed = UIApplication.shared.sendAction(action.selector, to: target, from: action, for: nil)
-                } else { performed = false }
+            } else if let action = element.object.accessibilityCustomActions?.first(where: {
+                $0.name == name
+            }) {
+                if let handler = action.actionHandler {
+                    performed = handler(action)
+                } else if let target = action.target {
+                    performed = UIApplication.shared.sendAction(
+                        action.selector, to: target, from: action, for: nil)
+                } else {
+                    performed = false
+                }
             } else {
                 performed = false
             }
@@ -382,15 +287,20 @@ enum UITestAccessibilityActions {
         }
         if parameters["command"] == "query-activate" {
             guard let element = elements.first, parameters["hittable"] == "1",
-                  element.attributes["enabled"] as? Bool == true else { return Data("native".utf8) }
+                element.attributes["enabled"] as? Bool == true
+            else { return Data("native".utf8) }
             invalidate()
             let target = element.object
             let control = control(for: target)
             if let control, let hitIdentifier = identifier(of: control), !hitIdentifier.isEmpty,
-               hitIdentifier != identifier(of: target) { return Data("native".utf8) }
+                hitIdentifier != identifier(of: target)
+            {
+                return Data("native".utf8)
+            }
             if control?.showsMenuAsPrimaryAction == true { return Data("native".utf8) }
             if let control, control.isEnabled,
-               control.isContextMenuInteractionEnabled {
+                control.isContextMenuInteractionEnabled
+            {
                 guard identifier(of: target) == "BackButton" else { return Data("native".utf8) }
                 guard #available(iOS 17.4, *) else { return Data("native".utf8) }
                 control.performPrimaryAction()
@@ -403,7 +313,12 @@ enum UITestAccessibilityActions {
                 record(element.attributes)
                 return Data("control".utf8)
             }
-            if performBarButton(["identifier": element.attributes["identifier"] as? String ?? "", "label": element.attributes["label"] as? String ?? ""], control: control) {
+            if performBarButton(
+                [
+                    "identifier": element.attributes["identifier"] as? String ?? "",
+                    "label": element.attributes["label"] as? String ?? "",
+                ], control: control)
+            {
                 record(element.attributes)
                 return Data("control".utf8)
             }
@@ -412,40 +327,53 @@ enum UITestAccessibilityActions {
                 return Data("activated".utf8)
             }
             if let control, control.isEnabled,
-               control.allControlEvents.contains(.primaryActionTriggered) || control.allControlEvents.contains(.touchUpInside) {
-                control.sendActions(for: control.allControlEvents.contains(.primaryActionTriggered) ? .primaryActionTriggered : .touchUpInside)
+                control.allControlEvents.contains(.primaryActionTriggered)
+                    || control.allControlEvents.contains(.touchUpInside)
+            {
+                control.sendActions(
+                    for: control.allControlEvents.contains(.primaryActionTriggered)
+                        ? .primaryActionTriggered : .touchUpInside)
                 record(element.attributes)
                 return Data("control".utf8)
             }
             return Data("native".utf8)
         }
         if parameters["command"] == "query-reveal" {
-            guard let element = elements.first, let scroll = element.scroll, scroll.isScrollEnabled,
-                  !scroll.isPagingEnabled,
-                  scroll.contentSize.width <= scroll.bounds.width,
-                  let window = scroll.window, let values = element.attributes["frame"] as? [Double] else { return Data("native".utf8) }
+            guard let element = elements.first, let scroll = element.scroll,
+                scroll.isScrollEnabled,
+                !scroll.isPagingEnabled,
+                scroll.contentSize.width <= scroll.bounds.width,
+                let window = scroll.window,
+                let values = element.attributes["frame"] as? [Double]
+            else { return Data("native".utf8) }
             let frame = CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
             guard !frame.isEmpty else { return Data("native".utf8) }
-            let rect = scroll.convert(window.convert(frame, from: window.screen.coordinateSpace), from: window)
+            let rect = scroll.convert(
+                window.convert(frame, from: window.screen.coordinateSpace), from: window)
             scroll.scrollRectToVisible(rect, animated: false)
             invalidate()
             return Data("revealed".utf8)
         }
         if parameters["command"] == "query-input" {
             guard let element = elements.first,
-                  let frame = element.attributes["frame"] as? [Double] else { return Data("native".utf8) }
+                let frame = element.attributes["frame"] as? [Double]
+            else { return Data("native".utf8) }
             invalidate()
-            let response = input(["x": String(frame[0] + frame[2] / 2), "y": String(frame[1] + frame[3] / 2),
-                                  "text": parameters["text"] ?? ""])
+            let response = input([
+                "x": String(frame[0] + frame[2] / 2), "y": String(frame[1] + frame[3] / 2),
+                "text": parameters["text"] ?? "",
+            ])
             if response == "entered" { record(element.attributes, action: "input") }
             return Data((response == "input target missing" ? "native" : response).utf8)
         }
-        if steps.contains(where: { $0["type"] == "49" }), elements.first?.attributes["elementType"] as? Int == 52 {
+        if steps.contains(where: { $0["type"] == "49" }),
+            elements.first?.attributes["elementType"] as? Int == 52
+        {
             return Data("native".utf8)
         }
         return try JSONSerialization.data(withJSONObject: elements.map(\.attributes))
     }
-    private static func tree() -> Element? {
+    static func tree() -> Element? {
         _ = frameClock
         if treeBuilt { return cachedTree }
         cachedTree = makeTree()
@@ -457,26 +385,43 @@ enum UITestAccessibilityActions {
         guard UIApplication.shared.applicationState == .active else { return nil }
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows).filter { !$0.isHidden && $0.windowLevel == .normal }
-        guard let window = windows.last, var controller = window.rootViewController, !platform(controller) else { return nil }
+        guard let window = windows.last, var controller = window.rootViewController,
+            !platform(controller)
+        else { return nil }
         while let presented = controller.presentedViewController { controller = presented }
-        guard controller.view.convert(controller.view.bounds, to: window).intersects(window.bounds) else { return nil }
+        guard
+            controller.view.convert(controller.view.bounds, to: window).intersects(
+                window.bounds)
+        else { return nil }
         func navigationPath(in view: UIView) -> [String] {
             guard !view.isHidden, view.alpha > 0 else { return [] }
-            if let bar = view as? UINavigationBar { return (bar.items ?? []).compactMap(\.title) }
-            if let bar = view as? UITabBar { return [bar.selectedItem?.title].compactMap { $0 } }
+            if let bar = view as? UINavigationBar {
+                return (bar.items ?? []).compactMap(\.title)
+            }
+            if let bar = view as? UITabBar {
+                return [bar.selectedItem?.title].compactMap { $0 }
+            }
             return view.subviews.flatMap { navigationPath(in: $0) }
         }
         let scenario = AppUITestBootstrap.environment["BIT101_UI_TEST_CASE"] ?? "UIAutomation"
         let navigation = navigationPath(in: controller.view)
         var modal = [(controller as? UIAlertController)?.title].compactMap { $0 }
         if controller !== window.rootViewController {
-            if presentedController !== controller { presentationGeneration += 1; presentedController = controller }
+            if presentedController !== controller {
+                presentationGeneration += 1
+                presentedController = controller
+            }
             modal.append("presentation:\(presentationGeneration)")
-        } else { presentedController = nil }
+        } else {
+            presentedController = nil
+        }
         currentScope = ([scenario] + navigation + modal).joined(separator: " / ")
         var visited = Set<ObjectIdentifier>()
         var occurrenceFrames: [String: [CGRect]] = [:]
-        func make(_ object: NSObject, scroll inherited: UIScrollView? = nil, identityPath: [String] = []) -> Element? {
+        func make(
+            _ object: NSObject, scroll inherited: UIScrollView? = nil,
+            identityPath: [String] = []
+        ) -> Element? {
             guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
             if object is UIDatePicker || object is UIPickerView { return nil }
             if object.accessibilityElementsHidden { return nil }
@@ -486,7 +431,10 @@ enum UITestAccessibilityActions {
             if let view = object as? UIView {
                 var ancestor: UIView? = view
                 while let candidate = ancestor {
-                    if let container = candidate as? UIScrollView { scroll = container; break }
+                    if let container = candidate as? UIScrollView {
+                        scroll = container
+                        break
+                    }
                     ancestor = candidate.superview
                 }
             }
@@ -509,17 +457,30 @@ enum UITestAccessibilityActions {
             case is UITextView: type = 52
             case is UIScrollView: type = 46
             default:
-                if accessible && traits.contains(.toggleButton) { type = 40 }
-                else if accessible && traits.contains(.link) { type = 42 }
-                else if accessible && traits.contains(.button) { type = 9 }
-                else if accessible {
-                    let point = window.convert(CGPoint(x: frame.midX, y: frame.midY), from: window.screen.coordinateSpace)
+                if accessible && traits.contains(.toggleButton) {
+                    type = 40
+                } else if accessible && traits.contains(.link) {
+                    type = 42
+                } else if accessible && traits.contains(.button) {
+                    type = 9
+                } else if accessible {
+                    let point = window.convert(
+                        CGPoint(x: frame.midX, y: frame.midY),
+                        from: window.screen.coordinateSpace)
                     inputView = window.hitTest(point, with: nil)
-                    while let view = inputView, !(view is UITextField || view is UITextView) { inputView = view.superview }
-                    if let input = inputView as? UITextField { type = input.isSecureTextEntry ? 50 : 49 }
-                    else if inputView is UITextView { type = 52 }
-                    else { type = traits.contains(.staticText) ? 48 : 1 }
-                } else { type = 1 }
+                    while let view = inputView, !(view is UITextField || view is UITextView) {
+                        inputView = view.superview
+                    }
+                    if let input = inputView as? UITextField {
+                        type = input.isSecureTextEntry ? 50 : 49
+                    } else if inputView is UITextView {
+                        type = 52
+                    } else {
+                        type = traits.contains(.staticText) ? 48 : 1
+                    }
+                } else {
+                    type = 1
+                }
             }
             var label = object.accessibilityLabel ?? ""
             var id = identifier(of: object) ?? ""
@@ -529,38 +490,70 @@ enum UITestAccessibilityActions {
             }
             var value = object.accessibilityValue
             var placeholder = ""
-            if let field = (object as? UITextField) ?? (type == 49 || type == 50 ? inputView as? UITextField : nil) {
-                value = field.isSecureTextEntry ? String(repeating: "•", count: field.text?.count ?? 0) : field.text
+            if let field = (object as? UITextField)
+                ?? (type == 49 || type == 50 ? inputView as? UITextField : nil)
+            {
+                value =
+                    field.isSecureTextEntry
+                    ? String(repeating: "•", count: field.text?.count ?? 0) : field.text
                 placeholder = field.placeholder ?? ""
-            } else if let field = (object as? UITextView) ?? (type == 52 ? inputView as? UITextView : nil) { value = field.text }
-            else if let control = object as? UISwitch { value = control.isOn ? "1" : "0" }
-            let enabled = !traits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
-            var selected = traits.contains(.selected) || (object as? UIControl)?.isSelected == true
+            } else if let field = (object as? UITextView)
+                ?? (type == 52 ? inputView as? UITextView : nil)
+            {
+                value = field.text
+            } else if let control = object as? UISwitch {
+                value = control.isOn ? "1" : "0"
+            }
+            let enabled =
+                !traits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
+            var selected =
+                traits.contains(.selected) || (object as? UIControl)?.isSelected == true
             if type == 9 {
                 var container: Any? = object
                 var ancestors = Set<ObjectIdentifier>()
-                while let element = container as? NSObject, ancestors.insert(ObjectIdentifier(element)).inserted {
+                while let element = container as? NSObject,
+                    ancestors.insert(ObjectIdentifier(element)).inserted
+                {
                     if let view = element as? UIView {
-                        if let segmented = view as? UISegmentedControl, segmented.selectedSegmentIndex >= 0,
-                           let title = segmented.titleForSegment(at: segmented.selectedSegmentIndex) {
+                        if let segmented = view as? UISegmentedControl,
+                            segmented.selectedSegmentIndex >= 0,
+                            let title = segmented.titleForSegment(
+                                at: segmented.selectedSegmentIndex)
+                        {
                             selected = label == title
                         }
                         container = view.superview
-                    } else { container = (element as? UIAccessibilityElement)?.accessibilityContainer }
+                    } else {
+                        container = (element as? UIAccessibilityElement)?.accessibilityContainer
+                    }
                 }
             }
             var instance = ""
             let scrollContainer = [26, 32, 46].contains(type) && !id.isEmpty
-            if scrollContainer || accessible && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type) {
-                if id.isEmpty && label.isEmpty { unidentified.insert("\(currentScope):\(type)") }
-                else {
-                    let key = UITestControlIdentity.key(scope: currentScope, ancestors: identityPath, identifier: id, label: label, type: type)
+            if scrollContainer
+                || accessible && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type)
+            {
+                if id.isEmpty && label.isEmpty {
+                    unidentified.insert("\(currentScope):\(type)")
+                } else {
+                    let key = UITestControlIdentity.key(
+                        scope: currentScope, ancestors: identityPath, identifier: id,
+                        label: label, type: type)
                     var frames = occurrenceFrames[key, default: []]
                     let ordinal = frames.firstIndex(of: frame) ?? frames.count
-                    if ordinal == frames.count { frames.append(frame); occurrenceFrames[key] = frames }
+                    if ordinal == frames.count {
+                        frames.append(frame)
+                        occurrenceFrames[key] = frames
+                    }
                     instance = key + "#\(ordinal)"
-                    observations[instance] = ["identifier": id, "label": label, "type": type, "scope": currentScope]
-                    if enabled { observed.insert(instance) } else { disabledObserved.insert(instance) }
+                    observations[instance] = [
+                        "identifier": id, "label": label, "type": type, "scope": currentScope,
+                    ]
+                    if enabled {
+                        observed.insert(instance)
+                    } else {
+                        disabledObserved.insert(instance)
+                    }
                 }
             }
             var attributes: [String: Any] = [
@@ -570,55 +563,88 @@ enum UITestAccessibilityActions {
                 "placeholderValue": placeholder,
                 "exists": true, "enabled": enabled,
                 "selected": selected,
-                "frame": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+                "frame": [
+                    Double(frame.minX), Double(frame.minY), Double(frame.width),
+                    Double(frame.height),
+                ],
             ]
             if let value { attributes["value"] = value }
             let childIdentityPath = id.isEmpty ? identityPath : identityPath + [id]
             var children: [Element] = []
             let count = object.accessibilityElementCount()
-            if count != NSNotFound && count > 0 && !object.accessibilityTraits.contains(.adjustable) {
+            if count != NSNotFound && count > 0
+                && !object.accessibilityTraits.contains(.adjustable)
+            {
                 for index in 0..<count {
                     if let child = object.accessibilityElement(at: index) as? NSObject,
-                       let element = make(child, scroll: scroll, identityPath: childIdentityPath) { children.append(element) }
+                        let element = make(
+                            child, scroll: scroll, identityPath: childIdentityPath)
+                    {
+                        children.append(element)
+                    }
                 }
             }
             if let view = object as? UIView {
-                children += view.subviews.compactMap { make($0, scroll: scroll, identityPath: childIdentityPath) }
+                children += view.subviews.compactMap {
+                    make($0, scroll: scroll, identityPath: childIdentityPath)
+                }
             }
-            return Element(object: object, attributes: attributes, children: children, scroll: scroll)
+            return Element(
+                object: object, attributes: attributes, children: children, scroll: scroll)
         }
         guard var content = make(controller.view) else { return nil }
         if let alert = controller as? UIAlertController {
             var attributes = content.attributes
             attributes["elementType"] = alert.preferredStyle == .alert ? 7 : 5
             attributes["label"] = alert.title ?? ""
-            content = Element(object: content.object, attributes: attributes, children: content.children, scroll: nil)
+            content = Element(
+                object: content.object, attributes: attributes, children: content.children,
+                scroll: nil)
         }
         let windowAttributes: [String: Any] = [
             "identifier": "", "label": "", "elementType": 4, "exists": true,
             "enabled": true, "selected": false,
-            "frame": [Double(window.frame.minX), Double(window.frame.minY), Double(window.frame.width), Double(window.frame.height)],
+            "frame": [
+                Double(window.frame.minX), Double(window.frame.minY),
+                Double(window.frame.width), Double(window.frame.height),
+            ],
         ]
-        return Element(object: window, attributes: windowAttributes.merging(["elementType": 2]) { _, type in type },
-                       children: [Element(object: window, attributes: windowAttributes, children: [content], scroll: nil)], scroll: nil)
+        return Element(
+            object: window,
+            attributes: windowAttributes.merging(["elementType": 2]) { _, type in type },
+            children: [
+                Element(
+                    object: window, attributes: windowAttributes, children: [content],
+                    scroll: nil)
+            ], scroll: nil)
     }
 
     private static func platform(_ controller: UIViewController) -> Bool {
-        controller is PHPickerViewController || controller is QLPreviewController || controller is UIActivityViewController
-            || controller is UIImagePickerController || controller is UIDocumentPickerViewController
+        controller is PHPickerViewController || controller is QLPreviewController
+            || controller is UIActivityViewController
+            || controller is UIImagePickerController
+            || controller is UIDocumentPickerViewController
             || controller.children.contains(where: platform)
             || controller.presentedViewController.map(platform) == true
     }
 
     static func finishInput() -> String {
         if let input = focusedInput(), let accessory = input.inputAccessoryView as? UIToolbar,
-           let item = accessory.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }), let button = item.customView as? UIButton {
+            let item = accessory.items?.first(where: {
+                $0.accessibilityIdentifier == "keyboard.dismiss"
+            }), let button = item.customView as? UIButton
+        {
             button.sendActions(for: .touchUpInside)
             return "finished"
         }
         func item(in view: UIView) -> UIBarButtonItem? {
             if let toolbar = view as? UIToolbar,
-               let item = toolbar.items?.first(where: { $0.accessibilityIdentifier == "keyboard.dismiss" }) { return item }
+                let item = toolbar.items?.first(where: {
+                    $0.accessibilityIdentifier == "keyboard.dismiss"
+                })
+            {
+                return item
+            }
             return view.subviews.lazy.compactMap { item(in: $0) }.first
         }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
@@ -635,31 +661,56 @@ enum UITestAccessibilityActions {
     private static func focusedInput() -> (UIResponder & UITextInput)? {
         func find(_ view: UIView) -> (UIResponder & UITextInput)? {
             if view.isFirstResponder, view is UITextField || view is UITextView,
-               let input = view as? (UIResponder & UITextInput) { return input }
+                let input = view as? (UIResponder & UITextInput)
+            {
+                return input
+            }
             return view.subviews.lazy.compactMap(find).first
         }
-        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-            .lazy.compactMap(find).first
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(
+            \.windows
+        )
+        .lazy.compactMap(find).first
     }
 
     static func safeAreaFrame() throws -> Data {
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(where: \.isKeyWindow),
-              let scene = window.windowScene else { throw CocoaError(.coderInvalidValue) }
-        let frame = window.convert(window.safeAreaLayoutGuide.layoutFrame, to: scene.screen.coordinateSpace)
+        guard
+            let window = UIApplication.shared.connectedScenes.compactMap({
+                $0 as? UIWindowScene
+            })
+            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(
+                where: \.isKeyWindow),
+            let scene = window.windowScene
+        else { throw CocoaError(.coderInvalidValue) }
+        let frame = window.convert(
+            window.safeAreaLayoutGuide.layoutFrame, to: scene.screen.coordinateSpace)
         return try JSONEncoder().encode(frame)
     }
 
     static func keyboardState(returnTitle: String? = nil) -> String {
         if let returnTitle {
-            for window in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).flatMap(\.windows) {
+            for window in UIApplication.shared.connectedScenes.compactMap({
+                $0 as? UIWindowScene
+            }).flatMap(\.windows) {
                 var controller = window.rootViewController
-                while let presented = controller?.presentedViewController { controller = presented }
+                while let presented = controller?.presentedViewController {
+                    controller = presented
+                }
                 if let alert = controller as? UIAlertController {
                     let commands = alert.keyCommands ?? []
-                    if alert.preferredAction?.title == returnTitle, alert.preferredAction?.isEnabled == true,
-                       commands.contains(where: { $0.input == "\r" && $0.modifierFlags.isEmpty }) { return "ready" }
-                    return "waiting: preferred=\(alert.preferredAction?.title ?? "none"), enabled=\(alert.preferredAction?.isEnabled == true), commands=\(commands.map { String(reflecting: $0.input) }.joined(separator: ","))"
+                    if alert.preferredAction?.title == returnTitle,
+                        alert.preferredAction?.isEnabled == true,
+                        commands.contains(where: {
+                            $0.input == "\r" && $0.modifierFlags.isEmpty
+                        })
+                    {
+                        return "ready"
+                    }
+                    let preferred = alert.preferredAction?.title ?? "none"
+                    let enabled = alert.preferredAction?.isEnabled == true
+                    let inputs = commands.map { String(reflecting: $0.input) }.joined(
+                        separator: ",")
+                    return "waiting: preferred=\(preferred), enabled=\(enabled), commands=\(inputs)"
                 }
             }
             return "waiting"
@@ -670,29 +721,40 @@ enum UITestAccessibilityActions {
     static func selectInput() -> String {
         func select(in view: UIView) -> Bool {
             if view.isFirstResponder, let input = view as? UITextInput,
-               let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) {
+                let range = input.textRange(
+                    from: input.beginningOfDocument, to: input.endOfDocument)
+            {
                 input.selectedTextRange = range
                 return true
             }
             return view.subviews.contains(where: select)
         }
         return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).contains(where: { select(in: $0) }) ? "selected" : "input focus missing"
+            .flatMap(\.windows).contains(where: { select(in: $0) })
+            ? "selected" : "input focus missing"
     }
 
     static func input(_ parameters: [String: String]) -> String {
         guard UIApplication.shared.applicationState == .active else { return "native" }
-        guard let x = parameters["x"].flatMap(Double.init), let y = parameters["y"].flatMap(Double.init),
-              let text = parameters["text"] else { return "invalid input" }
+        guard let x = parameters["x"].flatMap(Double.init),
+            let y = parameters["y"].flatMap(Double.init),
+            let text = parameters["text"]
+        else { return "invalid input" }
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            for window in scene.windows.reversed() where !window.isHidden && window.windowLevel == .normal {
-                let point = window.convert(CGPoint(x: x, y: y), from: scene.screen.coordinateSpace)
+            for window in scene.windows.reversed()
+            where !window.isHidden && window.windowLevel == .normal {
+                let point = window.convert(
+                    CGPoint(x: x, y: y), from: scene.screen.coordinateSpace)
                 var view = window.hitTest(point, with: nil)
                 while let candidate = view {
                     if candidate is UITextField || candidate is UITextView,
-                       let input = candidate as? (UIView & UITextInput) {
+                        let input = candidate as? (UIView & UITextInput)
+                    {
                         guard input.isFirstResponder else { return "input focus missing" }
-                        guard let range = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument) else {
+                        guard
+                            let range = input.textRange(
+                                from: input.beginningOfDocument, to: input.endOfDocument)
+                        else {
                             return "input range missing"
                         }
                         input.selectedTextRange = range
@@ -712,28 +774,38 @@ enum UITestAccessibilityActions {
         let control = control(for: element)
         if control?.showsMenuAsPrimaryAction == true { return "native" }
         if let control, control.isEnabled,
-           control.isContextMenuInteractionEnabled {
+            control.isContextMenuInteractionEnabled
+        {
             guard parameters["identifier"] == "BackButton" else { return "native" }
             guard #available(iOS 17.4, *) else { return "native" }
             control.performPrimaryAction()
             return "control"
         }
         if performBarButton(parameters, control: control) { return "control" }
-        return element.accessibilityActivate() ? "activated" : "native:\(NSStringFromClass(type(of: element)))"
+        return element.accessibilityActivate()
+            ? "activated" : "native:\(NSStringFromClass(type(of: element)))"
     }
 
     private static func performVisibleMenuAction(_ title: String) -> Bool {
         guard !title.isEmpty else { return false }
         func action(in menu: UIMenu) -> UIAction? {
             for child in menu.children {
-                if let item = child as? UIAction, item.title == title, !item.attributes.contains(.disabled) { return item }
-                if let submenu = child as? UIMenu, let item = action(in: submenu) { return item }
+                if let item = child as? UIAction, item.title == title,
+                    !item.attributes.contains(.disabled)
+                {
+                    return item
+                }
+                if let submenu = child as? UIMenu, let item = action(in: submenu) {
+                    return item
+                }
             }
             return nil
         }
         func perform(in view: UIView) -> Bool {
             guard !view.isHidden, view.alpha > 0 else { return false }
-            if let control = view as? UIControl, let interaction = control.contextMenuInteraction {
+            if let control = view as? UIControl,
+                let interaction = control.contextMenuInteraction
+            {
                 var selected: UIAction?
                 interaction.updateVisibleMenu { menu in
                     selected = action(in: menu)
@@ -747,16 +819,20 @@ enum UITestAccessibilityActions {
             }
             return view.subviews.contains(where: perform)
         }
-        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-            .filter { !$0.isHidden && $0.windowLevel == .normal }.contains(where: perform)
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(
+            \.windows
+        )
+        .filter { !$0.isHidden && $0.windowLevel == .normal }.contains(where: perform)
     }
 
     private static func control(for target: NSObject) -> UIControl? {
         if let control = target as? UIControl { return control }
         let frame = target.accessibilityFrame
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
         for window in windows.reversed() where !window.isHidden && window.windowLevel == .normal {
-            let point = window.convert(CGPoint(x: frame.midX, y: frame.midY), from: window.screen.coordinateSpace)
+            let point = window.convert(
+                CGPoint(x: frame.midX, y: frame.midY), from: window.screen.coordinateSpace)
             var hit = window.hitTest(point, with: nil)
             while let view = hit, !(view is UIControl) { hit = view.superview }
             if let control = hit as? UIControl { return control }
@@ -764,23 +840,36 @@ enum UITestAccessibilityActions {
         return nil
     }
 
-    private static func performBarButton(_ parameters: [String: String], control: UIControl?) -> Bool {
+    private static func performBarButton(_ parameters: [String: String], control: UIControl?)
+        -> Bool
+    {
         let id = parameters["identifier"] ?? ""
         let label = parameters["label"] ?? ""
         func find(in view: UIView) -> UIBarButtonItem? {
-            guard !view.isHidden, view.alpha > 0, !view.accessibilityElementsHidden else { return nil }
+            guard !view.isHidden, view.alpha > 0, !view.accessibilityElementsHidden else {
+                return nil
+            }
             if let bar = view as? UINavigationBar, let window = bar.window,
-               bar.convert(bar.bounds, to: window).intersects(window.bounds), let item = bar.topItem {
-                for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) where button.isEnabled && button.menu == nil {
+                bar.convert(bar.bounds, to: window).intersects(window.bounds),
+                let item = bar.topItem
+            {
+                for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
+                where button.isEnabled && button.menu == nil {
                     if !id.isEmpty && button.accessibilityIdentifier == id
-                        || !label.isEmpty && [button.title, button.accessibilityLabel, button.primaryAction?.title].contains(label) {
+                        || !label.isEmpty
+                            && [
+                                button.title, button.accessibilityLabel,
+                                button.primaryAction?.title,
+                            ].contains(label)
+                    {
                         return button
                     }
                 }
             }
             return view.subviews.lazy.compactMap { find(in: $0) }.first
         }
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
         for window in windows.reversed() where !window.isHidden && window.windowLevel == .normal {
             guard var controller = window.rootViewController else { continue }
             while let presented = controller.presentedViewController { controller = presented }
@@ -790,25 +879,32 @@ enum UITestAccessibilityActions {
                 return true
             }
             if item.primaryAction == nil, let action = item.action,
-               UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil) { return true }
+                UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil)
+            {
+                return true
+            }
         }
         return false
     }
 
     static func resolve(_ parameters: [String: String]) throws -> Data {
-        guard let element = button(parameters) ?? button(parameters, partialLabel: true) else { return Data("native".utf8) }
+        guard let element = button(parameters) ?? button(parameters, partialLabel: true) else {
+            return Data("native".utf8)
+        }
         return try JSONEncoder().encode([
             "identifier": identifier(of: element) ?? "",
             "label": element.accessibilityLabel ?? "",
         ])
     }
 
-    private static func identifier(of object: NSObject) -> String? {
+    static func identifier(of object: NSObject) -> String? {
         object.responds(to: NSSelectorFromString("accessibilityIdentifier"))
             ? object.value(forKey: "accessibilityIdentifier") as? String : nil
     }
 
-    private static func button(_ parameters: [String: String], partialLabel: Bool = false) -> NSObject? {
+    private static func button(_ parameters: [String: String], partialLabel: Bool = false)
+        -> NSObject?
+    {
         let identifier = parameters["identifier"] ?? ""
         let label = parameters["label"] ?? ""
         var visited = Set<ObjectIdentifier>()
@@ -821,7 +917,10 @@ enum UITestAccessibilityActions {
             if count != NSNotFound && count > 0 {
                 for index in (0..<count).reversed() {
                     if let child = object.accessibilityElement(at: index) as? NSObject,
-                       let result = find(child) { return result }
+                        let result = find(child)
+                    {
+                        return result
+                    }
                 }
             }
             if let view = object as? UIView {
@@ -832,8 +931,10 @@ enum UITestAccessibilityActions {
             let actualIdentifier = Self.identifier(of: object)
             let actualLabel = object.accessibilityLabel ?? ""
             if object.isAccessibilityElement && object.accessibilityTraits.contains(.button),
-               (!identifier.isEmpty && actualIdentifier == identifier) ||
-                (identifier.isEmpty && (partialLabel ? actualLabel.contains(label) : actualLabel == label)) {
+                (!identifier.isEmpty && actualIdentifier == identifier)
+                    || (identifier.isEmpty
+                        && (partialLabel ? actualLabel.contains(label) : actualLabel == label))
+            {
                 return object
             }
             return nil
@@ -845,7 +946,8 @@ enum UITestAccessibilityActions {
             while let presented = controller.presentedViewController { controller = presented }
             guard !platform(controller) else { continue }
             func hasSystemPicker(_ view: UIView) -> Bool {
-                view is UIDatePicker || view is UIPickerView || view.subviews.contains(where: hasSystemPicker)
+                view is UIDatePicker || view is UIPickerView
+                    || view.subviews.contains(where: hasSystemPicker)
             }
             if hasSystemPicker(controller.view) { continue }
             if let element = find(controller.view) { return element }

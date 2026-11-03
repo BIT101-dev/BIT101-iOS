@@ -1,15 +1,16 @@
-@testable import TransportCore
 import ClientCore
-import Foundation
-import CommunityTransport
-import Testing
-import SwiftUI
-import UIKit
-import MineFeature
-import MediaKit
 import CommunityCore
+import CommunityTransport
 import CommunityUI
+import Foundation
+import MediaKit
+import MineFeature
+import SwiftUI
+import Testing
+import UIKit
+
 @testable import BIT101_iOS
+@testable import TransportCore
 
 @MainActor
 struct CommunitySessionRecoveryTests {
@@ -32,7 +33,9 @@ struct CommunitySessionRecoveryTests {
                     await withCheckedContinuation { pending = $0 }
                     try Task.checkCancellation()
                     failed = false
-                } onCancel: { Task { @MainActor in self.cancellations += 1 } }
+                } onCancel: {
+                    Task { @MainActor in self.cancellations += 1 }
+                }
             } catch { #expect(error is CancellationError) }
         }
     }
@@ -43,7 +46,9 @@ struct CommunitySessionRecoveryTests {
             Group {
                 if probe.visible {
                     Text("恢复读取")
-                        .communityReadRecovery(networkPath: path, isEnabled: probe.enabled) { await probe.retry() }
+                        .communityReadRecovery(networkPath: path, isEnabled: probe.enabled) {
+                            await probe.retry()
+                        }
                         .onAppear { probe.mounted = true }
                         .onDisappear { probe.mounted = false }
                 }
@@ -53,16 +58,32 @@ struct CommunitySessionRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func readRecoveryRespectsConnectionVisibilityAndCancellation() async throws {
-        let path = NetworkPathState(snapshot: .init(status: .disconnected)), probe = RecoveryProbe()
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    func readRecoveryRespectsCancel() async throws {
+        let path = NetworkPathState(snapshot: .init(status: .disconnected))
+        let probe = RecoveryProbe()
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: RecoveryView(probe: probe, path: path))
-        window.makeKeyAndVisible(); window.layoutIfNeeded()
-        defer { window.isHidden = true; window.rootViewController = nil; probe.pending?.resume(); probe.pending = nil }
+        window.rootViewController = UIHostingController(
+            rootView: RecoveryView(probe: probe, path: path))
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            probe.pending?.resume()
+            probe.pending = nil
+        }
         var stage = "mount"
         defer {
-            if stage != "complete" { Issue.record("读取恢复阶段：\(stage)，事件 \(probe.events)，请求 \(probe.requests)，取消 \(probe.cancellations)") }
+            if stage != "complete" {
+                Issue.record(
+                    """
+                    读取恢复阶段：\(stage)，事件 \(probe.events)，请求 \(probe.requests)，取消 \
+                    \(probe.cancellations)
+                    """
+                )
+            }
         }
         try await waitForTestEvent { probe.mounted }
         stage = "connected"
@@ -71,13 +92,15 @@ struct CommunitySessionRecoveryTests {
         probe.enabled = false
         stage = "cancel"
         try await waitForTestEvent { probe.cancellations == 1 }
-        probe.pending?.resume(); probe.pending = nil
+        probe.pending?.resume()
+        probe.pending = nil
         probe.phase = .inactive
         probe.phase = .active
         probe.enabled = true
         stage = "enabled"
         try await waitForTestEvent { probe.requests == 2 && probe.pending != nil }
-        probe.pending?.resume(); probe.pending = nil
+        probe.pending?.resume()
+        probe.pending = nil
         try await waitForTestEvent { !probe.failed }
         probe.visible = false
         stage = "disappear"
@@ -96,73 +119,127 @@ struct CommunitySessionRecoveryTests {
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
-    func expiredCommunityCredentialsKeepMineAndProfileInsideTheLocalSession(profile: Bool) async throws {
+    func expiredCommunityCredentialsKeepMine(profile: Bool) async throws {
         let domain = "BIT101Tests.community-page-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         var schoolCookieClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in schoolCookieClears += 1 })
-        try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
-        let transport = SharedRenewalResponses(); transport.outcome = "rejected"
+        let storage = LoginStorage(
+            defaults: defaults, credentials: Credentials(),
+            clearSchoolCookies: { _ in schoolCookieClears += 1 })
+        try storage.saveLoginState(
+            studentID: "A", password: "school-password", fakeCookie: "old-cookie",
+            communityPasswordDigest: "digest")
+        let transport = SharedRenewalResponses()
+        transport.outcome = "rejected"
         let http = HTTPClient(transport: transport, observer: nil)
-        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-        let root = LoginViewModel(service: login), owner = storage.schoolSessionIdentity
+        let login = LoginService(
+            storage: storage,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let root = LoginViewModel(service: login)
+        let owner = storage.schoolSessionIdentity
         schoolCookieClears = 0
-        let session = CommunitySession(httpClient: http, baseURL: AppURL.required("https://example.invalid"),
-            credentials: { storage.communityCredentials }, refresh: { try await login.renewCommunitySession(observed: $0) })
-        let service = MineService(session: session, preferences: {
-            .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false)
-        })
-        let dependencies = MineDependencies(overview: service, profile: service, deletePoster: { _ in }, networkPath: .init(snapshot: .init(status: .connected)))
-        let media = AppMedia.makeEnvironment(files: PreferenceMemoryFiles(), previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),
+        let session = CommunitySession(
+            httpClient: http, baseURL: AppURL.required("https://example.invalid"),
+            credentials: { storage.communityCredentials },
+            refresh: { try await login.renewCommunitySession(observed: $0) })
+        let service = MineService(
+            session: session,
+            preferences: {
+                .init(
+                    hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false,
+                    hideMakeupOutliers: false)
+            })
+        let dependencies = MineDependencies(
+            overview: service, profile: service, deletePoster: { _ in },
+            networkPath: .init(snapshot: .init(status: .connected)))
+        let media = AppMedia.makeEnvironment(
+            files: PreferenceMemoryFiles(),
+            previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),
             imageHTTPClient: http, avatarHTTPClient: http)
         let poster = CommunityPosterDestination { _ in AnyView(Text("poster")) }
-        let settings = CommunitySettingsDestinations(settingsEntries: [], settings: { _ in AnyView(Text("settings")) }, suggestion: { AnyView(Text("suggestion")) })
-        let view: AnyView = profile
-            ? AnyView(UserProfileRootView(dependencies: dependencies, media: media, posters: poster, userID: 42))
-            : AnyView(MineRootView(dependencies: dependencies, media: media, posters: poster, settings: settings, fallbackStudentID: "A", onLogout: root.logout))
-        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let settings = CommunitySettingsDestinations(
+            settingsEntries: [], settings: { _ in AnyView(Text("settings")) },
+            suggestion: { AnyView(Text("suggestion")) })
+        let view: AnyView =
+            profile
+            ? AnyView(
+                UserProfileRootView(
+                    dependencies: dependencies, media: media, posters: poster, userID: 42))
+            : AnyView(
+                MineRootView(
+                    dependencies: dependencies, media: media, posters: poster, settings: settings,
+                    fallbackStudentID: "A", onLogout: root.logout))
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: NavigationStack { view })
-        window.makeKeyAndVisible(); window.layoutIfNeeded()
-        defer { window.isHidden = true; window.rootViewController = nil }
-        try await waitForTestEvent { storage.fakeCookie.isEmpty && transport.paths.contains("/user/login") }
+        window.makeKeyAndVisible()
+        window.layoutIfNeeded()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        try await waitForTestEvent {
+            storage.fakeCookie.isEmpty && transport.paths.contains("/user/login")
+        }
         var rendered = false
         DispatchQueue.main.async { rendered = true }
         try await waitForTestEvent { rendered }
         #expect(root.screenState == .signedIn(studentID: "A") && storage.hasCachedSession)
-        #expect(storage.currentPassword == "school-password" && storage.schoolSessionIdentity == owner && schoolCookieClears == 0)
+        #expect(
+            storage.currentPassword == "school-password" && storage.schoolSessionIdentity == owner
+                && schoolCookieClears == 0)
     }
 
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["switch", "logout", "cancel"])
-    func reauthenticationKeepsItsCapturedAccountAndCancellationBoundary(interruption: String) async throws {
+    func reauthenticationKeepsCapturedAccount(interruption: String) async throws {
         let domain = "BIT101Tests.community-reauthentication-owner"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
-        let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
+        let storage = LoginStorage(
+            defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
         try storage.saveLoginState(studentID: "A", password: "school-A", fakeCookie: "old-cookie")
-        storage.requireCommunityAuthentication()
-        let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
-        let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        storage.requireCommunityAuth()
+        let transport = SharedRenewalResponses()
+        let http = HTTPClient(transport: transport, observer: nil)
+        let login = LoginService(
+            storage: storage,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         var pending: CheckedContinuation<Void, Never>?
         transport.beforeRenew = { await withCheckedContinuation { pending = $0 } }
         let work = Task { try await login.login(studentID: "A", password: "community-A") }
-        defer { work.cancel(); pending?.resume(); pending = nil }
+        defer {
+            work.cancel()
+            pending?.resume()
+            pending = nil
+        }
         try await waitForTestEvent { pending != nil }
-        if interruption == "switch" { try storage.saveLoginState(studentID: "B", password: "school-B", fakeCookie: "cookie-B") }
-        else if interruption == "logout" { login.logout() }
-        else { work.cancel() }
-        pending?.resume(); pending = nil
+        if interruption == "switch" {
+            try storage.saveLoginState(studentID: "B", password: "school-B", fakeCookie: "cookie-B")
+        } else if interruption == "logout" {
+            login.logout()
+        } else {
+            work.cancel()
+        }
+        pending?.resume()
+        pending = nil
         await #expect(throws: CancellationError.self) { try await work.value }
         #expect(storage.fakeCookie == (interruption == "switch" ? "cookie-B" : ""))
-        #expect(storage.currentPassword == (interruption == "switch" ? "school-B" : interruption == "logout" ? "" : "school-A"))
+        #expect(
+            storage.currentPassword
+                == (interruption == "switch"
+                    ? "school-B" : interruption == "logout" ? "" : "school-A"))
     }
 
     private final class Credentials: LoginCredentialsStoring {
         var values: [String: String] = [:]
         func read(account: String) throws -> String { values[account] ?? "" }
         func save(_ value: String, account: String) throws { values[account] = value }
-        func delete(account: String) -> Bool { values[account] = nil; return true }
+        func delete(account: String) -> Bool {
+            values[account] = nil
+            return true
+        }
     }
     private enum RefreshFailure: Error, CommunityAPIServiceError {
         case notLoggedIn, invalidResponse
@@ -179,26 +256,38 @@ struct CommunitySessionRecoveryTests {
             let url = try #require(request.url)
             paths.append(url.path)
             cookies.append(request.value(forHTTPHeaderField: "fake-cookie"))
-            var status = request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie" ? 401 : 200
+            var status =
+                request.value(forHTTPHeaderField: "fake-cookie") == "old-cookie" ? 401 : 200
             var body = "{}"
             if url.path == "/user/login" {
                 try await beforeRenew?()
                 if outcome == "offline" { throw URLError(.timedOut) }
                 status = outcome == "rejected" ? 401 : 200
-                body = outcome == "rejected" ? #"{"detail":"账号或密码错误"}"# : #"{"fake_cookie":"renewed-cookie"}"#
+                body =
+                    outcome == "rejected"
+                    ? #"{"detail":"账号或密码错误"}"# : #"{"fake_cookie":"renewed-cookie"}"#
             }
-            return (Data(body.utf8), try #require(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+            return (
+                Data(body.utf8),
+                try #require(
+                    HTTPURLResponse(
+                        url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            )
         }
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func missingCommunityCookiesRestoreOnlyAuthorizedSchoolSessions(allowed: Bool) async throws {
+    func missingCommunityCookiesRestoreOnlySessions(allowed: Bool) async throws {
         let identity = CommunitySessionIdentity(accountIdentifier: "school-session")
-        var owner = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: allowed)
-        let transport = SharedRenewalResponses(), coordinator = CommunitySessionRefreshCoordinator()
+        var owner = CommunityCredentials(
+            identity: identity, cookie: "", allowsSilentRestoration: allowed)
+        let transport = SharedRenewalResponses()
+        let coordinator = CommunitySessionRefreshCoordinator()
         var renewals = 0
-        let client = CommunityAPIClient<RefreshFailure>(httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture", credentials: { owner },
+        let client = CommunityAPIClient<RefreshFailure>(
+            httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
+            credentials: { owner },
             refreshHandler: { observed in
                 try await coordinator.refresh(observed: observed, current: { owner }) {
                     renewals += 1
@@ -207,36 +296,50 @@ struct CommunitySessionRecoveryTests {
                 }
             })
         if allowed {
-            let first = Task { let _: [String: String] = try await client.request(path: "private"); return true }
-            let second = Task { let _: [String: String] = try await client.request(path: "private"); return true }
+            let first = Task {
+                let _: [String: String] = try await client.request(path: "private")
+                return true
+            }
+            let second = Task {
+                let _: [String: String] = try await client.request(path: "private")
+                return true
+            }
             let values = try await (first.value, second.value)
             #expect(values.0 && values.1)
             #expect(renewals == 1 && transport.cookies == ["renewed-cookie", "renewed-cookie"])
         } else {
-            await #expect(throws: RefreshFailure.self) { let _: [String: String] = try await client.request(path: "private") }
+            await #expect(throws: RefreshFailure.self) {
+                let _: [String: String] = try await client.request(path: "private")
+            }
             #expect(renewals == 0 && transport.paths.isEmpty)
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func publicReadsKeepTheirResponseWhileAnAuthorizedCookieRecovers() async throws {
+    func publicReadsKeepTheirResponseRecovers() async throws {
         let identity = CommunitySessionIdentity(accountIdentifier: "school-session")
-        var owner = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: true)
-        let transport = SharedRenewalResponses(), coordinator = CommunitySessionRefreshCoordinator()
+        var owner = CommunityCredentials(
+            identity: identity, cookie: "", allowsSilentRestoration: true)
+        let transport = SharedRenewalResponses()
+        let coordinator = CommunitySessionRefreshCoordinator()
         var renewals = 0
-        let client = CommunityAPIClient<RefreshFailure>(httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture", credentials: { owner },
+        let client = CommunityAPIClient<RefreshFailure>(
+            httpClient: HTTPClient(transport: transport, observer: nil),
+            baseURL: AppURL.required("https://example.invalid"), errorDomain: "fixture",
+            credentials: { owner },
             backgroundRefresh: { observed in
                 coordinator.start(observed: observed) {
                     renewals += 1
                     owner = .init(identity: identity, cookie: "renewed-cookie")
                 }
             })
-        let response: CommunityAPIResponse<[String: String]> = try await client.response(path: "public", authentication: .optional)
+        let response: CommunityAPIResponse<[String: String]> = try await client.response(
+            path: "public", authentication: .optional)
         #expect(!response.isAuthenticated && transport.cookies == [nil])
         try await waitForTestEvent { !owner.cookie.isEmpty }
         #expect(renewals == 1)
-        let observed = CommunityCredentials(identity: identity, cookie: "", allowsSilentRestoration: true)
+        let observed = CommunityCredentials(
+            identity: identity, cookie: "", allowsSilentRestoration: true)
         owner = .init(identity: identity, cookie: "")
         await #expect(throws: CommunitySessionRestorationError.self) {
             try await coordinator.refresh(observed: observed, current: { owner }) { renewals += 1 }
@@ -245,66 +348,100 @@ struct CommunitySessionRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func startupAndCommunityRequestsShareOneCredentialRecoveryInEitherOrder() async throws {
+    func startupAndCommunityRequestsShareOneOrder() async throws {
         let domain = "BIT101Tests.shared-community-renewal"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         for startupFirst in [false, true] {
             for sessionFactory in [false, true] {
-                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
-                try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
-                let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
-                let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+                let storage = LoginStorage(
+                    defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
+                try storage.saveLoginState(
+                    studentID: "A", password: "fixture", fakeCookie: "old-cookie",
+                    communityPasswordDigest: "digest")
+                let transport = SharedRenewalResponses()
+                let http = HTTPClient(transport: transport, observer: nil)
+                let login = LoginService(
+                    storage: storage,
+                    apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
                 let model = LoginViewModel(service: login)
-                let client: CommunityAPIClient<RefreshFailure> = sessionFactory
-                    ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
+                let client: CommunityAPIClient<RefreshFailure> =
+                    sessionFactory
+                    ? CommunitySession.appSession(storage: storage, httpClient: http).client(
+                        errorDomain: "fixture")
                     : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
                 var pending: CheckedContinuation<Void, Never>?
                 transport.beforeRenew = { await withCheckedContinuation { pending = $0 } }
                 let first = Task {
-                    if startupFirst { #expect(try await login.checkLogin() == "A") }
-                    else { try await client.requestVoid(path: "fixture-renewal", method: "GET") }
+                    if startupFirst {
+                        #expect(try await login.checkLogin() == "A")
+                    } else {
+                        try await client.requestVoid(path: "fixture-renewal", method: "GET")
+                    }
                 }
                 try await waitForTestEvent { pending != nil }
                 let second = Task {
-                    if startupFirst { try await client.requestVoid(path: "fixture-renewal", method: "GET") }
-                    else { #expect(try await login.checkLogin() == "A") }
+                    if startupFirst {
+                        try await client.requestVoid(path: "fixture-renewal", method: "GET")
+                    } else {
+                        #expect(try await login.checkLogin() == "A")
+                    }
                 }
-                try await waitForTestEvent { transport.paths.contains(startupFirst ? "/fixture-renewal" : "/user/check") }
+                try await waitForTestEvent {
+                    transport.paths.contains(startupFirst ? "/fixture-renewal" : "/user/check")
+                }
                 pending?.resume()
-                try await first.value; try await second.value
+                try await first.value
+                try await second.value
                 #expect(transport.paths.filter { $0 == "/user/login" }.count == 1)
-                #expect(storage.fakeCookie == "renewed-cookie" && model.screenState == .signedIn(studentID: "A"))
+                #expect(
+                    storage.fakeCookie == "renewed-cookie"
+                        && model.screenState == .signedIn(studentID: "A"))
                 #expect(storage.currentPassword == "fixture")
             }
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func credentialRejectionAndTransientFailureHaveConsistentRootPresentation() async throws {
+    func credentialRejectionAndHavePresentation() async throws {
         let domain = "BIT101Tests.community-rejection"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         for outcome in ["rejected", "offline"] {
             for entry in ["startup", "client", "session"] {
-                let storage = LoginStorage(defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
-                try storage.saveLoginState(studentID: "A", password: "fixture", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
-                let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
+                let storage = LoginStorage(
+                    defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
+                try storage.saveLoginState(
+                    studentID: "A", password: "fixture", fakeCookie: "old-cookie",
+                    communityPasswordDigest: "digest")
+                let transport = SharedRenewalResponses()
+                let http = HTTPClient(transport: transport, observer: nil)
                 transport.outcome = outcome
-                let login = LoginService(storage: storage, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+                let login = LoginService(
+                    storage: storage,
+                    apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
                 let model = LoginViewModel(service: login)
                 do {
-                    if entry == "startup" { _ = try await login.checkLogin(); Issue.record("Rejected online credentials require recovery") }
-                    else {
-                        let client: CommunityAPIClient<RefreshFailure> = entry == "session"
-                            ? CommunitySession.appSession(storage: storage, httpClient: http).client(errorDomain: "fixture")
-                            : CommunityAPIClient(storage: storage, httpClient: http, errorDomain: "fixture")
+                    if entry == "startup" {
+                        _ = try await login.checkLogin()
+                        Issue.record("Rejected online credentials require recovery")
+                    } else {
+                        let client: CommunityAPIClient<RefreshFailure> =
+                            entry == "session"
+                            ? CommunitySession.appSession(storage: storage, httpClient: http)
+                                .client(errorDomain: "fixture")
+                            : CommunityAPIClient(
+                                storage: storage, httpClient: http, errorDomain: "fixture")
                         try await client.requestVoid(path: "fixture-renewal", method: "GET")
                         Issue.record("An expired session requires recovery")
                     }
                 } catch {
-                    #expect(outcome == "offline" ? (error as? URLError)?.code == .timedOut
-                        : entry == "startup" ? error is CommunitySessionRestorationError : error is RefreshFailure)
+                    #expect(
+                        outcome == "offline"
+                            ? (error as? URLError)?.code == .timedOut
+                            : entry == "startup"
+                                ? error is CommunitySessionRestorationError
+                                : error is RefreshFailure)
                 }
                 #expect(model.screenState == .signedIn(studentID: "A") && login.hasCachedSession)
                 #expect(storage.fakeCookie == (outcome == "rejected" ? "" : "old-cookie"))
@@ -316,33 +453,55 @@ struct CommunitySessionRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func communityReauthenticationPreservesTheLocalAndSchoolAccountAcrossRelaunch() async throws {
+    func communityReauthenticationPreservesLocal() async throws {
         let domain = "BIT101Tests.local-community-recovery"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         let credentials = Credentials()
         var schoolClears = 0
-        let storage = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
-        try storage.saveLoginState(studentID: "A", password: "school-password", fakeCookie: "old-cookie", communityPasswordDigest: "digest")
+        let storage = LoginStorage(
+            defaults: defaults, credentials: credentials,
+            clearSchoolCookies: { _ in schoolClears += 1 })
+        try storage.saveLoginState(
+            studentID: "A", password: "school-password", fakeCookie: "old-cookie",
+            communityPasswordDigest: "digest")
         let identity = storage.schoolSessionIdentity
         schoolClears = 0
-        storage.requireCommunityAuthentication()
-        let reopened = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
-        #expect(reopened.hasCachedSession && reopened.fakeCookie.isEmpty && reopened.currentStudentID == "A")
-        #expect(reopened.currentPassword == "school-password" && storage.schoolSessionIdentity == identity && schoolClears == 0)
+        storage.requireCommunityAuth()
+        let reopened = LoginStorage(
+            defaults: defaults, credentials: credentials,
+            clearSchoolCookies: { _ in schoolClears += 1 })
+        #expect(
+            reopened.hasCachedSession && reopened.fakeCookie.isEmpty
+                && reopened.currentStudentID == "A")
+        #expect(
+            reopened.currentPassword == "school-password"
+                && storage.schoolSessionIdentity == identity && schoolClears == 0)
         try await reopened.prepareSchoolCredentials()
-        let transport = SharedRenewalResponses(), http = HTTPClient(transport: transport, observer: nil)
-        let login = LoginService(storage: reopened, apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-        let model = LoginViewModel(service: login), owner = reopened.communityCredentials.identity
+        let transport = SharedRenewalResponses()
+        let http = HTTPClient(transport: transport, observer: nil)
+        let login = LoginService(
+            storage: reopened,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = LoginViewModel(service: login)
+        let owner = reopened.communityCredentials.identity
         await model.bootstrapIfNeeded()
         #expect(model.screenState == .signedIn(studentID: "A"))
         _ = try await login.login(studentID: "A", password: "community-password")
-        #expect(reopened.communityCredentials.identity == owner && reopened.fakeCookie == "renewed-cookie")
+        #expect(
+            reopened.communityCredentials.identity == owner
+                && reopened.fakeCookie == "renewed-cookie")
         #expect(reopened.currentPassword == "school-password" && schoolClears == 0)
-        let restored = LoginStorage(defaults: defaults, credentials: credentials, clearSchoolCookies: { _ in schoolClears += 1 })
-        #expect(restored.hasCachedSession && restored.fakeCookie == "renewed-cookie" && restored.currentPassword == "school-password")
+        let restored = LoginStorage(
+            defaults: defaults, credentials: credentials,
+            clearSchoolCookies: { _ in schoolClears += 1 })
+        #expect(
+            restored.hasCachedSession && restored.fakeCookie == "renewed-cookie"
+                && restored.currentPassword == "school-password")
         login.logout()
-        #expect(!login.hasCachedSession && reopened.fakeCookie.isEmpty && reopened.currentPassword.isEmpty && schoolClears == 1)
+        #expect(
+            !login.hasCachedSession && reopened.fakeCookie.isEmpty
+                && reopened.currentPassword.isEmpty && schoolClears == 1)
         #expect(model.screenState == .signedOut)
     }
 }

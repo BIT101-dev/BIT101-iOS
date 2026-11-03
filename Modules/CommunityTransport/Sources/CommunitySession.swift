@@ -1,7 +1,7 @@
-import Foundation
 import Combine
-import TransportCore
+import Foundation
 import OSLog
+import TransportCore
 
 public nonisolated struct CommunitySessionIdentity: Equatable, Sendable {
     public let accountIdentifier: String
@@ -18,7 +18,9 @@ public nonisolated struct CommunityCredentials: Equatable, Sendable {
     public let cookie: String
     public let allowsSilentRestoration: Bool
 
-    public init(identity: CommunitySessionIdentity, cookie: String, allowsSilentRestoration: Bool = false) {
+    public init(
+        identity: CommunitySessionIdentity, cookie: String, allowsSilentRestoration: Bool = false
+    ) {
         self.identity = identity
         self.cookie = cookie
         self.allowsSilentRestoration = allowsSilentRestoration
@@ -41,10 +43,13 @@ public struct CommunitySession {
     private let backgroundRefresh: ((CommunityCredentials) -> Void)?
     public let credentialsChanges: AnyPublisher<CommunityCredentials, Never>
 
-    public init(httpClient: HTTPClient, baseURL: URL, credentials: @escaping () -> CommunityCredentials,
-                refresh: @escaping (CommunityCredentials) async throws -> Void,
-                credentialsChanges: AnyPublisher<CommunityCredentials, Never> = Empty().eraseToAnyPublisher(),
-                backgroundRefresh: ((CommunityCredentials) -> Void)? = nil) {
+    public init(
+        httpClient: HTTPClient, baseURL: URL, credentials: @escaping () -> CommunityCredentials,
+        refresh: @escaping (CommunityCredentials) async throws -> Void,
+        credentialsChanges: AnyPublisher<CommunityCredentials, Never> = Empty()
+            .eraseToAnyPublisher(),
+        backgroundRefresh: ((CommunityCredentials) -> Void)? = nil
+    ) {
         self.httpClient = httpClient
         self.baseURL = baseURL
         self.credentials = credentials
@@ -56,8 +61,12 @@ public struct CommunitySession {
     public var currentCredentials: CommunityCredentials { credentials() }
     public var fakeCookie: String { currentCredentials.cookie }
 
-    public func client<Failure: CommunityAPIServiceError>(errorDomain: String) -> CommunityAPIClient<Failure> {
-        CommunityAPIClient(httpClient: httpClient, baseURL: baseURL, errorDomain: errorDomain, credentials: credentials,
+    public func client<Failure: CommunityAPIServiceError>(errorDomain: String)
+        -> CommunityAPIClient<Failure>
+    {
+        CommunityAPIClient(
+            httpClient: httpClient, baseURL: baseURL, errorDomain: errorDomain,
+            credentials: credentials,
             refreshHandler: refresh, backgroundRefresh: backgroundRefresh)
     }
 }
@@ -69,14 +78,14 @@ public final class CommunitySessionRefreshCoordinator {
     private var background: (id: UUID, observed: CommunityCredentials, task: Task<Void, Never>)?
     public init() {}
 
-    public func start(observed: CommunityCredentials, operation: @escaping () async throws -> Void) {
+    public func start(observed: CommunityCredentials, operation: @escaping () async throws -> Void)
+    {
         guard background?.observed != observed else { return }
         background?.task.cancel()
         let id = UUID()
         let task = Task { [weak self] in
             defer { if self?.background?.id == id { self?.background = nil } }
-            do { try await operation() }
-            catch {
+            do { try await operation() } catch {
                 guard !TaskCancellation.matches(error) else { return }
                 Self.logger.error("社区后台认证恢复受阻：\(String(describing: error), privacy: .private)")
             }
@@ -84,8 +93,10 @@ public final class CommunitySessionRefreshCoordinator {
         background = (id, observed, task)
     }
 
-    public func refresh(observed: CommunityCredentials, current: @escaping () -> CommunityCredentials,
-                        restore: @escaping () async throws -> Void) async throws {
+    public func refresh(
+        observed: CommunityCredentials, current: @escaping () -> CommunityCredentials,
+        restore: @escaping () async throws -> Void
+    ) async throws {
         try Task.checkCancellation()
         guard current().identity == observed.identity else { throw CancellationError() }
         guard current().cookie == observed.cookie else { return }
@@ -96,7 +107,9 @@ public final class CommunitySessionRefreshCoordinator {
         guard current().identity == observed.identity else { throw CancellationError() }
     }
 
-    public func refresh(identity: CommunitySessionIdentity, restore: @escaping () async throws -> Void) async throws {
+    public func refresh(
+        identity: CommunitySessionIdentity, restore: @escaping () async throws -> Void
+    ) async throws {
         try await coordinator.refresh(identity: identity, restore: restore)
     }
 

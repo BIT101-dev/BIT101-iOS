@@ -3,19 +3,23 @@
 //  BIT101-iOS
 //
 
+import ClientCore
 import CommonCrypto
 import CryptoKit
 import Foundation
 import Security
-import ClientCore
 
 /// 学校认证链路使用的口令变换和 URL 加密算法。
 enum LoginCrypto {
     static let schoolURLCryptoPublicKey = """
-    -----BEGIN PUBLIC KEY-----
-    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjVr1zKwohU3xA0afprWLSQvIymaSH/V27MedFc+CecXSnORIFMAp4uEIb4taDq/2X4eMeTI66Mu/rB5GKSFDbExF2Gu4NaO/CNDpf1gHMScUrIFCh4CDqzBnx17kclvezLkIK0T8FVa4cRsINvzjbnA6jUSMaf6Fm1n9wTAtW6QYBjssGOEtCj+c38PTBdFMmJbXp3brt1tEBesz6lb3Fjp76FGvDZ08xtYG8fxYPuiMwKU04eS+mcX/BunwgpU3zwekHYB+PWRIvq0lBry9Wms25sJE5T/RAv5fEuMLbBkfcZK3+7ivSZthTmPpr2Ap/ji70ZZ6u2jvR5VJq+LJHQIDAQAB
-    -----END PUBLIC KEY-----
-    """
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjVr1zKwohU3xA0afprWLSQvIymaSH/V27MedFc+CecXSnOR\
+        IFMAp4uEIb4taDq/2X4eMeTI66Mu/rB5GKSFDbExF2Gu4NaO/CNDpf1gHMScUrIFCh4CDqzBnx17kclvezLkIK0T8FV\
+        a4cRsINvzjbnA6jUSMaf6Fm1n9wTAtW6QYBjssGOEtCj+c38PTBdFMmJbXp3brt1tEBesz6lb3Fjp76FGvDZ08xtYG8\
+        fxYPuiMwKU04eS+mcX/BunwgpU3zwekHYB+PWRIvq0lBry9Wms25sJE5T/RAv5fEuMLbBkfcZK3+7ivSZthTmPpr2Ap\
+        /ji70ZZ6u2jvR5VJq+LJHQIDAQAB
+        -----END PUBLIC KEY-----
+        """
 
     /// 使用 AES 变换学校登录表单和 WebVPN 校验口令。
     static func encryptPassword(_ password: String, saltBase64: String) throws -> String {
@@ -70,7 +74,8 @@ enum LoginCrypto {
     static func schoolProtectedHeaders() -> [String: String] {
         let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
         var generator = SystemRandomNumberGenerator()
-        let key = String((0 ..< 32).map { _ in alphabet[Int.random(in: 0 ..< alphabet.count, using: &generator)] })
+        let key = String(
+            (0..<32).map { _ in alphabet[Int.random(in: 0..<alphabet.count, using: &generator)] })
         let encoded = Data(key.utf8).base64EncodedString()
         let midpoint = encoded.count / 2
         let splitIndex = encoded.index(encoded.startIndex, offsetBy: midpoint)
@@ -81,14 +86,15 @@ enum LoginCrypto {
             "Sid-Language": "zh_CN",
             "User-Agent": BIT101APIClient.browserUserAgent,
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
-            "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
+            "sec-ch-ua":
+                "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": "\"macOS\"",
         ]
     }
 
     /// 复刻 bit-login 的 URL 加密请求：AES-ECB 加密 JSON，RSA 加密 AES key。
-    static func encryptSchoolURLCryptoBody(
+    static func encryptSchoolBody(
         object: [String: String],
         publicKeyPEM: String
     ) throws -> (body: String, encryptedKey: String, aesKey: Data) {
@@ -105,12 +111,14 @@ enum LoginCrypto {
         let encryptedBody = try aesCrypt(plaintext, key: aesKey, operation: CCOperation(kCCEncrypt))
         let publicKey = try rsaPublicKey(from: publicKeyPEM)
         var error: Unmanaged<CFError>?
-        guard let encryptedKey = SecKeyCreateEncryptedData(
-            publicKey,
-            .rsaEncryptionPKCS1,
-            Data(aesKey.base64EncodedString().utf8) as CFData,
-            &error
-        ) as Data? else {
+        guard
+            let encryptedKey = SecKeyCreateEncryptedData(
+                publicKey,
+                .rsaEncryptionPKCS1,
+                Data(aesKey.base64EncodedString().utf8) as CFData,
+                &error
+            ) as Data?
+        else {
             throw (error?.takeRetainedValue() as Error?) ?? LoginServiceError.invalidServerResponse
         }
 
@@ -122,11 +130,11 @@ enum LoginCrypto {
     }
 
     /// 解密 bit-login URL 加密接口的响应体，兼容 JSON 字符串包裹和多层 Base64。
-    static func decryptSchoolURLCryptoResponse(_ data: Data, aesKey: Data) throws -> Data {
+    static func decryptSchoolResponse(_ data: Data, aesKey: Data) throws -> Data {
         var current = data
-        for _ in 0 ..< 4 {
+        for _ in 0..<4 {
             if let object = try? JSONSerialization.jsonObject(with: current),
-               object is [String: Any] || object is [Any]
+                object is [String: Any] || object is [Any]
             {
                 return current
             }
@@ -178,7 +186,8 @@ enum LoginCrypto {
     }
 
     private static func rsaPublicKey(from pem: String) throws -> SecKey {
-        let base64 = pem
+        let base64 =
+            pem
             .replacingOccurrences(of: "-----BEGIN PUBLIC KEY-----", with: "")
             .replacingOccurrences(of: "-----END PUBLIC KEY-----", with: "")
             .components(separatedBy: .whitespacesAndNewlines)
@@ -191,7 +200,8 @@ enum LoginCrypto {
             kSecAttrKeyClass: kSecAttrKeyClassPublic,
         ]
         var error: Unmanaged<CFError>?
-        guard let key = SecKeyCreateWithData(der as CFData, attributes as CFDictionary, &error) else {
+        guard let key = SecKeyCreateWithData(der as CFData, attributes as CFDictionary, &error)
+        else {
             throw (error?.takeRetainedValue() as Error?) ?? LoginServiceError.invalidServerResponse
         }
         return key
@@ -206,14 +216,14 @@ struct AppScheduleServiceCrypto: SchoolServiceCryptoProviding, Sendable {
         LoginCrypto.schoolProtectedHeaders()
     }
 
-    func encryptSchoolURLCryptoBody(
+    func encryptSchoolBody(
         object: [String: String],
         publicKeyPEM: String
     ) throws -> (body: String, encryptedKey: String, aesKey: Data) {
-        try LoginCrypto.encryptSchoolURLCryptoBody(object: object, publicKeyPEM: publicKeyPEM)
+        try LoginCrypto.encryptSchoolBody(object: object, publicKeyPEM: publicKeyPEM)
     }
 
-    func decryptSchoolURLCryptoResponse(_ data: Data, aesKey: Data) throws -> Data {
-        try LoginCrypto.decryptSchoolURLCryptoResponse(data, aesKey: aesKey)
+    func decryptSchoolResponse(_ data: Data, aesKey: Data) throws -> Data {
+        try LoginCrypto.decryptSchoolResponse(data, aesKey: aesKey)
     }
 }

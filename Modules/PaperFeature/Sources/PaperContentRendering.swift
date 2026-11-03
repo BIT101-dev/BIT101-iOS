@@ -14,12 +14,12 @@ public enum PaperContentBlock: Identifiable {
 
     public var id: String {
         switch self {
-        case let .header(id, _, _),
-             let .paragraph(id, _),
-             let .quote(id, _, _),
-             let .list(id, _, _),
-             let .image(id, _),
-             let .requiresOriginal(id):
+        case .header(let id, _, _),
+            .paragraph(let id, _),
+            .quote(let id, _, _),
+            .list(let id, _, _),
+            .image(let id, _),
+            .requiresOriginal(let id):
             return id
         }
     }
@@ -65,7 +65,8 @@ public enum PaperEditorContentBuilder {
 
     /// 把多段纯文本包装成最小可用的 Editor.js 段落数组。
     public static func editorJSON(from plainText: String) -> String {
-        let paragraphs = plainText
+        let paragraphs =
+            plainText
             .components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -74,7 +75,9 @@ public enum PaperEditorContentBuilder {
             Block(
                 id: UUID().uuidString.prefix(8).lowercased(),
                 type: "paragraph",
-                data: BlockData(text: htmlEscapedText(paragraph).replacingOccurrences(of: "\n", with: "<br>"))
+                data: BlockData(
+                    text: htmlEscapedText(paragraph).replacingOccurrences(
+                        of: "\n", with: "<br>"))
             )
         }
 
@@ -86,7 +89,9 @@ public enum PaperEditorContentBuilder {
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(root), let json = String(data: data, encoding: .utf8) else {
+        guard let data = try? encoder.encode(root),
+            let json = String(data: data, encoding: .utf8)
+        else {
             return plainText
         }
         return json
@@ -101,25 +106,32 @@ public enum PaperEditorContentBuilder {
 
     /// 纯文本编辑能力同时校验原始结构与正文资源预算。
     static func canEditAsPlainText(_ rawContent: String) -> Bool {
-        guard rawContent.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else { return false }
+        guard rawContent.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
+            return false
+        }
         guard let data = rawContent.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) else {
+            let object = try? JSONSerialization.jsonObject(with: data)
+        else {
             let trimmed = rawContent.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.utf8.count <= PaperContentResourceLimits.maximumBlockBytes
                 && !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[")
         }
         guard let root = object as? [String: Any],
-              Set(root.keys).isSubset(of: ["time", "version", "blocks"]),
-              let blocks = root["blocks"] as? [[String: Any]],
-              blocks.count <= PaperContentResourceLimits.maximumBlocks else { return false }
+            Set(root.keys).isSubset(of: ["time", "version", "blocks"]),
+            let blocks = root["blocks"] as? [[String: Any]],
+            blocks.count <= PaperContentResourceLimits.maximumBlocks
+        else { return false }
         return blocks.allSatisfy { block in
             guard PaperContentResourceLimits.accepts(block),
-                  Set(block.keys).isSubset(of: ["id", "type", "data"]),
-                  block["type"] as? String == "paragraph",
-                  let data = block["data"] as? [String: Any], Set(data.keys) == ["text"],
-                  let text = data["text"] as? String else { return false }
-            return text.replacingOccurrences(of: #"<br\s*/?>"#, with: "", options: [.regularExpression, .caseInsensitive])
-                .range(of: #"<[^>]+>"#, options: .regularExpression) == nil
+                Set(block.keys).isSubset(of: ["id", "type", "data"]),
+                block["type"] as? String == "paragraph",
+                let data = block["data"] as? [String: Any], Set(data.keys) == ["text"],
+                let text = data["text"] as? String
+            else { return false }
+            return text.replacingOccurrences(
+                of: #"<br\s*/?>"#, with: "", options: [.regularExpression, .caseInsensitive]
+            )
+            .range(of: #"<[^>]+>"#, options: .regularExpression) == nil
         }
     }
 
@@ -130,9 +142,9 @@ public enum PaperEditorContentBuilder {
     static func plainText(from blocks: [PaperContentBlock]) -> String {
         blocks.compactMap { block in
             switch block {
-            case let .header(_, text, _), let .paragraph(_, text), let .quote(_, text, _):
+            case .header(_, let text, _), .paragraph(_, let text), .quote(_, let text, _):
                 return String(text.characters)
-            case let .list(_, items, _):
+            case .list(_, let items, _):
                 return items.map { String($0.characters) }.joined(separator: "\n")
             case .image, .requiresOriginal:
                 return nil
@@ -141,7 +153,6 @@ public enum PaperEditorContentBuilder {
         .joined(separator: "\n\n")
     }
 }
-
 
 @MainActor public enum PaperContentRenderer {
     /// 从详情接口返回的 Editor.js JSON 字符串中恢复正文块。
@@ -173,7 +184,10 @@ public enum PaperEditorContentBuilder {
         else {
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return [] }
-            let editorPrefix = trimmed.range(of: #"^\{\s*"(?:blocks|time|version)"\s*:"#, options: .regularExpression) != nil
+            let editorPrefix =
+                trimmed.range(
+                    of: #"^\{\s*"(?:blocks|time|version)"\s*:"#, options: .regularExpression)
+                != nil
             guard object == nil && !editorPrefix else {
                 return [{ .requiresOriginal(id: "body-structure") }]
             }
@@ -190,13 +204,18 @@ public enum PaperEditorContentBuilder {
             let block = rawBlock as? [String: Any]
             let count = block.map(PaperContentResourceLimits.renderNodes) ?? 1
             guard dictionaries.count < PaperContentResourceLimits.maximumBlocks,
-                  nodes + count <= PaperContentResourceLimits.maximumRenderNodes else { truncated = true; break }
+                nodes + count <= PaperContentResourceLimits.maximumRenderNodes
+            else {
+                truncated = true
+                break
+            }
             dictionaries.append(block)
             nodes += count
         }
         if truncated {
             while dictionaries.count >= PaperContentResourceLimits.maximumBlocks
-                || nodes + 1 > PaperContentResourceLimits.maximumRenderNodes {
+                || nodes + 1 > PaperContentResourceLimits.maximumRenderNodes
+            {
                 let removed = dictionaries.removeLast()
                 nodes -= removed.map(PaperContentResourceLimits.renderNodes) ?? 1
             }
@@ -212,8 +231,11 @@ public enum PaperEditorContentBuilder {
             }
             let identifier = id
             return {
-                guard let block, PaperContentResourceLimits.accepts(block) else { return .requiresOriginal(id: identifier) }
-                return makeBlock(from: block, id: identifier) ?? .requiresOriginal(id: identifier)
+                guard let block, PaperContentResourceLimits.accepts(block) else {
+                    return .requiresOriginal(id: identifier)
+                }
+                return makeBlock(from: block, id: identifier)
+                    ?? .requiresOriginal(id: identifier)
             }
         }
     }
@@ -224,7 +246,8 @@ public enum PaperEditorContentBuilder {
     /// 系统 HTML 解析将这些标记转换为 SwiftUI 可展示的富文本，正文沿用本地渲染路径。
     static func attributedText(from html: String) -> AttributedString {
         if !html.contains("<"), !html.contains("&") { return AttributedString(html) }
-        let normalizedHTML = html
+        let normalizedHTML =
+            html
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "<br>", with: "<br/>")
         let safeHTML = sanitizedHTML(normalizedHTML)
@@ -247,7 +270,8 @@ public enum PaperEditorContentBuilder {
         }
 
         sanitizeLinks(in: attributed)
-        return (try? AttributedString(attributed, including: \.uiKit)) ?? AttributedString(attributed.string)
+        return (try? AttributedString(attributed, including: \.uiKit))
+            ?? AttributedString(attributed.string)
     }
 
     /// 生成富文本的纯文本版本，用于辅助信息或可访问性文案。
@@ -265,7 +289,8 @@ public enum PaperEditorContentBuilder {
         case "header":
             guard let text = data["text"] as? String else { return nil }
             let level = data["level"] as? Int ?? 1
-            return .header(id: id, text: attributedText(from: text), level: max(1, min(level, 4)))
+            return .header(
+                id: id, text: attributedText(from: text), level: max(1, min(level, 4)))
         case "paragraph":
             guard let text = data["text"] as? String else { return nil }
             return .paragraph(id: id, text: attributedText(from: text))
@@ -275,7 +300,9 @@ public enum PaperEditorContentBuilder {
             let renderedCaption: AttributedString?
             if let caption {
                 let value = attributedText(from: caption)
-                renderedCaption = String(value.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+                renderedCaption =
+                    String(value.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                        .isEmpty ? nil : value
             } else {
                 renderedCaption = nil
             }
@@ -288,10 +315,16 @@ public enum PaperEditorContentBuilder {
             guard let file = data["file"] as? [String: Any] else { return nil }
             let url = (file["url"] as? String) ?? ""
             let lowURL = (file["low_url"] as? String) ?? ""
-            guard CommunityImage(mid: id, url: url, lowUrl: lowURL).thumbnailURL != nil else { return nil }
-            let rawCaption = (data["caption"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard CommunityImage(mid: id, url: url, lowUrl: lowURL).thumbnailURL != nil else {
+                return nil
+            }
+            let rawCaption =
+                (data["caption"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? ""
             let caption = rawCaption.isEmpty ? nil : attributedText(from: rawCaption)
-            return .image(id: id, image: PaperInlineImage(id: id, url: url, lowURL: lowURL, caption: caption))
+            return .image(
+                id: id,
+                image: PaperInlineImage(id: id, url: url, lowURL: lowURL, caption: caption))
         default:
             return nil
         }
@@ -310,8 +343,11 @@ public enum PaperEditorContentBuilder {
                 options: [.regularExpression, .caseInsensitive]
             )
         }
-        let inlineTags: Set<String> = ["a", "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li",
-            "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "code", "pre", "span", "div"]
+        let inlineTags: Set<String> = [
+            "a", "b", "strong", "i", "em", "u", "s", "strike", "br", "p", "ul", "ol", "li",
+            "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "sub", "sup", "code", "pre",
+            "span", "div",
+        ]
         for match in result.matches(of: #/<[^>]*(?:>|$)/#).reversed() {
             let tag = String(match.output)
             var replacement = ""
@@ -320,10 +356,13 @@ public enum PaperEditorContentBuilder {
                 if inlineTags.contains(name) {
                     replacement = "<\(header.output.1)\(name)>"
                     if name == "a", header.output.1.isEmpty,
-                       let link = tag.firstMatch(of: #/(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/#),
-                       let value = link.output.1 ?? link.output.2 ?? link.output.3 {
+                        let link = tag.firstMatch(
+                            of: #/(?i)\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/#),
+                        let value = link.output.1 ?? link.output.2 ?? link.output.3
+                    {
                         let escaped = value.replacingOccurrences(of: "\"", with: "&quot;")
-                            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+                            .replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(
+                                of: ">", with: "&gt;")
                         replacement = "<a href=\"\(escaped)\">"
                     }
                 }
@@ -364,8 +403,8 @@ public enum PaperEditorContentBuilder {
 
     private nonisolated static func isAllowedRemoteURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              url.host != nil
+            ["http", "https"].contains(scheme),
+            url.host != nil
         else { return false }
         return true
     }

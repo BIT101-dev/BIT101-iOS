@@ -1,8 +1,8 @@
+import Combine
 import CommunityCore
 import CommunityTransport
-import TransportCore
 import Observation
-import Combine
+import TransportCore
 
 /// 文章页面按列表、详情和编辑场景注入服务。
 @MainActor
@@ -17,9 +17,14 @@ public final class PaperDependencies {
     let hasAuthenticationCredentials: () -> Bool
     let authenticationChanges: AnyPublisher<Void, Never>
 
-    public init(list: any PaperListServicing, detail: any PaperDetailServicing, composer: any PaperComposerServicing, drafts: any PaperComposerDraftStoring & ComposerPublicationStoring, networkPath: NetworkPathState, currentIdentity: @escaping () -> CommunitySessionIdentity,
+    public init(
+        list: any PaperListServicing, detail: any PaperDetailServicing,
+        composer: any PaperComposerServicing,
+        drafts: any PaperComposerDraftStoring & ComposerPublicationStoring,
+        networkPath: NetworkPathState, currentIdentity: @escaping () -> CommunitySessionIdentity,
         hasAuthenticationCredentials: @escaping () -> Bool = { false },
-        authenticationChanges: AnyPublisher<Void, Never> = Empty().eraseToAnyPublisher()) {
+        authenticationChanges: AnyPublisher<Void, Never> = Empty().eraseToAnyPublisher()
+    ) {
         self.list = list
         self.detail = detail
         self.composer = composer

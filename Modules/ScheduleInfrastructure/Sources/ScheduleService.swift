@@ -1,7 +1,9 @@
+import ClientCore
+import Foundation
+import ScheduleDomain
 import SchedulePorts
 import TransportCore
-import ClientCore
-import ScheduleDomain
+
 //
 //  ScheduleService.swift
 //  BIT101-iOS
@@ -9,16 +11,24 @@ import ScheduleDomain
 //  Created by Codex on 2026-03-24.
 //
 
-import Foundation
-
 @MainActor
 public struct ScheduleService {
     let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")
-    let webVPNSchoolBaseURL = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999bcd6572a216b231105adc27d")
+    let webVPNSchoolBaseURL = AppURL.required(
+        """
+        https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999b\
+        cd6572a216b231105adc27d
+        """
+    )
     let bitLoginBaseURL = AppURL.required("https://login.bit101.flwfdd.xyz")
     let schoolSSOBaseURL = AppURL.required("https://sso.bit.edu.cn")
     let lexueBaseURL = AppURL.required("https://lexue.bit.edu.cn")
-    let webVPNLexueBaseURL = AppURL.required("https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421fcf25989227e6a596a468ca88d1b203b")
+    let webVPNLexueBaseURL = AppURL.required(
+        """
+        https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421fcf25989227e6a596a468ca\
+        88d1b203b
+        """
+    )
     let credentials: any SchoolCredentialsProviding
     let crypto: any SchoolServiceCryptoProviding
     let schoolSessionRestorer: any SchoolSessionRestoring

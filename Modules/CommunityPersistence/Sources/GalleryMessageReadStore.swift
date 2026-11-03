@@ -1,8 +1,8 @@
-import CommunityCore
-import StorageCore
 import Combine
+import CommunityCore
 import Foundation
 import OSLog
+import StorageCore
 
 private nonisolated struct MessageSnapshotState: Sendable {
     let snapshot: GalleryMessageReadSnapshot
@@ -20,36 +20,56 @@ private actor MessageSnapshotFiles {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
 
-    private static let fields: Set<String> = ["schemaVersion", "latestIDsByType", "seenIDsByType", "retainedFromIDByType", "pendingUnreadAfterIDByType"]
+    private static let fields: Set<String> = [
+        "schemaVersion", "latestIDsByType", "seenIDsByType", "retainedFromIDByType",
+        "pendingUnreadAfterIDByType",
+    ]
 
-    func read(files: any AppFileService, url: URL, legacy: Data?, invalidLegacy: Bool) -> Result<MessageSnapshotState, StorageFailureDiagnostic> {
+    func read(files: any AppFileService, url: URL, legacy: Data?, invalidLegacy: Bool) -> Result<
+        MessageSnapshotState, StorageFailureDiagnostic
+    > {
         var operation = "protection"
         do {
             let data: Data
             do {
                 try files.setPrivateFileProtection(at: url)
                 operation = "read"
-                data = try files.readData(at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes)
+                data = try files.readData(
+                    at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes)
             } catch {
                 guard AppFileSystem.isMissingFile(error) else { throw error }
                 operation = "legacy"
                 guard !invalidLegacy else { throw CocoaError(.coderReadCorrupt) }
-                guard let legacy else { return .success(MessageSnapshotState(GalleryMessageReadSnapshot())) }
+                guard let legacy else {
+                    return .success(MessageSnapshotState(GalleryMessageReadSnapshot()))
+                }
                 data = legacy
             }
-            guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else { throw CocoaError(.fileReadTooLarge) }
+            guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else {
+                throw CocoaError(.fileReadTooLarge)
+            }
             operation = "decode"
-            return .success(MessageSnapshotState(try JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: data)))
-        } catch { return .failure(StorageFailureDiagnostic(error, operation: operation, fields: Self.fields)) }
+            return .success(
+                MessageSnapshotState(
+                    try JSONDecoder().decode(GalleryMessageReadSnapshot.self, from: data)))
+        } catch {
+            return .failure(
+                StorageFailureDiagnostic(error, operation: operation, fields: Self.fields))
+        }
     }
 
-    func write(_ original: GalleryMessageReadSnapshot, files: any AppFileService, url: URL,
-               recoveringUnreadable: Bool, edit: @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?) throws -> MessageSnapshotState? {
+    func write(
+        _ original: GalleryMessageReadSnapshot, files: any AppFileService, url: URL,
+        recoveringUnreadable: Bool,
+        edit: @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?
+    ) throws -> MessageSnapshotState? {
         let source: GalleryMessageReadSnapshot
         do {
             try files.setPrivateFileProtection(at: url)
-            source = try JSONDecoder().decode(GalleryMessageReadSnapshot.self,
-                from: files.readData(at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes))
+            source = try JSONDecoder().decode(
+                GalleryMessageReadSnapshot.self,
+                from: files.readData(
+                    at: url, maximumBytes: GalleryMessageReadSnapshot.maximumSnapshotBytes))
         } catch {
             guard AppFileSystem.isMissingFile(error) || recoveringUnreadable else { throw error }
             source = original
@@ -57,7 +77,9 @@ private actor MessageSnapshotFiles {
         guard let edited = edit(source) else { return nil }
         let state = MessageSnapshotState(edited)
         let data = try JSONEncoder().encode(state.snapshot)
-        guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else { throw CocoaError(.fileWriteOutOfSpace) }
+        guard data.count <= GalleryMessageReadSnapshot.maximumSnapshotBytes else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
         try files.createDirectory(at: url.deletingLastPathComponent())
         try files.writeData(data, to: url, options: AppFileSystem.protectedDataWritingOptions)
         return state
@@ -66,12 +88,17 @@ private actor MessageSnapshotFiles {
 
 /// 界面读取内存索引；异步保存完成后发布所属账号的状态。
 public final class GalleryMessageReadStore: GalleryMessageReadStoring {
-    private nonisolated static let logger = Logger(subsystem: "BIT101", category: "MessageReadCache")
+    private nonisolated static let logger = Logger(
+        subsystem: "BIT101", category: "MessageReadCache")
     private let changeSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var changes: AnyPublisher<AppStorageSession, Never> { changeSubject.eraseToAnyPublisher() }
+    public var changes: AnyPublisher<AppStorageSession, Never> {
+        changeSubject.eraseToAnyPublisher()
+    }
     public var currentSession: AppStorageSession { session() }
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
-    public var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
+    public var localSaves: AnyPublisher<AppStorageSession, Never> {
+        saveSubject.eraseToAnyPublisher()
+    }
     private let session: () -> AppStorageSession
     private let defaults: UserDefaults
     private let files: any AppFileService
@@ -79,24 +106,36 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     private let storageRoot: URL
     private let worker = MessageSnapshotFiles()
     private var cacheGeneration = 0
-    private var cached: (session: AppStorageSession, revisionKey: String, revision: Int, state: MessageSnapshotState?)?
-    private var loadTask: (session: AppStorageSession, revision: Int, generation: Int, task: Task<Bool, Never>)?
+    private var cached:
+        (
+            session: AppStorageSession, revisionKey: String, revision: Int,
+            state: MessageSnapshotState?
+        )?
+    private var loadTask:
+        (session: AppStorageSession, revision: Int, generation: Int, task: Task<Bool, Never>)?
     private nonisolated struct WriteKey: Hashable {
         let url: URL
         let fileObject: ObjectIdentifier?
     }
     private static var writeTasks: [WriteKey: (id: Int, task: Task<Bool, Never>)] = [:]
     private static var writeID = 0
-    public nonisolated static let maximumSnapshotBytes = GalleryMessageReadSnapshot.maximumSnapshotBytes
+    public nonisolated static let maximumSnapshotBytes = GalleryMessageReadSnapshot
+        .maximumSnapshotBytes
     private let snapshotStore: AccountScopedCodableStore<GalleryMessageReadSnapshot>
 
-    public init(files: any AppFileService, storageRoot: URL, defaults: UserDefaults, session: @escaping () -> AppStorageSession, storageOperations: StorageOperationTracker = StorageOperationTracker()) {
+    public init(
+        files: any AppFileService, storageRoot: URL, defaults: UserDefaults,
+        session: @escaping () -> AppStorageSession,
+        storageOperations: StorageOperationTracker = StorageOperationTracker()
+    ) {
         self.files = files
         self.storageOperations = storageOperations
         self.storageRoot = storageRoot
         self.session = session
         self.defaults = defaults
-        snapshotStore = AccountScopedCodableStore(keyPrefix: "gallery.message.read.snapshot", defaults: defaults, sessionProvider: session)
+        snapshotStore = AccountScopedCodableStore(
+            keyPrefix: "gallery.message.read.snapshot", defaults: defaults, sessionProvider: session
+        )
         Task { [weak self] in await self?.prepareSnapshot() }
     }
 
@@ -114,7 +153,9 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
 
     private var currentState: MessageSnapshotState? {
         let account = session()
-        guard let cached, cached.session == account, cached.revision == defaults.integer(forKey: cached.revisionKey) else {
+        guard let cached, cached.session == account,
+            cached.revision == defaults.integer(forKey: cached.revisionKey)
+        else {
             Task { [weak self] in await self?.prepareSnapshot() }
             return nil
         }
@@ -128,19 +169,36 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     @discardableResult public func prepareSnapshot() async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        let account = session(), revision = defaults.integer(forKey: revisionKey), generation = cacheGeneration
-        if let cached, cached.session == account, cached.revision == revision, cached.state != nil { return true }
-        if let loadTask, loadTask.session == account, loadTask.revision == revision, loadTask.generation == generation { return await loadTask.task.value }
-        let url = fileURL, key = snapshotStore.storageKey, revisionKey = self.revisionKey
+        let account = session()
+        let revision = defaults.integer(forKey: revisionKey)
+        let generation = cacheGeneration
+        if let cached, cached.session == account, cached.revision == revision, cached.state != nil {
+            return true
+        }
+        if let loadTask, loadTask.session == account, loadTask.revision == revision,
+            loadTask.generation == generation
+        {
+            return await loadTask.task.value
+        }
+        let url = fileURL
+        let key = snapshotStore.storageKey
+        let revisionKey = self.revisionKey
         let legacyKey = account.legacyKey("gallery.message.read.snapshot")
         let legacyValue = defaults.object(forKey: key) ?? defaults.object(forKey: legacyKey)
         let legacy = legacyValue as? Data
         let invalidLegacy = legacyValue != nil && legacy == nil
         let task = Task { [weak self, worker, files] in
-            let result = await worker.read(files: files, url: url, legacy: legacy, invalidLegacy: invalidLegacy)
+            let result = await worker.read(
+                files: files, url: url, legacy: legacy, invalidLegacy: invalidLegacy)
             guard let self else { return false }
-            if self.loadTask?.session == account && self.loadTask?.revision == revision && self.loadTask?.generation == generation { self.loadTask = nil }
-            guard generation == self.cacheGeneration, account == self.session(), revision == self.defaults.integer(forKey: revisionKey) else { return false }
+            if self.loadTask?.session == account && self.loadTask?.revision == revision
+                && self.loadTask?.generation == generation
+            {
+                self.loadTask = nil
+            }
+            guard generation == self.cacheGeneration, account == self.session(),
+                revision == self.defaults.integer(forKey: revisionKey)
+            else { return false }
             let state: MessageSnapshotState?
             switch result {
             case .success(let value): state = value
@@ -156,7 +214,8 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
                 self.defaults.set(legacy, forKey: key)
                 self.defaults.removeObject(forKey: legacyKey)
             }
-            let unreadChanged = previous != state?.unread && (previous != nil || state?.unread.isEmpty == false)
+            let unreadChanged =
+                previous != state?.unread && (previous != nil || state?.unread.isEmpty == false)
             if unreadChanged || wasUnreadable != (state == nil) { self.changeSubject.send(account) }
             return state != nil
         }
@@ -164,11 +223,14 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         return await task.value
     }
 
-    private func save(shouldSync: Bool = true, recoveringUnreadable: Bool = false,
-                      edit: @escaping @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?) async -> Bool {
+    private func save(
+        shouldSync: Bool = true, recoveringUnreadable: Bool = false,
+        edit: @escaping @Sendable (GalleryMessageReadSnapshot) -> GalleryMessageReadSnapshot?
+    ) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        let account = session(), generation = cacheGeneration
+        let account = session()
+        let generation = cacheGeneration
         let fileObject = (files as? any AppFileService & AnyObject).map(ObjectIdentifier.init)
         let writeKey = WriteKey(url: fileURL.standardizedFileURL, fileObject: fileObject)
         let previous = Self.writeTasks[writeKey]?.task
@@ -176,23 +238,37 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         let writeID = Self.writeID
         let task = Task { [weak self] in
             defer {
-                if Self.writeTasks[writeKey]?.id == writeID { Self.writeTasks.removeValue(forKey: writeKey) }
+                if Self.writeTasks[writeKey]?.id == writeID {
+                    Self.writeTasks.removeValue(forKey: writeKey)
+                }
             }
             _ = await previous?.value
-            guard let self, generation == self.cacheGeneration, account == self.session() else { return false }
+            guard let self, generation == self.cacheGeneration, account == self.session() else {
+                return false
+            }
             let original: GalleryMessageReadSnapshot
             if recoveringUnreadable {
-                original = self.cached?.session == account ? self.cached?.state?.snapshot ?? .init() : .init()
+                original =
+                    self.cached?.session == account
+                    ? self.cached?.state?.snapshot ?? .init() : .init()
             } else {
-                guard await self.prepareSnapshot(), generation == self.cacheGeneration, account == self.session(),
-                      let state = self.currentState else { return false }
+                guard await self.prepareSnapshot(), generation == self.cacheGeneration,
+                    account == self.session(),
+                    let state = self.currentState
+                else { return false }
                 original = state.snapshot
             }
-            let url = self.fileURL, key = self.snapshotStore.storageKey, revisionKey = self.revisionKey
+            let url = self.fileURL
+            let key = self.snapshotStore.storageKey
+            let revisionKey = self.revisionKey
             do {
-                guard let saved = try await self.worker.write(original, files: self.files, url: url,
-                    recoveringUnreadable: recoveringUnreadable, edit: edit) else { return true }
-                self.defaults.removeObject(forKey: account.legacyKey("gallery.message.read.snapshot"))
+                guard
+                    let saved = try await self.worker.write(
+                        original, files: self.files, url: url,
+                        recoveringUnreadable: recoveringUnreadable, edit: edit)
+                else { return true }
+                self.defaults.removeObject(
+                    forKey: account.legacyKey("gallery.message.read.snapshot"))
                 let revision = self.defaults.integer(forKey: revisionKey) &+ 1
                 self.defaults.set(revision, forKey: revisionKey)
                 self.defaults.removeObject(forKey: key)
@@ -206,8 +282,12 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
                 Self.logger.error("消息记录保存受阻：\(failure.summary, privacy: .public)")
                 if generation == self.cacheGeneration, account == self.session() {
                     if recoveringUnreadable {
-                        self.cached = (account, revisionKey, self.defaults.integer(forKey: revisionKey), nil)
-                    } else { self.cached = nil }
+                        self.cached = (
+                            account, revisionKey, self.defaults.integer(forKey: revisionKey), nil
+                        )
+                    } else {
+                        self.cached = nil
+                    }
                 }
                 return false
             }
@@ -228,35 +308,47 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         return await save(recoveringUnreadable: true) { $0 }
     }
 
-    @discardableResult public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) async -> Bool {
+    @discardableResult public func applySyncedSnapshot(_ snapshot: GalleryMessageReadSnapshot) async
+        -> Bool
+    {
         await save(shouldSync: false) { $0.mergingReadState(snapshot) }
     }
 
-    @discardableResult public func replaceLatestIDs(_ ids: [Int], unreadCount: Int, for type: GalleryMessageType) async -> Bool {
+    @discardableResult public func replaceLatestIDs(
+        _ ids: [Int], unreadCount: Int, for type: GalleryMessageType
+    ) async -> Bool {
         await save { snapshot in
             guard unreadCount > 0 else { return nil }
             var result = snapshot
             let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
-            result.latestIDsByType[type.rawValue] = Array(Set(snapshot.latestIDsByType[type.rawValue] ?? []).union(ids.prefix(unreadCount)).subtracting(seen))
+            result.latestIDsByType[type.rawValue] = Array(
+                Set(snapshot.latestIDsByType[type.rawValue] ?? []).union(ids.prefix(unreadCount))
+                    .subtracting(seen))
             return result
         }
     }
 
-    @discardableResult public func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool {
+    @discardableResult public func markSeen(ids: [Int], for type: GalleryMessageType) async -> Bool
+    {
         await markSeen(ids: ids, for: type, includingUnread: false)
     }
 
-    @discardableResult public func markAllSeen(including ids: [Int], for type: GalleryMessageType) async -> Bool {
+    @discardableResult public func markAllSeen(including ids: [Int], for type: GalleryMessageType)
+        async -> Bool
+    {
         await markSeen(ids: ids, for: type, includingUnread: true)
     }
 
-    private func markSeen(ids: [Int], for type: GalleryMessageType, includingUnread: Bool) async -> Bool {
+    private func markSeen(ids: [Int], for type: GalleryMessageType, includingUnread: Bool) async
+        -> Bool
+    {
         await save { snapshot in
             let ids = includingUnread ? ids + (snapshot.latestIDsByType[type.rawValue] ?? []) : ids
             let seen = Set(snapshot.seenIDsByType[type.rawValue] ?? [])
             let floor = snapshot.retainedFromIDByType[type.rawValue] ?? Int.min
             let boundary = includingUnread ? max(floor, ids.max() ?? floor) : floor
-            guard boundary > floor || ids.contains(where: { $0 >= floor && !seen.contains($0) }) else { return nil }
+            guard boundary > floor || ids.contains(where: { $0 >= floor && !seen.contains($0) })
+            else { return nil }
             var result = snapshot
             result.seenIDsByType[type.rawValue] = Array(seen.union(ids))
             if includingUnread { result.retainedFromIDByType[type.rawValue] = boundary }
@@ -264,9 +356,15 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
         }
     }
 
-    public func unreadCount(for type: GalleryMessageType) -> Int { currentState?.unread[type.rawValue]?.count ?? 0 }
-    public func pendingUnreadAfterID(for type: GalleryMessageType) -> Int? { currentState?.snapshot.pendingUnreadAfterIDByType[type.rawValue] }
-    @discardableResult public func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType) async -> Bool {
+    public func unreadCount(for type: GalleryMessageType) -> Int {
+        currentState?.unread[type.rawValue]?.count ?? 0
+    }
+    public func pendingUnreadAfterID(for type: GalleryMessageType) -> Int? {
+        currentState?.snapshot.pendingUnreadAfterIDByType[type.rawValue]
+    }
+    @discardableResult public func setPendingUnreadAfterID(_ id: Int?, for type: GalleryMessageType)
+        async -> Bool
+    {
         await save { snapshot in
             var result = snapshot
             result.pendingUnreadAfterIDByType[type.rawValue] = id
@@ -276,8 +374,10 @@ public final class GalleryMessageReadStore: GalleryMessageReadStoring {
     public func isUnread(id: Int, for type: GalleryMessageType) -> Bool {
         guard let state = currentState else { return false }
         if state.unread[type.rawValue]?.contains(id) == true { return true }
-        return state.snapshot.pendingUnreadAfterIDByType[type.rawValue].map { id > $0
-            && state.seen[type.rawValue]?.contains(id) != true
-            && id >= (state.snapshot.retainedFromIDByType[type.rawValue] ?? Int.min) } ?? false
+        return state.snapshot.pendingUnreadAfterIDByType[type.rawValue].map {
+            id > $0
+                && state.seen[type.rawValue]?.contains(id) != true
+                && id >= (state.snapshot.retainedFromIDByType[type.rawValue] ?? Int.min)
+        } ?? false
     }
 }

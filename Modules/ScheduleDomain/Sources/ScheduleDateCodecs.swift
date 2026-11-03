@@ -1,5 +1,5 @@
-import ScheduleContracts
 import Foundation
+import ScheduleContracts
 
 public enum ScheduleDateCodec {
     /// 采用固定公历计算周数，独立于系统日历设置。
@@ -48,7 +48,9 @@ public enum ScheduleDateCodec {
 
     /// 解析 `HH:mm` 文本为一个只关心时分的 `Date`。
     public static func parseTime(_ string: String) -> Date? {
-        guard let date = timeFormatter.date(from: string), timeFormatter.string(from: date) == string else {
+        guard let date = timeFormatter.date(from: string),
+            timeFormatter.string(from: date) == string
+        else {
             return nil
         }
         return date

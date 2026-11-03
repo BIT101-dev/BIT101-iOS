@@ -50,7 +50,9 @@ public struct AccountScopedCodableStore<Value: Codable> {
         }
 
         let legacyKey = session().legacyKey(keyPrefix, guestIdentifier: guestIdentifier)
-        guard legacyKey != key, let stored = defaults.object(forKey: legacyKey) else { return .missing }
+        guard legacyKey != key, let stored = defaults.object(forKey: legacyKey) else {
+            return .missing
+        }
         guard let data = stored as? Data, let value = decode(data) else { return .unreadable }
 
         defaults.set(data, forKey: key)
@@ -63,7 +65,10 @@ public struct AccountScopedCodableStore<Value: Codable> {
             return try JSONDecoder().decode(Value.self, from: data)
         } catch {
             accountScopedStoreLogger.error(
-                "Failed to decode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                """
+                Failed to decode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) \
+                error=\(String(describing: error), privacy: .public)
+                """
             )
             return nil
         }
@@ -76,10 +81,14 @@ public struct AccountScopedCodableStore<Value: Codable> {
             var data = try JSONEncoder().encode(value)
             let key = storageKey
             if let snapshotKeys {
-                guard let encoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                guard let encoded = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else {
                     throw CocoaError(.coderInvalidValue)
                 }
-                let stored = try defaults.data(forKey: key).map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? nil
+                let stored =
+                    try defaults.data(forKey: key).map {
+                        try JSONSerialization.jsonObject(with: $0) as? [String: Any]
+                    } ?? nil
                 let fields = (stored ?? [:]).filter { !snapshotKeys.contains($0.key) }
                     .merging(encoded) { _, new in new }
                 data = try JSONSerialization.data(withJSONObject: fields)
@@ -92,7 +101,10 @@ public struct AccountScopedCodableStore<Value: Codable> {
             return true
         } catch {
             accountScopedStoreLogger.error(
-                "Failed to encode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                """
+                Failed to encode account-scoped value keyPrefix=\(keyPrefix, privacy: .public) \
+                error=\(String(describing: error), privacy: .public)
+                """
             )
             return false
         }

@@ -1,86 +1,136 @@
-import SchedulePorts
-import GalleryFeature
+import ClientCore
 import CommunityCore
-import PaperFeature
 import CommunityTransport
+import CoreLocation
+import DesignSystemKit
+import GalleryFeature
+import PaperFeature
+import ScheduleDomain
+import SchedulePorts
 import ScoreDomain
 import ScorePorts
+import SwiftUI
+import Testing
+import TransportCore
+import UIKit
+import XCTest
+
+@testable import BIT101_iOS
+@testable import MapFeature
 @testable import ScheduleFeature
 @testable import ScheduleInfrastructure
 @testable import ScoreFeature
-@testable import MapFeature
-import ClientCore
-import TransportCore
-import DesignSystemKit
-import ScheduleDomain
-import XCTest
-import Testing
-import UIKit
-import SwiftUI
-import CoreLocation
-@testable import BIT101_iOS
+
 nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     private struct DiagnosisTranscriptService: TrustedTranscriptServicing {
         let transcriptServiceIdentity: AnyHashable = "diagnosis-transcript"
         let result: TrustedTranscriptPages
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { result }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { challenge }
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        { result }
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages { result }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { challenge }
     }
 
     @MainActor
-    func testNetworkDiagnosisDistinguishesCompletePartialAndInvalidTranscriptPages() async throws {
-        let identity = NetworkDiagnosisRunner.Identity(community: .init(accountIdentifier: "diagnosis"),
+    func testNetworkDiagnosisDistinguishesPartial() async throws {
+        let identity = NetworkDiagnosisRunner.Identity(
+            community: .init(accountIdentifier: "diagnosis"),
             school: .init(accountIdentifier: "diagnosis", generation: 0))
         let client = HTTPClient(transport: DiagnosticFailureTransport(), observer: nil)
-        let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
-            credentials: { .init(identity: identity.community, cookie: "fixture") }, refresh: { _ in })
-        let cases: [([Int], Int, Bool, String)] = [([1, 2, 3], 3, false, "通过"), ([1], 3, true, "部分可用"),
+        let session = CommunitySession(
+            httpClient: client, baseURL: AppURL.required("https://example.invalid"),
+            credentials: { .init(identity: identity.community, cookie: "fixture") },
+            refresh: { _ in })
+        let cases: [([Int], Int, Bool, String)] = [
+            ([1, 2, 3], 3, false, "通过"), ([1], 3, true, "部分可用"),
             ([1, 1, 3], 3, false, "部分可用"), ([0, 2, 4], 3, false, "部分可用"), ([], 3, false, "失败"),
-            ([], 0, false, "失败"), ([1, 2, 3], 3, true, "部分可用")]
+            ([], 0, false, "失败"), ([1, 2, 3], 3, true, "部分可用"),
+        ]
         for (numbers, expected, fails, status) in cases {
-            let result = TrustedTranscriptPages(pages: numbers.map { .init(number: $0, data: Data([1])) },
+            let result = TrustedTranscriptPages(
+                pages: numbers.map { .init(number: $0, data: Data([1])) },
                 expectedPageCount: expected, failure: fails ? URLError(.timedOut) : nil)
-            let dependencies = NetworkDiagnosisDependencies(identity: { identity },
-                path: NetworkConnectionDescription(networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
-                httpClient: client, gallery: GalleryService(session: session, preferences: { .init(hideBots: false,
-                    hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }),
-                paper: PaperService(session: session), school: .init(identity: { identity.school }, currentTerm: { "term" },
-                    syncCourses: { _ in }, ddl: { DDLSyncPayload(url: "", events: [], warnings: fails ? ["课程中心待恢复"] : []) }), transcript: DiagnosisTranscriptService(result: result))
+            let dependencies = NetworkDiagnosisDependencies(
+                identity: { identity },
+                path: NetworkConnectionDescription(
+                    networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
+                httpClient: client,
+                gallery: GalleryService(
+                    session: session,
+                    preferences: {
+                        .init(
+                            hideBots: false,
+                            hiddenUserIDs: [], hideAnonymous: false, useWebView: false,
+                            hideMakeupOutliers: false)
+                    }),
+                paper: PaperService(session: session),
+                school: .init(
+                    identity: { identity.school }, currentTerm: { "term" },
+                    syncCourses: { _ in },
+                    ddl: { DDLSyncPayload(url: "", events: [], warnings: fails ? ["课程中心待恢复"] : []) }
+                ), transcript: DiagnosisTranscriptService(result: result))
             let report = await NetworkDiagnosisRunner(dependencies: dependencies).run()
             XCTAssertTrue(try XCTUnwrap(report?.results.last).hasPrefix("可信成绩单：" + status))
-            XCTAssertTrue(report?.results.contains { $0.hasPrefix("DDL 接口：" + (fails ? "部分可用" : "通过")) } == true)
+            XCTAssertTrue(
+                report?.results.contains { $0.hasPrefix("DDL 接口：" + (fails ? "部分可用" : "通过")) }
+                    == true)
         }
     }
 
     @MainActor
-    func testFeedbackFitsWorkerMetadataAndRedactsPathIdentities() async throws {
-        let encodedURL = "https://example.invalid/students/%32%30%32%36%31%32%33%34%35%36?note=%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536#%2532%2530%2532%2536%2531%2532%2533%2534%2535%2536"
-        let sensitiveHeaders = ["X-Challenge-Token", "x-CsRf-ToKeN", "X-Session-ID", "WWW-Authenticate", "Proxy-Authenticate", "Authentication-Info", "X-XSRF", "X-Api-Key"]
+    func testFeedbackFitsWorkerMetadata() async throws {
+        let encodedURL =
+            """
+            https://example.invalid/students/%32%30%32%36%31%32%33%34%35%36?note=%2532%2530%253\
+            2%2536%2531%2532%2533%2534%2535%2536#%2532%2530%2532%2536%2531%2532%2533%2534%2535%\
+            2536
+            """
+        let sensitiveHeaders = [
+            "X-Challenge-Token", "x-CsRf-ToKeN", "X-Session-ID", "WWW-Authenticate",
+            "Proxy-Authenticate", "Authentication-Info", "X-XSRF", "X-Api-Key",
+        ]
         for raw in [false, true] {
             var submitted: ErrorReportPayload?
-            let model = ErrorReportViewModel(alert: AppAlert(title: encodedURL, message: encodedURL), submitReport: { submitted = $0 })
+            let model = ErrorReportViewModel(
+                alert: AppAlert(title: encodedURL, message: encodedURL),
+                submitReport: { submitted = $0 })
             model.mode = raw ? .raw : .sanitized
             model.comment = "用户描述 " + encodedURL
             let body = String(repeating: "诊断\"\\", count: 32_768)
             model.diagnostics = (0..<10).map { index in
-                NetworkDiagnosticRecord(id: UUID(), occurredAt: Date(), method: "GET",
-                    url: "https://example.invalid/students/" + (index % 2 == 0 ? "2026123456" : "%32%30%32%36%31%32%33%34%35%36") + "?student=2026123456",
+                NetworkDiagnosticRecord(
+                    id: UUID(), occurredAt: Date(), method: "GET",
+                    url: "https://example.invalid/students/"
+                        + (index % 2 == 0 ? "2026123456" : "%32%30%32%36%31%32%33%34%35%36")
+                        + "?student=2026123456",
                     statusCode: 500, elapsedMilliseconds: 1, error: encodedURL,
-                    responseHeaders: Dictionary(uniqueKeysWithValues: sensitiveHeaders.map { ($0, "TEST_ONLY_SECRET") } + [("Content-Type", "text/plain")]), responseBody: body,
+                    responseHeaders: Dictionary(
+                        uniqueKeysWithValues: sensitiveHeaders.map { ($0, "TEST_ONLY_SECRET") } + [
+                            ("Content-Type", "text/plain")
+                        ]), responseBody: body,
                     finalURL: encodedURL + "&token=TEST_ONLY_SECRET", finalMethod: "GET")
             }
             let submittedSuccessfully = await model.submit()
             XCTAssertTrue(submittedSuccessfully)
             let payload = try XCTUnwrap(submitted)
-            let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
             XCTAssertLessThanOrEqual(try encoder.encode(payload).count, 1024 * 1024)
             XCTAssertEqual(payload.diagnostics.map(\.id), model.diagnostics.map(\.id))
             XCTAssertEqual(payload.diagnosticSummary.total, 10)
             XCTAssertEqual(payload.diagnosticSummary.failed, 10)
             XCTAssertTrue(try XCTUnwrap(payload.comment).hasPrefix("用户描述"))
-            for text in [payload.comment, payload.errorTitle, payload.errorMessage] + payload.diagnostics.map(\.error) {
-                let decoded = try XCTUnwrap(try XCTUnwrap(text).removingPercentEncoding?.removingPercentEncoding)
+            for text in [payload.comment, payload.errorTitle, payload.errorMessage]
+                + payload.diagnostics.map(\.error)
+            {
+                let decoded = try XCTUnwrap(
+                    try XCTUnwrap(text).removingPercentEncoding?.removingPercentEncoding)
                 XCTAssertEqual(decoded.contains("2026123456"), raw)
                 XCTAssertTrue(decoded.contains("/students/"))
             }
@@ -88,18 +138,25 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 let path = try XCTUnwrap(URLComponents(string: record.url)).path
                 XCTAssertEqual(path.contains("2026123456"), raw)
                 let finalURL = try XCTUnwrap(record.finalURL)
-                XCTAssertEqual(try XCTUnwrap(URLComponents(string: finalURL)).path.contains("2026123456"), raw)
+                XCTAssertEqual(
+                    try XCTUnwrap(URLComponents(string: finalURL)).path.contains("2026123456"), raw)
                 XCTAssertFalse(finalURL.contains("TEST_ONLY_SECRET"))
                 XCTAssertEqual(record.finalMethod, "GET")
                 if raw {
                     XCTAssertEqual(record.responseHeaders["Content-Type"], "text/plain")
-                    for key in sensitiveHeaders { XCTAssertEqual(record.responseHeaders[key], "[REDACTED]") }
+                    for key in sensitiveHeaders {
+                        XCTAssertEqual(record.responseHeaders[key], "[REDACTED]")
+                    }
                     XCTAssertTrue(try XCTUnwrap(record.responseBody).hasSuffix("[响应正文已按反馈大小限制截取]"))
-                } else { XCTAssertNil(record.responseBody) }
+                } else {
+                    XCTAssertNil(record.responseBody)
+                }
             }
         }
         var sent = false
-        let model = ErrorReportViewModel(alert: AppAlert(title: "fixture", message: "fixture"), submitReport: { _ in sent = true })
+        let model = ErrorReportViewModel(
+            alert: AppAlert(title: "fixture", message: "fixture"),
+            submitReport: { _ in sent = true })
         model.comment = String(repeating: "x", count: 1024 * 1024)
         let submittedSuccessfully = await model.submit()
         XCTAssertFalse(submittedSuccessfully)
@@ -108,7 +165,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(model.isSubmitting)
     }
     @MainActor
-    func testProductionSchoolServiceRecordsNetworkFailures() async throws {
+    func testProductionSchoolServiceFailures() async throws {
         let url = try XCTUnwrap(URL(string: "https://example.invalid/production-school-diagnostic"))
         let service = ScheduleServiceFactory.make(transport: DiagnosticFailureTransport())
         do {
@@ -127,13 +184,15 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var identity = SchoolSessionIdentity(accountIdentifier: "diagnostic-a", generation: 0)
     }
     @MainActor
-    func testDiagnosticsRetainFailuresAndAuthenticationContextThroughSuccessfulTraffic() async throws {
+    func testDiagnosticsRetainFailures() async throws {
         let account = DiagnosticAccount()
         let store = NetworkDiagnosticStore(currentIdentity: { account.identity })
         func capture(_ path: String, status: Int) async throws {
             let url = try XCTUnwrap(URL(string: "https://sso.bit.edu.cn/" + path))
-            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
-            await store.record(owner: account.identity, request: URLRequest(url: url), data: nil,
+            let response = try XCTUnwrap(
+                HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            await store.record(
+                owner: account.identity, request: URLRequest(url: url), data: nil,
                 response: response, error: nil, elapsed: 0)
         }
         try await capture("cas/login", status: 200)
@@ -151,29 +210,40 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testDiagnosticsFilterAccountsGenerationsAndLateResults() async throws {
+    func testDiagnosticsFilterAccountsGenerations() async throws {
         let account = DiagnosticAccount()
         let store = NetworkDiagnosticStore(currentIdentity: { account.identity })
         let owner = account.identity
         let url = try XCTUnwrap(URL(string: "https://sso.bit.edu.cn/cas/login"))
         let request = URLRequest(url: url)
-        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil))
-        await store.record(owner: owner, request: request, data: Data("account-a".utf8), response: response, error: nil, elapsed: 0)
+        let response = try XCTUnwrap(
+            HTTPURLResponse(url: url, statusCode: 500, httpVersion: nil, headerFields: nil))
+        await store.record(
+            owner: owner, request: request, data: Data("account-a".utf8), response: response,
+            error: nil, elapsed: 0)
         let count1 = await store.recent().count
         XCTAssertEqual(count1, 1)
         account.identity = .init(accountIdentifier: "diagnostic-b", generation: 1)
-        await store.record(owner: owner, request: request, data: Data("late-account-a".utf8), response: response, error: nil, elapsed: 0)
+        await store.record(
+            owner: owner, request: request, data: Data("late-account-a".utf8), response: response,
+            error: nil, elapsed: 0)
         let empty1 = await store.recent().isEmpty
         XCTAssertTrue(empty1)
-        await store.record(owner: account.identity, request: request, data: Data("account-b".utf8), response: response, error: nil, elapsed: 0)
+        await store.record(
+            owner: account.identity, request: request, data: Data("account-b".utf8),
+            response: response, error: nil, elapsed: 0)
         let body1 = await store.recent().last?.responseBody
         XCTAssertEqual(body1, "account-b")
         let previous = account.identity
         account.identity = .init(accountIdentifier: "diagnostic-b", generation: 2)
-        await store.record(owner: previous, request: request, data: Data("previous-generation".utf8), response: response, error: nil, elapsed: 0)
+        await store.record(
+            owner: previous, request: request, data: Data("previous-generation".utf8),
+            response: response, error: nil, elapsed: 0)
         let empty2 = await store.recent().isEmpty
         XCTAssertTrue(empty2)
-        await store.record(owner: account.identity, request: request, data: nil, response: response, error: nil, elapsed: 0)
+        await store.record(
+            owner: account.identity, request: request, data: nil, response: response, error: nil,
+            elapsed: 0)
         await store.clear()
         let empty3 = await store.recent().isEmpty
         XCTAssertTrue(empty3)
@@ -184,15 +254,20 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         }
     }
     @MainActor
-    func testAuthenticationBusinessFailurePreservesCauseInDiagnostics() async throws {
+    func testAuthBusinessPreservesCauseDiagnostics() async throws {
         let store = NetworkDiagnosticStore()
-        let url = try XCTUnwrap(URL(string: "https://login.bit101.flwfdd.xyz/api/auth/diagnostic-challenge"))
-        let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-        let cause = "HTTPSConnectionPool: SSLCertVerificationError: certificate has expired; token=secret"
+        let url = try XCTUnwrap(
+            URL(string: "https://login.bit101.flwfdd.xyz/api/auth/diagnostic-challenge"))
+        let response = try XCTUnwrap(
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+        let cause =
+            "HTTPSConnectionPool: SSLCertVerificationError: certificate has expired; token=secret"
         let data = try JSONSerialization.data(withJSONObject: [
-            "challenge_id": "diagnostic-challenge", "status": "failed", "error": cause
+            "challenge_id": "diagnostic-challenge", "status": "failed", "error": cause,
         ])
-        await store.record(owner: AppAccountSession.storage.schoolSessionIdentity, request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+        await store.record(
+            owner: AppAccountSession.storage.schoolSessionIdentity, request: URLRequest(url: url),
+            data: data, response: response, error: nil, elapsed: 0)
         let records = await store.recent()
         let record = try XCTUnwrap(records.last)
         XCTAssertEqual(record.statusCode, 200)
@@ -205,18 +280,25 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testSuccessfulAuthenticationAndOtherHostsRetainHTTPDiagnostics() async throws {
+    func testSuccessfulAuthAndRetainHttpDiagnostics() async throws {
         let store = NetworkDiagnosticStore()
-        let authenticated = Data(#"{"challenge_id":"diagnostic-challenge","status":"authenticated"}"#.utf8)
-        let failed = Data(#"{"challenge_id":"diagnostic-challenge","status":"failed","error":"school failure"}"#.utf8)
+        let authenticated = Data(
+            #"{"challenge_id":"diagnostic-challenge","status":"authenticated"}"#.utf8)
+        let failed = Data(
+            #"{"challenge_id":"diagnostic-challenge","status":"failed","error":"school failure"}"#
+                .utf8)
         for (address, data) in [
             ("https://login.bit101.flwfdd.xyz/api/auth/diagnostic-challenge", authenticated),
             ("https://example.invalid/api/auth/diagnostic-challenge", failed),
-            ("https://login.bit101.flwfdd.xyz/api/other", failed)
+            ("https://login.bit101.flwfdd.xyz/api/other", failed),
         ] {
             let url = try XCTUnwrap(URL(string: address))
-            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
-            await store.record(owner: AppAccountSession.storage.schoolSessionIdentity, request: URLRequest(url: url), data: data, response: response, error: nil, elapsed: 0)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil))
+            await store.record(
+                owner: AppAccountSession.storage.schoolSessionIdentity,
+                request: URLRequest(url: url), data: data, response: response, error: nil,
+                elapsed: 0)
         }
         let records = await store.recent()
         XCTAssertEqual(records.count, 3)
@@ -225,18 +307,19 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testFeedbackBuildEnvironmentMatchesCompilationMode() {
-#if DEBUG
+    func testFeedbackBuildEnvironmentMode() {
+        #if DEBUG
         XCTAssertTrue(AppBuildEnvironment.isDevelopment)
-#else
+        #else
         XCTAssertFalse(AppBuildEnvironment.isDevelopment)
-#endif
+        #endif
     }
 
     @MainActor
-    func testKeyboardBackgroundTouchPreservesSystemAutoFillFocus() throws {
-        let window = try XCTUnwrap(UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow))
+    func testKeyboardBackgroundTouchPreservesFocus() throws {
+        let window = try XCTUnwrap(
+            UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first(where: \.isKeyWindow))
         var controller = try XCTUnwrap(window.rootViewController)
         while let presented = controller.presentedViewController { controller = presented }
         let background = UIView(frame: CGRect(x: 0, y: 0, width: 200, height: 100))
@@ -264,20 +347,23 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testVerificationAutoFillCapturesTheCodeAndSerializesSubmissions() async throws {
+    func testVerifyAutoFillCapturesCode() async throws {
         executionTimeAllowance = 60
         let deadline = ContinuousClock.now.advanced(by: .seconds(executionTimeAllowance))
         var submissions: [String] = []
         var pending: CheckedContinuation<Void, Never>?
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: AppVerificationSheet(
-            maskedPhone: "138****0000", isSubmitting: false, errorMessage: nil,
-            submitTitle: "验证", onCancel: {}, onSubmit: { code in
-                submissions.append(code)
-                await withCheckedContinuation { pending = $0 }
-            }
-        ))
+        let controller = UIHostingController(
+            rootView: AppVerificationSheet(
+                maskedPhone: "138****0000", isSubmitting: false, errorMessage: nil,
+                submitTitle: "验证", onCancel: {},
+                onSubmit: { code in
+                    submissions.append(code)
+                    await withCheckedContinuation { pending = $0 }
+                }
+            ))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -287,7 +373,11 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         }
         controller.view.layoutIfNeeded()
         func findInput(_ view: UIView) -> UITextField? {
-            if let field = view as? UITextField, field.accessibilityIdentifier == "verification.code" { return field }
+            if let field = view as? UITextField,
+                field.accessibilityIdentifier == "verification.code"
+            {
+                return field
+            }
             return view.subviews.lazy.compactMap(findInput).first
         }
         func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
@@ -296,7 +386,14 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                 controller.view.layoutIfNeeded()
                 try await Task.sleep(for: .milliseconds(10))
             }
-            XCTAssertTrue(condition(), "\(description) 提交次数：\(submissions.count)，输入使能：\(String(describing: findInput(controller.view)?.isEnabled))，窗口：\(window.bounds)，关键窗口：\(window.isKeyWindow)。")
+            XCTAssertTrue(
+                condition(),
+                """
+                \(description) 提交次数：\(submissions.count)，输入使能：\
+                \(String(describing: findInput(controller.view)?.isEnabled))，窗口：\
+                \(window.bounds)，关键窗口：\(window.isKeyWindow)。
+                """
+            )
         }
         try await waitUntil("布局") { findInput(controller.view) != nil }
         let input = try XCTUnwrap(findInput(controller.view))
@@ -308,13 +405,16 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         try await waitUntil("输入焦点") { findInput(controller.view)?.isFirstResponder == true }
         func fill(_ code: String) throws {
             let input = try XCTUnwrap(findInput(controller.view))
-            input.selectedTextRange = input.textRange(from: input.beginningOfDocument, to: input.endOfDocument)
+            input.selectedTextRange = input.textRange(
+                from: input.beginningOfDocument, to: input.endOfDocument)
             input.insertText(code)
         }
         try fill("123456")
         try fill("654321")
         XCTAssertEqual(findInput(controller.view)?.text, "654321")
-        try await waitUntil("首次提交") { submissions.count == 1 && findInput(controller.view)?.isEnabled == false }
+        try await waitUntil("首次提交") {
+            submissions.count == 1 && findInput(controller.view)?.isEnabled == false
+        }
         XCTAssertEqual(submissions, ["123456"])
         let first = pending
         pending = nil
@@ -322,54 +422,81 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         try await waitUntil("恢复输入") { findInput(controller.view)?.isEnabled == true }
         XCTAssertEqual(submissions.count, 1)
         try fill("123456")
-        try await waitUntil("再次提交") { submissions.count == 2 && findInput(controller.view)?.isEnabled == false }
+        try await waitUntil("再次提交") {
+            submissions.count == 2 && findInput(controller.view)?.isEnabled == false
+        }
         XCTAssertEqual(submissions, ["123456", "123456"])
     }
 
     @MainActor
-    func testDeeplyEncodedURLsAreMaskedWithinTheDecodingBudget() throws {
+    func testDeeplyEncodedUrAreMaskedWithinBudget() throws {
         let encoded = "%" + String(repeating: "25", count: 20_000)
         for suffix in [encoded, "?note=\(encoded)", "?\(encoded)=TEST_ONLY_SECRET", "#\(encoded)"] {
-            XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/\(suffix)"), "[REDACTED]")
+            XCTAssertEqual(
+                ErrorReportRedactor.forced("https://example.invalid/\(suffix)"), "[REDACTED]")
         }
         var nested = "https://school.invalid/?ticket=TEST_ONLY_SECRET"
-        for _ in 0..<12 { nested = try XCTUnwrap(nested.addingPercentEncoding(withAllowedCharacters: .alphanumerics)) }
-        XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/?service=\(nested)"), "[REDACTED]")
+        for _ in 0..<12 {
+            nested = try XCTUnwrap(
+                nested.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
+        }
+        XCTAssertEqual(
+            ErrorReportRedactor.forced("https://example.invalid/?service=\(nested)"), "[REDACTED]")
     }
 
     @MainActor
-    func testForcedRedactionKeepsPersonalFieldsButRemovesCredentials() {
-        let output = ErrorReportRedactor.forced("name=张三&student_id=1120260000&password=secret&token=abc&cookie=session&ticket=ST-secret")
+    func testForcedRedactionKeepsCredentials() {
+        let output = ErrorReportRedactor.forced(
+            """
+            name=张三&student_id=1120260000&password=secret&token=abc&cookie=session&ticket=ST-se\
+            cret
+            """
+        )
         XCTAssertTrue(output.contains("张三"))
         XCTAssertTrue(output.contains("1120260000"))
         XCTAssertFalse(output.contains("secret"))
         XCTAssertFalse(output.contains("token=abc"))
         XCTAssertFalse(output.contains("cookie=session"))
         XCTAssertFalse(output.contains("ST-secret"))
-        XCTAssertFalse(ErrorReportRedactor.forced(#"{"accessToken":"abc","sessionID":"xyz"}"#).contains("abc"))
-        XCTAssertFalse(ErrorReportRedactor.forced("https://example.invalid/%54%45%53%54", credentials: ["TEST"]).removingPercentEncoding?.contains("TEST") == true)
-        for text in ["Authorization: Bearer TEST_ONLY_SECRET", "Authorization: Basic TEST_ONLY_SECRET",
-                     "Cookie: first=TEST_ONLY_SECRET; second=TEST_ONLY_SECRET", "Proxy-Authorization: Basic TEST_ONLY_SECRET",
-                     #"{"password":"TEST_ONLY_\"SECRET"}"#,
-                     "https://example.invalid/?%70assword=TEST_ONLY_SECRET",
-                     "https://example.invalid/?%2570assword=TEST_ONLY_SECRET",
-                     "https://example.invalid/#%74oken=TEST_ONLY_SECRET",
-                     "https://example.invalid/#%2574oken=TEST_ONLY_SECRET",
-                     "https://example.invalid/#%74oken=TEST_ONLY_SECRET&note=%bad",
-                     "https://example.invalid/?service=https%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET",
-                     "https://example.invalid/?service=HTTPS%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ONLY_SECRET",
-                     "https://fixture-user:TEST_ONLY_SECRET@example.invalid/"] {
+        XCTAssertFalse(
+            ErrorReportRedactor.forced(#"{"accessToken":"abc","sessionID":"xyz"}"#).contains("abc"))
+        XCTAssertFalse(
+            ErrorReportRedactor.forced(
+                "https://example.invalid/%54%45%53%54", credentials: ["TEST"]
+            ).removingPercentEncoding?.contains("TEST") == true)
+        for text in [
+            "Authorization: Bearer TEST_ONLY_SECRET", "Authorization: Basic TEST_ONLY_SECRET",
+            "Cookie: first=TEST_ONLY_SECRET; second=TEST_ONLY_SECRET",
+            "Proxy-Authorization: Basic TEST_ONLY_SECRET",
+            #"{"password":"TEST_ONLY_\"SECRET"}"#,
+            "https://example.invalid/?%70assword=TEST_ONLY_SECRET",
+            "https://example.invalid/?%2570assword=TEST_ONLY_SECRET",
+            "https://example.invalid/#%74oken=TEST_ONLY_SECRET",
+            "https://example.invalid/#%2574oken=TEST_ONLY_SECRET",
+            "https://example.invalid/#%74oken=TEST_ONLY_SECRET&note=%bad",
+            """
+            https://example.invalid/?service=https%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ON\
+            LY_SECRET
+            """,
+            """
+            https://example.invalid/?service=HTTPS%3A%2F%2Fschool.invalid%2F%3Fticket%3DTEST_ON\
+            LY_SECRET
+            """,
+            "https://fixture-user:TEST_ONLY_SECRET@example.invalid/",
+        ] {
             XCTAssertFalse(ErrorReportRedactor.forced(text).contains("TEST_ONLY"))
             XCTAssertFalse(ErrorReportRedactor.forced(text).contains("SECRET"))
         }
-        XCTAssertEqual(ErrorReportRedactor.forced("https://example.invalid/#section"), "https://example.invalid/#section")
+        XCTAssertEqual(
+            ErrorReportRedactor.forced("https://example.invalid/#section"),
+            "https://example.invalid/#section")
         let sanitized = ErrorReportRedactor.sanitized("student_id=1120260000&name=张三&status=401")
         XCTAssertFalse(sanitized.contains("1120260000"))
         XCTAssertFalse(sanitized.contains("张三"))
         XCTAssertTrue(sanitized.contains("401"))
     }
 
-    func testAutomaticWeekPositioningClampsOnlyCalculatedWeeks() {
+    func testAutomaticWeekPositioningWeeks() {
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(-20), -12)
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(-12), -12)
         XCTAssertEqual(ScheduleAutomaticWeekPolicy.clamped(8), 8)
@@ -380,18 +507,22 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testUnpublishedScheduleResponsePreservesSchoolMessage() throws {
-        let data = Data(#"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8)
+    func testUnpublishedSchedulePreservesMessage() throws {
+        let data = Data(
+            #"{"datas":{"cxxszhxqkb":{"extParams":{"code":3,"msg":"此学年学期的课表未发布"},"rows":[]}}}"#.utf8
+        )
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
         XCTAssertTrue(response.datas.cxxszhxqkb.rows.isEmpty)
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.code, 3)
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.msg, "此学年学期的课表未发布")
-        XCTAssertEqual(ScheduleService.schoolBusinessErrorMessage(from: data), "此学年学期的课表未发布")
-        XCTAssertTrue(ScheduleServiceError.schoolResponse("此学年学期的课表未发布").isUnpublishedCourseSchedule)
-        XCTAssertFalse(ScheduleNotice.userInput(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
+        XCTAssertEqual(ScheduleService.schoolBusinessError(from: data), "此学年学期的课表未发布")
+        XCTAssertTrue(
+            ScheduleServiceError.schoolResponse("此学年学期的课表未发布").isUnpublishedCourseSchedule)
+        XCTAssertFalse(
+            ScheduleNotice.userInput(title: "课表暂未发布", message: "此学年学期的课表未发布").allowsDiagnostics)
     }
 
-    func testSecondFactorNoticeDoesNotOfferErrorReporting() {
+    func testSecondFactorNoticeReporting() {
         let notice = ScheduleNotice.userInput(
             title: "需要短信验证",
             message: ScheduleServiceError.schoolSecondFactorRequired.localizedDescription
@@ -400,7 +531,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
-    func testCredentialFailureDoesNotOfferErrorReporting() {
+    func testCredentialFailureDoesReporting() {
         let alert = AppAlert.userInput(
             title: "学号或密码错误",
             message: LoginServiceError.invalidCredentials.localizedDescription
@@ -409,61 +540,87 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertFalse(alert.allowsDiagnostics)
     }
 
-    func testUserInputAlertDoesNotOfferErrorReporting() {
+    func testUserInputAlertReporting() {
         let alert = AppAlert.userInput(title: "发布失败", message: "请至少添加 2 个标签。")
 
         XCTAssertFalse(alert.allowsDiagnostics)
     }
 
-    func testUserInputScheduleNoticeDoesNotOfferErrorReporting() {
+    func testUserInputScheduleReporting() {
         let notice = ScheduleNotice.userInput(title: "验证码错误", message: "验证码不正确，请重试。")
 
         XCTAssertFalse(notice.allowsDiagnostics)
     }
 
-    func testDeniedLocationFailureOffersSettingsWithoutErrorReporting() {
+    func testDeniedLocationFailureReporting() {
         let denied = NSError(domain: kCLErrorDomain, code: CLError.Code.denied.rawValue)
         let wrapped = NSError(domain: "MapKit", code: 1, userInfo: [NSUnderlyingErrorKey: denied])
         let notice = CampusLocationFailurePolicy.notice(for: wrapped)
 
         XCTAssertFalse(notice.allowsDiagnostics)
         XCTAssertEqual(notice.recoveryAction, .openAppSettings)
-        let deep = (0 ..< 20).reduce(denied) { underlying, _ in
+        let deep = (0..<20).reduce(denied) { underlying, _ in
             NSError(domain: "MapKit", code: 1, userInfo: [NSUnderlyingErrorKey: underlying])
         }
-        XCTAssertEqual(CampusLocationFailurePolicy.notice(for: deep).recoveryAction, .openAppSettings)
+        XCTAssertEqual(
+            CampusLocationFailurePolicy.notice(for: deep).recoveryAction, .openAppSettings)
     }
 
     @MainActor
-    func testNetworkDiagnosisStopsAtItsCapturedAccountAndCancellationBoundary() async throws {
+    func testNetworkDiagnosisStopsAtCapturedAccount() async throws {
         for interruption in ["account", "community-generation", "school-generation", "cancel"] {
-            var owner = NetworkDiagnosisRunner.Identity(community: .init(accountIdentifier: "A"), school: .init(accountIdentifier: "A", generation: 0))
+            var owner = NetworkDiagnosisRunner.Identity(
+                community: .init(accountIdentifier: "A"),
+                school: .init(accountIdentifier: "A", generation: 0))
             var waiting: CheckedContinuation<Void, Never>?
             var shouldWait = true
             var executed: Set<NetworkDiagnosisRunner.Step> = []
             let client = HTTPClient(transport: DiagnosticFailureTransport(), observer: nil)
-            let session = CommunitySession(httpClient: client, baseURL: AppURL.required("https://example.invalid"),
-                credentials: { .init(identity: owner.community, cookie: "fixture") }, refresh: { _ in })
-            let dependencies = NetworkDiagnosisDependencies(identity: { owner },
-                path: NetworkConnectionDescription(networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
-                httpClient: client, gallery: GalleryService(session: session, preferences: { .init(hideBots: false, hiddenUserIDs: [], hideAnonymous: false, useWebView: false, hideMakeupOutliers: false) }),
+            let session = CommunitySession(
+                httpClient: client, baseURL: AppURL.required("https://example.invalid"),
+                credentials: { .init(identity: owner.community, cookie: "fixture") },
+                refresh: { _ in })
+            let dependencies = NetworkDiagnosisDependencies(
+                identity: { owner },
+                path: NetworkConnectionDescription(
+                    networkPath: NetworkPathState(snapshot: .init(status: .disconnected))),
+                httpClient: client,
+                gallery: GalleryService(
+                    session: session,
+                    preferences: {
+                        .init(
+                            hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
+                            useWebView: false, hideMakeupOutliers: false)
+                    }),
                 paper: PaperService(session: session),
-                school: NetworkDiagnosisSchool(identity: { owner.school }, currentTerm: { "fixture" }, syncCourses: { _ in }, ddl: { DDLSyncPayload(url: "", events: []) }),
+                school: NetworkDiagnosisSchool(
+                    identity: { owner.school }, currentTerm: { "fixture" }, syncCourses: { _ in },
+                    ddl: { DDLSyncPayload(url: "", events: []) }),
                 transcript: StubTrustedTranscriptService())
-            let runner = NetworkDiagnosisRunner(dependencies: dependencies, diagnose: { step in
-                executed.insert(step)
-                if step == .currentTerm, shouldWait {
-                    shouldWait = false
-                    await withCheckedContinuation { waiting = $0 }
-                }
-                return step.title + "：通过"
-            })
+            let runner = NetworkDiagnosisRunner(
+                dependencies: dependencies,
+                diagnose: { step in
+                    executed.insert(step)
+                    if step == .currentTerm, shouldWait {
+                        shouldWait = false
+                        await withCheckedContinuation { waiting = $0 }
+                    }
+                    return step.title + "：通过"
+                })
             let work = Task { await runner.run() }
             try await waitForTestEvent { !(waiting == nil || runner.completedCount < 4) }
             switch interruption {
-            case "account": owner = .init(community: .init(accountIdentifier: "B"), school: .init(accountIdentifier: "B", generation: 0))
-            case "community-generation": owner = .init(community: .init(accountIdentifier: "A", generation: 1), school: owner.school)
-            case "school-generation": owner = .init(community: owner.community, school: .init(accountIdentifier: "A", generation: 1))
+            case "account":
+                owner = .init(
+                    community: .init(accountIdentifier: "B"),
+                    school: .init(accountIdentifier: "B", generation: 0))
+            case "community-generation":
+                owner = .init(
+                    community: .init(accountIdentifier: "A", generation: 1), school: owner.school)
+            case "school-generation":
+                owner = .init(
+                    community: owner.community, school: .init(accountIdentifier: "A", generation: 1)
+                )
             default: work.cancel()
             }
             try XCTUnwrap(waiting).resume()
@@ -482,17 +639,17 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testUserCancelledTranscriptVerificationDoesNotOfferErrorReporting() async {
+    func testUserCancelledTranscriptReporting() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
 
-        viewModel.dismissVerificationChallenge()
+        viewModel.dismissChallenge()
 
         XCTAssertFalse(viewModel.allowsDiagnostics)
     }
 
     @MainActor
-    func testTranscriptSheetDismissalPreservesSuccessfulPages() async {
+    func testTranscriptSheetDismissalPreservesPages() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
         XCTAssertNotNil(viewModel.verificationChallenge)
@@ -501,8 +658,8 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(viewModel.images.count, 1)
         XCTAssertNil(viewModel.verificationChallenge)
 
-        viewModel.dismissVerificationChallenge()
-        viewModel.dismissVerificationChallenge()
+        viewModel.dismissChallenge()
+        viewModel.dismissChallenge()
         await viewModel.applyIfNeeded()
 
         XCTAssertEqual(viewModel.state, .loaded)
@@ -512,7 +669,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testTranscriptVerificationFailurePreservesChallengeAndRetryLoadsPages() async {
+    func testTranscriptVerifyPreservesChallenge() async {
         let viewModel = TrustedTranscriptViewModel(service: StubTrustedTranscriptService())
         await viewModel.apply()
         let challengeID = viewModel.verificationChallenge?.challengeID
@@ -537,29 +694,45 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var submissions = 0
         var initialRequests = 0
         var downloads = 0
-        init(page: Data, mode: String) { self.page = page; self.mode = mode }
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        init(page: Data, mode: String) {
+            self.page = page
+            self.mode = mode
+        }
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             initialRequests += 1
-            throw ScoreServiceError.secondFactorRequired(.init(challengeID: "fixture", accessToken: "token", status: "waiting_sms",
-                maskedPhone: nil, expiresIn: 600))
+            throw ScoreServiceError.secondFactorRequired(
+                .init(
+                    challengeID: "fixture", accessToken: "token", status: "waiting_sms",
+                    maskedPhone: nil, expiresIn: 600))
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        {
             submissions += 1
-            return .init(challengeID: challenge.challengeID, accessToken: challenge.accessToken, status: "authenticated", maskedPhone: nil, expiresIn: 600)
+            return .init(
+                challengeID: challenge.challengeID, accessToken: challenge.accessToken,
+                status: "authenticated", maskedPhone: nil, expiresIn: 600)
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
             downloads += 1
             if downloads == 1 {
                 if mode == "download" { throw URLError(.networkConnectionLost) }
                 if mode == "decode" { return .init([page, Data("damaged".utf8)]) }
-                return .init(pages: [.init(number: 2, data: page)], expectedPageCount: 2, failure: URLError(.networkConnectionLost))
+                return .init(
+                    pages: [.init(number: 2, data: page)], expectedPageCount: 2,
+                    failure: URLError(.networkConnectionLost))
             }
             return .init([page, page])
         }
     }
 
     @MainActor
-    func testTranscriptDownloadRetryConsumesSMSAndKeepsAvailablePages() async {
+    func testTranscriptDownloadRetryConsumesSms() async {
         for mode in ["download", "decode", "partial"] {
             let page = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
             let service = RecoverableTranscriptService(page: page, mode: mode)
@@ -568,8 +741,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             await model.submitVerificationCode("123456")
             XCTAssertNil(model.verificationChallenge)
             XCTAssertNil(model.verificationError)
-            if mode == "download" { if case .failed = model.state {} else { XCTFail("Expected download retry") } }
-            else {
+            if mode == "download" {
+                if case .failed = model.state {} else { XCTFail("Expected download retry") }
+            } else {
                 XCTAssertEqual(model.state, .loaded)
                 XCTAssertEqual(model.images.count, 1)
                 XCTAssertNotNil(model.deliveryWarning)
@@ -594,32 +768,47 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         var requests = 0
         var pending: CheckedContinuation<Void, Never>?
         var cancelled = false
-        init(page: Data, returnsChallenge: Bool) { self.page = page; self.returnsChallenge = returnsChallenge }
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        init(page: Data, returnsChallenge: Bool) {
+            self.page = page
+            self.returnsChallenge = returnsChallenge
+        }
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
             requests += 1
             if requests == 1 { throw ScoreServiceError.queryFailed("fixture") }
             if requests == 2 {
                 await withCheckedContinuation { pending = $0 }
                 cancelled = Task.isCancelled
                 if returnsChallenge {
-                    throw ScoreServiceError.secondFactorRequired(.init(challengeID: "fixture", accessToken: "fixture",
-                        status: "waiting_sms", maskedPhone: nil, expiresIn: 60))
+                    throw ScoreServiceError.secondFactorRequired(
+                        .init(
+                            challengeID: "fixture", accessToken: "fixture",
+                            status: "waiting_sms", maskedPhone: nil, expiresIn: 60))
                 }
             }
             return .init([page])
         }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init([page]) }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { return challenge }
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages { .init([page]) }
     }
 
     @MainActor
-    func testTranscriptRetryCancellationRetiresImagesAndLateChallengesAndCanResume() async throws {
+    func testTranscriptRetryCancelRetiresImages() async throws {
         for returnsChallenge in [false, true] {
             let page = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }
             let service = RetryingTranscriptService(page: page, returnsChallenge: returnsChallenge)
             let model = TrustedTranscriptViewModel(service: service)
             await model.applyIfNeeded()
-            guard case .failed = model.state else { XCTFail("Expected initial failure"); continue }
+            guard case .failed = model.state else {
+                XCTFail("Expected initial failure")
+                continue
+            }
             model.prepareRetry()
             let retry = Task { await model.applyIfNeeded() }
             try await waitForTestEvent { !(service.pending == nil) }
@@ -639,18 +828,27 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     private struct TranscriptPageService: TrustedTranscriptServicing {
         let transcriptServiceIdentity: AnyHashable = UUID()
         let pages: [Data]
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge { return challenge }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages { .init(pages) }
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        { .init(pages) }
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        { return challenge }
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages { .init(pages) }
     }
 
     @MainActor
-    func testTranscriptPreparesEveryPageWithinTheAggregateBitmapBudget() async throws {
-        let page = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 128)).pngData { context in
+    func testTranscriptPreparesEveryBudget() async throws {
+        let page = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 128)).pngData {
+            context in
             UIColor.label.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 256, height: 128))
         }
-        let model = TrustedTranscriptViewModel(service: TranscriptPageService(pages: [page, page]),
+        let model = TrustedTranscriptViewModel(
+            service: TranscriptPageService(pages: [page, page]),
             limits: .init(maximumDecodedBytes: 4_096))
         await model.apply()
         XCTAssertEqual(model.state, .loaded)
@@ -664,49 +862,68 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
-    func testTranscriptRejectsExcessPagesEncodedBytesAndUnusableBitmapBudgets() async {
+    func testTranscriptRejectsExcessPagesBytes() async {
         let page = UIGraphicsImageRenderer(size: CGSize(width: 16, height: 16)).pngData { _ in }
-        for limits in [TrustedTranscriptResourceLimits(maximumPageCount: 1),
-                       .init(maximumEncodedBytes: page.count * 2 - 1), .init(maximumDecodedBytes: 3)] {
-            let model = TrustedTranscriptViewModel(service: TranscriptPageService(pages: [page, page]), limits: limits)
+        for limits in [
+            TrustedTranscriptResourceLimits(maximumPageCount: 1),
+            .init(maximumEncodedBytes: page.count * 2 - 1), .init(maximumDecodedBytes: 3),
+        ] {
+            let model = TrustedTranscriptViewModel(
+                service: TranscriptPageService(pages: [page, page]), limits: limits)
             await model.apply()
-            guard case .failed = model.state else { XCTFail("Expected transcript resource limit failure"); continue }
+            guard case .failed = model.state else {
+                XCTFail("Expected transcript resource limit failure")
+                continue
+            }
             XCTAssertTrue(model.images.isEmpty)
         }
     }
 
     private struct StubTrustedTranscriptService: TrustedTranscriptServicing {
         let transcriptServiceIdentity: AnyHashable = UUID()
-        func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
-            throw ScoreServiceError.secondFactorRequired(BITLoginAuthenticationChallenge(
-                challengeID: "test-transcript", accessToken: "test-token", status: "sms_required",
-                maskedPhone: "138****0000", expiresIn: 600
-            ))
+        func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+            -> TrustedTranscriptPages
+        {
+            throw ScoreServiceError.secondFactorRequired(
+                BITLoginAuthenticationChallenge(
+                    challengeID: "test-transcript", accessToken: "test-token",
+                    status: "sms_required",
+                    maskedPhone: "138****0000", expiresIn: 600
+                ))
         }
 
-        func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
+        func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+            async throws -> BITLoginAuthenticationChallenge
+        {
             guard code == "123456" else { throw ScoreServiceError.queryFailed("验证码错误") }
             return challenge
         }
-        func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+        func fetchTrustedPages(
+            authenticatedBy challenge: BITLoginAuthenticationChallenge,
+            onPage: TrustedTranscriptPageDelivery?
+        ) async throws -> TrustedTranscriptPages {
             .init([UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).pngData { _ in }])
         }
     }
 
-    func testCalendarPermissionNoticeOffersSystemSettings() {
+    func testCalendarPermissionNoticeSettings() {
         XCTAssertTrue(ScheduleSystemCalendarError.permissionDenied.requiresCalendarSettings)
         XCTAssertTrue(ScheduleSystemCalendarError.noWritableCalendarSource.requiresCalendarSettings)
         XCTAssertFalse(ScheduleSystemCalendarError.missingSchedule.requiresCalendarSettings)
-        XCTAssertEqual(ScheduleNotice(
-            title: "导入失败",
-            message: "日历权限需要调整。",
-            recoveryAction: .openAppSettings
-        ).recoveryAction, .openAppSettings)
+        XCTAssertEqual(
+            ScheduleNotice(
+                title: "导入失败",
+                message: "日历权限需要调整。",
+                recoveryAction: .openAppSettings
+            ).recoveryAction, .openAppSettings)
     }
 
-    func testCertificateFailureIsNotPresentedAsExpiredVerification() {
+    func testCertificateFailureIsNotAsExpiredVerify() {
         let error = ScheduleServiceError.challengeInvalid(
-            "HTTPSConnectionPool(host='webvpn.bit.edu.cn'): SSLCertVerificationError: certificate has expired"
+            """
+            HTTPSConnectionPool(host='webvpn.bit.edu.cn'): SSLCertVerificationError: certificat\
+            e has expired
+            """
         )
 
         XCTAssertTrue(error.isSchoolTransportFailure)
@@ -717,25 +934,26 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(notice.allowsDiagnostics)
     }
 
-    func testSchoolBusinessInspectorDoesNotRejectSuccessfulOrLegitimateEmptyResponses() {
+    func testSchoolBusinessInspectorResponses() {
         let success = Data(#"{"datas":{"rows":[]},"code":"0"}"#.utf8)
         let nestedSuccess = Data(#"{"datas":{"rows":[],"extParams":{"code":1}},"code":"0"}"#.utf8)
         let alternateSuccessCode = Data(
             #"{"datas":{"rows":[],"extParams":{"code":2,"msg":"查询成功"}},"code":"0"}"#.utf8
         )
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: success))
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: nestedSuccess))
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: alternateSuccessCode))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: success))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: nestedSuccess))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: alternateSuccessCode))
     }
 
-    func testRealDeviceCourseResponseMetadataIsRecognizedAsSuccess() throws {
+    func testRealDeviceCourseIsRecognizedAsSuccess() throws {
         // 真机 schedule smoke 响应；学生学号与姓名字段已脱敏。
         let bundle = Bundle(for: ErrorReportAndSchedulePolicyTests.self)
-        let fixtureURL = bundle.url(
-            forResource: "schedule-service-response",
-            withExtension: "json",
-            subdirectory: "Fixtures"
-        ) ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
+        let fixtureURL =
+            bundle.url(
+                forResource: "schedule-service-response",
+                withExtension: "json",
+                subdirectory: "Fixtures"
+            ) ?? bundle.url(forResource: "schedule-service-response", withExtension: "json")
         let fixture = try XCTUnwrap(fixtureURL)
         let data = try Data(contentsOf: fixture)
         let response = try JSONDecoder().decode(CourseResponse.self, from: data)
@@ -743,7 +961,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.code, 1)
         XCTAssertEqual(response.datas.cxxszhxqkb.extParams?.msg, "查询成功")
         XCTAssertEqual(response.datas.cxxszhxqkb.rows.count, 14)
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: data))
 
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let datas = try XCTUnwrap(root["datas"] as? [String: Any])
@@ -752,73 +970,78 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { $0["XH"] == nil && $0["XM"] == nil })
     }
 
-    func testSchoolBusinessInspectorIgnoresMessagesInsideCourseRows() {
+    func testSchoolBusinessInspectorIgnoresRows() {
         let data = Data(#"{"datas":{"cxxszhxqkb":{"rows":[{"msg":"课程暂未发布说明"}]}}}"#.utf8)
 
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: data))
     }
 
-    func testSchoolBusinessInspectorHonorsExplicitFailureStatus() {
+    func testSchoolBusinessInspectorStatus() {
         let data = Data(#"{"data":{"success":false,"code":0,"msg":"学校服务当前不可用"}}"#.utf8)
         let failureMessageWithSuccessCode = Data(#"{"code":0,"msg":"课表查询失败"}"#.utf8)
 
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: data),
+            ScheduleService.schoolBusinessError(from: data),
             "学校服务当前不可用"
         )
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: failureMessageWithSuccessCode),
+            ScheduleService.schoolBusinessError(from: failureMessageWithSuccessCode),
             "课表查询失败"
         )
     }
 
-    func testSchoolBusinessInspectorIgnoresStatusLikeMetadataOutsideKnownEnvelopes() {
+    func testSchoolBusinessIgnoresStatusEnvelopes() {
         let data = Data(#"{"data":{"metadata":{"code":9,"msg":"仅供诊断的字段"}}}"#.utf8)
 
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: data))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: data))
     }
 
-    func testSchoolBusinessInspectorReadsCaseInsensitiveEnvelopeFields() {
+    func testSchoolBusinessInspectorFields() {
         let data = Data(#"{"DATA":{"ExtParams":{"CODE":"3","MSG":"查询失败"}}}"#.utf8)
 
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: data),
+            ScheduleService.schoolBusinessError(from: data),
             "查询失败"
         )
     }
 
-    func testSchoolBusinessInspectorUsesTypedStatusValuesAndEnglishFailureMessages() {
+    func testSchoolBusinessInspectorUsesTypedValues() {
         let numericFlag = Data(#"{"success":0,"msg":"查询成功"}"#.utf8)
         let fractionalCode = Data(#"{"code":2.5,"msg":"其他提示"}"#.utf8)
         let englishFailure = Data(#"{"data":{"message":"Request failed"}}"#.utf8)
 
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: numericFlag))
-        XCTAssertNil(ScheduleService.schoolBusinessErrorMessage(from: fractionalCode))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: numericFlag))
+        XCTAssertNil(ScheduleService.schoolBusinessError(from: fractionalCode))
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: englishFailure),
+            ScheduleService.schoolBusinessError(from: englishFailure),
             "Request failed"
         )
     }
 
-    func testSchoolBusinessInspectorSelectsNestedFailuresDeterministically() {
+    func testSchoolBusinessDeterministically() {
         let data = Data(
-            #"{"datas":{"z":{"extParams":{"code":3,"msg":"课表暂未发布"}},"a":{"extParams":{"code":4,"msg":"此学年学期的课表未发布"}}}}"#.utf8
+            #"""
+            {"datas":{"z":{"extParams":{"code":3,"msg":"课表暂未发布"}},"a":{"extParams":{"code":4,"\#
+            msg":"此学年学期的课表未发布"}}}}
+            """#
+            .utf8
         )
         let messageInDataEnvelope = Data(#"{"datas":{"msg":"本学期课表未发布"}}"#.utf8)
 
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: data),
+            ScheduleService.schoolBusinessError(from: data),
             "此学年学期的课表未发布"
         )
         XCTAssertEqual(
-            ScheduleService.schoolBusinessErrorMessage(from: messageInDataEnvelope),
+            ScheduleService.schoolBusinessError(from: messageInDataEnvelope),
             "本学期课表未发布"
         )
     }
 
     private func course(id: String, name: String) -> CourseRecord {
-        CourseRecord(id: id, term: "2024-2025-1", name: name, teacher: "教师", classroom: "教室",
-                     description: "", weeks: [1, 2], weekday: 1, startSection: 1, endSection: 2,
-                     campus: "", number: id, credit: 1, hour: 16, type: "", category: "", department: "")
+        CourseRecord(
+            id: id, term: "2024-2025-1", name: name, teacher: "教师", classroom: "教室",
+            description: "", weeks: [1, 2], weekday: 1, startSection: 1, endSection: 2,
+            campus: "", number: id, credit: 1, hour: 16, type: "", category: "", department: "")
     }
 }

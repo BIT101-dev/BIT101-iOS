@@ -70,8 +70,10 @@ private enum CampusMapDisplayMode: String {
 public struct CampusMapScreen: View {
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
-    @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset.liangxiang.rawValue
-    @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode = CampusMapDisplayMode.standard.rawValue
+    @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset
+        .liangxiang.rawValue
+    @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode =
+        CampusMapDisplayMode.standard.rawValue
     @StateObject private var locationController = CampusLocationController()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appWindowLayout) private var layout
@@ -144,8 +146,8 @@ public struct CampusMapScreen: View {
             isVisible = true
             guard !hasRestoredStoredCampus else { return }
             hasRestoredStoredCampus = true
-            focusOnNextCourseIfPossible(animated: false)
-            consumeRequestedLocationIfNeeded()
+            focusNextCourse(animated: false)
+            consumeLocationRequest()
         }
         .onDisappear {
             isVisible = false
@@ -153,7 +155,7 @@ public struct CampusMapScreen: View {
             centerOnUserRequestID = nil
         }
         .onChange(of: requestedLocation?.id) { _, _ in
-            consumeRequestedLocationIfNeeded()
+            consumeLocationRequest()
         }
         .onReceive(locationController.$authorizationStatus.dropFirst()) { status in
             guard pendingCenterOnUserAfterAuthorization else { return }
@@ -181,9 +183,10 @@ public struct CampusMapScreen: View {
     }
 
     /// 读取课程详情传入的临时地点请求。请求包含地点时，更新持久化的选中校区并聚焦对应校区。
-    private func consumeRequestedLocationIfNeeded() {
+    private func consumeLocationRequest() {
         guard let requestedLocation,
-              activeRequestedLocation?.id != requestedLocation.id else { return }
+            activeRequestedLocation?.id != requestedLocation.id
+        else { return }
         activeRequestedLocation = requestedLocation
         if let place = requestedLocation.places.first {
             pendingCenterOnUserAfterAuthorization = false
@@ -202,13 +205,14 @@ public struct CampusMapScreen: View {
     }
 
     private func toggleDisplayMode() {
-        storedDisplayMode = displayMode == .standard
+        storedDisplayMode =
+            displayMode == .standard
             ? CampusMapDisplayMode.satellite.rawValue
             : CampusMapDisplayMode.standard.rawValue
     }
 
     /// 地图首次出现时聚焦下一节课所在校区，后续更新保持用户当前视野。
-    private func focusOnNextCourseIfPossible(animated: Bool) {
+    private func focusNextCourse(animated: Bool) {
         pendingCenterOnUserAfterAuthorization = false
         centerOnUserRequestID = nil
         let campus = nextCourseTarget?.campus ?? selectedCampus
@@ -227,8 +231,9 @@ public struct CampusMapScreen: View {
             pendingCenterOnUserAfterAuthorization = false
             centerOnUserRequestID = UUID()
         } else {
-            pendingCenterOnUserAfterAuthorization = locationController.authorizationStatus == .notDetermined
-            locationController.requestAuthorizationIfNeeded()
+            pendingCenterOnUserAfterAuthorization =
+                locationController.authorizationStatus == .notDetermined
+            locationController.authorizeIfNeeded()
         }
     }
 
@@ -258,17 +263,26 @@ private struct FloatingMapLabelButton: View {
     var body: some View {
         Group {
             if usesNativeToolbar {
-                Button(accessibilityLabel, systemImage: isSelected ? "building.2.fill" : "building.2", action: performAction)
-                    .labelStyle(.iconOnly)
-                    .accessibilityLabel(accessibilityLabel)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                    .accessibilityIdentifier("ui.floating-map-label-button.toolbar-action")
+                Button(
+                    accessibilityLabel,
+                    systemImage: isSelected ? "building.2.fill" : "building.2",
+                    action: performAction
+                )
+                .labelStyle(.iconOnly)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+                .accessibilityIdentifier("ui.floating-map-label-button.toolbar-action")
             } else {
                 Button(action: performAction) {
-                    AppFloatingActionButtonSurface(fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil) {
+                    AppFloatingActionButtonSurface(
+                        fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil
+                    ) {
                         Text(label)
                             .font(AppDesignSystem.Typography.floatingLabel)
-                            .foregroundStyle(isSelected ? AppDesignSystem.Palette.Highlight.foreground : AppDesignSystem.Foreground.primaryColor)
+                            .foregroundStyle(
+                                isSelected
+                                    ? AppDesignSystem.Palette.Highlight.foreground
+                                    : AppDesignSystem.Foreground.primaryColor)
                     }
                 }
                 .buttonStyle(.plain)

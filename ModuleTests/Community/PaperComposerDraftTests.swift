@@ -7,10 +7,12 @@ import Testing
 
 @MainActor
 struct PaperComposerDraftTests {
-    @Test(.timeLimit(.minutes(1))) func draftCapacityCanBeRecoveredWithinTheOwningAccount() async throws {
-        let files = ModuleScoreFiles(), account = Account()
+    @Test(.timeLimit(.minutes(1))) func draftCapacityCanBeRecoveredAccount() async throws {
+        let files = ModuleScoreFiles()
+        let account = Account()
         let owned = store(files, session: { account.session })
-        let content = String(repeating: "x", count: ComposerDraftImagePolicy.maximumMetadataBytes / 4)
+        let content = String(
+            repeating: "x", count: ComposerDraftImagePolicy.maximumMetadataBytes / 4)
         for id in 1...3 { #expect(await owned.savePaper(snapshot(id, content: content))) }
         #expect(await owned.savePaper(snapshot(4, content: content)) == false)
         let entries = try #require((await owned.loadPaperDrafts()).snapshot)
@@ -23,41 +25,55 @@ struct PaperComposerDraftTests {
         #expect((await owned.loadPaperDrafts()).snapshot == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func publicationOwnerUsesItsAccountWithinANamespacedStore() async throws {
+    @Test(.timeLimit(.minutes(1))) func publishOwnerUsesAccountWithinStore() async throws {
         let files = ModuleScoreFiles()
         let namespace = AppStorageSession(accountIdentifier: "namespace.A")
-        let drafts = ComposerDraftStore(files: files, applicationSupport: URL(fileURLWithPath: "/paper-draft"),
+        let drafts = ComposerDraftStore(
+            files: files, applicationSupport: URL(fileURLWithPath: "/paper-draft"),
             session: { namespace }, prepareImageData: { $0 }, publicationOwner: { "A" })
-        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
-        guard case let .started(attempt) = try await drafts.beginPublication(content, owner: "A") else {
-            Issue.record("所属账号应可建立发布记录。"); return
+        let content = ComposerPublicationContent.paper(
+            title: "标题", intro: "简介", content: "正文", anonymous: false)
+        guard case .started(let attempt) = try await drafts.beginPublication(content, owner: "A")
+        else {
+            Issue.record("所属账号应可建立发布记录。")
+            return
         }
         #expect(attempt.accountStorageIdentifier == namespace.accountStorageIdentifier)
         #expect(try await drafts.loadPublication(kind: .paper, owner: "A") == attempt)
-        await #expect(throws: CancellationError.self) { try await drafts.beginPublication(content, owner: "B") }
+        await #expect(throws: CancellationError.self) {
+            try await drafts.beginPublication(content, owner: "B")
+        }
         #expect(try await drafts.finishPublication(attempt))
     }
 
-    @Test(.timeLimit(.minutes(1))) func publicationAttemptsPreserveDraftsAndAccountOwnership() async throws {
-        let files = ModuleScoreFiles(), account = Account()
+    @Test(.timeLimit(.minutes(1))) func publishAttemptsPreserveDrafts() async throws {
+        let files = ModuleScoreFiles()
+        let account = Account()
         let drafts = store(files, session: { account.session })
         let existing = snapshot(content: "保留的草稿")
         #expect(await drafts.savePaper(existing))
-        let content = ComposerPublicationContent.paper(title: "发布标题", intro: "简介", content: "发布正文", anonymous: false)
-        guard case let .started(first) = try await drafts.beginPublication(content, owner: "A") else {
-            Issue.record("首次发布应建立事务记录。"); return
+        let content = ComposerPublicationContent.paper(
+            title: "发布标题", intro: "简介", content: "发布正文", anonymous: false)
+        guard case .started(let first) = try await drafts.beginPublication(content, owner: "A")
+        else {
+            Issue.record("首次发布应建立事务记录。")
+            return
         }
         let reopened = store(files, session: { account.session })
         #expect(try await reopened.loadPublication(kind: .paper, owner: "A") == first)
         #expect((await reopened.loadPaper(paperID: nil)).snapshot == existing)
-        guard case let .pending(pending) = try await reopened.beginPublication(content, owner: "A") else {
-            Issue.record("已有发布应恢复待核对记录。"); return
+        guard case .pending(let pending) = try await reopened.beginPublication(content, owner: "A")
+        else {
+            Issue.record("已有发布应恢复待核对记录。")
+            return
         }
         #expect(pending == first)
         account.session = AppStorageSession(accountIdentifier: "B")
         #expect(try await reopened.loadPublication(kind: .paper, owner: "B") == nil)
-        guard case let .started(second) = try await reopened.beginPublication(content, owner: "B") else {
-            Issue.record("当前账号应持有独立发布记录。"); return
+        guard case .started(let second) = try await reopened.beginPublication(content, owner: "B")
+        else {
+            Issue.record("当前账号应持有独立发布记录。")
+            return
         }
         #expect(try await drafts.finishPublication(first))
         #expect(try await reopened.loadPublication(kind: .paper, owner: "B") == second)
@@ -66,11 +82,12 @@ struct PaperComposerDraftTests {
         #expect(try await drafts.loadPublication(kind: .paper, owner: "A") == nil)
     }
 
-    @Test(.timeLimit(.minutes(1))) func concurrentEditorsShareOnePendingPublication() async throws {
+    @Test(.timeLimit(.minutes(1))) func concurrentEditorsShareOnePendingPublish() async throws {
         let files = ModuleScoreFiles()
         let first = store(files, session: { .init(accountIdentifier: "A") })
         let second = store(files, session: { .init(accountIdentifier: "A") })
-        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
+        let content = ComposerPublicationContent.paper(
+            title: "标题", intro: "简介", content: "正文", anonymous: false)
         async let one = first.beginPublication(content, owner: "A")
         async let two = second.beginPublication(content, owner: "A")
         let results = try await [one, two]
@@ -78,36 +95,47 @@ struct PaperComposerDraftTests {
         var starts = 0
         for result in results {
             switch result {
-            case let .started(attempt): starts += 1; attempts.append(attempt)
-            case let .pending(attempt): attempts.append(attempt)
+            case .started(let attempt):
+                starts += 1
+                attempts.append(attempt)
+            case .pending(let attempt): attempts.append(attempt)
             }
         }
         #expect(starts == 1 && attempts[0] == attempts[1])
         #expect(try await first.finishPublication(attempts[0]))
-        guard case let .started(next) = try await second.beginPublication(content, owner: "A") else {
-            Issue.record("已结束事务后应支持新的发布。"); return
+        guard case .started(let next) = try await second.beginPublication(content, owner: "A")
+        else {
+            Issue.record("已结束事务后应支持新的发布。")
+            return
         }
         #expect(try await first.finishPublication(attempts[0]) == false)
         #expect(try await second.loadPublication(kind: .paper, owner: "A") == next)
     }
 
-    @Test(.timeLimit(.minutes(1))) func publicationRecoveryPreservesDraftsAndExtensions() async throws {
-        let files = ModuleScoreFiles(), drafts = store(files, session: { .init(accountIdentifier: "A") })
+    @Test(.timeLimit(.minutes(1))) func publishRecoveryPreservesDrafts() async throws {
+        let files = ModuleScoreFiles()
+        let drafts = store(files, session: { .init(accountIdentifier: "A") })
         let existing = snapshot(content: "原有草稿")
         #expect(await drafts.savePaper(existing))
-        let content = ComposerPublicationContent.paper(title: "标题", intro: "简介", content: "正文", anonymous: false)
-        guard case let .started(attempt) = try await drafts.beginPublication(content, owner: "A") else {
-            Issue.record("首次发布应建立事务记录。"); return
+        let content = ComposerPublicationContent.paper(
+            title: "标题", intro: "简介", content: "正文", anonymous: false)
+        guard case .started(let attempt) = try await drafts.beginPublication(content, owner: "A")
+        else {
+            Issue.record("首次发布应建立事务记录。")
+            return
         }
-        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-publications.json" })
-        var document = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        let url = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-publications.json" })
+        var document = try #require(
+            JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         document["futureSetting"] = ["enabled": true]
         var entries = try #require(document["attempts"] as? [String: Any])
         entries["futureKind"] = ["value": "保留的扩展记录"]
         document["attempts"] = entries
         try files.writeData(JSONSerialization.data(withJSONObject: document), to: url, options: [])
         #expect(try await drafts.finishPublication(attempt))
-        let preserved = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        let preserved = try #require(
+            JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         #expect((preserved["futureSetting"] as? [String: Bool])?["enabled"] == true)
         #expect((preserved["attempts"] as? [String: Any])?["futureKind"] != nil)
         let damaged = Data("{".utf8)
@@ -116,41 +144,52 @@ struct PaperComposerDraftTests {
             _ = try await drafts.beginPublication(content, owner: "A")
             Issue.record("损坏记录应等待显式核对。")
         } catch { #expect(try files.readData(at: url) == damaged) }
-        try await drafts.resetPublicationsAfterReview(owner: "A")
+        try await drafts.resetReviewedPublications(owner: "A")
         #expect(files.storedData[url] == nil)
         #expect((await drafts.loadPaper(paperID: nil)).snapshot == existing)
     }
 
-    @Test(.timeLimit(.minutes(1))) func capturedRecoveryPreservesALaterAccountsArchive() async throws {
-        let files = ModuleScoreFiles(), account = Account()
+    @Test(.timeLimit(.minutes(1))) func capturedRecoveryPreservesAccountsArchive() async throws {
+        let files = ModuleScoreFiles()
+        let account = Account()
         let drafts = store(files, session: { account.session })
         #expect(await drafts.savePaper(snapshot(content: "原账号")))
-        let original = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
+        let original = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
         let damaged = Data("{".utf8)
         try files.writeData(damaged, to: original, options: [])
         let recovery = await drafts.capturePaperRecovery()
         account.session = AppStorageSession(accountIdentifier: "B")
         #expect(await drafts.savePaper(snapshot(content: "当前账号")))
-        let current = try #require(files.storedData.keys.first { $0 != original && $0.lastPathComponent == "composer-paper.json" })
+        let current = try #require(
+            files.storedData.keys.first {
+                $0 != original && $0.lastPathComponent == "composer-paper.json"
+            })
         let bytes = try files.readData(at: current)
         #expect(await recovery() == false)
         #expect(files.storedData[original] == damaged && files.storedData[current] == bytes)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func confirmedRecoveryKeepsReadableDraftsAndOtherAccounts(brokenRoot: Bool) async throws {
-        let files = ModuleScoreFiles(), account = Account()
+    func confirmedRecoveryKeepsReadableDrafts(brokenRoot: Bool) async throws {
+        let files = ModuleScoreFiles()
+        let account = Account()
         let drafts = store(files, session: { account.session })
         let good = snapshot(1, content: "保留的草稿")
         #expect(await drafts.savePaper(good))
         #expect(await drafts.savePaper(snapshot(2, content: "待恢复")))
-        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
+        let url = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
         account.session = AppStorageSession(accountIdentifier: "B")
         #expect(await drafts.savePaper(snapshot(content: "其他账号")))
-        let other = try #require(files.storedData.keys.first { $0 != url && $0.lastPathComponent == "composer-paper.json" })
+        let other = try #require(
+            files.storedData.keys.first {
+                $0 != url && $0.lastPathComponent == "composer-paper.json"
+            })
         let otherBytes = try files.readData(at: other)
         account.session = AppStorageSession(accountIdentifier: "A")
-        var root = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        var root = try #require(
+            JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         var entries = try #require(root["entries"] as? [String: Any])
         entries["paper:2"] = ["content": 7]
         root["entries"] = entries
@@ -169,9 +208,11 @@ struct PaperComposerDraftTests {
     }
 
     @Test(.timeLimit(.minutes(1))) func recoveryPreservesAnAlreadyReadableArchive() async throws {
-        let files = ModuleScoreFiles(), drafts = store(files, session: { .init(accountIdentifier: "A") })
+        let files = ModuleScoreFiles()
+        let drafts = store(files, session: { .init(accountIdentifier: "A") })
         #expect(await drafts.savePaper(snapshot(content: "可读新版本")))
-        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
+        let url = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
         let original = try files.readData(at: url)
         let recovery = await drafts.capturePaperRecovery()
         #expect(await recovery())
@@ -180,12 +221,15 @@ struct PaperComposerDraftTests {
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func damagedSiblingKeepsReadableDraftsAvailable(identityMismatch: Bool) async throws {
-        let files = ModuleScoreFiles(), drafts = store(files, session: { .init(accountIdentifier: "A") })
+        let files = ModuleScoreFiles()
+        let drafts = store(files, session: { .init(accountIdentifier: "A") })
         let good = snapshot(1, content: "可读草稿")
         #expect(await drafts.savePaper(good))
         #expect(await drafts.savePaper(snapshot(2, content: "待恢复草稿")))
-        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
-        var root = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        let url = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
+        var root = try #require(
+            JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         var entries = try #require(root["entries"] as? [String: Any])
         var bad = try #require(entries[identityMismatch ? "paper:1" : "paper:2"] as? [String: Any])
         if !identityMismatch { bad["content"] = 7 }
@@ -197,7 +241,8 @@ struct PaperComposerDraftTests {
         #expect(try files.readData(at: url) == original)
         let updated = snapshot(1, content: "继续编辑")
         #expect(await drafts.savePaper(updated))
-        let saved = try #require(JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
+        let saved = try #require(
+            JSONSerialization.jsonObject(with: files.readData(at: url)) as? [String: Any])
         let retained = try #require(saved["entries"] as? [String: Any])
         #expect(retained["paper:2"] as? NSDictionary == bad as NSDictionary)
         let cleanup = await drafts.capturePaperCleanup(matching: updated)
@@ -210,20 +255,26 @@ struct PaperComposerDraftTests {
         var session = AppStorageSession(accountIdentifier: "A")
     }
     private func snapshot(_ id: Int? = nil, content: String) -> PaperComposerDraftSnapshot {
-        .init(paperID: id, baselineUpdatedAt: id == nil ? nil : "saved-version", title: "草稿",
-              intro: "简介", content: content, anonymous: true)
+        .init(
+            paperID: id, baselineUpdatedAt: id == nil ? nil : "saved-version", title: "草稿",
+            intro: "简介", content: content, anonymous: true)
     }
 
-    private func store(_ files: ModuleScoreFiles, session: @escaping @MainActor @Sendable () -> AppStorageSession) -> ComposerDraftStore {
-        .init(files: files, applicationSupport: URL(fileURLWithPath: "/paper-drafts"), session: session, prepareImageData: { $0 })
+    private func store(
+        _ files: ModuleScoreFiles, session: @escaping @MainActor @Sendable () -> AppStorageSession
+    ) -> ComposerDraftStore {
+        .init(
+            files: files, applicationSupport: URL(fileURLWithPath: "/paper-drafts"),
+            session: session, prepareImageData: { $0 })
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func draftsSurviveStoreRecreationAndKeepAccountAndArticleScopes() async {
+    func draftsSurviveStoreRecreation() async {
         let files = ModuleScoreFiles()
         let account = Account()
         let drafts = store(files, session: { account.session })
-        let first = snapshot(content: "新文章"), edit = snapshot(1, content: "编辑文章")
+        let first = snapshot(content: "新文章")
+        let edit = snapshot(1, content: "编辑文章")
         #expect(await drafts.savePaper(first))
         #expect(await drafts.savePaper(edit))
         let cleanup = await drafts.capturePaperCleanup(matching: first)
@@ -238,11 +289,13 @@ struct PaperComposerDraftTests {
         account.session = AppStorageSession(accountIdentifier: "A")
         #expect((await drafts.loadPaper(paperID: nil)).snapshot == nil)
         #expect((await drafts.loadPaper(paperID: 1)).snapshot == edit)
-        #expect(files.storedData.keys.filter { $0.lastPathComponent == "composer-paper.json" }.count == 2)
+        #expect(
+            files.storedData.keys.filter { $0.lastPathComponent == "composer-paper.json" }.count
+                == 2)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func concurrentStoresAndSubmittedCleanupPreserveNewerDrafts() async {
+    func concurrentStoresAndPreserveNewerDrafts() async {
         let files = ModuleScoreFiles()
         let first = store(files, session: { .init(accountIdentifier: "A") })
         let second = store(files, session: { .init(accountIdentifier: "A") })
@@ -259,10 +312,12 @@ struct PaperComposerDraftTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func futureFormatsAndStorageFailuresKeepTheOriginalBytes() async throws {
-        let files = ModuleScoreFiles(), drafts = store(files, session: { .init(accountIdentifier: "A") })
+    func futureFormats() async throws {
+        let files = ModuleScoreFiles()
+        let drafts = store(files, session: { .init(accountIdentifier: "A") })
         #expect(await drafts.savePaper(snapshot(content: "已保存")))
-        let url = try #require(files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
+        let url = try #require(
+            files.storedData.keys.first { $0.lastPathComponent == "composer-paper.json" })
         let original = try files.readData(at: url)
         files.setFailures(protection: true)
         #expect(await drafts.savePaper(snapshot(content: "待保存")) == false)

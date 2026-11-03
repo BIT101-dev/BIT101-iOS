@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 public nonisolated struct CommunityResourceMetrics: Sendable {
     public let objectID: String
@@ -7,8 +7,12 @@ public nonisolated struct CommunityResourceMetrics: Sendable {
     public var commentNum: Int?
     public var rate: Double?
     public var needsRefresh: Bool { likeNum == nil && commentNum == nil && rate == nil }
-    public init(objectID: String, likeNum: Int? = nil, commentNum: Int? = nil, rate: Double? = nil) {
-        self.objectID = objectID; self.likeNum = likeNum; self.commentNum = commentNum; self.rate = rate
+    public init(objectID: String, likeNum: Int? = nil, commentNum: Int? = nil, rate: Double? = nil)
+    {
+        self.objectID = objectID
+        self.likeNum = likeNum
+        self.commentNum = commentNum
+        self.rate = rate
     }
 }
 
@@ -22,11 +26,14 @@ public nonisolated protocol CommunityResourceItem: Identifiable, Equatable {
 
 extension CommunityResourceItem {
     public nonisolated var hasValidCommunityMetrics: Bool {
-        likeNum >= 0 && commentNum >= 0 && (communityRate.map { $0.isFinite && (0...10).contains($0) } ?? true)
+        likeNum >= 0 && commentNum >= 0
+            && (communityRate.map { $0.isFinite && (0...10).contains($0) } ?? true)
     }
     public nonisolated var communityRate: Double? { nil }
     public nonisolated var communityMetrics: CommunityResourceMetrics {
-        .init(objectID: communityObjectID, likeNum: likeNum, commentNum: commentNum, rate: communityRate)
+        .init(
+            objectID: communityObjectID, likeNum: likeNum, commentNum: commentNum,
+            rate: communityRate)
     }
 }
 
@@ -36,7 +43,7 @@ extension Array where Element: CommunityResourceItem {
         return !invalidated.isEmpty && contains { invalidated.contains($0.communityObjectID) }
     }
 
-    public func preservingCommunityMetrics(from current: Self) -> Self {
+    public func preservingMetrics(from current: Self) -> Self {
         var metrics: [String: CommunityResourceMetrics] = [:]
         for item in current { metrics[item.communityObjectID] = item.communityMetrics }
         return map { item in
@@ -51,7 +58,9 @@ public protocol CommunityResourceObserving {
 }
 
 extension CommunityResourceObserving {
-    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { Empty().eraseToAnyPublisher() }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+        Empty().eraseToAnyPublisher()
+    }
 }
 
 /// 账号内共享已确认的交互计数，读取沿请求开始时的修订合并。
@@ -71,15 +80,20 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
     var pendingResourceCount: Int { confirmed.count }
     private let subject = PassthroughSubject<[CommunityResourceMetrics], Never>()
 
-    public init(currentOwner: @escaping () -> Owner) { self.currentOwner = currentOwner; owner = currentOwner() }
+    public init(currentOwner: @escaping () -> Owner) {
+        self.currentOwner = currentOwner
+        owner = currentOwner()
+    }
 
     public var changes: AnyPublisher<[CommunityResourceMetrics], Never> {
         let observed = currentOwner()
-        return subject.filter { [weak self] _ in self?.currentOwner() == observed }.eraseToAnyPublisher()
+        return subject.filter { [weak self] _ in self?.currentOwner() == observed }
+            .eraseToAnyPublisher()
     }
 
     public func beginRead() -> UInt64 {
-        selectOwner(); readers[revision, default: 0] += 1
+        selectOwner()
+        readers[revision, default: 0] += 1
         return revision
     }
 
@@ -87,22 +101,29 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
         selectOwner()
         if let count = readers[started] { readers[started] = count > 1 ? count - 1 : nil }
         let oldest = readers.keys.min() ?? revision
-        confirmed = confirmed.filter { max($0.value.likeRevision, $0.value.commentRevision, $0.value.rateRevision) > oldest }
+        confirmed = confirmed.filter {
+            max($0.value.likeRevision, $0.value.commentRevision, $0.value.rateRevision) > oldest
+        }
     }
 
     public func confirmLike(objectID: String, count: Int) {
-        selectOwner(); revision &+= 1
+        selectOwner()
+        revision &+= 1
         var value = confirmed[objectID] ?? Confirmed(metrics: .init(objectID: objectID))
-        value.metrics.likeNum = count; value.likeRevision = revision
+        value.metrics.likeNum = count
+        value.likeRevision = revision
         if !readers.isEmpty { confirmed[objectID] = value }
         subject.send([.init(objectID: objectID, likeNum: count)])
     }
 
     public func invalidateComments(objectID: String) {
-        selectOwner(); revision &+= 1
+        selectOwner()
+        revision &+= 1
         var value = confirmed[objectID] ?? Confirmed(metrics: .init(objectID: objectID))
-        value.metrics.commentNum = nil; value.metrics.rate = nil
-        value.commentRevision = revision; value.rateRevision = revision
+        value.metrics.commentNum = nil
+        value.metrics.rate = nil
+        value.commentRevision = revision
+        value.rateRevision = revision
         if !readers.isEmpty { confirmed[objectID] = value }
         subject.send([.init(objectID: objectID)])
     }
@@ -111,33 +132,53 @@ public final class CommunityResourceUpdates<Owner: Equatable> {
         resolve([item], since: started)[0]
     }
 
-    public func resolve<Item: CommunityResourceItem>(_ items: [Item], since started: UInt64) -> [Item] {
+    public func resolve<Item: CommunityResourceItem>(_ items: [Item], since started: UInt64)
+        -> [Item]
+    {
         let resolved = items.map { resolveMetrics($0, since: started) }
         if !resolved.isEmpty { subject.send(resolved.map(\.communityMetrics)) }
         return resolved
     }
 
-    private func resolveMetrics<Item: CommunityResourceItem>(_ item: Item, since started: UInt64) -> Item {
+    private func resolveMetrics<Item: CommunityResourceItem>(_ item: Item, since started: UInt64)
+        -> Item
+    {
         selectOwner()
         var metrics = item.communityMetrics
         if var pending = confirmed[item.communityObjectID] {
-            Self.merge(&metrics.likeNum, confirmed: &pending.metrics.likeNum, revision: &pending.likeRevision, since: started)
-            Self.merge(&metrics.commentNum, confirmed: &pending.metrics.commentNum, revision: &pending.commentRevision, since: started)
-            Self.merge(&metrics.rate, confirmed: &pending.metrics.rate, revision: &pending.rateRevision, since: started)
+            Self.merge(
+                &metrics.likeNum, confirmed: &pending.metrics.likeNum,
+                revision: &pending.likeRevision, since: started)
+            Self.merge(
+                &metrics.commentNum, confirmed: &pending.metrics.commentNum,
+                revision: &pending.commentRevision, since: started)
+            Self.merge(
+                &metrics.rate, confirmed: &pending.metrics.rate, revision: &pending.rateRevision,
+                since: started)
             confirmed[item.communityObjectID] = pending
         }
         return item.updatingCommunityMetrics(metrics)
     }
 
-    private static func merge<Value>(_ value: inout Value?, confirmed: inout Value?, revision: inout UInt64, since started: UInt64) {
-        if revision > started { value = confirmed ?? value }
-        else { confirmed = value; revision = started }
+    private static func merge<Value>(
+        _ value: inout Value?, confirmed: inout Value?, revision: inout UInt64,
+        since started: UInt64
+    ) {
+        if revision > started {
+            value = confirmed ?? value
+        } else {
+            confirmed = value
+            revision = started
+        }
     }
 
     private func selectOwner() {
         let selected = currentOwner()
         guard selected != owner else { return }
-        owner = selected; revision &+= 1; confirmed.removeAll(); readers.removeAll()
+        owner = selected
+        revision &+= 1
+        confirmed.removeAll()
+        readers.removeAll()
     }
 }
 
@@ -189,10 +230,17 @@ public nonisolated struct CommunityPagedItems<Item: Identifiable> {
     public private(set) var ids: Set<Item.ID> = []
     private var resourcePositions: [String: Int] = [:]
     public init() {}
-    public mutating func replace(with values: [Item]) { items = []; ids = []; resourcePositions = [:]; append(values) }
+    public mutating func replace(with values: [Item]) {
+        items = []
+        ids = []
+        resourcePositions = [:]
+        append(values)
+    }
     public mutating func append(_ values: [Item]) {
         for item in values where ids.insert(item.id).inserted {
-            if let resource = item as? any CommunityResourceItem { resourcePositions[resource.communityObjectID] = items.count }
+            if let resource = item as? any CommunityResourceItem {
+                resourcePositions[resource.communityObjectID] = items.count
+            }
             items.append(item)
         }
     }
@@ -204,15 +252,21 @@ extension CommunityPagedItems where Item: CommunityResourceItem {
     }
 
     @discardableResult public mutating func apply(_ metrics: [CommunityResourceMetrics]) -> Bool {
-        let values = Dictionary(metrics.map { ($0.objectID, $0) }, uniquingKeysWith: { first, last in
-            .init(objectID: last.objectID, likeNum: last.likeNum ?? first.likeNum,
-                commentNum: last.commentNum ?? first.commentNum, rate: last.rate ?? first.rate)
-        })
+        let values = Dictionary(
+            metrics.map { ($0.objectID, $0) },
+            uniquingKeysWith: { first, last in
+                .init(
+                    objectID: last.objectID, likeNum: last.likeNum ?? first.likeNum,
+                    commentNum: last.commentNum ?? first.commentNum, rate: last.rate ?? first.rate)
+            })
         var changed = false
         for metrics in values.values {
             guard let index = resourcePositions[metrics.objectID] else { continue }
             let updated = items[index].updatingCommunityMetrics(metrics)
-            if items[index] != updated { items[index] = updated; changed = true }
+            if items[index] != updated {
+                items[index] = updated
+                changed = true
+            }
         }
         return changed
     }
@@ -269,9 +323,8 @@ private func shouldLoadMoreItems<Item: Identifiable>(
     preloadCount: Int
 ) -> Bool {
     guard preloadCount > 0 else { return false }
-    return !isLoadingMore &&
-        canLoadMore &&
-        items.suffix(preloadCount).contains(where: { $0.id == currentID })
+    return !isLoadingMore && canLoadMore
+        && items.suffix(preloadCount).contains(where: { $0.id == currentID })
 }
 
 extension PagedItemsState where Item: Identifiable {
@@ -324,7 +377,8 @@ extension CursorPagedItemsState {
     }
 
     public mutating func appendCursorPage(_ newItems: [Item]) {
-        let cursorAdvanced = newItems.last.map { $0.id != nextCursor && !pagedItems.ids.contains($0.id) } ?? false
+        let cursorAdvanced =
+            newItems.last.map { $0.id != nextCursor && !pagedItems.ids.contains($0.id) } ?? false
         pagedItems.append(newItems)
         nextCursor = newItems.last?.id ?? nextCursor
         isLoadingMore = false

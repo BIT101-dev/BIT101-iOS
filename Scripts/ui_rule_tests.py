@@ -1,4 +1,5 @@
 """Executable boundary checks for UI and design rules."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,47 +9,88 @@ import sys
 from swift_source_index import swift_syntax_index_sources
 from swift_type_index import SwiftBindingTypes
 
-from ui_interaction_tests import interaction_inventory_boundary_findings, explanatory_text_boundary_findings, visual_contract_boundary_findings
+from ui_interaction_tests import (
+    interaction_inventory_boundary_findings,
+    explanatory_text_boundary_findings,
+    visual_contract_boundary_findings,
+)
 
 from ui_design_contracts import (
-    DERIVED_DESIGN_TOKEN, DIRECT_ANIMATION_DURATION, DIRECT_FLOATING_MATERIAL,
-    DIRECT_FLOATING_SIZE, DIRECT_INPUT_PLACEHOLDER, DIRECT_OPACITY_ASSIGNMENT,
-    DIRECT_OPACITY_LITERAL, DIRECT_PLAIN_LIST_STYLE, DIRECT_ROUNDED_RECTANGLE,
-    DIRECT_SEMANTIC_COLOR_RULES, DIRECT_THUMBNAIL_GEOMETRY, DIRECT_VISUAL_RULES, PADDING_LITERAL,
-    REPEATED_DESIGN_TOKEN, STACK_SPACING_LITERAL,
+    DERIVED_DESIGN_TOKEN,
+    DIRECT_ANIMATION_DURATION,
+    DIRECT_FLOATING_MATERIAL,
+    DIRECT_FLOATING_SIZE,
+    DIRECT_INPUT_PLACEHOLDER,
+    DIRECT_OPACITY_ASSIGNMENT,
+    DIRECT_OPACITY_LITERAL,
+    DIRECT_PLAIN_LIST_STYLE,
+    DIRECT_ROUNDED_RECTANGLE,
+    DIRECT_SEMANTIC_COLOR_RULES,
+    DIRECT_THUMBNAIL_GEOMETRY,
+    DIRECT_VISUAL_RULES,
+    PADDING_LITERAL,
+    REPEATED_DESIGN_TOKEN,
+    STACK_SPACING_LITERAL,
 )
 
 from ui_source_facts import (
-    MAP_THEME_COLOR_CONTRACT, ROOT, SOURCE_ROOT, ast_has_marker, call_name, child_view_entries,
-    has_component_declaration, image_only_label_facts, is_semantic_color_member, list_icon_findings, mask_comments,
-    mask_literals_and_comments, pattern_nodes, rendered_view_has_marker,
-    selection_control_has_feedback, source_path, view_or_child_has_marker,
+    MAP_THEME_COLOR_CONTRACT,
+    ROOT,
+    SOURCE_ROOT,
+    ast_has_marker,
+    call_name,
+    child_view_entries,
+    has_component_declaration,
+    image_only_label_facts,
+    is_semantic_color_member,
+    list_icon_findings,
+    mask_comments,
+    mask_literals_and_comments,
+    pattern_nodes,
+    rendered_view_has_marker,
+    selection_control_has_feedback,
+    source_path,
+    view_or_child_has_marker,
 )
 
 from ui_rules import (
-    alert_coverage_findings, haptic_entry_findings, interactive_list_row_findings,
-    is_registered_map_theme_color_definition, is_reviewed_fixed_geometry,
-    check_composer_lifecycle, rendered_component_counts,
+    alert_coverage_findings,
+    haptic_entry_findings,
+    interactive_list_row_findings,
+    is_registered_map_theme_color_definition,
+    is_reviewed_fixed_geometry,
+    check_composer_lifecycle,
+    rendered_component_counts,
 )
-
 
 
 def ast_marker_boundary_findings() -> list[str]:
     from unittest.mock import patch
     from ui_source_facts import UIAuditContext, rendered_scope_facts
     from swift_type_index import execution_index
-    path = str(ROOT / 'BIT101-iOS/Views.swift')
-    shared = swift_syntax_index_sources({path: 'struct First: View { var body: some View { makeLeaf() }; func makeLeaf() -> some View { Leaf() } }; struct Second: View { var body: some View { Text("two") } }; struct Leaf: View { var body: some View { Text("leaf").appSelectionFeedback(trigger: true) } }'})
-    with patch('ui_source_facts.execution_index', wraps=execution_index) as build:
+
+    path = str(ROOT / "BIT101-iOS/Views.swift")
+    shared = swift_syntax_index_sources(
+        {
+            path: (
+                "struct First: View { var body: some View { makeLeaf() }; func makeLeaf() -> some "
+                'View { Leaf() } }; struct Second: View { var body: some View { Text("two") } }; s'
+                'truct Leaf: View { var body: some View { Text("leaf").appSelectionFeedback(trigge'
+                "r: true) } }"
+            )
+        }
+    )
+    with patch("ui_source_facts.execution_index", wraps=execution_index) as build:
         context = UIAuditContext(shared)
-        for facts in context.values(): facts['renderedScopeFacts'] = {}
+        for facts in context.values():
+            facts["renderedScopeFacts"] = {}
         check_composer_lifecycle([], context)
-        for name in ('First', 'Second'):
-            assert rendered_scope_facts(context[path], [name], context)['calls']
-        assert view_or_child_has_marker(context, context[path], ['First'], 'appSelectionFeedback')
-        assert build.call_count == 1, '多份 View 共享单次执行索引'
-    color_path = 'semantic-color-self-test.swift'
-    color_source = '''
+        for name in ("First", "Second"):
+            assert rendered_scope_facts(context[path], [name], context)["calls"]
+        assert view_or_child_has_marker(context, context[path], ["First"], "appSelectionFeedback")
+        assert build.call_count == 1, "多份 View 共享单次执行索引"
+    color_path = "semantic-color-self-test.swift"
+    color_source = """
 import SwiftUI
 enum TrafficPhase { case red, green }
 typealias Phase = TrafficPhase
@@ -64,48 +106,120 @@ func sample() {
     Text("label").foregroundStyle(.red)
     Text("label").background(.green)
 }
-'''
+"""
     color_syntax = swift_syntax_index_sources({color_path: color_source})
     color_context = SwiftBindingTypes(color_syntax)
-    color_nodes = [node for node in color_syntax[color_path]['members'] if node['value'] in {'.red', '.green', 'Color.red', 'SwiftUI.Color.red', 'TrafficPhase.red'}]
-    assert len(color_nodes) == 11 and sum(is_semantic_color_member(color_path, node, color_context) for node in color_nodes) == 7
-    editors = [('GalleryComposerScene', '', 'ui.gallery-composer-scene.submit'),
-        ('PaperComposerView', 'model.isSubmitting', 'ui.paper-composer-view.submit')]
-    editors += [(owner, 'isSubmitting || isSubmissionRequested', '') for owner in
-        ('GalleryCommentComposerSheet', 'CourseCommentComposerSheet', 'PaperCommentComposerSheet')]
+    color_nodes = [
+        node
+        for node in color_syntax[color_path]["members"]
+        if node["value"] in {".red", ".green", "Color.red", "SwiftUI.Color.red", "TrafficPhase.red"}
+    ]
+    assert (
+        len(color_nodes) == 11
+        and sum(is_semantic_color_member(color_path, node, color_context) for node in color_nodes)
+        == 7
+    )
+    editors = [
+        ("GalleryComposerScene", "", "ui.gallery-composer-scene.submit"),
+        ("PaperComposerView", "model.isSubmitting", "ui.paper-composer-view.submit"),
+    ]
+    editors += [
+        (owner, "isSubmitting || isSubmissionRequested", "")
+        for owner in (
+            "GalleryCommentComposerSheet",
+            "CourseCommentComposerSheet",
+            "PaperCommentComposerSheet",
+        )
+    ]
     for owner, guard, identifier in editors:
-        member = 'let callback: () async -> Bool;' if guard and not identifier else ''
-        marker = f'.accessibilityIdentifier("{identifier}")' if identifier else ''
-        template = f'struct {owner}: View {{ {member} var body: some View {{ AppCommentComposerContentSection {{ Text("editor") }}{marker}.interactiveDismissDisabled({guard}) }} }}'
+        member = "let callback: () async -> Bool;" if guard and not identifier else ""
+        marker = f'.accessibilityIdentifier("{identifier}")' if identifier else ""
+        template = (
+            f"struct "
+            f"{owner}"
+            f": View {{ "
+            f"{member}"
+            f' var body: some View {{ AppCommentComposerContentSection {{ Text("editor") }}'
+            f"{marker}"
+            f".interactiveDismissDisabled("
+            f"{guard}"
+            f") }} }}"
+        )
+
         def findings(source):
-            source = source.replace('var body:', 'let protectDismissal = false; let protectAlias = protectDismissal; var body:')
+            source = source.replace(
+                "var body:",
+                "let protectDismissal = false; let protectAlias = protectDismissal; var body:",
+            )
             errors = []
-            check_composer_lifecycle(errors, swift_syntax_index_sources({'ui-self-test.swift': source}))
+            check_composer_lifecycle(
+                errors, swift_syntax_index_sources({"ui-self-test.swift": source})
+            )
             return errors
+
         assert not findings(template)
-        assert not findings(template.replace(owner, 'RenamedEditor').replace(guard, 'blocksDismissal') if guard else template.replace(owner, 'RenamedEditor'))
-        assert findings(template.replace(f'.interactiveDismissDisabled({guard})', ''))
-        for disabled in ('false', '(!true)', '(false && isSubmitting)', '(false || false)', '1 == 2', 'protectDismissal', 'protectAlias'):
-            assert findings(template.replace(f'.interactiveDismissDisabled({guard})', f'.interactiveDismissDisabled({disabled})'))
-        for enabled in ('true', '(!false)', 'isSubmitting || true'):
-            assert not findings(template.replace(f'.interactiveDismissDisabled({guard})', f'.interactiveDismissDisabled({enabled})'))
-        unused = template.replace(f'.interactiveDismissDisabled({guard})', '')[:-1] + f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled({guard}) }} }}'
+        assert not findings(
+            template.replace(owner, "RenamedEditor").replace(guard, "blocksDismissal")
+            if guard
+            else template.replace(owner, "RenamedEditor")
+        )
+        assert findings(template.replace(f".interactiveDismissDisabled({guard})", ""))
+        for disabled in (
+            "false",
+            "(!true)",
+            "(false && isSubmitting)",
+            "(false || false)",
+            "1 == 2",
+            "protectDismissal",
+            "protectAlias",
+        ):
+            assert findings(
+                template.replace(
+                    f".interactiveDismissDisabled({guard})",
+                    f".interactiveDismissDisabled({disabled})",
+                )
+            )
+        for enabled in ("true", "(!false)", "isSubmitting || true"):
+            assert not findings(
+                template.replace(
+                    f".interactiveDismissDisabled({guard})",
+                    f".interactiveDismissDisabled({enabled})",
+                )
+            )
+        unused = template.replace(f".interactiveDismissDisabled({guard})", "")[:-1] + (
+            f'; func unused() -> some View {{ Text("unused").interactiveDismissDisabled('
+            f"{guard}"
+            f") }} }}"
+        )
         assert findings(unused)
-        if not identifier: assert not findings(template.replace('AppCommentComposerContentSection', 'OtherSection').replace(f'.interactiveDismissDisabled({guard})', ''))
-    for symbol in ('AppCard', 'AppFloatingActionStack', 'appBrowserActions', 'appBrowserFloatingActions'):
-        source = f'struct Example: View {{ var body: some View {{ Text("visible") }}; func unused() -> some View {{ {symbol} {{ Text("unused") }} }} }}'
-        facts = swift_syntax_index_sources({'ui-self-test.swift': source})
-        assert not rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]
+        if not identifier:
+            assert not findings(
+                template.replace("AppCommentComposerContentSection", "OtherSection").replace(
+                    f".interactiveDismissDisabled({guard})", ""
+                )
+            )
+    for symbol in (
+        "AppCard",
+        "AppFloatingActionStack",
+        "appBrowserActions",
+        "appBrowserFloatingActions",
+    ):
+        source = (
+            f'struct Example: View {{ var body: some View {{ Text("visible") }}; func unused() -> s'
+            f"ome View {{ "
+            f"{symbol}"
+            f' {{ Text("unused") }} }} }}'
+        )
+        facts = swift_syntax_index_sources({"ui-self-test.swift": source})
+        assert not rendered_component_counts(facts["ui-self-test.swift"], facts)[symbol]
         active = source.replace('Text("visible")', f'{symbol} {{ Text("visible") }}')
-        facts = swift_syntax_index_sources({'ui-self-test.swift': active})
-        assert rendered_component_counts(facts['ui-self-test.swift'], facts)[symbol]
+        facts = swift_syntax_index_sources({"ui-self-test.swift": active})
+        assert rendered_component_counts(facts["ui-self-test.swift"], facts)[symbol]
     assert not visual_contract_boundary_findings()
     facts = {
         "declarations": [{"kind": "struct", "name": "SampleView"}],
         "calls": [{"value": "AppFailureState", "scope": ["SampleView"]}],
-        "invocations": [
-            {"value": 'Text("课程暂未发布说明")', "scope": ["SampleView"]}
-        ],
+        "invocations": [{"value": 'Text("课程暂未发布说明")', "scope": ["SampleView"]}],
         "members": [],
         "expressions": [],
         "bindings": [],
@@ -116,7 +230,7 @@ func sample() {
     }
     findings = []
     haptic_path = ROOT / "Modules/DesignSystemKit/Sources/RelocatedFeedback.swift"
-    haptic_source = '''
+    haptic_source = """
 extension View {
     public func appSelectionFeedback<T: Equatable>(trigger: T) -> some View {
         onChange(of: trigger) { _, _ in UISelectionFeedbackGenerator().selectionChanged() }
@@ -125,11 +239,13 @@ extension View {
         onChange(of: trigger) { _, _ in UIImpactFeedbackGenerator().impactOccurred() }
     }
 }
-'''
+"""
     haptic_syntax = swift_syntax_index_sources({str(haptic_path): haptic_source})
     if haptic_entry_findings({haptic_path: haptic_source}, haptic_syntax)[0]:
         findings.append("UI 契约规则边界自检失败：公共触感声明应支持文件迁移")
-    wrong_source = haptic_source.replace("UISelectionFeedbackGenerator", "UIImpactFeedbackGenerator")
+    wrong_source = haptic_source.replace(
+        "UISelectionFeedbackGenerator", "UIImpactFeedbackGenerator"
+    )
     wrong_syntax = swift_syntax_index_sources({str(haptic_path): wrong_source})
     if len(haptic_entry_findings({haptic_path: wrong_source}, wrong_syntax)[0]) != 1:
         findings.append("UI 契约规则边界自检失败：公共触感声明需要对应系统动作")
@@ -179,7 +295,11 @@ extension View {
     }
     if ast_has_marker(literal_only_facts, "AppFailureState"):
         findings.append("UI 契约规则边界自检失败：源码字面量被识别为组件调用")
-    control = {"name": "Toggle", "invocation": 'Toggle("sample", isOn: $value)', "scope": ["SampleView"]}
+    control = {
+        "name": "Toggle",
+        "invocation": 'Toggle("sample", isOn: $value)',
+        "scope": ["SampleView"],
+    }
     attached_modifier = {
         "name": "appSelectionFeedback",
         "base": 'Toggle("sample", isOn: $value)',
@@ -196,7 +316,9 @@ extension View {
         findings.append("UI 契约规则边界自检失败：控件与触感修饰器保持同一表达式")
 
     parent_facts = {
-        "declarations": [{"kind": "struct", "name": "ParentView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "ParentView", "scope": [], "inheritedTypes": ["View"]}
+        ],
         "calls": [{"value": "ChildView", "scope": ["ParentView"]}],
         "invocations": [],
         "members": [],
@@ -208,7 +330,9 @@ extension View {
         "stringSegments": [],
     }
     child_facts = {
-        "declarations": [{"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}
+        ],
         "calls": [{"value": "appSelectionFeedback", "scope": ["ChildView"]}],
         "invocations": [],
         "members": [],
@@ -223,7 +347,9 @@ extension View {
         str(SOURCE_ROOT / "moved/Parent.swift"): parent_facts,
         str(SOURCE_ROOT / "shared/Child.swift"): child_facts,
     }
-    if not view_or_child_has_marker(delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"):
+    if not view_or_child_has_marker(
+        delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"
+    ):
         findings.append("UI 契约规则边界自检失败：直接子 View 的公共触感调用识别")
     wrapped_parent_facts = {
         **parent_facts,
@@ -231,12 +357,16 @@ extension View {
     }
     wrapper_facts = {
         **parent_facts,
-        "declarations": [{"kind": "struct", "name": "WrapperView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "WrapperView", "scope": [], "inheritedTypes": ["View"]}
+        ],
         "calls": [{"value": "LeafView", "scope": ["WrapperView"]}],
     }
     leaf_facts = {
         **child_facts,
-        "declarations": [{"kind": "struct", "name": "LeafView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "LeafView", "scope": [], "inheritedTypes": ["View"]}
+        ],
         "calls": [{"value": "appSelectionFeedback", "scope": ["LeafView"]}],
     }
     deep_syntax = {
@@ -244,7 +374,9 @@ extension View {
         str(SOURCE_ROOT / "wrapper.swift"): wrapper_facts,
         str(SOURCE_ROOT / "leaf.swift"): leaf_facts,
     }
-    if not view_or_child_has_marker(deep_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"):
+    if not view_or_child_has_marker(
+        deep_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"
+    ):
         findings.append("UI 契约规则边界自检失败：多层子 View 的契约归属识别")
     cyclic_parent = {
         **parent_facts,
@@ -258,7 +390,9 @@ extension View {
         str(SOURCE_ROOT / "parent.swift"): cyclic_parent,
         str(SOURCE_ROOT / "wrapper.swift"): cyclic_wrapper,
     }
-    if view_or_child_has_marker(cycle_syntax, cyclic_parent, ["ParentView"], "appSelectionFeedback"):
+    if view_or_child_has_marker(
+        cycle_syntax, cyclic_parent, ["ParentView"], "appSelectionFeedback"
+    ):
         findings.append("UI 契约规则边界自检失败：递归组件循环终止")
     plain_wrapper = {
         **wrapper_facts,
@@ -266,14 +400,18 @@ extension View {
     }
     unrelated_leaf = {
         **leaf_facts,
-        "declarations": [{"kind": "struct", "name": "UnrelatedLeafView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "UnrelatedLeafView", "scope": [], "inheritedTypes": ["View"]}
+        ],
     }
     isolated_syntax = {
         str(SOURCE_ROOT / "parent.swift"): wrapped_parent_facts,
         str(SOURCE_ROOT / "wrapper.swift"): plain_wrapper,
         str(SOURCE_ROOT / "unrelated.swift"): unrelated_leaf,
     }
-    if view_or_child_has_marker(isolated_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"):
+    if view_or_child_has_marker(
+        isolated_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"
+    ):
         findings.append("UI 契约规则边界自检失败：独立同名子树掩盖契约缺口")
     helper_scope = ["RenderedParent"]
     helper_view_facts = {
@@ -286,7 +424,15 @@ extension View {
         "controlFlow": [],
         "typeNames": [],
         "stringSegments": [],
-        "functionRanges": [{"name": "unusedContent", "returnsView": True, "scope": helper_scope, "start": 100, "end": 200}],
+        "functionRanges": [
+            {
+                "name": "unusedContent",
+                "returnsView": True,
+                "scope": helper_scope,
+                "start": 100,
+                "end": 200,
+            }
+        ],
         "nonRenderedRanges": [],
     }
     if rendered_view_has_marker(helper_view_facts, helper_scope, "AppFailureState"):
@@ -303,7 +449,15 @@ extension View {
     extension_helper_facts = {
         **helper_view_facts,
         "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 120}],
-        "functionRanges": [{"name": "extensionContent", "returnsView": True, "scope": helper_scope, "start": 100, "end": 200}],
+        "functionRanges": [
+            {
+                "name": "extensionContent",
+                "returnsView": True,
+                "scope": helper_scope,
+                "start": 100,
+                "end": 200,
+            }
+        ],
         "nonRenderedRanges": [],
     }
     extension_parent_facts = {
@@ -316,7 +470,9 @@ extension View {
         str(SOURCE_ROOT / "parent.swift"): extension_parent_facts,
         str(SOURCE_ROOT / "extension.swift"): extension_helper_facts,
     }
-    if not rendered_view_has_marker(extension_parent_facts, helper_scope, "AppFailureState", extension_syntax):
+    if not rendered_view_has_marker(
+        extension_parent_facts, helper_scope, "AppFailureState", extension_syntax
+    ):
         findings.append("UI 契约规则边界自检失败：跨文件 View 辅助方法未进入契约")
     callback_facts = {
         **helper_view_facts,
@@ -328,18 +484,27 @@ extension View {
         findings.append("UI 契约规则边界自检失败：交互回调中的组件满足页面契约")
     nested_child_facts = {
         **leaf_facts,
-        "declarations": [{
-            "kind": "struct", "name": "ChildView", "scope": ["Outer", "ParentView"], "inheritedTypes": ["View"]
-        }],
+        "declarations": [
+            {
+                "kind": "struct",
+                "name": "ChildView",
+                "scope": ["Outer", "ParentView"],
+                "inheritedTypes": ["View"],
+            }
+        ],
     }
     top_level_child_facts = {
         **leaf_facts,
-        "declarations": [{"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "ChildView", "scope": [], "inheritedTypes": ["View"]}
+        ],
         "calls": [],
     }
     nested_parent_facts = {
         **parent_facts,
-        "declarations": [{"kind": "struct", "name": "ParentView", "scope": ["Outer"], "inheritedTypes": ["View"]}],
+        "declarations": [
+            {"kind": "struct", "name": "ParentView", "scope": ["Outer"], "inheritedTypes": ["View"]}
+        ],
         "calls": [{"value": "ChildView", "scope": ["Outer", "ParentView"]}],
     }
     shadow_syntax = {
@@ -348,7 +513,11 @@ extension View {
         str(SOURCE_ROOT / "top-level-child.swift"): top_level_child_facts,
     }
     if child_view_entries(shadow_syntax, "ChildView", ["Outer", "ParentView"]) != [
-        (SOURCE_ROOT / "nested-child.swift", nested_child_facts, ["Outer", "ParentView", "ChildView"])
+        (
+            SOURCE_ROOT / "nested-child.swift",
+            nested_child_facts,
+            ["Outer", "ParentView", "ChildView"],
+        )
     ]:
         findings.append("UI 契约规则边界自检失败：嵌套 View 名称优先解析")
     return findings
@@ -366,7 +535,11 @@ def source_boundary_findings() -> list[str]:
     from unittest.mock import patch
     from ui_source_facts import swift_files as scanned_files
     from ui_rules import check_design_token_boundaries
-    extension_probes = [ROOT / name / "VisualProbe.swift" for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")]
+
+    extension_probes = [
+        ROOT / name / "VisualProbe.swift"
+        for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")
+    ]
     scanned_files.cache_clear()
     with patch("swift_source_index.repository_swift_files", return_value=extension_probes):
         observed = scanned_files()
@@ -377,13 +550,16 @@ def source_boundary_findings() -> list[str]:
     visual_source = 'struct Screen: View { var body: some View { Text("内容").opacity(0.9) } }'
     visual_facts = swift_syntax_index_sources({str(path): visual_source for path in observed})
     visual_errors = []
-    with patch("ui_rules.swift_files", return_value=observed), patch("ui_rules.source_text", return_value=visual_source):
+    with (
+        patch("ui_rules.swift_files", return_value=observed),
+        patch("ui_rules.source_text", return_value=visual_source),
+    ):
         check_design_token_boundaries(visual_errors, visual_facts)
     for path in extension_probes:
         if not any(path.relative_to(ROOT).as_posix() in error for error in visual_errors):
             extension_findings.append("UI 扩展视觉自测：新增透明度常量触发设计规则")
 
-    source = r'''
+    source = r"""
 import SwiftUI
 
 struct ItemAlertSample: View {
@@ -576,7 +752,7 @@ extension AppSearchBarContainer: View {}
 struct AppLoadingState {}
 struct AppAvatarView: View { var body: some View { Text("avatar") } }
 struct AppFixedColumnItem {}
-'''
+"""
     try:
         facts = swift_syntax_index_sources({"ui-self-test.swift": source})["ui-self-test.swift"]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
@@ -595,25 +771,30 @@ struct AppFixedColumnItem {}
         "AlternateAlertSample",
     }
     if len(item_alerts) != len(expected_invalid) or not all(
-        any(view_name in finding for finding in item_alerts)
-        for view_name in expected_invalid
+        any(view_name in finding for finding in item_alerts) for view_name in expected_invalid
     ):
-        findings.append("UI 检查器自测：SwiftSyntax 未识别 item 与 isPresented 两种 AppAlert 展示路径")
+        findings.append(
+            "UI 检查器自测：SwiftSyntax 未识别 item 与 isPresented 两种 AppAlert 展示路径"
+        )
     diagnostic_scope = {
         "typedVariables": [
-            variable for variable in facts["typedVariables"]
+            variable
+            for variable in facts["typedVariables"]
             if variable["scope"][-1] == "DiagnosticConfirmationAlertSample"
         ],
         "alertModifiers": [
-            alert for alert in facts["alertModifiers"]
+            alert
+            for alert in facts["alertModifiers"]
             if alert["scope"][-1] == "DiagnosticConfirmationAlertSample"
         ],
         "calls": [
-            call for call in facts["calls"]
+            call
+            for call in facts["calls"]
             if call["scope"][-1] == "DiagnosticConfirmationAlertSample"
         ],
         "invocations": [
-            invocation for invocation in facts["invocations"]
+            invocation
+            for invocation in facts["invocations"]
             if invocation["scope"][-1] == "DiagnosticConfirmationAlertSample"
         ],
     }
@@ -626,12 +807,12 @@ struct AppFixedColumnItem {}
         for finding in alert_coverage_findings(
             {
                 "typedVariables": [
-                    variable for variable in facts["typedVariables"]
+                    variable
+                    for variable in facts["typedVariables"]
                     if variable["scope"][-1] == view_name
                 ],
                 "alertModifiers": [
-                    alert for alert in facts["alertModifiers"]
-                    if alert["scope"][-1] == view_name
+                    alert for alert in facts["alertModifiers"] if alert["scope"][-1] == view_name
                 ],
             },
             Path("ui-self-test.swift"),
@@ -641,10 +822,12 @@ struct AppFixedColumnItem {}
         findings.append("UI 检查器自测：既有用户输入提示例外未按 View 与绑定精确匹配")
 
     icon_findings = list_icon_findings(Path("UI/ListIconSample.swift"), facts)
-    if len(icon_findings) != 5 or not any("person.fill" in finding for finding in icon_findings) or sum(
-        "iconName" in finding for finding in icon_findings
-    ) != 2 or not any(r"checkmark.\(" in finding for finding in icon_findings) or not any(
-        "unsafeSystemIcon" in finding for finding in icon_findings
+    if (
+        len(icon_findings) != 5
+        or not any("person.fill" in finding for finding in icon_findings)
+        or sum("iconName" in finding for finding in icon_findings) != 2
+        or not any(r"checkmark.\(" in finding for finding in icon_findings)
+        or not any("unsafeSystemIcon" in finding for finding in icon_findings)
     ):
         findings.append("UI 检查器自测：静态、动态与混合分支列表图标契约识别异常")
 
@@ -678,14 +861,16 @@ struct AppFixedColumnItem {}
         height: 42
     )
     """
-    for source in (r'Text("\(format("https://example.invalid"))").padding(7)',
-                   r'Text(#"\#(format("https://example.invalid"))"#).padding(7)',
-                   'Text("""\n\\(format("https://example.invalid"))\n""").padding(7)'):
+    for source in (
+        r'Text("\(format("https://example.invalid"))").padding(7)',
+        r'Text(#"\#(format("https://example.invalid"))"#).padding(7)',
+        'Text("""\n\\(format("https://example.invalid"))\n""").padding(7)',
+    ):
         assert PADDING_LITERAL.search(mask_literals_and_comments(source))
         assert mask_comments(source) == source
     interpolation = r'Text("\(format("https://example.invalid") /* padding(7) */)").padding(8)'
-    assert 'https://example.invalid' in mask_comments(interpolation)
-    assert '/* padding(7) */' not in mask_comments(interpolation)
+    assert "https://example.invalid" in mask_comments(interpolation)
+    assert "/* padding(7) */" not in mask_comments(interpolation)
     assert len(mask_literals_and_comments(interpolation)) == len(interpolation)
     masked_calls = mask_literals_and_comments(wrapped_calls)
     wrapped_patterns = (
@@ -697,80 +882,36 @@ struct AppFixedColumnItem {}
     if not all(pattern.search(masked_calls) for pattern in wrapped_patterns):
         findings.append("UI 检查器自测：多行视觉规则调用识别异常")
 
-    visual_source = r'''
-import SwiftUI
-struct VisualRuleSample: View {
-    @State private var query = ""
-    private let sampleOpacity: Double = 0.4
-    private let fixedWidth: CGFloat = 40
-    private let derivedWidth = AppDesignSystem.Size.avatar * 2
-    private let repeatedWidth = AppDesignSystem.Size.avatar + AppDesignSystem.Size.avatar
-
-    var body: some View {
-        Text("https://example.invalid RoundedRectangle() Color.orange .frame(width: 42, height: 42) TextField(\"提示\", text: $query)")
-        RoundedRectangle(
-            cornerRadius: 12
-        )
-        Color(uiColor: .systemBackground)
-        Color.accentColor
-        Color.orange
-        Color.red
-        Color.blue
-        Color.green
-        Color.gray
-        Color.pink
-        Color.indigo
-        Color.teal
-        Color.brown
-        Color.primary
-        Color.secondary
-        Text("Rule")
-            .padding(12)
-            .opacity(0.5)
-            .foregroundStyle(.secondary)
-            .font(.body)
-            .blur(radius: 2)
-            .frame(width: 40, height: 40)
-            .cornerRadius(8)
-            .frame(minHeight: 44)
-        GridItem(.adaptive(minimum: 32))
-        StrokeStyle(lineWidth: 2, dash: [1, 2])
-        EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
-        VStack(spacing: 12) {
-            HStack { Text("row") }
-            HStack(spacing: 12) { Text("row") }
-        }
-        TextField("搜索提示", text: $query)
-        List { Text("row") }
-            .listStyle(.insetGrouped)
-            .listSectionSpacing(12)
-        List { Text("row") }
-            .listStyle(.plain)
-        Section(header: { Text("标题") }) { Text("row") }
-        withAnimation(
-            .spring(
-                duration: 0.2
-            )
-        ) {}
-        thumbnailButton(
-            image: image,
-            width: 40
-        )
-        .background(
-            .ultraThinMaterial,
-            in: Circle()
-        )
-        .frame(
-            width: 42,
-            height: 42
-        )
-    }
-}
-'''
+    visual_source = (
+        '\nimport SwiftUI\nstruct VisualRuleSample: View {\n    @State private var query = ""\n   '
+        " private let sampleOpacity: Double = 0.4\n    private let fixedWidth: CGFloat = 40\n    p"
+        "rivate let derivedWidth = AppDesignSystem.Size.avatar * 2\n    private let repeatedWidth "
+        "= AppDesignSystem.Size.avatar + AppDesignSystem.Size.avatar\n\n    var body: some View {"
+        '\n        Text("https://example.invalid RoundedRectangle() Color.orange .frame(width: 42,'
+        ' height: 42) TextField(\\"提示\\", text: $query)")\n        RoundedRectangle(\n            '
+        "cornerRadius: 12\n        )\n        Color(uiColor: .systemBackground)\n        Color.acc"
+        "entColor\n        Color.orange\n        Color.red\n        Color.blue\n        Color.gree"
+        "n\n        Color.gray\n        Color.pink\n        Color.indigo\n        Color.teal\n    "
+        '    Color.brown\n        Color.primary\n        Color.secondary\n        Text("Rule")\n  '
+        "          .padding(12)\n            .opacity(0.5)\n            .foregroundStyle(.secondar"
+        "y)\n            .font(.body)\n            .blur(radius: 2)\n            .frame(width: 40,"
+        " height: 40)\n            .cornerRadius(8)\n            .frame(minHeight: 44)\n        Gr"
+        "idItem(.adaptive(minimum: 32))\n        StrokeStyle(lineWidth: 2, dash: [1, 2])\n        "
+        "EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)\n        VStack(spacing: 12) {\n  "
+        '          HStack { Text("row") }\n            HStack(spacing: 12) { Text("row") }\n      '
+        '  }\n        TextField("搜索提示", text: $query)\n        List { Text("row") }\n            .'
+        'listStyle(.insetGrouped)\n            .listSectionSpacing(12)\n        List { Text("row")'
+        ' }\n            .listStyle(.plain)\n        Section(header: { Text("标题") }) { Text("row")'
+        " }\n        withAnimation(\n            .spring(\n                duration: 0.2\n        "
+        "    )\n        ) {}\n        thumbnailButton(\n            image: image,\n            wid"
+        "th: 40\n        )\n        .background(\n            .ultraThinMaterial,\n            in:"
+        " Circle()\n        )\n        .frame(\n            width: 42,\n            height: 42\n  "
+        "      )\n    }\n}\n"
+    )
     try:
-        visual_facts = swift_syntax_index_sources(
-            {"visual-rule-self-test.swift": visual_source}
-        )["visual-rule-self-test.swift"]
+        visual_facts = swift_syntax_index_sources({"visual-rule-self-test.swift": visual_source})[
+            "visual-rule-self-test.swift"
+        ]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
         return [f"UI 检查器自测无法解析视觉规则样例：{error}"]
     rectangle_nodes = pattern_nodes(visual_facts, DIRECT_ROUNDED_RECTANGLE)
@@ -781,7 +922,8 @@ struct VisualRuleSample: View {
     text_invocations = [
         invocation
         for invocation in visual_facts["invocations"]
-        if call_name(invocation["calledExpression"]) == "Text" and "https://example.invalid" in invocation["value"]
+        if call_name(invocation["calledExpression"]) == "Text"
+        and "https://example.invalid" in invocation["value"]
     ]
     if not all(
         any(
@@ -810,7 +952,11 @@ struct VisualRuleSample: View {
         if int(node.get("start", -2)) in text_starts
     ]
     if text_candidate_rules:
-        findings.append("UI 检查器自测：Text 文案进入视觉规则候选节点（" + ", ".join(text_candidate_rules) + "）")
+        findings.append(
+            "UI 检查器自测：Text 文案进入视觉规则候选节点（"
+            + ", ".join(text_candidate_rules)
+            + "）"
+        )
     uncovered_rules = [
         pattern.pattern
         for pattern in dict.fromkeys(coverage_patterns)
@@ -825,7 +971,10 @@ struct VisualRuleSample: View {
     ]
     if uncovered_rules:
         examples = {
-            pattern.pattern: [node["value"][:72].replace("\n", " ") for node in pattern_nodes(visual_facts, pattern)[:2]]
+            pattern.pattern: [
+                node["value"][:72].replace("\n", " ")
+                for node in pattern_nodes(visual_facts, pattern)[:2]
+            ]
             for pattern in dict.fromkeys(coverage_patterns)
             if pattern.pattern in uncovered_rules
         }
@@ -853,55 +1002,51 @@ struct VisualRuleSample: View {
         findings.append("UI 检查器自测：View 公共组件声明识别失败")
     if not has_component_declaration("AppFixedColumnItem", declarations):
         findings.append("UI 检查器自测：无协议继承的模型结构声明识别失败")
-    row_source = r'''
-import SwiftUI
-struct NeutralTitle: View {
-    var body: some View { Text("标题").foregroundStyle(.tint) }
-}
-struct RowColors: View {
-    var body: some View {
-        List {
-            Section { ScrollView { Text("容器内容") } }
-            Picker("时间轴", selection: $axis) { Text("线性").tag(0) }
-            Toggle("开关", isOn: $enabled).appInteractiveListRow()
-            Button {} label: { Text("标题").foregroundStyle(.tint) }.appInteractiveListRow()
-            Button("删除", role: .destructive) {}.appInteractiveListRow()
-            Button("删除正确", role: .destructive) {}.appInteractiveListRow(isDestructive: true)
-            NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractiveListRow()
-            Button("伪造") { print(".appInteractiveListRow()") }
-            Button("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.tint)
-            Button("系统填充按钮") {}.buttonStyle(.borderedProminent)
-            Button("冲突填充按钮") {}.buttonStyle(.borderedProminent).appInteractiveListRow()
-            Button {} label: { LabeledContent("左侧") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()
-            Button {} label: {
-                LabeledContent { Text("右侧").foregroundStyle(.secondary) } label: { Text("左侧").foregroundStyle(.tint) }
-            }.appInteractiveListRow()
-            helperRows
-        }
-        .toolbar { Button("关闭") {} }
-        .overlay { floatingButton }
-    }
-    private var helperRows: some View { Button("计算属性行") {} }
-    private var floatingButton: some View { Button("浮动按钮") {} }
-}
-'''
+    row_source = (
+        '\nimport SwiftUI\nstruct NeutralTitle: View {\n    var body: some View { Text("标题").foreg'
+        "roundStyle(.tint) }\n}\nstruct RowColors: View {\n    var body: some View {\n        List"
+        ' {\n            Section { ScrollView { Text("容器内容") } }\n            Picker("时间轴", select'
+        'ion: $axis) { Text("线性").tag(0) }\n            Toggle("开关", isOn: $enabled).appInteractiv'
+        'eListRow()\n            Button {} label: { Text("标题").foregroundStyle(.tint) }.appInterac'
+        'tiveListRow()\n            Button("删除", role: .destructive) {}.appInteractiveListRow()\n '
+        '           Button("删除正确", role: .destructive) {}.appInteractiveListRow(isDestructive: tru'
+        'e)\n            NavigationLink(destination: Text("目标")) { NeutralTitle() }.appInteractive'
+        'ListRow()\n            Button("伪造") { print(".appInteractiveListRow()") }\n            Bu'
+        'tton("覆盖颜色") {}.appInteractiveListRow().foregroundStyle(.tint)\n            Button("系统填充按'
+        '钮") {}.buttonStyle(.borderedProminent)\n            Button("冲突填充按钮") {}.buttonStyle(.bord'
+        'eredProminent).appInteractiveListRow()\n            Button {} label: { LabeledContent("左侧'
+        '") { Text("右侧").foregroundStyle(.secondary) } }.appInteractiveListRow()\n            Butt'
+        'on {} label: {\n                LabeledContent { Text("右侧").foregroundStyle(.secondary) }'
+        ' label: { Text("左侧").foregroundStyle(.tint) }\n            }.appInteractiveListRow()\n   '
+        '         helperRows\n        }\n        .toolbar { Button("关闭") {} }\n        .overlay { '
+        'floatingButton }\n    }\n    private var helperRows: some View { Button("计算属性行") {} }\n  '
+        '  private var floatingButton: some View { Button("浮动按钮") {} }\n}\n'
+    )
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
     row_syntax = swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
     if len(row_findings) != 11:
-        findings.append(f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串边界应报告 11 项，实际 {len(row_findings)} 项")
+        findings.append(
+            f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串边界应报告 11 项，实际 {len(row_findings)} 项"
+        )
     return findings
 
 
 def map_theme_color_contract_findings() -> list[str]:
     path = source_path(MAP_THEME_COLOR_CONTRACT[0])
-    source = "extension AppDesignSystem {\n    enum Map {\n        " + MAP_THEME_COLOR_CONTRACT[1] + "\n    }\n}"
+    source = (
+        "extension AppDesignSystem {\n    enum Map {\n        "
+        + MAP_THEME_COLOR_CONTRACT[1]
+        + "\n    }\n}"
+    )
     start = source.encode("utf-8").find(b"Color.green")
     node = {"scope": ["AppDesignSystem", "Map"], "start": start}
     if not is_registered_map_theme_color_definition(path, source, node):
         return ["UI 检查器自测：地图主题令牌的精确源码例外无法识别"]
 
-    unrelated_source = source.replace(MAP_THEME_COLOR_CONTRACT[1], "static let otherAccent = Color.green")
+    unrelated_source = source.replace(
+        MAP_THEME_COLOR_CONTRACT[1], "static let otherAccent = Color.green"
+    )
     if is_registered_map_theme_color_definition(path, unrelated_source, node):
         return ["UI 检查器自测：地图主题令牌例外覆盖了相邻声明"]
     wrong_scope_node = {**node, "scope": ["OtherDesignSystem", "Map"]}
@@ -912,87 +1057,274 @@ def map_theme_color_contract_findings() -> list[str]:
 
 def school_lifecycle_boundary_findings() -> list[str]:
     from code_quality_rules import automatic_school_fetch_findings
+
     path = str(ROOT / "BIT101-iOS/LifecycleExample.swift")
-    ports = {str(source): source.read_text() for source in (
-        ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift",
-        ROOT / "Modules/ScorePorts/Sources/ScoreServicing.swift")}
-    prefix = 'import SchedulePorts; import ScorePorts; '
-    ports[str(ROOT / 'BIT101-iOS/FixtureSchool.swift')] = prefix + 'protocol FixtureSchoolServicing: ScheduleServicing, ScoreListServicing, TrustedTranscriptServicing {}; let service: any FixtureSchoolServicing; let schedule: any ScheduleServicing;'
+    ports = {
+        str(source): source.read_text()
+        for source in (
+            ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift",
+            ROOT / "Modules/ScorePorts/Sources/ScoreServicing.swift",
+        )
+    }
+    prefix = "import SchedulePorts; import ScorePorts; "
+    ports[str(ROOT / "BIT101-iOS/FixtureSchool.swift")] = prefix + (
+        "protocol FixtureSchoolServicing: ScheduleServicing, ScoreListServicing, TrustedTransc"
+        "riptServicing {}; let service: any FixtureSchoolServicing; let schedule: any Schedule"
+        "Servicing;"
+    )
     findings = []
-    source = prefix + 'struct Screen: View { var body: some View { Text("x").task { await schedule.syncCourses() } } }'
-    for name, expected in (("BIT101-iOS/LifecycleUITestExample.swift", True),
-            ("BIT101-iOS/ReleaseNetworkSmokeExample.swift", True), ("BIT101-iOS/Tests/LifecycleExample.swift", True),
-            ("ModuleTests/Support/LifecycleExample.swift", False), ("BIT101-iOSTests/LifecycleExample.swift", False),
-            ("BIT101-iOSUITests/LifecycleExample.swift", False)):
+    source = prefix + (
+        'struct Screen: View { var body: some View { Text("x").task { await schedule.syncCours'
+        "es() } } }"
+    )
+    for name, expected in (
+        ("BIT101-iOS/LifecycleUITestExample.swift", True),
+        ("BIT101-iOS/ReleaseNetworkSmokeExample.swift", True),
+        ("BIT101-iOS/Tests/LifecycleExample.swift", True),
+        ("ModuleTests/Support/LifecycleExample.swift", False),
+        ("BIT101-iOSTests/LifecycleExample.swift", False),
+        ("BIT101-iOSUITests/LifecycleExample.swift", False),
+    ):
         renamed = str(ROOT / name)
-        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{renamed: source})))) != expected:
+        if (
+            bool(
+                automatic_school_fetch_findings(
+                    swift_syntax_index_sources(dict(ports, **{renamed: source}))
+                )
+            )
+            != expected
+        ):
             findings.append("学校生命周期自测：生产文件名与实际测试目录归属")
-    for condition, expected in (("RELEASE_NETWORK_SMOKE", False), ("BIT101_UI_TESTING", False),
-            ("os(iOS)", True), ("targetEnvironment(macCatalyst)", True)):
-        guarded = f'#if {condition}\n{source}\n#endif'
-        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: guarded})))) != expected:
+    for condition, expected in (
+        ("RELEASE_NETWORK_SMOKE", False),
+        ("BIT101_UI_TESTING", False),
+        ("os(iOS)", True),
+        ("targetEnvironment(macCatalyst)", True),
+    ):
+        guarded = f"#if {condition}\n{source}\n#endif"
+        if (
+            bool(
+                automatic_school_fetch_findings(
+                    swift_syntax_index_sources(dict(ports, **{path: guarded}))
+                )
+            )
+            != expected
+        ):
             findings.append("学校生命周期自测：正式平台编译条件与专项宿主归属")
     for source in (
-        "struct RenamedApp: App { var body: some Scene { WindowGroup { Text(\"x\").task { await schedule.syncCourses() } } } }",
-        "struct AccountLifecycle { func activate() { renamed() }; func renamed() { service.fetchScores() } }",
-        "func movedRefresh() { service.syncDDLEvents() }; struct RenamedApp: App { func activate() { movedRefresh() } }",
-        "protocol ScheduleCourseServicing { func renamedProbe() }; struct RenamedApp: App { let service: any ScheduleCourseServicing; func activate() { service.renamedProbe() } }",
-        'import SchedulePorts; protocol ExtendedScheduleServicing: ScheduleCourseServicing { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
-        'import SchedulePorts; typealias SchoolBase = ScheduleCourseServicing; protocol ExtendedScheduleServicing: SchoolBase { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
-        'import SchedulePorts; protocol Intermediate: ScheduleCourseServicing {}; protocol ExtendedScheduleServicing: Intermediate { func fetchNewSchoolData() async throws }; struct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("x").task { try? await service.fetchNewSchoolData() } } }',
-        "struct First { func refresh() { service.fetchScores() } }; struct Second { func refresh() {} }; struct AppEntry: App { func activate() { first.refresh() } }",
-        "struct Loader { func refresh() { service.fetchScores() } }; struct AppEntry: App { var body: some Scene { Text(\"x\").task(perform: loader.refresh) } }",
-        "struct ScoreListPage: View { var body: some View { Text(\"x\").task { await service.fetchScores() } } }",
-        'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Text("x").task { try? await action() } } }',
-        'struct Screen: View { let action: () async -> Void = { await service.fetchScores() }; var body: some View { Text("x").task { await action() } } }',
-        'struct Screen: View { var body: some View { Text("x").onReceive(events) { _ in Task { await service.fetchScores() } } } }',
-        'struct Screen: View { var body: some View { Text("x").onChange(of: ready, initial: true) { Task { await service.fetchScores() } } } }',
-        'struct Screen: View { var body: some View { Text("x").onDisappear { Task { await service.fetchScores() } } } }',
-        'struct Screen: View { var body: some View { Text("x").onPreferenceChange(Key.self) { _ in service.fetchScores() } } }',
-        'class Screen: UIViewController { override func viewDidLoad() { Task { await service.fetchScores() } } }',
-        'class Base: UIKit.UIViewController {}; class Screen: Base { override func viewWillAppear(_ animated: Bool) { service.fetchScores() } }',
-        'struct Screen: UIViewControllerRepresentable { func makeUIViewController(context: Context) -> UIViewController { service.fetchScores(); return UIViewController() } }',
-        'struct Screen: SwiftUI.UIViewControllerRepresentable { func updateUIViewController(_ view: UIViewController, context: Context) { service.fetchScores() } }',
-        'struct Screen: UIViewRepresentable { func updateUIView(_ view: UIView, context: Context) { service.fetchScores() } }',
-        'struct ScheduleRootView: View { func startClassroomPageRefresh() { service.fetchCampuses(); service.syncCourses() }; var body: some View { Text("x").task { startClassroomPageRefresh() } } }',
-        'struct ScheduleTermPickerPage: View { func loadAvailableTerms() { service.fetchAvailableTerms(); service.syncCourses() }; var body: some View { Text("x").task { loadAvailableTerms() } } }',
-        'struct TrustedTranscriptPage: View { func applyIfNeeded() { service.fetchTrustedTranscriptPages(); service.fetchScores() }; var body: some View { Text("x").task { applyIfNeeded() } } }',
-        'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
-        'protocol Loading { func load() async }; protocol SchoolLoading: Loading {}; struct Loader: SchoolLoading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }',
+        (
+            'struct RenamedApp: App { var body: some Scene { WindowGroup { Text("x").task { await '
+            "schedule.syncCourses() } } } }"
+        ),
+        (
+            "struct AccountLifecycle { func activate() { renamed() }; func renamed() { service.fet"
+            "chScores() } }"
+        ),
+        (
+            "func movedRefresh() { service.syncDDLEvents() }; struct RenamedApp: App { func activa"
+            "te() { movedRefresh() } }"
+        ),
+        (
+            "protocol ScheduleCourseServicing { func renamedProbe() }; struct RenamedApp: App { le"
+            "t service: any ScheduleCourseServicing; func activate() { service.renamedProbe() } }"
+        ),
+        (
+            "import SchedulePorts; protocol ExtendedScheduleServicing: ScheduleCourseServicing { f"
+            "unc fetchNewSchoolData() async throws }; struct Screen: View { let service: any Exten"
+            'dedScheduleServicing; var body: some View { Text("x").task { try? await service.fetch'
+            "NewSchoolData() } } }"
+        ),
+        (
+            "import SchedulePorts; typealias SchoolBase = ScheduleCourseServicing; protocol Extend"
+            "edScheduleServicing: SchoolBase { func fetchNewSchoolData() async throws }; struct Sc"
+            'reen: View { let service: any ExtendedScheduleServicing; var body: some View { Text("'
+            'x").task { try? await service.fetchNewSchoolData() } } }'
+        ),
+        (
+            "import SchedulePorts; protocol Intermediate: ScheduleCourseServicing {}; protocol Ext"
+            "endedScheduleServicing: Intermediate { func fetchNewSchoolData() async throws }; stru"
+            "ct Screen: View { let service: any ExtendedScheduleServicing; var body: some View { T"
+            'ext("x").task { try? await service.fetchNewSchoolData() } } }'
+        ),
+        (
+            "struct First { func refresh() { service.fetchScores() } }; struct Second { func refre"
+            "sh() {} }; struct AppEntry: App { func activate() { first.refresh() } }"
+        ),
+        (
+            "struct Loader { func refresh() { service.fetchScores() } }; struct AppEntry: App { va"
+            'r body: some Scene { Text("x").task(perform: loader.refresh) } }'
+        ),
+        (
+            'struct ScoreListPage: View { var body: some View { Text("x").task { await service.fet'
+            "chScores() } } }"
+        ),
+        (
+            "struct Screen: View { let service: any ScheduleCourseServicing; var action: () async "
+            "throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some V"
+            'iew { Text("x").task { try? await action() } } }'
+        ),
+        (
+            "struct Screen: View { let action: () async -> Void = { await service.fetchScores() };"
+            ' var body: some View { Text("x").task { await action() } } }'
+        ),
+        (
+            'struct Screen: View { var body: some View { Text("x").onReceive(events) { _ in Task {'
+            " await service.fetchScores() } } } }"
+        ),
+        (
+            'struct Screen: View { var body: some View { Text("x").onChange(of: ready, initial: tr'
+            "ue) { Task { await service.fetchScores() } } } }"
+        ),
+        (
+            'struct Screen: View { var body: some View { Text("x").onDisappear { Task { await serv'
+            "ice.fetchScores() } } } }"
+        ),
+        (
+            'struct Screen: View { var body: some View { Text("x").onPreferenceChange(Key.self) { '
+            "_ in service.fetchScores() } } }"
+        ),
+        (
+            "class Screen: UIViewController { override func viewDidLoad() { Task { await service.f"
+            "etchScores() } } }"
+        ),
+        (
+            "class Base: UIKit.UIViewController {}; class Screen: Base { override func viewWillApp"
+            "ear(_ animated: Bool) { service.fetchScores() } }"
+        ),
+        (
+            "struct Screen: UIViewControllerRepresentable { func makeUIViewController(context: Con"
+            "text) -> UIViewController { service.fetchScores(); return UIViewController() } }"
+        ),
+        (
+            "struct Screen: SwiftUI.UIViewControllerRepresentable { func updateUIViewController(_ "
+            "view: UIViewController, context: Context) { service.fetchScores() } }"
+        ),
+        (
+            "struct Screen: UIViewRepresentable { func updateUIView(_ view: UIView, context: Conte"
+            "xt) { service.fetchScores() } }"
+        ),
+        (
+            "struct ScheduleRootView: View { func startClassroomPageRefresh() { service.fetchCampu"
+            'ses(); service.syncCourses() }; var body: some View { Text("x").task { startClassroom'
+            "PageRefresh() } } }"
+        ),
+        (
+            "struct ScheduleTermPickerPage: View { func loadAvailableTerms() { service.fetchAvaila"
+            'bleTerms(); service.syncCourses() }; var body: some View { Text("x").task { loadAvail'
+            "ableTerms() } } }"
+        ),
+        (
+            "struct TrustedTranscriptPage: View { func applyIfNeeded() { service.fetchTrustedPages"
+            '(); service.fetchScores() }; var body: some View { Text("x").task { applyIfNeeded() }'
+            " } }"
+        ),
+        (
+            "protocol Loading { func load() async }; struct Loader: Loading { let service: any Sco"
+            "reListServicing; func load() async { await service.fetchScores() } }; struct Screen: "
+            'View { let loader: any Loading; var body: some View { Text("x").task { await loader.l'
+            "oad() } } }"
+        ),
+        (
+            "protocol Loading { func load() async }; protocol SchoolLoading: Loading {}; struct Lo"
+            "ader: SchoolLoading { let service: any ScoreListServicing; func load() async { await "
+            "service.fetchScores() } }; struct Screen: View { let loader: any Loading; var body: s"
+            'ome View { Text("x").task { await loader.load() } } }'
+        ),
     ):
         source = prefix + source
-        if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
+        if not automatic_school_fetch_findings(
+            swift_syntax_index_sources(dict(ports, **{path: source}))
+        ):
             findings.append("学校生命周期自测：重命名入口、包装方法与跨类型调用链")
-    manual = prefix + "struct ManualPage: View { var body: some View { Button(\"刷新\") { Task { await service.syncCourses() } } } }"
+    manual = prefix + (
+        'struct ManualPage: View { var body: some View { Button("刷新") { Task { await service.s'
+        "yncCourses() } } } }"
+    )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：用户操作保持独立调用边界")
-    loader = prefix + 'protocol Loading { func load() async }; struct Loader: Loading { let service: any ScoreListServicing; func load() async { await service.fetchScores() } };'
-    screen = 'struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { await loader.load() } } }'
-    if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: screen, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
+    loader = prefix + (
+        "protocol Loading { func load() async }; struct Loader: Loading { let service: any Sco"
+        "reListServicing; func load() async { await service.fetchScores() } };"
+    )
+    screen = (
+        'struct Screen: View { let loader: any Loading; var body: some View { Text("x").task { awa'
+        "it loader.load() } } }"
+    )
+    if not automatic_school_fetch_findings(
+        swift_syntax_index_sources(
+            dict(ports, **{path: screen, str(ROOT / "BIT101-iOS/Loader.swift"): loader})
+        )
+    ):
         findings.append("学校生命周期自测：跨文件协议转发需要连接具体实现")
     manual_loader = screen.replace('Text("x").task', 'Button("刷新")')
-    if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual_loader, str(ROOT / 'BIT101-iOS/Loader.swift'): loader}))):
+    if automatic_school_fetch_findings(
+        swift_syntax_index_sources(
+            dict(ports, **{path: manual_loader, str(ROOT / "BIT101-iOS/Loader.swift"): loader})
+        )
+    ):
         findings.append("学校生命周期自测：协议转发的用户操作保持独立边界")
-    manual = prefix + 'struct Screen: View { let service: any ScheduleCourseServicing; var action: () async throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some View { Button("刷新") { Task { try? await action() } } } }'
+    manual = prefix + (
+        "struct Screen: View { let service: any ScheduleCourseServicing; var action: () async "
+        "throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some V"
+        'iew { Button("刷新") { Task { try? await action() } } } }'
+    )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
         findings.append("学校生命周期自测：计算属性动作保持用户操作边界")
     for active in (False, True):
-        source = prefix + 'struct SampleHolder { let action: () async -> Void; init(refresh cb: @escaping () async -> Void) { self.action = cb }; func start() async { await action() } }; struct SampleApp: App { let holder = SampleHolder(refresh: { _ = try? await schedule.syncCourses(term: nil) }); var body: some Scene { WindowGroup { Text("x").task { CALL } } } }'.replace('CALL', 'await holder.start()' if active else 'await unrelated()')
-        if bool(automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source})))) != active: findings.append('学校生命周期自测：显式初始化器保存与实际执行保持归属')
-    wrappers = prefix + "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper { func load() {} }; "
+        source = prefix + (
+            "struct SampleHolder { let action: () async -> Void; init(refresh cb: @escaping ()"
+            " async -> Void) { self.action = cb }; func start() async { await action() } }; st"
+            "ruct SampleApp: App { let holder = SampleHolder(refresh: { _ = try? await schedul"
+            'e.syncCourses(term: nil) }); var body: some Scene { WindowGroup { Text("x").task '
+            "{ CALL } } } }"
+        ).replace("CALL", "await holder.start()" if active else "await unrelated()")
+        if (
+            bool(
+                automatic_school_fetch_findings(
+                    swift_syntax_index_sources(dict(ports, **{path: source}))
+                )
+            )
+            != active
+        ):
+            findings.append("学校生命周期自测：显式初始化器保存与实际执行保持归属")
+    wrappers = prefix + (
+        "struct SchoolWrapper { func load() { service.fetchScores() } }; struct LocalWrapper {"
+        " func load() {} }; "
+    )
     for body in (
-        "let bridge: SchoolWrapper; func start() { bridge.load() }; func helper() { let bridge = LocalWrapper(); bridge.load() }",
-        "let bridge: SchoolWrapper; func start() { self.bridge.load() }; func helper() { let bridge: LocalWrapper = .init(); bridge.load() }",
-        "let bridge: SchoolWrapper; func start() { if ready { let bridge = LocalWrapper(); bridge.load() }; bridge.load() }",
-        "let bridge: SchoolWrapper; func start() { let action = { let bridge = LocalWrapper(); bridge.load() }; bridge.load() }",
-        "typealias Bridge = SchoolWrapper; typealias Alias = Bridge; let bridge: Alias; func start() { bridge.load() }",
+        (
+            "let bridge: SchoolWrapper; func start() { bridge.load() }; func helper() { let bridge"
+            " = LocalWrapper(); bridge.load() }"
+        ),
+        (
+            "let bridge: SchoolWrapper; func start() { self.bridge.load() }; func helper() { let b"
+            "ridge: LocalWrapper = .init(); bridge.load() }"
+        ),
+        (
+            "let bridge: SchoolWrapper; func start() { if ready { let bridge = LocalWrapper(); bri"
+            "dge.load() }; bridge.load() }"
+        ),
+        (
+            "let bridge: SchoolWrapper; func start() { let action = { let bridge = LocalWrapper();"
+            " bridge.load() }; bridge.load() }"
+        ),
+        (
+            "typealias Bridge = SchoolWrapper; typealias Alias = Bridge; let bridge: Alias; func s"
+            "tart() { bridge.load() }"
+        ),
         "let bridge: LocalWrapper; func start(bridge: SchoolWrapper) { bridge.load() }",
         "let bridge: LocalWrapper; init(bridge: SchoolWrapper) { bridge.load() }",
     ):
         source = wrappers + "struct FeatureLifecycle { " + body + " }"
-        if not automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
+        if not automatic_school_fetch_findings(
+            swift_syntax_index_sources(dict(ports, **{path: source}))
+        ):
             findings.append("学校生命周期自测：成员、其他方法与嵌套代码块的变量归属")
-    source = wrappers + "struct ManualPage: View { let bridge: LocalWrapper; var body: some View { Text(\"x\").task { bridge.load() } }; func helper() { let bridge = SchoolWrapper(); bridge.load() } }"
+    source = wrappers + (
+        'struct ManualPage: View { let bridge: LocalWrapper; var body: some View { Text("x").t'
+        "ask { bridge.load() } }; func helper() { let bridge = SchoolWrapper(); bridge.load() "
+        "} }"
+    )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
         findings.append("学校生命周期自测：局部包装类型保持所属方法边界")
     return findings

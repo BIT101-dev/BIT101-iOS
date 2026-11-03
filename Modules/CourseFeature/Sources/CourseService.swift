@@ -1,14 +1,14 @@
 import Combine
-import CommunityTransport
 import CommunityCore
+import CommunityTransport
+import Foundation
+
 //
 //  CourseService.swift
 //  BIT101-iOS
 //
 //  Created by Codex on 2026-04-02.
 //
-
-import Foundation
 
 /// 课程模块接口错误。
 public enum CourseServiceError: LocalizedError {
@@ -37,15 +37,18 @@ public struct CourseService {
     /// 课程列表固定按“最新”顺序请求。
     private static let defaultCourseOrder = "new"
 
-
-
     private let api: CommunityAPIClient<CourseServiceError>
     private let resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>
-    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> { resourceUpdates.changes }
+    public var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+        resourceUpdates.changes
+    }
 
-
-    public init(session: CommunitySession, resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil) {
-        self.resourceUpdates = resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
+    public init(
+        session: CommunitySession,
+        resourceUpdates: CommunityResourceUpdates<CommunitySessionIdentity>? = nil
+    ) {
+        self.resourceUpdates =
+            resourceUpdates ?? .init(currentOwner: { session.currentCredentials.identity })
         api = session.client(errorDomain: "BIT101.Course")
     }
 
@@ -63,9 +66,13 @@ public struct CourseService {
             queryItems.insert(URLQueryItem(name: "search", value: keyword), at: 0)
         }
 
-        let result: [CourseSummary] = try await api.request(path: "courses", queryItems: queryItems, validate: { courses in
-            guard courses.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else { throw CourseServiceError.invalidResponse }
-        })
+        let result: [CourseSummary] = try await api.request(
+            path: "courses", queryItems: queryItems,
+            validate: { courses in
+                guard courses.allSatisfy({ $0.id > 0 && $0.hasValidCommunityMetrics }) else {
+                    throw CourseServiceError.invalidResponse
+                }
+            })
         return resourceUpdates.resolve(result, since: revision)
     }
 
@@ -73,19 +80,27 @@ public struct CourseService {
     public func fetchCourse(id: Int) async throws -> CourseDetail {
         let revision = resourceUpdates.beginRead()
         defer { resourceUpdates.finishRead(revision) }
-        let result: CourseDetail = try await api.request(path: "courses/\(id)", validate: { detail in
-            guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else { throw CourseServiceError.invalidResponse }
-        })
+        let result: CourseDetail = try await api.request(
+            path: "courses/\(id)",
+            validate: { detail in
+                guard id > 0, detail.id == id, detail.hasValidCommunityMetrics else {
+                    throw CourseServiceError.invalidResponse
+                }
+            })
         return resourceUpdates.resolve(result, since: revision)
     }
 
     /// 拉取单门课程按学期聚合的历史成绩统计。
     public func fetchCourseHistories(number: String) async throws -> [CourseHistoryGrade] {
-        try await api.request(path: "courses/histories", pathComponent: number, validate: { grades in
-            guard grades.allSatisfy(\.hasValidStatistics), Set(grades.map(\.term)).count == grades.count else {
-                throw CourseServiceError.invalidResponse
-            }
-        })
+        try await api.request(
+            path: "courses/histories", pathComponent: number,
+            validate: { grades in
+                guard grades.allSatisfy(\.hasValidStatistics),
+                    Set(grades.map(\.term)).count == grades.count
+                else {
+                    throw CourseServiceError.invalidResponse
+                }
+            })
     }
 
     /// 拉取课程评论。
@@ -99,9 +114,13 @@ public struct CourseService {
         if let page {
             queryItems.append(URLQueryItem(name: "page", value: String(page)))
         }
-        return try await api.request(path: "reaction/comments", queryItems: queryItems, validate: { comments in
-            guard CommunityComment.validatesResponse(comments, for: "course\(courseID)") else { throw CourseServiceError.invalidResponse }
-        })
+        return try await api.request(
+            path: "reaction/comments", queryItems: queryItems,
+            validate: { comments in
+                guard CommunityComment.validatesResponse(comments, for: "course\(courseID)") else {
+                    throw CourseServiceError.invalidResponse
+                }
+            })
     }
 
     /// 对课程评论执行点赞或取消点赞。

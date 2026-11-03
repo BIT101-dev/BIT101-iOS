@@ -3,7 +3,9 @@ import Foundation
 
 /// Plain JSON remains readable for snapshots written by earlier app versions.
 nonisolated enum ScoreCacheSyncPayloadCodec {
-    private static let magic = Data([0x42, 0x49, 0x54, 0x31, 0x30, 0x31, 0x4c, 0x5a, 0x46, 0x53, 0x45, 0x01])
+    private static let magic = Data([
+        0x42, 0x49, 0x54, 0x31, 0x30, 0x31, 0x4c, 0x5a, 0x46, 0x53, 0x45, 0x01,
+    ])
     static let maximumDecodedSize = 32 * 1_024 * 1_024
 
     static func encode<Value: Encodable>(_ value: Value) throws -> Data {
@@ -14,7 +16,7 @@ nonisolated enum ScoreCacheSyncPayloadCodec {
         let compressedCount = json.withUnsafeBytes { source in
             compressed.withUnsafeMutableBytes { destination in
                 guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
-                      let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
+                    let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
                 else { return 0 }
                 return compression_encode_buffer(
                     destinationBase,
@@ -57,7 +59,7 @@ nonisolated enum ScoreCacheSyncPayloadCodec {
         let decodedCount = compressed.withUnsafeBytes { source in
             decoded.withUnsafeMutableBytes { destination in
                 guard let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress,
-                      let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
+                    let sourceBase = source.bindMemory(to: UInt8.self).baseAddress
                 else { return 0 }
                 return compression_decode_buffer(
                     destinationBase,
@@ -74,23 +76,29 @@ nonisolated enum ScoreCacheSyncPayloadCodec {
     }
 }
 
-
 /// 载荷计算消费不可变快照，返回后由协调器确认账号和版本。
 nonisolated enum PreferenceCloudPayloadCodec {
     @concurrent
-    static func encode<Payload: Codable & Sendable>(_ envelope: ExperimentalPreferenceSyncEnvelope<Payload>,
-        seal: (@Sendable (Data) throws -> Data)?) async throws -> Data {
+    static func encode<Payload: Codable & Sendable>(
+        _ envelope: ExperimentalPreferenceSyncEnvelope<Payload>,
+        seal: (@Sendable (Data) throws -> Data)?
+    ) async throws -> Data {
         try Task.checkCancellation()
-        let data = try seal.map { try $0(ScoreCacheSyncPayloadCodec.encode(envelope)) } ?? JSONEncoder().encode(envelope)
+        let data =
+            try seal.map { try $0(ScoreCacheSyncPayloadCodec.encode(envelope)) }
+            ?? JSONEncoder().encode(envelope)
         try Task.checkCancellation()
         return data
     }
 
     @concurrent
-    static func decode<Payload: Codable & Sendable>(_ type: Payload.Type,
-        open: @Sendable () throws -> Data) async throws -> ExperimentalPreferenceSyncEnvelope<Payload> {
+    static func decode<Payload: Codable & Sendable>(
+        _ type: Payload.Type,
+        open: @Sendable () throws -> Data
+    ) async throws -> ExperimentalPreferenceSyncEnvelope<Payload> {
         try Task.checkCancellation()
-        let envelope = try ScoreCacheSyncPayloadCodec.decode(ExperimentalPreferenceSyncEnvelope<Payload>.self, from: open())
+        let envelope = try ScoreCacheSyncPayloadCodec.decode(
+            ExperimentalPreferenceSyncEnvelope<Payload>.self, from: open())
         try Task.checkCancellation()
         return envelope
     }

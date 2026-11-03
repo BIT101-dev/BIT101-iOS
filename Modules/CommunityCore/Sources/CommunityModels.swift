@@ -24,7 +24,9 @@ public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Senda
 
     /// 图片资源的稳定标识。
     public var id: String { mid }
-    public var hasResourceIdentity: Bool { !mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    public var hasResourceIdentity: Bool {
+        !mid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     public var thumbnailURL: URL? { Self.remoteURL(lowUrl) ?? Self.remoteURL(url) }
     public var originalURL: URL? { Self.remoteURL(url) ?? Self.remoteURL(lowUrl) }
@@ -32,7 +34,8 @@ public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Senda
     public static func remoteURL(_ value: String) -> URL? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let result = URL(string: trimmed), let scheme = result.scheme?.lowercased(),
-              ["http", "https"].contains(scheme), result.host?.isEmpty == false else { return nil }
+            ["http", "https"].contains(scheme), result.host?.isEmpty == false
+        else { return nil }
         return result
     }
 
@@ -53,7 +56,10 @@ public nonisolated struct CommunityImage: Codable, Identifiable, Hashable, Senda
 ///
 /// 模型保留服务端返回的完整字段，供昵称旁的 badge 和身份展示使用。
 public nonisolated struct CommunityIdentity: Decodable, Hashable, Sendable {
-    public init(id: Int, color: String, text: String, createTime: String, updateTime: String, deleteTime: String?) {
+    public init(
+        id: Int, color: String, text: String, createTime: String, updateTime: String,
+        deleteTime: String?
+    ) {
         self.id = id
         self.color = color
         self.text = text
@@ -69,7 +75,9 @@ public nonisolated struct CommunityIdentity: Decodable, Hashable, Sendable {
     public let updateTime: String
     public let deleteTime: String?
 
-    private enum CodingKeys: String, CodingKey { case id, color, text, createTime, updateTime, deleteTime }
+    private enum CodingKeys: String, CodingKey {
+        case id, color, text, createTime, updateTime, deleteTime
+    }
     public init(from decoder: Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(Int.self, forKey: .id)
@@ -85,7 +93,10 @@ public nonisolated struct CommunityIdentity: Decodable, Hashable, Sendable {
 ///
 /// 帖子、课程、文章和主页共用基础用户字段。
 public nonisolated struct CommunityUser: Decodable, Identifiable, Hashable, Sendable {
-    public init(id: Int, createTime: String, nickname: String, avatar: CommunityImage, motto: String, identity: CommunityIdentity) {
+    public init(
+        id: Int, createTime: String, nickname: String, avatar: CommunityImage, motto: String,
+        identity: CommunityIdentity
+    ) {
         self.id = id
         self.createTime = createTime
         self.nickname = nickname
@@ -101,7 +112,9 @@ public nonisolated struct CommunityUser: Decodable, Identifiable, Hashable, Send
     public let motto: String
     public let identity: CommunityIdentity
 
-    private enum CodingKeys: String, CodingKey { case id, createTime, nickname, avatar, motto, identity }
+    private enum CodingKeys: String, CodingKey {
+        case id, createTime, nickname, avatar, motto, identity
+    }
     public init(from decoder: Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(Int.self, forKey: .id)
@@ -133,8 +146,11 @@ private nonisolated struct CommunityImageList: Decodable {
         var values = try decoder.unkeyedContainer()
         while !values.isAtEnd {
             let item = try values.superDecoder()
-            if let image = try? CommunityImage(from: item), image.hasResourceIdentity { images.append(image) }
-            else { discardedCount += 1 }
+            if let image = try? CommunityImage(from: item), image.hasResourceIdentity {
+                images.append(image)
+            } else {
+                discardedCount += 1
+            }
         }
     }
 }
@@ -142,7 +158,9 @@ private nonisolated struct CommunityImageList: Decodable {
 /// 信息流帖子卡片模型。
 ///
 /// 模型按列表预览预算保留正文，完整正文由详情请求承接。
-public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Identifiable, Hashable, Sendable {
+public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Identifiable, Hashable,
+    Sendable
+{
     public var communityObjectID: String { "poster\(id)" }
     public func updatingCommunityMetrics(_ metrics: CommunityResourceMetrics) -> Self {
         var value = self
@@ -151,7 +169,11 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         return value
     }
 
-    public init(anonymous: Bool, claim: CommunityClaim, commentNum: Int, createTime: String, editTime: String, id: Int, images: [CommunityImage], likeNum: Int, `public`: Bool, tags: [String], text: String, title: String, updateTime: String, user: CommunityUser) {
+    public init(
+        anonymous: Bool, claim: CommunityClaim, commentNum: Int, createTime: String,
+        editTime: String, id: Int, images: [CommunityImage], likeNum: Int, `public`: Bool,
+        tags: [String], text: String, title: String, updateTime: String, user: CommunityUser
+    ) {
         self.anonymous = anonymous
         self.claim = claim
         self.commentNum = commentNum
@@ -181,8 +203,10 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
     }
     public static func imageRecoveryIssue(id: Int, discardedImageCount: Int) -> DecodingError? {
         guard discardedImageCount > 0 else { return nil }
-        return .dataCorrupted(.init(codingPath: [CodingKeys.images],
-            debugDescription: "帖子 \(id) 的 \(discardedImageCount) 项图片资料异常，有效图片已保留。"))
+        return .dataCorrupted(
+            .init(
+                codingPath: [CodingKeys.images],
+                debugDescription: "帖子 \(id) 的 \(discardedImageCount) 项图片资料异常，有效图片已保留。"))
     }
     public private(set) var likeNum: Int
     public let `public`: Bool
@@ -193,7 +217,8 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
     public let user: CommunityUser
 
     private enum CodingKeys: String, CodingKey {
-        case anonymous, claim, commentNum, createTime, editTime, id, images, likeNum, `public`, tags, text, title, updateTime, user
+        case anonymous, claim, commentNum, createTime, editTime, id, images, likeNum, `public`,
+            tags, text, title, updateTime, user
     }
     public init(from decoder: Decoder) throws {
         try self.init(from: decoder, preview: true)
@@ -202,7 +227,8 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         let fields = try decoder.container(keyedBy: CodingKeys.self)
         id = try fields.decode(Int.self, forKey: .id)
         guard id > 0 else {
-            throw DecodingError.dataCorruptedError(forKey: .id, in: fields, debugDescription: "帖子需要有效的资源编号。")
+            throw DecodingError.dataCorruptedError(
+                forKey: .id, in: fields, debugDescription: "帖子需要有效的资源编号。")
         }
         anonymous = try fields.decode(Bool.self, forKey: .anonymous)
         claim = (try? fields.decode(CommunityClaim.self, forKey: .claim)) ?? .init(id: 0, text: "")
@@ -213,7 +239,10 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
             let decoded = try fields.decodeIfPresent(CommunityImageList.self, forKey: .images)
             images = decoded?.images ?? []
             discardedImageCount = decoded?.discardedCount ?? 0
-        } catch { images = []; discardedImageCount = 1 }
+        } catch {
+            images = []
+            discardedImageCount = 1
+        }
         likeNum = (try? fields.decode(Int.self, forKey: .likeNum)) ?? 0
         self.public = (try? fields.decode(Bool.self, forKey: .public)) ?? false
         tags = (try? fields.decode([String].self, forKey: .tags)) ?? []
@@ -222,16 +251,18 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
         title = (try? fields.decode(String.self, forKey: .title)) ?? ""
         updateTime = (try? fields.decode(String.self, forKey: .updateTime)) ?? ""
         if anonymous {
-            user = (try? fields.decode(CommunityUser.self, forKey: .user)) ?? .placeholder(nickname: "匿名用户")
+            user =
+                (try? fields.decode(CommunityUser.self, forKey: .user))
+                ?? .placeholder(nickname: "匿名用户")
         } else {
             user = try fields.decode(CommunityUser.self, forKey: .user)
             guard user.id > 0 else {
-                throw DecodingError.dataCorruptedError(forKey: .user, in: fields, debugDescription: "公开作者需要有效的用户编号。")
+                throw DecodingError.dataCorruptedError(
+                    forKey: .user, in: fields, debugDescription: "公开作者需要有效的用户编号。")
             }
         }
     }
 }
-
 
 /// 评论列表的排序方式。
 public enum CommunityCommentOrder: String, CaseIterable, Identifiable {
@@ -259,7 +290,12 @@ public enum CommunityCommentOrder: String, CaseIterable, Identifiable {
 ///
 /// 顶层评论和子评论使用同一结构，`sub` 保存子评论树。
 public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, Sendable {
-    public init(id: Int, obj: String, images: [CommunityImage], user: CommunityUser, anonymous: Bool, createTime: String, updateTime: String, like: Bool, likeNum: Int, commentNum: Int, own: Bool, rate: Int, replyUser: CommunityUser, replyObj: String, text: String, sub: [CommunityComment], isViewerAuthenticated: Bool = true) {
+    public init(
+        id: Int, obj: String, images: [CommunityImage], user: CommunityUser, anonymous: Bool,
+        createTime: String, updateTime: String, like: Bool, likeNum: Int, commentNum: Int,
+        own: Bool, rate: Int, replyUser: CommunityUser, replyObj: String, text: String,
+        sub: [CommunityComment], isViewerAuthenticated: Bool = true
+    ) {
         self.id = id
         self.obj = obj
         self.images = images
@@ -301,13 +337,15 @@ public nonisolated struct CommunityComment: Decodable, Identifiable, Hashable, S
     public let text: String
     public let sub: [CommunityComment]
 
-    public func settingViewerAuthentication(_ isAuthenticated: Bool) -> CommunityComment {
-        var result = replacingSubComments(sub.map { $0.settingViewerAuthentication(isAuthenticated) })
+    public func settingViewerAuth(_ isAuthenticated: Bool) -> CommunityComment {
+        var result = replacingSubComments(sub.map { $0.settingViewerAuth(isAuthenticated) })
         result.isViewerAuthenticated = isAuthenticated
         return result
     }
 
-    public static func validatesResponse(_ comments: [CommunityComment], for objectID: String) -> Bool {
+    public static func validatesResponse(_ comments: [CommunityComment], for objectID: String)
+        -> Bool
+    {
         guard comments.allSatisfy({ $0.obj == objectID }) else { return false }
         var identities = Set<Int>()
         var pending = comments
@@ -392,11 +430,11 @@ public nonisolated struct CommunityLikeResult: Decodable, Sendable {
         like = try fields.decode(Bool.self, forKey: .like)
         likeNum = try fields.decode(Int.self, forKey: .likeNum)
         guard likeNum >= 0 else {
-            throw DecodingError.dataCorruptedError(forKey: .likeNum, in: fields, debugDescription: "点赞数量需要为非负整数。")
+            throw DecodingError.dataCorruptedError(
+                forKey: .likeNum, in: fields, debugDescription: "点赞数量需要为非负整数。")
         }
     }
 }
-
 
 public enum CommunityLoadStatus: Equatable {
     case idle
@@ -405,23 +443,26 @@ public enum CommunityLoadStatus: Equatable {
     case failed(String)
 }
 
-private extension CommunityImage {
+extension CommunityImage {
     /// 返回占位 UI 使用的空图片模型。
-    nonisolated static var placeholder: CommunityImage {
+    fileprivate nonisolated static var placeholder: CommunityImage {
         CommunityImage(mid: "", url: "", lowUrl: "")
     }
 }
 
-private extension CommunityIdentity {
+extension CommunityIdentity {
     /// 返回占位用户使用的空身份模型。
-    nonisolated static var placeholder: CommunityIdentity {
-        CommunityIdentity(id: 0, color: "#FF9500", text: "", createTime: "", updateTime: "", deleteTime: nil)
+    fileprivate nonisolated static var placeholder: CommunityIdentity {
+        CommunityIdentity(
+            id: 0, color: "#FF9500", text: "", createTime: "", updateTime: "", deleteTime: nil)
     }
 }
 
 extension CommunityUser {
     /// 构造消息页跳转帖子详情时使用的占位用户。
-    public nonisolated static func placeholder(id: Int = 0, nickname: String = "加载中") -> CommunityUser {
+    public nonisolated static func placeholder(id: Int = 0, nickname: String = "加载中")
+        -> CommunityUser
+    {
         CommunityUser(
             id: id,
             createTime: "",

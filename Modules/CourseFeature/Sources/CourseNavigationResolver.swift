@@ -25,16 +25,19 @@ struct CourseEvaluationRouteResolver {
             let name = request.lookupCourseName ?? ""
             let number = request.lookupCourseNumber ?? ""
             let teacher = request.lookupTeacher ?? ""
-            guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !number.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard
+                !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !number.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             else {
                 throw CourseEvaluationError.missingIdentity
             }
-            guard let lookup = try await CourseEvaluationResolver(service: listService).resolve(
-                courseName: name,
-                courseNumber: number,
-                teacher: teacher
-            ) else {
+            guard
+                let lookup = try await CourseEvaluationResolver(service: listService).resolve(
+                    courseName: name,
+                    courseNumber: number,
+                    teacher: teacher
+                )
+            else {
                 throw CourseEvaluationError.notFound
             }
             return CourseNavigationRequest(

@@ -3,9 +3,9 @@
 //  BIT101-iOS
 //
 
-import TransportCore
-import Foundation
 import ClientCore
+import Foundation
+import TransportCore
 
 private nonisolated struct LoginServerResponseError: LocalizedError, SchoolServiceFailureProviding {
     let schoolServiceFailure: SchoolServiceFailure?
@@ -13,11 +13,13 @@ private nonisolated struct LoginServerResponseError: LocalizedError, SchoolServi
     let message: String?
 
     init(statusCode: Int, message: String?, schoolServiceFailure: SchoolServiceFailure? = nil) {
-        self.statusCode = statusCode; self.message = message; self.schoolServiceFailure = schoolServiceFailure
+        self.statusCode = statusCode
+        self.message = message
+        self.schoolServiceFailure = schoolServiceFailure
     }
 
     var indicatesCredentialFailure: Bool {
-        BIT101APIClient.isCredentialFailureMessage(message)
+        BIT101APIClient.isCredentialFailure(message)
     }
 
     var errorDescription: String? {
@@ -84,7 +86,11 @@ struct CommunityLoginRequest: Encodable {
 /// 既负责学校 CAS，也负责 BIT101 自己的 `webvpn_verify` / `register` 接口。
 struct BIT101APIClient {
     static let shared = BIT101APIClient()
-    static let browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+    static let browserUserAgent =
+        """
+        Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) \
+        Chrome/150.0.0.0 Safari/537.36
+        """
     private let schoolBaseURL = AppURL.required("https://sso.bit.edu.cn")
     private let bit101BaseURL = AppURL.required("https://bit101.flwfdd.xyz")
 
@@ -100,12 +106,18 @@ struct BIT101APIClient {
     ///
     /// 学校 SSO 链路需要这两种模式。
     init() {
-        self.init(httpClient: HTTPClient(transport: NetworkSessionPool.schoolCAS),
-            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects))
+        self.init(
+            httpClient: HTTPClient(transport: NetworkSessionPool.schoolCAS),
+            noRedirectHTTPClient: HTTPClient(transport: NetworkSessionPool.schoolCASManualRedirects)
+        )
     }
 
-    init(httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient,
-        schoolCookieStorage: @escaping () -> HTTPCookieStorage = { AppSchoolSession.teachingCenter.cookieStorage }) {
+    init(
+        httpClient: HTTPClient, noRedirectHTTPClient: HTTPClient,
+        schoolCookieStorage: @escaping () -> HTTPCookieStorage = {
+            AppSchoolSession.teachingCenter.cookieStorage
+        }
+    ) {
         self.httpClient = httpClient
         self.noRedirectHTTPClient = noRedirectHTTPClient
         self.schoolCookieStorage = schoolCookieStorage
@@ -125,43 +137,51 @@ struct BIT101APIClient {
         request.httpMethod = "GET"
         guard let requestURL = request.url else { throw LoginServiceError.invalidServerResponse }
 
-        let (data, response) = try await sendRequest(request, followRedirects: false, requiresBusinessEndpoint: true)
-        if (300 ..< 400).contains(response.statusCode),
-           let location = response.value(forHTTPHeaderField: "Location"),
-           let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: requestURL),
-           Self.isSchoolLoginSuccessLanding(redirectURL, schoolHost: schoolBaseURL.host)
+        let (data, response) = try await sendRequest(
+            request, followRedirects: false, requiresBusinessEndpoint: true)
+        if (300..<400).contains(response.statusCode),
+            let location = response.value(forHTTPHeaderField: "Location"),
+            let redirectURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: requestURL),
+            Self.isSchoolSuccessLanding(redirectURL, schoolHost: schoolBaseURL.host)
         {
-            return SchoolCASLoginPage(url: requestURL, html: "",
+            return SchoolCASLoginPage(
+                url: requestURL, html: "",
                 context: SchoolLoginContext(salt: nil, execution: nil, isLoggedIn: true))
         }
-        guard (200 ..< 300).contains(response.statusCode) else {
+        guard (200..<300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }
 
         let html = String(decoding: data, as: UTF8.self)
         if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
         let documentURL = response.url ?? requestURL
-        if let secondFactor = SchoolLoginHTMLParser.parseSecondFactorPage(html: html,
-            baseURL: schoolBaseURL, documentURL: documentURL) {
+        if let secondFactor = SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: html,
+            baseURL: schoolBaseURL, documentURL: documentURL)
+        {
             throw LoginServiceError.schoolSMSRequired(secondFactor)
         }
-        return SchoolCASLoginPage(url: documentURL, html: html, context: SchoolLoginHTMLParser.parse(html: html))
+        return SchoolCASLoginPage(
+            url: documentURL, html: html, context: SchoolLoginHTMLParser.parse(html: html))
     }
 
     /// 提交学校 CAS 登录表单。
     ///
     /// 返回值表示学校侧认证结果；BIT101 注册或登录状态由后续流程确定。
-    func loginSchool(credentials: any SchoolCredentialsProviding, page: SchoolCASLoginPage) async throws -> Bool {
-        let (data, response) = try await submitSchoolLoginForm(url: page.url, html: page.html,
+    func loginSchool(credentials: any SchoolCredentialsProviding, page: SchoolCASLoginPage)
+        async throws -> Bool
+    {
+        let (data, response) = try await submitSchoolLoginForm(
+            url: page.url, html: page.html,
             credentials: credentials, cookies: schoolCookieStorage())
         let requestURL = response.url ?? page.url
 
-        if (300 ..< 400).contains(response.statusCode) {
+        if (300..<400).contains(response.statusCode) {
             // 正确密码时学校会进入一串 SSO 成功跳转；继续访问跳转链后，教务和乐学接口才能获得学校 cookie。
             guard let location = response.value(forHTTPHeaderField: "Location") else {
                 throw LoginServiceError.invalidServerResponse
             }
-            return try await finishSchoolLoginRedirectChain(from: location, relativeTo: requestURL)
+            return try await finishSchoolRedirects(from: location, relativeTo: requestURL)
         }
 
         let html = String(decoding: data, as: UTF8.self)
@@ -169,7 +189,7 @@ struct BIT101APIClient {
         if SchoolLoginHTMLParser.rejectsPassword(html: html) {
             throw LoginServiceError.schoolPasswordRejected
         }
-        guard (200 ..< 300).contains(response.statusCode) else {
+        guard (200..<300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }
 
@@ -185,32 +205,37 @@ struct BIT101APIClient {
         ) {
             throw LoginServiceError.schoolSMSRequired(context)
         }
-        if SchoolLoginHTMLParser.rejectsPassword(html: html) { throw LoginServiceError.schoolPasswordRejected }
+        if SchoolLoginHTMLParser.rejectsPassword(html: html) {
+            throw LoginServiceError.schoolPasswordRejected
+        }
         return SchoolLoginHTMLParser.parse(html: html).isLoggedIn
     }
 
     /// 手动补走学校侧 SSO 的 302 链路，确保相关学校 cookie 真正落盘。
     ///
     /// 这一步继续访问跳转链并完成学校 cookie 写入；教务和乐学接口在进入主界面后依赖这些 cookie。
-    private func finishSchoolLoginRedirectChain(from location: String, relativeTo baseURL: URL) async throws -> Bool {
+    private func finishSchoolRedirects(from location: String, relativeTo baseURL: URL) async throws
+        -> Bool
+    {
         guard var nextURL = HTTPSURLUpgrade.resolvedURL(from: location, relativeTo: baseURL) else {
             throw LoginServiceError.invalidServerResponse
         }
-        guard isAllowedSchoolRedirectURL(nextURL) else {
+        guard allowsSchoolRedirect(nextURL) else {
             throw LoginServiceError.invalidServerResponse
         }
 
         // 学校成功页通常会经历多次 302，这里手动接管并将中间 HTTP 地址升级为 HTTPS，满足 ATS 要求。
-        for _ in 0 ..< 8 {
+        for _ in 0..<8 {
             var request = URLRequest(url: nextURL)
             request.httpMethod = "GET"
 
             let (data, response) = try await sendRequest(request, followRedirects: false)
 
-            if (300 ..< 400).contains(response.statusCode),
-               let nextLocation = response.value(forHTTPHeaderField: "Location"),
-               let resolved = HTTPSURLUpgrade.resolvedURL(from: nextLocation, relativeTo: nextURL) {
-                guard isAllowedSchoolRedirectURL(resolved) else {
+            if (300..<400).contains(response.statusCode),
+                let nextLocation = response.value(forHTTPHeaderField: "Location"),
+                let resolved = HTTPSURLUpgrade.resolvedURL(from: nextLocation, relativeTo: nextURL)
+            {
+                guard allowsSchoolRedirect(resolved) else {
                     throw LoginServiceError.invalidServerResponse
                 }
                 nextURL = resolved
@@ -219,7 +244,7 @@ struct BIT101APIClient {
 
             // CAS 会话 Cookie 在 302 跳转时写入。成功落点 gate 路由对 URLSession GET
             // 返回 401；该路由按认证完成处理，再带 service 参数获取业务票据。
-            if Self.isAcceptedSchoolLoginCompletion(
+            if Self.acceptsSchoolLoginResult(
                 statusCode: response.statusCode,
                 url: nextURL,
                 schoolHost: schoolBaseURL.host
@@ -227,14 +252,16 @@ struct BIT101APIClient {
                 return true
             }
 
-            if (200 ..< 300).contains(response.statusCode) { return try schoolLoginResult(data, documentURL: response.url ?? nextURL) }
+            if (200..<300).contains(response.statusCode) {
+                return try schoolLoginResult(data, documentURL: response.url ?? nextURL)
+            }
             throw errorForStatusCode(response.statusCode)
         }
 
         throw LoginServiceError.invalidServerResponse
     }
 
-    private func isAllowedSchoolRedirectURL(_ url: URL) -> Bool {
+    private func allowsSchoolRedirect(_ url: URL) -> Bool {
         guard
             url.scheme?.lowercased() == "https",
             let host = url.host?.lowercased()
@@ -248,16 +275,16 @@ struct BIT101APIClient {
             || host.hasSuffix(".bit.edu.cn")
     }
 
-    static func isAcceptedSchoolLoginCompletion(
+    static func acceptsSchoolLoginResult(
         statusCode: Int,
         url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
-        ((200 ..< 300).contains(statusCode) || statusCode == 401)
-            && isSchoolLoginSuccessLanding(url, schoolHost: schoolHost)
+        ((200..<300).contains(statusCode) || statusCode == 401)
+            && isSchoolSuccessLanding(url, schoolHost: schoolHost)
     }
 
-    static func isSchoolLoginSuccessLanding(
+    static func isSchoolSuccessLanding(
         _ url: URL,
         schoolHost: String? = "sso.bit.edu.cn"
     ) -> Bool {
@@ -276,7 +303,9 @@ struct BIT101APIClient {
     }
 
     /// 提交 WebVPN 校验。
-    func webVPNVerify(studentID: String, password: String, execution: String, cookie: String, salt: String) async throws -> WebVPNVerifyResponse {
+    func webVPNVerify(
+        studentID: String, password: String, execution: String, cookie: String, salt: String
+    ) async throws -> WebVPNVerifyResponse {
         do {
             return try await sendJSONRequest(
                 url: bit101BaseURL.appending(path: "user/webvpn_verify"),
@@ -295,7 +324,7 @@ struct BIT101APIClient {
         }
     }
 
-    nonisolated static func isCredentialFailureMessage(_ message: String?) -> Bool {
+    nonisolated static func isCredentialFailure(_ message: String?) -> Bool {
         guard let message else { return false }
         let normalized = message.lowercased()
         return normalized.contains("统一身份认证失败")
@@ -305,39 +334,55 @@ struct BIT101APIClient {
     }
 
     func mailVerify(studentID: String) async throws -> MailVerifyResponse {
-        try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/mail_verify"), method: "POST",
+        try await sendJSONRequest(
+            url: bit101BaseURL.appending(path: "user/mail_verify"), method: "POST",
             body: WebVPNVerifyInitRequest(sid: studentID))
     }
 
-    func loginCommunity(studentID: String, passwordDigest: String) async throws -> RegisterResponse {
+    func loginCommunity(studentID: String, passwordDigest: String) async throws -> RegisterResponse
+    {
         do {
-            return try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/login"), method: "POST",
+            return try await sendJSONRequest(
+                url: bit101BaseURL.appending(path: "user/login"), method: "POST",
                 body: CommunityLoginRequest(sid: studentID, password: passwordDigest))
         } catch let error as LoginServerResponseError where error.indicatesCredentialFailure {
             throw LoginServiceError.invalidCredentials
         }
     }
 
-    static func permitsIndependentSchoolLogin(after error: Error) -> Bool {
+    static func allowsSchoolOnlyLogin(after error: Error) -> Bool {
         if TaskCancellation.matches(error) { return false }
         if error is LoginServerResponseError { return true }
-        if let error = error as? LoginServiceError, case .invalidServerResponse = error { return true }
-        return ErrorChain.contains(error) { ($0 as NSError).domain == NSURLErrorDomain || $0 is HTTPClientError }
+        if let error = error as? LoginServiceError, case .invalidServerResponse = error {
+            return true
+        }
+        return ErrorChain.contains(error) {
+            ($0 as NSError).domain == NSURLErrorDomain || $0 is HTTPClientError
+        }
     }
 
     /// 登录模式保留已有密码，注册或重置模式保存用户设置的密码。
-    func register(password: String, token: String, code: String, loginMode: Bool = true) async throws -> RegisterResponse {
+    func register(password: String, token: String, code: String, loginMode: Bool = true)
+        async throws -> RegisterResponse
+    {
         let submit = {
-            let response: RegisterResponse = try await sendJSONRequest(url: bit101BaseURL.appending(path: "user/register"),
-                method: "POST", body: RegisterRequest(password: password, token: token, code: code, loginMode: loginMode))
-            guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let response: RegisterResponse = try await sendJSONRequest(
+                url: bit101BaseURL.appending(path: "user/register"),
+                method: "POST",
+                body: RegisterRequest(
+                    password: password, token: token, code: code, loginMode: loginMode))
+            guard !response.fakeCookie.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
                 throw LoginServiceError.invalidServerResponse
             }
             return response
         }
         if loginMode { return try await submit() }
-        do { return try await HTTPRequestEvidenceContext.withMutationOutcome(operation: submit) }
-        catch let error as HTTPMutationOutcomeUnknown { throw RegistrationCompletionError(underlying: error.underlying) }
+        do {
+            return try await HTTPRequestEvidenceContext.withMutationOutcome(operation: submit)
+        } catch let error as HTTPMutationOutcomeUnknown {
+            throw RegistrationCompletionError(underlying: error.underlying)
+        }
     }
 
     /// 检查 BIT101 自己的 fake-cookie 有效性。
@@ -350,9 +395,10 @@ struct BIT101APIClient {
         request.httpMethod = "GET"
         request.setValue(fakeCookie, forHTTPHeaderField: "fake-cookie")
 
-        let (_, response) = try await sendRequest(request, followRedirects: true, requiresBusinessEndpoint: true)
+        let (_, response) = try await sendRequest(
+            request, followRedirects: true, requiresBusinessEndpoint: true)
         switch response.statusCode {
-        case 200 ..< 300:
+        case 200..<300:
             return true
         case 401:
             return false
@@ -374,9 +420,11 @@ struct BIT101APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
 
-        let wire = try await sendObservedRequest(request, followRedirects: true, requiresBusinessEndpoint: true)
-        let data = wire.data, response = wire.response
-        guard (200 ..< 300).contains(response.statusCode) else {
+        let wire = try await sendObservedRequest(
+            request, followRedirects: true, requiresBusinessEndpoint: true)
+        let data = wire.data
+        let response = wire.response
+        guard (200..<300).contains(response.statusCode) else {
             let message = responseMessage(from: data)
             throw LoginServerResponseError(
                 statusCode: response.statusCode,
@@ -400,12 +448,18 @@ struct BIT101APIClient {
     }
 
     /// 按重定向策略选择注入客户端，并统一做 HTTPS 升级。
-    func sendRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool = false) async throws -> (Data, HTTPURLResponse) {
-        let wire = try await sendObservedRequest(request, followRedirects: followRedirects, requiresBusinessEndpoint: requiresBusinessEndpoint)
+    func sendRequest(
+        _ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool = false
+    ) async throws -> (Data, HTTPURLResponse) {
+        let wire = try await sendObservedRequest(
+            request, followRedirects: followRedirects,
+            requiresBusinessEndpoint: requiresBusinessEndpoint)
         return (wire.data, wire.response)
     }
 
-    private func sendObservedRequest(_ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool) async throws -> HTTPResponse {
+    private func sendObservedRequest(
+        _ request: URLRequest, followRedirects: Bool, requiresBusinessEndpoint: Bool
+    ) async throws -> HTTPResponse {
         let activeClient = followRedirects ? httpClient : noRedirectHTTPClient
         let finalRequest: URLRequest
 
@@ -424,7 +478,7 @@ struct BIT101APIClient {
         do {
             result = try await activeClient.send(
                 finalRequest,
-                accepting: 100 ..< 600
+                accepting: 100..<600
             )
         } catch {
             if TaskCancellation.matches(error) { throw error }
@@ -435,8 +489,10 @@ struct BIT101APIClient {
             throw LoginServiceError.invalidServerResponse
         }
         if requiresBusinessEndpoint {
-            let evidence = HTTPRequestEvidence(request: finalRequest, response: result.response, finalRequest: result.finalRequest)
-            guard result.response.url == finalRequest.url, evidence.method == evidence.finalMethod else {
+            let evidence = HTTPRequestEvidence(
+                request: finalRequest, response: result.response, finalRequest: result.finalRequest)
+            guard result.response.url == finalRequest.url, evidence.method == evidence.finalMethod
+            else {
                 await result.reportValidationFailure(LoginServiceError.invalidServerResponse)
                 throw LoginServiceError.invalidServerResponse
             }
@@ -457,16 +513,17 @@ struct BIT101APIClient {
     private func describeNetworkError(_ error: Error, request: URLRequest) -> NSError {
         let nsError = error as NSError
         let failingURL =
-            (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ??
-            request.url
+            (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? request.url
 
-        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorAppTransportSecurityRequiresSecureConnection {
+        if nsError.domain == NSURLErrorDomain,
+            nsError.code == NSURLErrorAppTransportSecurityRequiresSecureConnection
+        {
             let message = """
-            网络请求被 ATS 拦截。
-            URL: \(failingURL?.absoluteString ?? "未知")
-            code: \(nsError.code)
-            \(nsError.localizedDescription)
-            """
+                网络请求被 ATS 拦截。
+                URL: \(failingURL?.absoluteString ?? "未知")
+                code: \(nsError.code)
+                \(nsError.localizedDescription)
+                """
 
             return NSError(
                 domain: nsError.domain,
@@ -476,11 +533,11 @@ struct BIT101APIClient {
         }
 
         let message = """
-        网络请求失败。
-        URL: \(failingURL?.absoluteString ?? "未知")
-        code: \(nsError.code)
-        \(nsError.localizedDescription)
-        """
+            网络请求失败。
+            URL: \(failingURL?.absoluteString ?? "未知")
+            code: \(nsError.code)
+            \(nsError.localizedDescription)
+            """
 
         return NSError(
             domain: nsError.domain,

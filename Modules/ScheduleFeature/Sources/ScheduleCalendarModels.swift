@@ -1,5 +1,5 @@
-import ScheduleDomain
 import Foundation
+import ScheduleDomain
 
 /// 课表网格内部统一使用的条目类型。
 ///
@@ -56,27 +56,35 @@ struct ScheduleCalendarEntry: Identifiable {
         self.subtitle = subtitle
         self.detailLines = detailLines
         self.kind = kind
-        self.backgroundLayers = backgroundLayers ?? [
-            ScheduleCalendarLayer(
-                id: "background-\(id)",
-                startSection: startSection,
-                endSection: endSection
-            )
-        ]
+        self.backgroundLayers =
+            backgroundLayers ?? [
+                ScheduleCalendarLayer(
+                    id: "background-\(id)",
+                    startSection: startSection,
+                    endSection: endSection
+                )
+            ]
     }
 
     var resolvedSourceIDs: [String] {
         sourceIDs.isEmpty ? [sourceID] : sourceIDs
     }
 
-    func courseOccurrence(in courses: [CourseRecord], currentWeek: Int) -> (course: CourseRecord, week: Int)? {
+    func courseOccurrence(in courses: [CourseRecord], currentWeek: Int) -> (
+        course: CourseRecord, week: Int
+    )? {
         let sourceIDs = Set(resolvedSourceIDs)
         let candidates = courses.filter {
             sourceIDs.contains($0.id) && $0.weekday == dayOfWeek
-                && CGFloat($0.startSection - 1) < endSection && CGFloat($0.endSection) > startSection
+                && CGFloat($0.startSection - 1) < endSection
+                && CGFloat($0.endSection) > startSection
         }
-        if let current = candidates.first(where: { $0.weeks.contains(currentWeek) }) { return (current, currentWeek) }
-        guard let first = candidates.first(where: { $0.id == sourceID }) ?? candidates.first else { return nil }
+        if let current = candidates.first(where: { $0.weeks.contains(currentWeek) }) {
+            return (current, currentWeek)
+        }
+        guard let first = candidates.first(where: { $0.id == sourceID }) ?? candidates.first else {
+            return nil
+        }
         return (first, first.weeks.min() ?? currentWeek)
     }
 
@@ -117,7 +125,8 @@ func convertTimeToSection(timeText: String, timeTable: [TimeSlot]) -> CGFloat {
 func convertMinutesToSection(minutes: Int, timeTable: [TimeSlot]) -> CGFloat {
     guard !timeTable.isEmpty else { return 0 }
 
-    let sectionIndex = timeTable.firstIndex(where: { minutes <= $0.endMinutes }) ?? (timeTable.count - 1)
+    let sectionIndex =
+        timeTable.firstIndex(where: { minutes <= $0.endMinutes }) ?? (timeTable.count - 1)
     let slot = timeTable[sectionIndex]
     let duration = max(slot.endMinutes - slot.startMinutes, 1)
     let rawRatio = CGFloat(minutes - slot.startMinutes) / CGFloat(duration)
@@ -140,14 +149,22 @@ struct ScheduleCalendarPlacement: Identifiable {
     var id: String { entry.id }
 }
 
-func quantizedCalendarGroups(entries: [ScheduleCalendarEntry]) -> (grid: [ScheduleCalendarEntry], outside: [ScheduleCalendarEntry]) {
-    (entries.filter { $0.endSection > $0.startSection + 0.05 },
-     entries.filter { $0.endSection <= $0.startSection + 0.05 })
+func quantizedCalendarGroups(entries: [ScheduleCalendarEntry]) -> (
+    grid: [ScheduleCalendarEntry], outside: [ScheduleCalendarEntry]
+) {
+    (
+        entries.filter { $0.endSection > $0.startSection + 0.05 },
+        entries.filter { $0.endSection <= $0.startSection + 0.05 }
+    )
 }
 
 /// 同日冲突条目并排展示，每个来源保留完整时间和详情入口。
-func calendarPlacements(entries: [ScheduleCalendarEntry], separateOverlaps: Bool = true) -> [ScheduleCalendarPlacement] {
-    guard separateOverlaps else { return entries.map { ScheduleCalendarPlacement(entry: $0, column: 0, columnCount: 1) } }
+func calendarPlacements(entries: [ScheduleCalendarEntry], separateOverlaps: Bool = true)
+    -> [ScheduleCalendarPlacement]
+{
+    guard separateOverlaps else {
+        return entries.map { ScheduleCalendarPlacement(entry: $0, column: 0, columnCount: 1) }
+    }
     let sorted = entries.sorted { lhs, rhs in
         if lhs.dayOfWeek != rhs.dayOfWeek {
             return lhs.dayOfWeek < rhs.dayOfWeek
@@ -162,14 +179,16 @@ func calendarPlacements(entries: [ScheduleCalendarEntry], separateOverlaps: Bool
     }
 
     var result: [ScheduleCalendarPlacement] = []
-    for day in 1 ... 7 {
+    for day in 1...7 {
         var cluster: [(entry: ScheduleCalendarEntry, column: Int)] = []
         var columnEnds: [CGFloat] = []
         var clusterEnd: CGFloat = 0
         func finishCluster() {
-            result.append(contentsOf: cluster.map {
-                ScheduleCalendarPlacement(entry: $0.entry, column: $0.column, columnCount: columnEnds.count)
-            })
+            result.append(
+                contentsOf: cluster.map {
+                    ScheduleCalendarPlacement(
+                        entry: $0.entry, column: $0.column, columnCount: columnEnds.count)
+                })
             cluster.removeAll(keepingCapacity: true)
             columnEnds.removeAll(keepingCapacity: true)
         }

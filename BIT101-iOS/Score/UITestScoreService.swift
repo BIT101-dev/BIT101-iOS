@@ -1,7 +1,8 @@
-import ScoreDomain
-import ScorePorts
 import ClientCore
+import ScoreDomain
 import ScoreFeature
+import ScorePorts
+
 #if BIT101_UI_TESTING
 import Foundation
 import UIKit
@@ -25,7 +26,10 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         detail: Bool,
         authenticatedBy challenge: BITLoginAuthenticationChallenge
     ) async throws -> [ScoreRow] {
-        if detail, AppUITestBootstrap.takeRequest("score-details", query: [], from: &AppUITestBootstrap.holdingRequests) {
+        if detail,
+            AppUITestBootstrap.takeRequest(
+                "score-details", query: [], from: &AppUITestBootstrap.holdingRequests)
+        {
             await AppUITestBootstrap.holdRequest("score-details")
             try Task.checkCancellation()
         }
@@ -33,12 +37,13 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
             ScoreRow(
                 index: 1,
                 headers: ["课程编号", "课程名称", "开课学期", "成绩", "学分", "课程性质"] + (detail ? ["平均分"] : []),
-                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "专业教育"] + (detail ? ["94.50"] : [])
-            ),
+                values: ["UI-001", "自动化测试课程", "ui-test-term", "92", "3", "专业教育"]
+                    + (detail ? ["94.50"] : [])
+            )
         ]
     }
 
-    func submitScoreVerificationCode(
+    func submitScoreCode(
         _ code: String,
         for challenge: BITLoginAuthenticationChallenge
     ) async throws -> BITLoginAuthenticationChallenge {
@@ -48,15 +53,22 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
         return Self.challenge
     }
 
-    func fetchTrustedTranscriptPages(onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+    func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
+        -> TrustedTranscriptPages
+    {
         throw ScoreServiceError.secondFactorRequired(Self.challenge)
     }
 
-    func submitTranscriptVerificationCode(_ code: String, for challenge: BITLoginAuthenticationChallenge) async throws -> BITLoginAuthenticationChallenge {
-        _ = try await submitScoreVerificationCode(code, for: challenge)
+    func submitTranscriptCode(_ code: String, for challenge: BITLoginAuthenticationChallenge)
+        async throws -> BITLoginAuthenticationChallenge
+    {
+        _ = try await submitScoreCode(code, for: challenge)
         return challenge
     }
-    func fetchTrustedTranscriptPages(authenticatedBy challenge: BITLoginAuthenticationChallenge, onPage: TrustedTranscriptPageDelivery?) async throws -> TrustedTranscriptPages {
+    func fetchTrustedPages(
+        authenticatedBy challenge: BITLoginAuthenticationChallenge,
+        onPage: TrustedTranscriptPageDelivery?
+    ) async throws -> TrustedTranscriptPages {
         let pages = [UIColor.systemBlue, UIColor.systemOrange].map { color in
             UIGraphicsImageRenderer(size: CGSize(width: 300, height: 400)).pngData { context in
                 color.setFill()
@@ -64,9 +76,13 @@ struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {
             }
         }
         let scene = UITestSceneConfiguration.shared.snapshot
-        if scene.environment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] == "1", Self.transcriptFailureScene != scene.revision {
+        if scene.environment["BIT101_UI_TEST_TRANSCRIPT_FAILURE_ONCE"] == "1",
+            Self.transcriptFailureScene != scene.revision
+        {
             Self.transcriptFailureScene = scene.revision
-            return .init(pages: [.init(number: 1, data: pages[0])], expectedPageCount: 2, failure: URLError(.networkConnectionLost))
+            return .init(
+                pages: [.init(number: 1, data: pages[0])], expectedPageCount: 2,
+                failure: URLError(.networkConnectionLost))
         }
         return .init(pages)
     }

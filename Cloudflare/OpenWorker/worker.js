@@ -3,24 +3,30 @@ import shareIcon from "../../BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIc
 const AASA = {
   applinks: {
     apps: [],
-    details: [{
-      appID: "Y2T72736G3.BIT101-dev.BIT101-iOS",
-      paths: ["/gallery/*", "/course/*", "/paper/*"]
-    }]
-  }
+    details: [
+      {
+        appID: "Y2T72736G3.BIT101-dev.BIT101-iOS",
+        paths: ["/gallery/*", "/course/*", "/paper/*"],
+      },
+    ],
+  },
 };
 
 const APP_STORE_URL = "https://apps.apple.com/cn/app/bit101/id6761147125";
 const SHARE_ICON_URL = "https://open.aihelpme.dev/share-icon.jpg";
 
 function escapeHTML(value) {
-  return value.replace(/[&<>"']/g, character => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[character]);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character],
+  );
 }
 
 function landingPage(url, route, id) {
@@ -87,11 +93,13 @@ function landingPage(url, route, id) {
     }
     h1 { font-size: 26px; margin-bottom: 10px; }
     p { color: var(--muted); line-height: 1.5; margin-bottom: 28px; }
-    a { display: block; box-sizing: border-box; margin: 12px 0; padding: 14px 18px; border-radius: 12px;
+    a { display: block; box-sizing: border-box; margin: 12px 0; padding: 14px 18px;
+        border-radius: 12px;
         text-decoration: none; font-weight: 600; }
     .primary { color: #28150b; background: linear-gradient(135deg, #ffad74, var(--brand));
       box-shadow: 0 8px 20px rgba(233,120,50,.22); }
-    .secondary { color: var(--brand-deep); background: #fffaf5; border: 1px solid rgba(233,120,50,.55); }
+    .secondary { color: var(--brand-deep); background: #fffaf5;
+        border: 1px solid rgba(233,120,50,.55); }
     .plain { color: var(--muted); }
     @media (prefers-color-scheme: dark) {
       :root { color-scheme: dark; --cream: #17100d; --ink: #fff3e9; --muted: #c7afa0; }
@@ -144,29 +152,41 @@ export default {
       return Response.json(AASA, {
         headers: {
           "Cache-Control": "public, max-age=300",
-          "Content-Type": "application/json"
-        }
+          "Content-Type": "application/json",
+        },
       });
     }
 
     if (url.pathname === "/share-icon.jpg") {
       return new Response(shareIcon, {
-        headers: { "Cache-Control": "public, max-age=604800", "Content-Type": "image/png" }
+        headers: { "Cache-Control": "public, max-age=604800", "Content-Type": "image/png" },
       });
     }
 
     const match = url.pathname.match(/^\/(gallery|course|paper)\/(\d+)\/?$/);
     const normalizedID = match?.[2].replace(/^0+/, "") ?? "";
-    if (match && normalizedID.length > 0 && normalizedID.length <= 19 && BigInt(normalizedID) <= 9223372036854775807n) {
+    if (
+      match &&
+      normalizedID.length > 0 &&
+      normalizedID.length <= 19 &&
+      BigInt(normalizedID) <= 9223372036854775807n
+    ) {
       return new Response(landingPage(url, match[1], match[2]), {
         headers: {
           "Cache-Control": "public, max-age=300",
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
-        }
+          "Content-Security-Policy": [
+            "default-src 'none'",
+            "img-src 'self'",
+            "style-src 'unsafe-inline'",
+            "script-src 'unsafe-inline'",
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+          ].join("; "),
+        },
       });
     }
 
     return Response.redirect("https://bit101.cn/gallery/", 302);
-  }
+  },
 };

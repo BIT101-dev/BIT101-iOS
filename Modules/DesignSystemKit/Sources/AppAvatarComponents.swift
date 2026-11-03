@@ -1,7 +1,6 @@
 #if os(iOS)
 import SwiftUI
 
-
 /// 头像统一的占位、裁切、无障碍和尺寸容器。
 public struct AppAvatarContainer: View {
     let image: Image?
@@ -28,8 +27,8 @@ public struct AppAvatarContainer: View {
         Group {
             if let image {
                 image
-                .resizable()
-                .scaledToFill()
+                    .resizable()
+                    .scaledToFill()
             } else {
                 Circle()
                     .fill(tint.opacity(AppDesignSystem.Opacity.subtle))

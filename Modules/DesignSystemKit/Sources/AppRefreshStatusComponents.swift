@@ -54,7 +54,9 @@ public struct AppRefreshStatusRow: View {
                     Text(actionTitle).font(AppDesignSystem.Typography.body)
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 }
-                .accessibilityIdentifier(actionAccessibilityIdentifier ?? "app.refresh-status.action")
+                .accessibilityIdentifier(
+                    actionAccessibilityIdentifier ?? "app.refresh-status.action"
+                )
                 .disabled(isRefreshing)
                 .appImpactFeedback(trigger: feedbackToken)
             } else if let trailingText {

@@ -13,7 +13,10 @@ CI_REPORT_PATH="$OUTPUT_DIR/github-ci.json"
 ACTION="${1:-fetch}"
 case "$ACTION" in
   -h|--help)
-    echo "用法：Scripts/fetch-issues-and-reports.sh [fetch|list|latest|show <报告键>|delete <报告键>|clear-archive|prune-archive <保留天数>]"
+    echo \
+      "用法：Scripts/fetch-issues-and-reports.sh 操作"
+    echo "操作：fetch、list、latest、show 报告键、delete 报告键"
+    echo "归档：clear-archive、prune-archive 保留天数"
     exit 0
     ;;
   fetch|list|latest|clear-archive) [[ $# -le 1 ]] || exit 64 ;;
@@ -28,15 +31,22 @@ if [[ "$ACTION" == clear-archive ]]; then
 from pathlib import Path
 import shutil
 import sys
+
 root = Path(sys.argv[1])
 count = 0
-for report in root.glob('*/*/report_*.json'):
+for report in root.glob("*/*/report_*.json"):
     count += 1
-for source in ('开发版', '正式版', '来源未知'):
+for source in ("开发版", "正式版", "来源未知"):
     shutil.rmtree(root / source, ignore_errors=True)
-for name in ('report-keys.txt', 'archive-index.json', 'error-report-keys.json', 'error-report.json', 'summary.txt'):
+for name in (
+    "report-keys.txt",
+    "archive-index.json",
+    "error-report-keys.json",
+    "error-report.json",
+    "summary.txt",
+):
     (root / name).unlink(missing_ok=True)
-print(f'本地反馈归档已清理：{count} 份。')
+print(f"本地反馈归档已清理：{count} 份。")
 PYCLEAR
   exit 0
 fi
@@ -49,7 +59,8 @@ fi
 WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"
 load_worker_config() {
   local configuration
-  configuration="$(cd "$WRANGLER_DIR" && node - "$ROOT_DIR/Cloudflare/ErrorReportWorker/wrangler.jsonc" <<'NODECONFIG'
+  configuration="$(cd "$WRANGLER_DIR" && node - \
+    "$ROOT_DIR/Cloudflare/ErrorReportWorker/wrangler.jsonc" <<'NODECONFIG'
 const { experimental_readRawConfig } = require('wrangler');
 const configuration = experimental_readRawConfig({ config: process.argv[2] }).rawConfig;
 console.log(configuration.kv_namespaces.find(row => row.binding === 'ERROR_REPORTS').id);
@@ -66,13 +77,17 @@ export WRANGLER_LOG_PATH="$WRANGLER_LOG"
 remote() { python3 "$ROOT_DIR/Scripts/workflow_processes.py" capture "$@"; }
 rm -f "$WRANGLER_LOG"
 keys() {
-  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" --prefix report:) > "$OUTPUT_DIR/error-report-keys.json" || return $?
+  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key list --remote --namespace-id "$NAMESPACE_ID" \
+    --prefix report:) > "$OUTPUT_DIR/error-report-keys.json" || return $?
   cat "$OUTPUT_DIR/error-report-keys.json"
 }
 
 latest_key() {
   keys >/dev/null || return $?
-  python3 -c 'import json,sys; rows=[x["name"] for x in json.load(open(sys.argv[1])) if x["name"].startswith("report:")]; print(max(rows, default=""))' "$OUTPUT_DIR/error-report-keys.json"
+  python3 -c 'import json, sys
+
+rows = [x["name"] for x in json.load(open(sys.argv[1])) if x["name"].startswith("report:")]
+print(max(rows, default=""))' "$OUTPUT_DIR/error-report-keys.json"
 }
 
 show_key() {
@@ -80,9 +95,9 @@ show_key() {
   [[ -n "$key" ]] || { echo "没有错误报告。" >&2; exit 1; }
   [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; return 64; }
   local report_path="$OUTPUT_DIR/error-report.json"
-  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key get "$key" --remote --namespace-id "$NAMESPACE_ID" --text) > "$report_path" || return $?
-  python3 -c '
-import json
+  (cd "$WRANGLER_DIR" && remote "$WRANGLER" kv key get "$key" --remote --namespace-id \
+    "$NAMESPACE_ID" --text) > "$report_path" || return $?
+  python3 -c 'import json
 from pathlib import Path
 import sys
 
@@ -94,8 +109,7 @@ for attachment in item.get("report", {}).get("attachments", []):
         if isinstance(data, str):
             attachment["bytes"] = len(data) * 3 // 4 - (len(data) - len(data.rstrip("=")))
 text = json.dumps(item, ensure_ascii=False, indent=2)
-report.write_text(text + "\n", encoding="utf-8")
-' "$report_path"
+report.write_text(text + "\n", encoding="utf-8")' "$report_path"
   python3 "$ROOT_DIR/Scripts/command_output.py" show-report "$report_path" 报告
 }
 
@@ -107,13 +121,21 @@ case "$ACTION" in
 import json
 from pathlib import Path
 import sys
+
 sys.path.insert(0, sys.argv[2])
 from command_output import show_report_lines
+
 path = Path(sys.argv[1])
-rows = [item for item in json.loads(path.read_text()) if item['name'].startswith('report:')]
-rows.sort(key=lambda item: item['name'], reverse=True)
-show_report_lines((item['name'] + ' ' + json.dumps(item.get('metadata', {}), ensure_ascii=False) + '\n'
-    for item in rows), path, '报告键')
+rows = [item for item in json.loads(path.read_text()) if item["name"].startswith("report:")]
+rows.sort(key=lambda item: item["name"], reverse=True)
+show_report_lines(
+    (
+        item["name"] + " " + json.dumps(item.get("metadata", {}), ensure_ascii=False) + "\n"
+        for item in rows
+    ),
+    path,
+    "报告键",
+)
 PYKEYS
     ;;
   latest)
@@ -126,7 +148,8 @@ PYKEYS
   delete)
     key="${2:-}"
     [[ "$key" == report:* ]] || { echo "请提供 report: 开头的报告键。" >&2; exit 64; }
-    python3 - "$key" "$WRANGLER" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/delete-authorization.json" "$REPORT_DOMAIN" <<'PYDELETE'
+    python3 - "$key" "$WRANGLER" "$WRANGLER_DIR" "$NAMESPACE_ID" \
+      "$OUTPUT_DIR/delete-authorization.json" "$REPORT_DOMAIN" <<'PYDELETE'
 import json
 from pathlib import Path
 import subprocess
@@ -138,36 +161,52 @@ import uuid
 
 key, wrangler, directory, namespace, filename, domain = sys.argv[1:]
 grant = str(uuid.uuid4())
-grant_key = 'report-delete-grant:' + grant
+grant_key = "report-delete-grant:" + grant
 path = Path(filename)
+
+
 def run(*arguments, check=True):
-    return subprocess.run([wrangler, 'kv', 'key', *arguments, '--remote', '--namespace-id', namespace],
-        cwd=directory, check=check, stdout=subprocess.DEVNULL)
+    return subprocess.run(
+        [wrangler, "kv", "key", *arguments, "--remote", "--namespace-id", namespace],
+        cwd=directory,
+        check=check,
+        stdout=subprocess.DEVNULL,
+    )
+
+
 try:
-    path.write_text(json.dumps({'key': key}))
+    path.write_text(json.dumps({"key": key}))
     deadline = time.monotonic() + 300
-    run('put', grant_key, '--path', str(path), '--ttl', '300')
-    request = Request('https://' + domain + '/api/error-reports', method='DELETE',
-        data=json.dumps({'key': key, 'grant': grant}).encode(), headers={'Content-Type': 'application/json'})
+    run("put", grant_key, "--path", str(path), "--ttl", "300")
+    request = Request(
+        "https://" + domain + "/api/error-reports",
+        method="DELETE",
+        data=json.dumps({"key": key, "grant": grant}).encode(),
+        headers={"Content-Type": "application/json"},
+    )
     while True:
         remaining = deadline - time.monotonic()
-        if remaining <= 0: raise TimeoutError('删除授权达到有效期，请重新执行删除。')
+        if remaining <= 0:
+            raise TimeoutError("删除授权达到有效期，请重新执行删除。")
         try:
             with urlopen(request, timeout=min(30, remaining)) as response:
-                if json.load(response).get('deleted') is not True: raise ValueError('报告删除需要队列与存储共同确认。')
+                if json.load(response).get("deleted") is not True:
+                    raise ValueError("报告删除需要队列与存储共同确认。")
             break
         except HTTPError as error:
             remaining = deadline - time.monotonic()
             error.close()
-            if error.code != 403 or remaining <= 0: raise
+            if error.code != 403 or remaining <= 0:
+                raise
             time.sleep(min(30, remaining))
 finally:
-    run('delete', grant_key, check=False)
+    run("delete", grant_key, check=False)
     path.unlink(missing_ok=True)
-sys.path.insert(0, str(Path(directory).parents[1] / 'Scripts'))
+sys.path.insert(0, str(Path(directory).parents[1] / "Scripts"))
 from report_inbox import delete_local_report
+
 delete_local_report(path.parent, key)
-print('报告已删除：' + key)
+print("报告已删除：" + key)
 PYDELETE
     ;;
   fetch) ;;
@@ -212,6 +251,7 @@ repo = sys.argv[3]
 sys.path.insert(0, sys.argv[4])
 from report_inbox import latest_failed_ci_runs
 from workflow_processes import capture_command
+
 runs = latest_failed_ci_runs(json.loads(runs_path.read_text(encoding="utf-8")))
 try:
     previous = json.loads(output_path.read_text(encoding="utf-8"))
@@ -219,11 +259,17 @@ except (FileNotFoundError, json.JSONDecodeError):
     previous = []
 cached_runs = {item["databaseId"]: item for item in previous}
 
+
 def cached_log(run):
     cached = cached_runs.get(run["databaseId"])
-    if cached and "failedLog" in cached and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha")):
+    if (
+        cached
+        and "failedLog" in cached
+        and all(cached.get(key) == run.get(key) for key in ("updatedAt", "headSha"))
+    ):
         return cached["failedLog"]
     return None
+
 
 def fetch_log(run):
     cached = cached_log(run)
@@ -231,8 +277,12 @@ def fetch_log(run):
         return dict(run, failedLog=cached)
     result = capture_command(
         [
-            "gh", "run", "view", str(run["databaseId"]),
-            "--repo", repo,
+            "gh",
+            "run",
+            "view",
+            str(run["databaseId"]),
+            "--repo",
+            repo,
             "--log-failed",
         ],
     )
@@ -245,6 +295,7 @@ def fetch_log(run):
         if "failedLog" in cached or "previousFailedLog" in cached:
             item["previousFailedLog"] = cached.get("failedLog", cached.get("previousFailedLog"))
     return item
+
 
 with ThreadPoolExecutor(max_workers=4) as executor:
     enriched = list(executor.map(fetch_log, runs))
@@ -279,7 +330,9 @@ if load_worker_config 2> "$WRANGLER_LOG" && (
   remote "$WRANGLER" kv key list --remote --prefix report: --namespace-id "$NAMESPACE_ID"
 ) > "$STAGING_DIR/error-report-keys.json" 2>> "$WRANGLER_LOG"; then
   mv "$STAGING_DIR/error-report-keys.json" "$OUTPUT_DIR/error-report-keys.json"
-if REPORT_COUNT="$(python3 "$ROOT_DIR/Scripts/report_inbox.py" archive "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" "$OUTPUT_DIR/report-keys.txt")"; then
+if REPORT_COUNT="$(python3 "$ROOT_DIR/Scripts/report_inbox.py" archive \
+  "$OUTPUT_DIR/error-report-keys.json" "$STAGING_DIR" "$WRANGLER_DIR" "$NAMESPACE_ID" \
+  "$OUTPUT_DIR/report-keys.txt")"; then
   :
 else
   CLOUDFLARE_STATE=partial
@@ -291,7 +344,9 @@ else
   tail -20 "$WRANGLER_LOG" >&2
 fi
 
-python3 "$ROOT_DIR/Scripts/report_inbox.py" summary "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" "$OUTPUT_DIR/summary.txt" "${REPORT_COUNT:-0}" "$CI_REPORT_PATH" "$ISSUES_STATE" "$CI_STATE" "$CLOUDFLARE_STATE"
+python3 "$ROOT_DIR/Scripts/report_inbox.py" summary "$OUTPUT_DIR/github-issues.json" "$OUTPUT_DIR" \
+  "$OUTPUT_DIR/summary.txt" "${REPORT_COUNT:-0}" "$CI_REPORT_PATH" "$ISSUES_STATE" "$CI_STATE" \
+  "$CLOUDFLARE_STATE"
 
 rm -f "$CI_RUNS_PATH"
 

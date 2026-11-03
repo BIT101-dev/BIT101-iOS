@@ -36,12 +36,18 @@ final class GalleryRecommendPrefetchCoordinator {
             let id = UUID()
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
-                    else if let result { continuation.resume(with: result) }
-                    else { waiters[id] = continuation }
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else if let result {
+                        continuation.resume(with: result)
+                    } else {
+                        waiters[id] = continuation
+                    }
                 }
             } onCancel: {
-                Task { @MainActor in self.waiters.removeValue(forKey: id)?.resume(throwing: CancellationError()) }
+                Task { @MainActor in
+                    self.waiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+                }
             }
         }
     }
@@ -79,10 +85,14 @@ final class GalleryRecommendPrefetchCoordinator {
             var currentPage = firstPage
             for _ in 0..<depth {
                 guard !Task.isCancelled, self?.generation == expectedGeneration,
-                      let operation = self?.operation(for: currentPage, generation: expectedGeneration) else { return }
+                    let operation = self?.operation(
+                        for: currentPage, generation: expectedGeneration)
+                else { return }
                 do {
                     let page = try await operation.task.value
-                    guard !Task.isCancelled, self?.generation == expectedGeneration, page.canLoadMore else { return }
+                    guard !Task.isCancelled, self?.generation == expectedGeneration,
+                        page.canLoadMore
+                    else { return }
                     currentPage = page.nextPage
                 } catch {
                     if self?.pageTasks[currentPage]?.id == operation.id {

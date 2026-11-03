@@ -19,8 +19,10 @@ struct GalleryComposerView: View {
     }
 
     var body: some View {
-        GalleryComposerScene(dependencies: dependencies, editingPoster: editingPoster, onCreated: onCreated)
-            .id(ObjectIdentifier(dependencies))
+        GalleryComposerScene(
+            dependencies: dependencies, editingPoster: editingPoster, onCreated: onCreated
+        )
+        .id(ObjectIdentifier(dependencies))
     }
 }
 
@@ -36,15 +38,21 @@ private struct GalleryComposerScene: View {
     let editingPoster: GalleryPosterDetail?
     let onCreated: () -> Void
 
-    init(dependencies: GalleryDependencies, editingPoster: GalleryPosterDetail?, onCreated: @escaping () -> Void) {
+    init(
+        dependencies: GalleryDependencies, editingPoster: GalleryPosterDetail?,
+        onCreated: @escaping () -> Void
+    ) {
         self.dependencies = dependencies
         self.editingPoster = editingPoster
         self.onCreated = onCreated
         let imagePreparer = ComposerImagePreparer()
-        _viewModel = StateObject(wrappedValue: GalleryComposerViewModel(editingPoster: editingPoster,
-            service: dependencies.composer, images: dependencies.images, drafts: dependencies.drafts,
-            currentIdentity: dependencies.currentIdentity,
-            prepareImageData: { try? await imagePreparer.prepare($0) }))
+        _viewModel = StateObject(
+            wrappedValue: GalleryComposerViewModel(
+                editingPoster: editingPoster,
+                service: dependencies.composer, images: dependencies.images,
+                drafts: dependencies.drafts,
+                currentIdentity: dependencies.currentIdentity,
+                prepareImageData: { try? await imagePreparer.prepare($0) }))
     }
 
     /// 内置的推荐标签。
@@ -57,8 +65,192 @@ private struct GalleryComposerScene: View {
         "树洞",
         "求助",
         "聊天",
-        "抽象"
+        "抽象",
     ]
+
+    private var tagSection: some View {
+        Section("标签") {
+            // 标签入口分开呈现预置标签按钮和自定义输入行，常用标签保持快捷选择。
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: 64), spacing: AppDesignSystem.Spacing.regular
+                    )
+                ],
+                alignment: .leading,
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
+                ForEach(
+                    Self.suggestedTags
+                        + viewModel.selectedTags.filter {
+                            !Self.suggestedTags.contains($0)
+                        }, id: \.self
+                ) { tag in
+                    Button {
+                        viewModel.toggleTag(tag)
+                    } label: {
+                        AppTagChip(
+                            title: tag,
+                            variant: .selection(
+                                isSelected: viewModel.selectedTags.contains(tag))
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.gallery-composer-scene.tag")
+                }
+
+                Button {
+                    viewModel.addCustomTagDraft()
+                } label: {
+                    AppTagChip(title: "自定义", variant: .selection(isSelected: false))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.gallery-composer-scene.add-tag")
+            }
+            .appSelectionFeedback(trigger: viewModel.selectedTags)
+
+            customTagFields
+
+        }
+    }
+
+    private var publicationSection: some View {
+        Section("发布设置") {
+            // 声明列表由服务端返回，页面与网页端保持一致。
+            Picker("声明", selection: $viewModel.selectedClaimID) {
+                ForEach(viewModel.claims) { claim in
+                    Text(claim.text).tag(claim.id)
+                }
+            }
+            .appSelectionFeedback(trigger: viewModel.selectedClaimID)
+            .appInteractiveListRow()
+
+            if let error = viewModel.claimsLoadError {
+                Text("声明加载失败：\(error)")
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                Button("重新加载声明") { Task { await viewModel.loadClaimsIfNeeded() } }
+                    .appInteractiveListRow()
+                    .disabled(viewModel.isLoadingClaims)
+                    .accessibilityIdentifier("gallery.editor.retry-claims")
+            }
+
+            Toggle("匿名发布", isOn: $viewModel.anonymous)
+                .appSelectionFeedback(trigger: viewModel.anonymous)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.gallery-composer-scene.匿名发布")
+            Toggle("公开显示", isOn: $viewModel.isPublic)
+                .appSelectionFeedback(trigger: viewModel.isPublic)
+                .appInteractiveListRow()
+        }
+    }
+
+    private var imageSection: some View {
+        Section("图片") {
+            PhotosPicker(
+                selection: $selectedPhotoItems,
+                maxSelectionCount: max(
+                    1,
+                    GalleryComposerViewModel.maximumImageCount
+                        - viewModel.existingImages.count - viewModel.imageDrafts.count),
+                matching: .images
+            ) {
+                Text("插入图片")
+            }
+            .disabled(
+                viewModel.isSubmitting
+                    || viewModel.isAddingImages
+                    || viewModel.existingImages.count + viewModel.imageDrafts.count
+                        >= GalleryComposerViewModel.maximumImageCount
+            )
+            .appInteractiveListRow()
+            .accessibilityIdentifier("ui.gallery-composer-scene.插入图片")
+
+            existingImageGrid
+
+            draftImageGrid
+
+            if viewModel.hasUploadingImages {
+                Text("图片上传中，上传完成后即可一并发布。")
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var customTagFields: some View {
+        if !viewModel.customTagDrafts.isEmpty {
+            // 每条自定义标签使用独立输入行，输入和删除操作分开呈现。
+            ForEach($viewModel.customTagDrafts) { $draft in
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    TextField(
+                        "", text: $draft.text, prompt: AppInputPrompt.text("自定义标签")
+                    )
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel("自定义标签")
+                    .accessibilityIdentifier("gallery.editor.tag.\(draft.id)")
+
+                    Button {
+                        viewModel.removeCustomTagDraft(id: draft.id)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                            .font(AppDesignSystem.Typography.title)
+                            .frame(
+                                minWidth: AppDesignSystem.Size.Control.touchTarget,
+                                minHeight: AppDesignSystem.Size.Control.touchTarget
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除标签")
+                    .appInteractiveListRow()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var existingImageGrid: some View {
+        if !viewModel.existingImages.isEmpty {
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: AppDesignSystem.Size.Media.draft),
+                        spacing: AppDesignSystem.Spacing.regular)
+                ],
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
+                ForEach(viewModel.existingImages) { image in
+                    existingImage(image)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var draftImageGrid: some View {
+        if !viewModel.imageDrafts.isEmpty {
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: AppDesignSystem.Size.Media.draft),
+                        spacing: AppDesignSystem.Spacing.regular)
+                ],
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
+                ForEach(viewModel.imageDrafts) { draft in
+                    draftImage(draft)
+                }
+            }
+        }
+    }
 
     /// 发帖表单主体。
     ///
@@ -70,170 +262,29 @@ private struct GalleryComposerScene: View {
                     TextField("", text: $viewModel.title, prompt: AppInputPrompt.text("标题"))
                         .accessibilityLabel("标题")
                         .accessibilityIdentifier("gallery.editor.title")
-                    TextField("", text: $viewModel.text, prompt: AppInputPrompt.text("正文"), axis: .vertical)
-                        .lineLimit(6, reservesSpace: true)
-                        .accessibilityLabel("正文")
-                        .accessibilityIdentifier("gallery.editor.content")
-                }
-
-                Section("标签") {
-                    // 标签入口分开呈现预置标签按钮和自定义输入行，常用标签保持快捷选择。
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 64), spacing: AppDesignSystem.Spacing.regular)],
-                        alignment: .leading,
-                        spacing: AppDesignSystem.Spacing.regular
-                    ) {
-                        ForEach(Self.suggestedTags + viewModel.selectedTags.filter { !Self.suggestedTags.contains($0) }, id: \.self) { tag in
-                            Button {
-                                viewModel.toggleTag(tag)
-                            } label: {
-                                AppTagChip(
-                                    title: tag,
-                                    variant: .selection(isSelected: viewModel.selectedTags.contains(tag))
-                                )
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.plain)
-                            .appInteractiveListRow()
-                                .accessibilityIdentifier("ui.gallery-composer-scene.tag")
-                        }
-
-                        Button {
-                            viewModel.addCustomTagDraft()
-                        } label: {
-                            AppTagChip(title: "自定义", variant: .selection(isSelected: false))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.plain)
-                        .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.gallery-composer-scene.add-tag")
-                    }
-                    .appSelectionFeedback(trigger: viewModel.selectedTags)
-
-                    if !viewModel.customTagDrafts.isEmpty {
-                        // 每条自定义标签使用独立输入行，输入和删除操作分开呈现。
-                        ForEach($viewModel.customTagDrafts) { $draft in
-                            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                TextField("", text: $draft.text, prompt: AppInputPrompt.text("自定义标签"))
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    .accessibilityLabel("自定义标签")
-                                    .accessibilityIdentifier("gallery.editor.tag.\(draft.id)")
-
-                                Button {
-                                    viewModel.removeCustomTagDraft(id: draft.id)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                        .font(AppDesignSystem.Typography.title)
-                                        .frame(minWidth: AppDesignSystem.Size.Control.touchTarget, minHeight: AppDesignSystem.Size.Control.touchTarget)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("删除标签")
-                                .appInteractiveListRow()
-                            }
-                        }
-                    }
-                }
-
-                Section("发布设置") {
-                    // 声明列表由服务端返回，页面与网页端保持一致。
-                    Picker("声明", selection: $viewModel.selectedClaimID) {
-                        ForEach(viewModel.claims) { claim in
-                            Text(claim.text).tag(claim.id)
-                        }
-                    }
-                    .appSelectionFeedback(trigger: viewModel.selectedClaimID)
-                    .appInteractiveListRow()
-
-                    if let error = viewModel.claimsLoadError {
-                        Text("声明加载失败：\(error)")
-                            .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        Button("重新加载声明") { Task { await viewModel.loadClaimsIfNeeded() } }
-                            .appInteractiveListRow()
-                            .disabled(viewModel.isLoadingClaims)
-                            .accessibilityIdentifier("gallery.editor.retry-claims")
-                    }
-
-                    Toggle("匿名发布", isOn: $viewModel.anonymous)
-                        .appSelectionFeedback(trigger: viewModel.anonymous)
-                    .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.gallery-composer-scene.匿名发布")
-                    Toggle("公开显示", isOn: $viewModel.isPublic)
-                        .appSelectionFeedback(trigger: viewModel.isPublic)
-                    .appInteractiveListRow()
-                }
-
-                Section("图片") {
-                    PhotosPicker(selection: $selectedPhotoItems,
-                        maxSelectionCount: max(1, GalleryComposerViewModel.maximumImageCount - viewModel.existingImages.count - viewModel.imageDrafts.count), matching: .images) {
-                        Text("插入图片")
-                    }
-                    .disabled(
-                        viewModel.isSubmitting
-                            || viewModel.isAddingImages
-                            || viewModel.existingImages.count + viewModel.imageDrafts.count >= GalleryComposerViewModel.maximumImageCount
+                    TextField(
+                        "", text: $viewModel.text, prompt: AppInputPrompt.text("正文"),
+                        axis: .vertical
                     )
-                    .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.gallery-composer-scene.插入图片")
-
-                    if !viewModel.existingImages.isEmpty {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Media.draft), spacing: AppDesignSystem.Spacing.regular)],
-                            spacing: AppDesignSystem.Spacing.regular
-                        ) {
-                            ForEach(viewModel.existingImages) { image in
-                                ZStack(alignment: .topTrailing) {
-                                    CommunityImageThumbnail(image: image, contentMode: .fill)
-                                        .frame(
-                                            width: AppDesignSystem.Size.Media.draft,
-                                            height: AppDesignSystem.Size.Media.draft
-                                        )
-                                        .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
-
-                                    AppComposerImageRemoveButton(accessibilityLabel: "移除原有图片") {
-                                        viewModel.removeExistingImage(id: image.id)
-                                    }
-                                    .appInteractiveListRow()
-                                }
-                                .frame(
-                                    width: AppDesignSystem.Size.Media.draft,
-                                    height: AppDesignSystem.Size.Media.draft
-                                )
-                            }
-                        }
-                    }
-
-                    if !viewModel.imageDrafts.isEmpty {
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: AppDesignSystem.Size.Media.draft), spacing: AppDesignSystem.Spacing.regular)],
-                            spacing: AppDesignSystem.Spacing.regular
-                        ) {
-                            ForEach(viewModel.imageDrafts) { draft in
-                                ComposerImageTile(
-                                    draft: draft,
-                                    onRetry: {
-                                        Task { await viewModel.retryImageUpload(id: draft.id) }
-                                    },
-                                    onRemove: {
-                                        viewModel.removeImageDraft(id: draft.id)
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    if viewModel.hasUploadingImages {
-                        Text("图片上传中，上传完成后即可一并发布。")
-                            .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    }
+                    .lineLimit(6, reservesSpace: true)
+                    .accessibilityLabel("正文")
+                    .accessibilityIdentifier("gallery.editor.content")
                 }
-                CommunityPublicationReviewSection(state: viewModel.publicationReview,
-                    destination: AnyView(GalleryPublicationReviewView(service: dependencies.feed, query: viewModel.publicationReview.searchTitle))) {
-                    Task { await viewModel.acknowledgePublicationReview() }
+
+                tagSection
+
+                publicationSection
+
+                imageSection
+
+                CommunityPublicationReviewSection(
+                    state: viewModel.publicationReview,
+                    destination: AnyView(
+                        GalleryPublicationReviewView(
+                            service: dependencies.feed,
+                            query: viewModel.publicationReview.searchTitle))
+                ) {
+                    Task { await viewModel.confirmPublicationReview() }
                 }
             }
             .disabled(viewModel.isBusy || viewModel.hasPublishedContent)
@@ -245,23 +296,14 @@ private struct GalleryComposerScene: View {
                         .accessibilityIdentifier("ui.gallery-composer-scene.cancel")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(viewModel.submitTitle) {
-                        Task {
-                            if await viewModel.submit() { onCreated(); dismiss() }
-                        }
-                    }
-                    .disabled(viewModel.isBusy || viewModel.publicationReview.needsReview)
-                        .accessibilityIdentifier("ui.gallery-composer-scene.submit")
+                    submitButton
                 }
             }
             .task { await viewModel.loadClaimsIfNeeded() }
             .onChange(of: selectedPhotoItems) { _, newValue in
                 guard !newValue.isEmpty else { return }
                 Task {
-                    await viewModel.addImages(from: newValue.map { item in
-                        { try await media.loadBoundedImageData(from: item) }
-                    })
-                    if selectedPhotoItems == newValue { selectedPhotoItems = [] }
+                    await addImages(newValue)
                 }
             }
             .task { isShowingDraftRestoreAlert = await viewModel.checkDraftOnAppear() }
@@ -269,14 +311,12 @@ private struct GalleryComposerScene: View {
             .alert("保存草稿？", isPresented: $isShowingDraftAlert) {
                 Button("保存草稿") {
                     Task {
-                        if await viewModel.saveDraft() {
-                            dismiss()
-                        }
+                        await saveDraft()
                     }
                 }
                 Button("不保存") {
                     Task {
-                        if await viewModel.discardDraft() { dismiss() }
+                        await discardDraft()
                     }
                 }
             } message: {
@@ -303,6 +343,73 @@ private struct GalleryComposerScene: View {
         .interactiveDismissDisabled()
     }
 
+    private func existingImage(_ image: CommunityImage) -> some View {
+        ZStack(alignment: .topTrailing) {
+            CommunityImageThumbnail(image: image, contentMode: .fill)
+                .frame(
+                    width: AppDesignSystem.Size.Media.draft,
+                    height: AppDesignSystem.Size.Media.draft
+                )
+                .clipShape(
+                    AppDesignSystem.roundedRectangle(
+                        AppDesignSystem.Radius.card))
+
+            AppComposerImageRemoveButton(accessibilityLabel: "移除原有图片") {
+                viewModel.removeExistingImage(id: image.id)
+            }
+            .appInteractiveListRow()
+        }
+        .frame(
+            width: AppDesignSystem.Size.Media.draft,
+            height: AppDesignSystem.Size.Media.draft
+        )
+    }
+
+    private func draftImage(_ draft: ComposerImageDraft) -> some View {
+        ComposerImageTile(
+            draft: draft,
+            onRetry: {
+                Task { await viewModel.retryImageUpload(id: draft.id) }
+            },
+            onRemove: {
+                viewModel.removeImageDraft(id: draft.id)
+            }
+        )
+    }
+
+    private func submitPoster() async {
+        if await viewModel.submit() {
+            onCreated()
+            dismiss()
+        }
+    }
+
+    private func addImages(_ newValue: [PhotosPickerItem]) async {
+        await viewModel.addImages(
+            from: newValue.map { item in
+                { try await media.loadBoundedImageData(from: item) }
+            })
+        if selectedPhotoItems == newValue { selectedPhotoItems = [] }
+    }
+
+    private func saveDraft() async {
+        if await viewModel.saveDraft() { dismiss() }
+    }
+
+    private func discardDraft() async {
+        if await viewModel.discardDraft() { dismiss() }
+    }
+
+    private var submitButton: some View {
+        Button(viewModel.submitTitle) {
+            Task {
+                await submitPoster()
+            }
+        }
+        .disabled(viewModel.isBusy || viewModel.publicationReview.needsReview)
+        .accessibilityIdentifier("ui.gallery-composer-scene.submit")
+    }
+
     private func requestDismiss() {
         guard !viewModel.isBusy else { return }
         if viewModel.hasPublishedContent {
@@ -311,11 +418,12 @@ private struct GalleryComposerScene: View {
             return
         }
         if editingPoster != nil {
-            if viewModel.hasUnsavedEdits { isConfirmingDiscard = true }
-            else { dismiss() }
+            if viewModel.hasUnsavedEdits { isConfirmingDiscard = true } else { dismiss() }
+        } else if !viewModel.hasDraftContent {
+            dismiss()
+        } else {
+            isShowingDraftAlert = true
         }
-        else if !viewModel.hasDraftContent { dismiss() }
-        else { isShowingDraftAlert = true }
     }
 }
 #endif

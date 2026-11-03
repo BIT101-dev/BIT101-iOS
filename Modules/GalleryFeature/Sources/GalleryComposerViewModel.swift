@@ -54,16 +54,23 @@ final class GalleryComposerViewModel: ObservableObject {
     private var didPublish = false
     private var savingTask: Task<Bool, Never>?
 
-    init(editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
-         images: any GalleryImageUploading, drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring,
-         currentIdentity: @escaping () -> CommunitySessionIdentity, prepareImageData: @escaping (Data) async -> Data?) {
+    init(
+        editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
+        images: any GalleryImageUploading,
+        drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring,
+        currentIdentity: @escaping () -> CommunitySessionIdentity,
+        prepareImageData: @escaping (Data) async -> Data?
+    ) {
         self.editingPoster = editingPoster
         retainedClaim = editingPoster?.claim
         self.service = service
         let imageOwner = currentIdentity()
-        imageUploads = ComposerImageUploads(upload: { try await images.uploadImage(data: $0, filename: $1) },
+        imageUploads = ComposerImageUploads(
+            upload: { try await images.uploadImage(data: $0, filename: $1) },
             prepare: { data in
-                guard let prepared = await prepareImageData(data) else { throw GalleryServiceError.uploadFailed }
+                guard let prepared = await prepareImageData(data) else {
+                    throw GalleryServiceError.uploadFailed
+                }
                 return prepared
             }, isCurrentSession: { currentIdentity() == imageOwner })
         self.drafts = drafts
@@ -77,8 +84,11 @@ final class GalleryComposerViewModel: ObservableObject {
         isPublic = editingPoster?.public ?? true
         selectedClaimID = editingPoster?.claim.id ?? 0
         existingImages = editingPoster?.images ?? []
-        imageObservation = imageUploads.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-        imageErrorObservation = imageUploads.$errorMessage.compactMap { $0 }.sink { [weak self] message in
+        imageObservation = imageUploads.objectWillChange.sink { [weak self] in
+            self?.objectWillChange.send()
+        }
+        imageErrorObservation = imageUploads.$errorMessage.compactMap { $0 }.sink {
+            [weak self] message in
             self?.alert = AppAlert(title: "图片添加失败", message: message)
         }
     }
@@ -115,10 +125,12 @@ final class GalleryComposerViewModel: ObservableObject {
 
     var hasUnsavedEdits: Bool {
         guard let original = editingPoster else { return false }
-        return title != original.title || text != original.text || selectedTags != original.tags ||
-            customTagDrafts.contains { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ||
-            anonymous != original.anonymous || isPublic != original.public || selectedClaimID != original.claim.id ||
-            existingImages != original.images || !imageDrafts.isEmpty || isAddingImages
+        return title != original.title || text != original.text || selectedTags != original.tags
+            || customTagDrafts.contains {
+                !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } || anonymous != original.anonymous || isPublic != original.public
+            || selectedClaimID != original.claim.id || existingImages != original.images
+            || !imageDrafts.isEmpty || isAddingImages
     }
 
     var hasUploadingImages: Bool { imageDrafts.contains { $0.isUploading } }
@@ -127,10 +139,14 @@ final class GalleryComposerViewModel: ObservableObject {
     var isBusy: Bool { isSubmitting || isSavingDraft || isDiscardingDraft || isRestoringDraft }
 
     var draftSnapshot: GalleryComposerDraftSnapshot {
-        GalleryComposerDraftSnapshot(title: title, text: text, selectedTags: selectedTags,
+        GalleryComposerDraftSnapshot(
+            title: title, text: text, selectedTags: selectedTags,
             customTags: customTagDrafts.map(\.text), anonymous: anonymous, isPublic: isPublic,
-            selectedClaimID: selectedClaimID, images: imageDrafts.map {
-                .init(filename: $0.filename, previewData: $0.previewData, uploadData: $0.uploadData, uploadedImage: $0.uploadedImage)
+            selectedClaimID: selectedClaimID,
+            images: imageDrafts.map {
+                .init(
+                    filename: $0.filename, previewData: $0.previewData, uploadData: $0.uploadData,
+                    uploadedImage: $0.uploadedImage)
             })
     }
 
@@ -149,7 +165,8 @@ final class GalleryComposerViewModel: ObservableObject {
     func restoreDraft() async {
         let operation = generation
         guard editingPoster == nil, !isBusy, !isAddingImages, !hasUploadingImages,
-              !didPublish, isCurrent(operation) else { return }
+            !didPublish, isCurrent(operation)
+        else { return }
         isRestoringDraft = true
         defer { if generation == operation { isRestoringDraft = false } }
         let result = await drafts.loadGallery()
@@ -159,12 +176,20 @@ final class GalleryComposerViewModel: ObservableObject {
         var restored: [ComposerImageDraft] = []
         for image in draft.images {
             let uploadData: Data?
-            if let data = image.uploadData { uploadData = data }
-            else if image.uploadedImage == nil { uploadData = await prepareImageData(image.previewData) }
-            else { uploadData = nil }
+            if let data = image.uploadData {
+                uploadData = data
+            } else if image.uploadedImage == nil {
+                uploadData = await prepareImageData(image.previewData)
+            } else {
+                uploadData = nil
+            }
             guard isCurrent(operation) else { return }
-            restored.append(ComposerImageDraft(previewData: image.previewData, filename: image.filename,
-                uploadData: uploadData, status: image.uploadedImage.map(ComposerImageDraft.Status.uploaded) ?? .failed("需要重新上传")))
+            restored.append(
+                ComposerImageDraft(
+                    previewData: image.previewData, filename: image.filename,
+                    uploadData: uploadData,
+                    status: image.uploadedImage.map(ComposerImageDraft.Status.uploaded)
+                        ?? .failed("需要重新上传")))
         }
         title = draft.title
         text = draft.text
@@ -173,7 +198,8 @@ final class GalleryComposerViewModel: ObservableObject {
         anonymous = draft.anonymous
         isPublic = draft.isPublic
         selectedClaimID = draft.selectedClaimID
-        let savedClaim = claims.first { $0.id == draft.selectedClaimID }
+        let savedClaim =
+            claims.first { $0.id == draft.selectedClaimID }
             ?? CommunityClaim(id: draft.selectedClaimID, text: "已保存的声明")
         retainedClaim = savedClaim
         if !claims.contains(where: { $0.id == savedClaim.id }) { claims.append(savedClaim) }
@@ -220,8 +246,17 @@ final class GalleryComposerViewModel: ObservableObject {
             return saved
         }
         savingTask = task
-        defer { if generation == operation { savingTask = nil; isSavingDraft = false } }
-        let saved = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        defer {
+            if generation == operation {
+                savingTask = nil
+                isSavingDraft = false
+            }
+        }
+        let saved = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         return saved && isCurrent(operation)
     }
 
@@ -240,7 +275,9 @@ final class GalleryComposerViewModel: ObservableObject {
                 if let retainedClaim, !claims.contains(where: { $0.id == retainedClaim.id }) {
                     claims.append(retainedClaim)
                 }
-                if !claims.contains(where: { $0.id == selectedClaimID }) { selectedClaimID = claims.first?.id ?? 0 }
+                if !claims.contains(where: { $0.id == selectedClaimID }) {
+                    selectedClaimID = claims.first?.id ?? 0
+                }
             }
         } catch {
             guard isCurrent(operation), !TaskCancellation.matches(error) else { return }
@@ -250,14 +287,18 @@ final class GalleryComposerViewModel: ObservableObject {
 
     func combinedTags() -> [String] {
         var seen = Set<String>()
-        return Array((selectedTags + customTagDrafts.map(\.text))
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(10))
+        return Array(
+            (selectedTags + customTagDrafts.map(\.text))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty && seen.insert($0).inserted }.prefix(10))
     }
 
     func toggleTag(_ tag: String) {
-        if selectedTags.contains(tag) { selectedTags.removeAll { $0 == tag } }
-        else if selectedTags.count + customTagDrafts.count < 10 { selectedTags.append(tag) }
+        if selectedTags.contains(tag) {
+            selectedTags.removeAll { $0 == tag }
+        } else if selectedTags.count + customTagDrafts.count < 10 {
+            selectedTags.append(tag)
+        }
     }
 
     func addCustomTagDraft() {
@@ -265,7 +306,9 @@ final class GalleryComposerViewModel: ObservableObject {
         customTagDrafts.append(GalleryCustomTagDraft())
     }
 
-    func removeCustomTagDraft(id: GalleryCustomTagDraft.ID) { customTagDrafts.removeAll { $0.id == id } }
+    func removeCustomTagDraft(id: GalleryCustomTagDraft.ID) {
+        customTagDrafts.removeAll { $0.id == id }
+    }
     func removeExistingImage(id: CommunityImage.ID) { existingImages.removeAll { $0.id == id } }
 
     func removeImageDraft(id: ComposerImageDraft.ID) { imageUploads.remove(id: id) }
@@ -288,7 +331,8 @@ final class GalleryComposerViewModel: ObservableObject {
 
     private func refreshPublicationReview(_ operation: Int) async {
         do {
-            let pending = try await drafts.loadPublication(kind: .gallery, owner: owner.accountIdentifier)
+            let pending = try await drafts.loadPublication(
+                kind: .gallery, owner: owner.accountIdentifier)
             guard isCurrent(operation) else { return }
             publicationReview = pending.map(ComposerPublicationReviewState.pending) ?? .ready
         } catch {
@@ -298,7 +342,7 @@ final class GalleryComposerViewModel: ObservableObject {
         }
     }
 
-    func acknowledgePublicationReview() async {
+    func confirmPublicationReview() async {
         let operation = generation
         guard publicationReview.needsReview, !isBusy, isCurrent(operation) else { return }
         isSavingDraft = true
@@ -306,10 +350,10 @@ final class GalleryComposerViewModel: ObservableObject {
             do {
                 switch publicationReview {
                 case .ready: return true
-                case let .pending(attempt):
+                case .pending(let attempt):
                     _ = try await drafts.finishPublication(attempt)
                 case .requiresRecovery:
-                    try await drafts.resetPublicationsAfterReview(owner: owner.accountIdentifier)
+                    try await drafts.resetReviewedPublications(owner: owner.accountIdentifier)
                 }
                 guard isCurrent(operation) else { return false }
                 await refreshPublicationReview(operation)
@@ -323,7 +367,10 @@ final class GalleryComposerViewModel: ObservableObject {
         }
         savingTask = task
         _ = await task.value
-        if generation == operation { savingTask = nil; isSavingDraft = false }
+        if generation == operation {
+            savingTask = nil
+            isSavingDraft = false
+        }
     }
 
     func submit() async -> Bool {
@@ -339,13 +386,23 @@ final class GalleryComposerViewModel: ObservableObject {
         let tags = combinedTags()
         let uploaded = imageDrafts.compactMap(\.uploadedImage)
         let issue: String?
-        if title.isEmpty { issue = "请填写标题。" }
-        else if text.isEmpty { issue = "请填写正文。" }
-        else if tags.count < 2 { issue = "请至少添加 2 个标签。" }
-        else if isAddingImages || hasUploadingImages { issue = "图片仍在上传，请稍候。" }
-        else if uploaded.count != imageDrafts.count { issue = "请重试上传失败的图片，或移除图片后继续。" }
-        else { issue = nil }
-        if let issue { alert = .userInput(title: "发布失败", message: issue); return false }
+        if title.isEmpty {
+            issue = "请填写标题。"
+        } else if text.isEmpty {
+            issue = "请填写正文。"
+        } else if tags.count < 2 {
+            issue = "请至少添加 2 个标签。"
+        } else if isAddingImages || hasUploadingImages {
+            issue = "图片仍在上传，请稍候。"
+        } else if uploaded.count != imageDrafts.count {
+            issue = "请重试上传失败的图片，或移除图片后继续。"
+        } else {
+            issue = nil
+        }
+        if let issue {
+            alert = .userInput(title: "发布失败", message: issue)
+            return false
+        }
         let mids = existingImages.map(\.mid) + uploaded.map(\.mid)
         let anonymous = self.anonymous
         let isPublic = self.isPublic
@@ -357,19 +414,24 @@ final class GalleryComposerViewModel: ObservableObject {
             var publication: ComposerPublicationAttempt?
             do {
                 if let editingPoster {
-                    try await service.updatePoster(id: editingPoster.id, title: title, text: text, imageMids: mids,
-                        plugins: editingPoster.plugins, anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
+                    try await service.updatePoster(
+                        id: editingPoster.id, title: title, text: text, imageMids: mids,
+                        plugins: editingPoster.plugins, anonymous: anonymous, tags: tags,
+                        claimID: claimID, isPublic: isPublic)
                 } else {
-                    let content = ComposerPublicationContent.gallery(title: title, text: text, imageMids: mids,
+                    let content = ComposerPublicationContent.gallery(
+                        title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
-                    let started = try await drafts.beginPublication(content, owner: owner.accountIdentifier)
+                    let started = try await drafts.beginPublication(
+                        content, owner: owner.accountIdentifier)
                     switch started {
-                    case let .pending(attempt):
+                    case .pending(let attempt):
                         guard isCurrent(operation) else { return false }
                         publicationReview = .pending(attempt)
-                        alert = AppAlert(title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+                        alert = AppAlert(
+                            title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
                         return false
-                    case let .started(attempt):
+                    case .started(let attempt):
                         publication = attempt
                     }
                     guard isCurrent(operation) else {
@@ -377,7 +439,8 @@ final class GalleryComposerViewModel: ObservableObject {
                         return false
                     }
                     if let publication { publicationReview = .pending(publication) }
-                    _ = try await service.createPoster(title: title, text: text, imageMids: mids,
+                    _ = try await service.createPoster(
+                        title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
                 }
                 guard isCurrent(operation) else { return false }
@@ -387,10 +450,16 @@ final class GalleryComposerViewModel: ObservableObject {
                     Task {
                         if await cleanup() {
                             if let acceptedPublication {
-                                do { _ = try await drafts.finishPublication(acceptedPublication) }
-                                catch { Self.logger.error("清理已发布事务受阻：\(String(describing: error), privacy: .private)") }
+                                do {
+                                    _ = try await drafts.finishPublication(acceptedPublication)
+                                } catch {
+                                    Self.logger.error(
+                                        "清理已发布事务受阻：\(String(describing: error), privacy: .private)")
+                                }
                             }
-                        } else { Self.logger.error("已发布内容的草稿清理受阻，保留原草稿供后续处理。") }
+                        } else {
+                            Self.logger.error("已发布内容的草稿清理受阻，保留原草稿供后续处理。")
+                        }
                     }
                 }
                 return isCurrent(operation)
@@ -413,9 +482,12 @@ final class GalleryComposerViewModel: ObservableObject {
                             } catch {
                                 guard isCurrent(operation) else { return false }
                                 publicationReview = .requiresRecovery
-                                Self.logger.error("结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
+                                Self.logger.error(
+                                    "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
                             }
-                        } else { publicationReview = .requiresRecovery }
+                        } else {
+                            publicationReview = .requiresRecovery
+                        }
                     }
                     alert = AppAlert(title: "发布失败", error: error)
                 }
@@ -423,8 +495,17 @@ final class GalleryComposerViewModel: ObservableObject {
             }
         }
         submissionTask = task
-        defer { if generation == operation { submissionTask = nil; isSubmitting = false } }
-        let submitted = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        defer {
+            if generation == operation {
+                submissionTask = nil
+                isSubmitting = false
+            }
+        }
+        let submitted = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         return submitted && isCurrent(operation)
     }
 }

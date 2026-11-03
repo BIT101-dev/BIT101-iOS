@@ -11,12 +11,17 @@ import UIKit
 /// 串行 actor 将快速滑过多个 GIF 的帧创建排队，有上限的内存缓存复用最近解码结果。
 actor RemoteAnimatedImageDecoder {
     private nonisolated let executor = StorageFileExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
     private let files: any AppFileService
     func clear() { images.removeAllObjects() }
     private let maximumDecodedBytes: Int
 
-    init(files: any AppFileService, maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes / 2) {
+    init(
+        files: any AppFileService,
+        maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes / 2
+    ) {
         self.files = files
         self.maximumDecodedBytes = maximumDecodedBytes
         images.totalCostLimit = maximumDecodedBytes
@@ -32,41 +37,71 @@ actor RemoteAnimatedImageDecoder {
     func image(at file: URL, reduceMotion: Bool, maximumPixelSize: Int? = nil) -> UIImage? {
         guard !Task.isCancelled else { return nil }
         guard let identity = files.atomicFileIdentity(at: file) else { return nil }
-        let key = "\(files.canonicalFileURL(file).path)|\(identity)|reduce-motion:\(reduceMotion)|pixels:\(maximumPixelSize ?? 0)" as NSString
+        let key =
+            """
+            \(files.canonicalFileURL(file).path)|\(identity)|reduce-motion:\(reduceMotion)|\
+            pixels:\(maximumPixelSize ?? 0)
+            """
+            as NSString
         if let cached = images.object(forKey: key) {
             return cached
         }
-        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else { return nil }
-        return decode(data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else {
+            return nil
+        }
+        return decode(
+            data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
     }
 
-    func image(from source: RemoteImageSource, reduceMotion: Bool, maximumPixelSize: Int? = nil) -> UIImage? {
+    func image(from source: RemoteImageSource, reduceMotion: Bool, maximumPixelSize: Int? = nil)
+        -> UIImage?
+    {
         guard !Task.isCancelled else { return nil }
         switch source {
-        case .file(let file): return image(at: file, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+        case .file(let file):
+            return image(
+                at: file, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
         case .memory(let data, let identity):
-            let key = "memory:\(identity)|reduce-motion:\(reduceMotion)|pixels:\(maximumPixelSize ?? 0)" as NSString
+            let key =
+                """
+                memory:\(identity)|reduce-motion:\(reduceMotion)|pixels:\
+                \(maximumPixelSize ?? 0)
+                """
+                as NSString
             if let cached = images.object(forKey: key) { return cached }
-            return decode(data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+            return decode(
+                data, key: key, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
         }
     }
 
-    private func decode(_ data: Data, key: NSString, reduceMotion: Bool, maximumPixelSize: Int?) -> UIImage? {
-        guard let decoded = Self.animatedImage(from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
-                                               maximumPixelSize: maximumPixelSize) else { return nil }
+    private func decode(_ data: Data, key: NSString, reduceMotion: Bool, maximumPixelSize: Int?)
+        -> UIImage?
+    {
+        guard
+            let decoded = Self.animatedImage(
+                from: data, reduceMotion: reduceMotion, budget: maximumDecodedBytes,
+                maximumPixelSize: maximumPixelSize)
+        else { return nil }
         let decodedCost = MediaDisplayBudget.decodedBytes(decoded)
         images.setObject(decoded, forKey: key, cost: max(decodedCost, data.count))
         return decoded
     }
 
     /// 将 GIF 各帧解码成可由 `UIImageView` 循环播放的动画。
-    private nonisolated static func animatedImage(from data: Data, reduceMotion: Bool, budget: Int, maximumPixelSize: Int?) -> UIImage? {
-        guard let source = RemoteImageResourceLimits.completeImageSource(from: data) else { return nil }
-        let count = reduceMotion ? min(CGImageSourceGetCount(source), 1) : CGImageSourceGetCount(source)
+    private nonisolated static func animatedImage(
+        from data: Data, reduceMotion: Bool, budget: Int, maximumPixelSize: Int?
+    ) -> UIImage? {
+        guard let source = RemoteImageResourceLimits.completeImageSource(from: data) else {
+            return nil
+        }
+        let count =
+            reduceMotion ? min(CGImageSourceGetCount(source), 1) : CGImageSourceGetCount(source)
         let stride = MemoryLayout<UIImage>.stride
-        guard count > 0, count < budget / (MemoryLayout<Int>.stride + stride) else { return nil }
+        guard count > 0, count < budget / (MemoryLayout<Int>.stride + stride) else {
+            return nil
+        }
         var ticks: [Int] = []
-        for index in 0 ..< count {
+        for index in 0..<count {
             guard !Task.isCancelled else { return nil }
             let delay = frameDelay(source: source, index: index)
             guard delay.isFinite, delay * 100 < Double(Int.max) else { return nil }
@@ -89,23 +124,29 @@ actor RemoteAnimatedImageDecoder {
             guard !overflow, sum < budget / stride else { return nil }
             expandedCount = sum
         }
-        let bookkeepingBytes = count * (MemoryLayout<Int>.stride + stride) + expandedCount * stride
+        let bookkeepingBytes =
+            count * (MemoryLayout<Int>.stride + stride) + expandedCount * stride
         var pixelBudget = budget - bookkeepingBytes
         guard pixelBudget >= count * 4 else { return nil }
         let perFrameBudget = pixelBudget / count
         var frames: [UIImage] = []
-        for index in 0 ..< count {
+        for index in 0..<count {
             guard !Task.isCancelled,
-                  let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
-                  let width = properties[kCGImagePropertyPixelWidth] as? Double,
-                  let height = properties[kCGImagePropertyPixelHeight] as? Double,
-                  width > 0, height > 0 else { return nil }
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil)
+                    as? [CFString: Any],
+                let width = properties[kCGImagePropertyPixelWidth] as? Double,
+                let height = properties[kCGImagePropertyPixelHeight] as? Double,
+                width > 0, height > 0
+            else { return nil }
             let scale = min(1, (Double(perFrameBudget) / (width * height * 4)).squareRoot())
             let budgetSide = max(Int((max(width, height) * scale).rounded(.down)), 1)
             let side = min(budgetSide, maximumPixelSize ?? budgetSide)
             guard side > 0 else { return nil }
-            guard let image = BoundedStillImageDecoder.thumbnail(from: source, at: index,
-                maximumPixelSize: side, maximumDecodedBytes: perFrameBudget) else { return nil }
+            guard
+                let image = BoundedStillImageDecoder.thumbnail(
+                    from: source, at: index,
+                    maximumPixelSize: side, maximumDecodedBytes: perFrameBudget)
+            else { return nil }
             pixelBudget -= image.bytesPerRow * image.height
             let frame = UIImage(cgImage: image)
             if count == 1 { return frame }
@@ -115,9 +156,12 @@ actor RemoteAnimatedImageDecoder {
         return UIImage.animatedImage(with: frames, duration: duration)
     }
 
-    private nonisolated static func frameDelay(source: CGImageSource, index: Int) -> TimeInterval {
+    private nonisolated static func frameDelay(source: CGImageSource, index: Int)
+        -> TimeInterval
+    {
         guard
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil)
+                as? [CFString: Any],
             let gif = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any]
         else { return 0.1 }
 
@@ -177,9 +221,11 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         imageView.isUserInteractionEnabled = false
         imageView.layer.cornerRadius = cornerRadius
         if isActive, maximumPixelSize != 0 {
-            context.coordinator.load(url: url, into: imageView, media: media, reduceMotion: reduceMotion,
-                                     retryGeneration: media.imageRetryGeneration, budgetGeneration: media.displayBudget.releaseGeneration,
-                                     maximumPixelSize: maximumPixelSize, onPhaseChange: onPhaseChange)
+            context.coordinator.load(
+                url: url, into: imageView, media: media, reduceMotion: reduceMotion,
+                retryGeneration: media.imageRetryGeneration,
+                budgetGeneration: media.displayBudget.releaseGeneration,
+                maximumPixelSize: maximumPixelSize, onPhaseChange: onPhaseChange)
         } else {
             context.coordinator.cancel(imageView: imageView)
         }
@@ -202,14 +248,21 @@ struct RemoteAnimatedImage: UIViewRepresentable {
         private var requestGeneration: UInt64 = 0
         private var task: Task<Void, Never>?
 
-        func load(url: URL, into imageView: UIImageView, media: MediaEnvironment,
-                  reduceMotion: Bool = false, retryGeneration: UInt64 = 0, budgetGeneration: UInt64 = 0, maximumPixelSize: Int? = nil,
-                  onPhaseChange: (@MainActor (RemoteAnimatedImagePhase) -> Void)? = nil) {
-            let sameResource = currentURL == url && self.media === media && currentReduceMotion == reduceMotion
+        func load(
+            url: URL, into imageView: UIImageView, media: MediaEnvironment,
+            reduceMotion: Bool = false, retryGeneration: UInt64 = 0,
+            budgetGeneration: UInt64 = 0, maximumPixelSize: Int? = nil,
+            onPhaseChange: (@MainActor (RemoteAnimatedImagePhase) -> Void)? = nil
+        ) {
+            let sameResource =
+                currentURL == url && self.media === media && currentReduceMotion == reduceMotion
                 && currentPixelSize == maximumPixelSize
             if sameResource, imageView.image != nil { return }
             if sameResource, currentRetryGeneration == retryGeneration,
-               !displayed.waitingForBudget || currentBudgetGeneration == budgetGeneration { return }
+                !displayed.waitingForBudget || currentBudgetGeneration == budgetGeneration
+            {
+                return
+            }
             self.media = media
             currentURL = url
             currentReduceMotion = reduceMotion
@@ -233,11 +286,17 @@ struct RemoteAnimatedImage: UIViewRepresentable {
                 }
                 onPhaseChange?(.loading)
                 do {
-                    let decoded = try await media.images.withSource(for: url) { @MainActor [media] source in
-                        await media.animatedDecoder.image(from: source, reduceMotion: reduceMotion, maximumPixelSize: maximumPixelSize)
+                    let decoded = try await media.images.withSource(for: url) {
+                        @MainActor [media] source in
+                        await media.animatedDecoder.image(
+                            from: source, reduceMotion: reduceMotion,
+                            maximumPixelSize: maximumPixelSize)
                     }
-                    guard !Task.isCancelled, self?.currentURL == url, self?.media === media, let decoded, let imageView else { return }
-                    guard self?.displayed.set(decoded, budget: media.displayBudget) == true else { return }
+                    guard !Task.isCancelled, self?.currentURL == url, self?.media === media,
+                        let decoded, let imageView
+                    else { return }
+                    guard self?.displayed.set(decoded, budget: media.displayBudget) == true
+                    else { return }
                     imageView.image = decoded
                     didLoadImage = true
                     onPhaseChange?(.ready)
@@ -245,7 +304,8 @@ struct RemoteAnimatedImage: UIViewRepresentable {
                         imageView.startAnimating()
                     }
                 } catch {
-                    guard !Task.isCancelled, self?.currentURL == url, self?.media === media else { return }
+                    guard !Task.isCancelled, self?.currentURL == url, self?.media === media
+                    else { return }
                     imageView?.stopAnimating()
                     imageView?.image = nil
                 }
@@ -280,8 +340,10 @@ public struct RemoteAutoplayingImage: View {
     public var body: some View {
         ZStack {
             if isActive, phase != .ready {
-                RemoteCachedStillImage(url: fallbackURL ?? url, fallbackURL: url, contentMode: contentMode)
-                    .clipShape(AppDesignSystem.roundedRectangle(cornerRadius))
+                RemoteCachedStillImage(
+                    url: fallbackURL ?? url, fallbackURL: url, contentMode: contentMode
+                )
+                .clipShape(AppDesignSystem.roundedRectangle(cornerRadius))
             }
             RemoteAnimatedImage(
                 url: url,
@@ -302,12 +364,20 @@ public struct RemoteAutoplayingImage: View {
             if !visible { phase = .loading }
         }
         .onAppear { isActive = isVisible }
-        .onDisappear { isActive = false; phase = .loading }
+        .onDisappear {
+            isActive = false
+            phase = .loading
+        }
         .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
             Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
-        } action: { pixelSize = $0 }
+        } action: {
+            pixelSize = $0
+        }
     }
-    public init(url: URL, fallbackURL: URL? = nil, contentMode: ContentMode = .fit, cornerRadius: CGFloat = AppDesignSystem.Spacing.none) {
+    public init(
+        url: URL, fallbackURL: URL? = nil, contentMode: ContentMode = .fit,
+        cornerRadius: CGFloat = AppDesignSystem.Spacing.none
+    ) {
         self.url = url
         self.fallbackURL = fallbackURL
         self.contentMode = contentMode

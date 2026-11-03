@@ -3,9 +3,9 @@
 //  BIT101-iOS
 //
 
+import ClientCore
 import Foundation
 import Security
-import ClientCore
 
 /// 本地保存的登录凭据。
 ///
@@ -24,7 +24,10 @@ nonisolated struct RegistrationCompletionError: LocalizedError, CustomNSError {
             : "注册或重置结果待确认。请返回登录页，使用刚设置的新密码登录以确认结果。"
     }
     var errorUserInfo: [String: Any] {
-        [NSUnderlyingErrorKey: underlying, NSLocalizedDescriptionKey: errorDescription ?? "注册或重置结果待确认。"]
+        [
+            NSUnderlyingErrorKey: underlying,
+            NSLocalizedDescriptionKey: errorDescription ?? "注册或重置结果待确认。",
+        ]
     }
 }
 
@@ -69,9 +72,9 @@ enum LoginServiceError: LocalizedError {
             return "学校要求图形验证码，请选择校园邮箱完成身份验证。"
         case .schoolSMSRequired:
             return "学校统一身份认证需要短信验证。"
-        case let .schoolSMSCodeInvalid(message):
+        case .schoolSMSCodeInvalid(let message):
             return message
-        case let .schoolSMSUnavailable(message):
+        case .schoolSMSUnavailable(let message):
             return message
         case .unableToRestoreSchoolSession:
             return "学校登录状态已过期，且缺少可用于静默恢复的本地凭据。"

@@ -1,9 +1,13 @@
 import CommunityCore
 import CommunityUI
-import ScheduleFeature
-import MediaKit
-import TransportCore
 import DesignSystemKit
+import MediaKit
+import PhotosUI
+import ScheduleFeature
+import SwiftUI
+import TransportCore
+import UIKit
+
 //
 //  SettingsRootView.swift
 //  BIT101-iOS
@@ -11,11 +15,21 @@ import DesignSystemKit
 //  Created by Codex on 2026-03-24.
 //
 
-import PhotosUI
-import SwiftUI
-import UIKit
-
-let mitLicenseText = "MIT License Copyright (c) 2026 BIT101 Contributors Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE."
+let mitLicenseText =
+    """
+    MIT License Copyright (c) 2026 BIT101 Contributors Permission is hereby granted, free of ch\
+    arge, to any person obtaining a copy of this software and associated documentation files (t\
+    he \"Software\"), to deal in the Software without restriction, including without limitation\
+     the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copie\
+    s of the Software, and to permit persons to whom the Software is furnished to do so, subjec\
+    t to the following conditions: The above copyright notice and this permission notice shall \
+    be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED\
+     \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO \
+    THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN\
+     NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER \
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN \
+    CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    """
 
 /// 此枚举定义设置中心的一级菜单。
 ///
@@ -82,9 +96,12 @@ struct SettingsRootView: View {
     var body: some View {
         Group {
             if let initialRoute {
-                SettingsRoutePage(route: initialRoute, studentID: studentID, onLogout: onLogout, dependencies: dependencies)
+                SettingsRoutePage(
+                    route: initialRoute, studentID: studentID, onLogout: onLogout,
+                    dependencies: dependencies)
             } else {
-                SettingsIndexPage(studentID: studentID, onLogout: onLogout, dependencies: dependencies)
+                SettingsIndexPage(
+                    studentID: studentID, onLogout: onLogout, dependencies: dependencies)
             }
         }
         .environmentObject(dependencies.settings)
@@ -99,7 +116,7 @@ struct SettingsRootView: View {
                     Button("取消") {
                         dismiss()
                     }
-                        .accessibilityIdentifier("ui.settings-root-view.cancel")
+                    .accessibilityIdentifier("ui.settings-root-view.cancel")
                 }
             }
         }
@@ -153,15 +170,17 @@ private struct SettingsIndexPage: View {
                             SettingsIndexCard(route: route)
                         }
                         .buttonStyle(.plain)
-                            .accessibilityIdentifier("ui.settings-index-page.suggestion")
+                        .accessibilityIdentifier("ui.settings-index-page.suggestion")
                     } else {
                         NavigationLink {
-                            SettingsRoutePage(route: route, studentID: studentID, onLogout: onLogout, dependencies: dependencies)
+                            SettingsRoutePage(
+                                route: route, studentID: studentID, onLogout: onLogout,
+                                dependencies: dependencies)
                         } label: {
                             SettingsIndexCard(route: route)
                         }
                         .buttonStyle(.plain)
-                            .accessibilityIdentifier("ui.settings-index-page.destination")
+                        .accessibilityIdentifier("ui.settings-index-page.destination")
                     }
                 }
             }
@@ -203,17 +222,21 @@ private struct SettingsRoutePage: View {
         Group {
             switch route {
             case .account:
-                AccountSettingsPage(dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
+                AccountSettingsPage(
+                    dependencies: dependencies.account, studentID: studentID, onLogout: onLogout)
             case .calendar:
-                AppCalendarSettingsPage(viewModel: scheduleViewModel, scheduleCloudSync: dependencies.scheduleCloudSync)
+                AppCalendarSettingsPage(
+                    viewModel: scheduleViewModel, scheduleCloudSync: dependencies.scheduleCloudSync)
             case .ddl:
                 DDLSettingsPage(viewModel: scheduleViewModel.ddl)
             case .gallery:
-                GallerySettingsPage(media: dependencies.media, diagnosis: dependencies.networkDiagnosis)
+                GallerySettingsPage(
+                    media: dependencies.media, diagnosis: dependencies.networkDiagnosis)
             case .suggestion:
                 DeveloperSuggestionPage(dependencies: dependencies.suggestion)
             case .about:
-                AboutSettingsPage(onLogout: onLogout, localData: dependencies.localData,
+                AboutSettingsPage(
+                    onLogout: onLogout, localData: dependencies.localData,
                     updates: dependencies.updates, prompts: dependencies.prompts)
             }
         }
@@ -252,10 +275,13 @@ nonisolated struct DeveloperSuggestionPayload: FeedbackSubmissionPayload, Codabl
 
     func draftMetadata(matching draft: DeveloperSuggestionDraftSnapshot) throws -> Data? {
         guard comment == draft.text.trimmingCharacters(in: .whitespacesAndNewlines),
-              (contact ?? "") == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
-              attachments == Self.attachments(from: draft) else { return nil }
+            (contact ?? "") == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
+            attachments == Self.attachments(from: draft)
+        else { return nil }
         var metadata = self
-        metadata.attachments = attachments.map { .init(filename: $0.filename, contentType: $0.contentType, data: "") }
+        metadata.attachments = attachments.map {
+            .init(filename: $0.filename, contentType: $0.contentType, data: "")
+        }
         return try JSONEncoder().encode(metadata)
     }
 
@@ -264,18 +290,25 @@ nonisolated struct DeveloperSuggestionPayload: FeedbackSubmissionPayload, Codabl
         var payload = try JSONDecoder().decode(Self.self, from: metadata)
         let images = attachments(from: draft)
         guard payload.comment == draft.text.trimmingCharacters(in: .whitespacesAndNewlines),
-              (payload.contact ?? "") == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
-              payload.attachments.count == images.count,
-              zip(payload.attachments, images).allSatisfy({
-                  $0.filename == $1.filename && $0.contentType == $1.contentType && $0.data.isEmpty
-              }) else { throw CocoaError(.fileReadCorruptFile) }
+            (payload.contact ?? "")
+                == draft.contact.trimmingCharacters(in: .whitespacesAndNewlines),
+            payload.attachments.count == images.count,
+            zip(payload.attachments, images).allSatisfy({
+                $0.filename == $1.filename && $0.contentType == $1.contentType && $0.data.isEmpty
+            })
+        else { throw CocoaError(.fileReadCorruptFile) }
         payload.attachments = images
         return payload
     }
 
-    private static func attachments(from draft: DeveloperSuggestionDraftSnapshot) -> [DeveloperSuggestionAttachment] {
-        draft.images.map { .init(filename: $0.filename, contentType: "image/jpeg",
-            data: ($0.uploadData ?? $0.previewData).base64EncodedString()) }
+    private static func attachments(from draft: DeveloperSuggestionDraftSnapshot)
+        -> [DeveloperSuggestionAttachment]
+    {
+        draft.images.map {
+            .init(
+                filename: $0.filename, contentType: "image/jpeg",
+                data: ($0.uploadData ?? $0.previewData).base64EncodedString())
+        }
     }
 }
 
@@ -294,20 +327,28 @@ struct DeveloperSuggestionDependencies {
     private let send: (DeveloperSuggestionPayload) async throws -> Void
     private let captureSubmissionOwner: () -> () -> Bool
 
-    init(drafts: any DeveloperSuggestionDraftStoring, submit: @escaping (DeveloperSuggestionPayload) async throws -> Void,
-         captureSubmissionOwner: @escaping () -> () -> Bool = { { true } }) {
+    init(
+        drafts: any DeveloperSuggestionDraftStoring,
+        submit: @escaping (DeveloperSuggestionPayload) async throws -> Void,
+        captureSubmissionOwner: @escaping () -> () -> Bool = { { true } }
+    ) {
         self.drafts = drafts
         self.send = submit
         self.captureSubmissionOwner = captureSubmissionOwner
     }
 
     @discardableResult
-    func submitAndClear(_ payload: DeveloperSuggestionPayload, persisting draft: DeveloperSuggestionDraftSnapshot? = nil) async throws -> Task<Bool, Never> {
+    func submitAndClear(
+        _ payload: DeveloperSuggestionPayload,
+        persisting draft: DeveloperSuggestionDraftSnapshot? = nil
+    ) async throws -> Task<Bool, Never> {
         let ownerIsCurrent = captureSubmissionOwner()
         let persisted: Bool
         if let draft {
             persisted = await drafts.saveSuggestion(draft)
-        } else { persisted = true }
+        } else {
+            persisted = true
+        }
         guard ownerIsCurrent() else { throw CancellationError() }
         let cleanup = persisted ? await drafts.captureSuggestionCleanup() : nil
         guard ownerIsCurrent() else { throw CancellationError() }
@@ -365,23 +406,27 @@ struct DeveloperSuggestionPage: View {
             }
 
             Section("联系方式（可选）") {
-                TextField("", text: $contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical)
-                    .lineLimit(1 ... 3)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .focused($isContactFocused)
-                    .accessibilityLabel("联系方式")
-                    .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
-                    .accessibilityIdentifier("ui.developer-suggestion-page.联系方式")
+                TextField(
+                    "", text: $contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical
+                )
+                .lineLimit(1...3)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($isContactFocused)
+                .accessibilityLabel("联系方式")
+                .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
+                .accessibilityIdentifier("ui.developer-suggestion-page.联系方式")
             }
 
             Section("图片（可选）") {
-                PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
+                PhotosPicker(
+                    selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images
+                ) {
                     Text("插入图片")
                 }
                 .disabled(isSubmitting || isLoadingImages || imageDrafts.count >= 6)
                 .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.developer-suggestion-page.插入图片")
+                .accessibilityIdentifier("ui.developer-suggestion-page.插入图片")
 
                 if !imageDrafts.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -432,55 +477,69 @@ struct DeveloperSuggestionPage: View {
                 Alert(
                     title: Text("将恢复内容作为新建议？"),
                     message: Text("上一份建议可能已经送达。确认后保留当前文字和图片，后续提交将建立另一份建议。"),
-                    primaryButton: .default(Text("继续编辑"), action: {
-                        submissionAttempt.restore(nil)
-                        submissionRecoveryFailed = false
-                    }),
+                    primaryButton: .default(
+                        Text("继续编辑"),
+                        action: {
+                            submissionAttempt.restore(nil)
+                            submissionRecoveryFailed = false
+                        }),
                     secondaryButton: .cancel(Text("返回核对"))
                 )
             case .saveDraft:
                 Alert(
                     title: Text("保存草稿？"),
                     message: Text("保存后下次打开时可以加载草稿。"),
-                    primaryButton: .default(Text("保存草稿"), action: {
-                        Task {
-                            if await saveDraft() {
-                                dismiss()
-                            } else {
-                                alert = AppAlert.informational(
-                                    title: "草稿暂存遇到问题",
-                                    message: "当前页面内容已保留，请稍后重试保存。"
-                                )
+                    primaryButton: .default(
+                        Text("保存草稿"),
+                        action: {
+                            Task {
+                                if await saveDraft() {
+                                    dismiss()
+                                } else {
+                                    alert = AppAlert.informational(
+                                        title: "草稿暂存遇到问题",
+                                        message: "当前页面内容已保留，请稍后重试保存。"
+                                    )
+                                }
                             }
-                        }
-                    }),
-                    secondaryButton: .cancel(Text("不保存"), action: {
-                        Task {
-                            if await discardDraft() { dismiss() }
-                        }
-                    })
+                        }),
+                    secondaryButton: .cancel(
+                        Text("不保存"),
+                        action: {
+                            Task {
+                                if await discardDraft() { dismiss() }
+                            }
+                        })
                 )
             case .restoreDraft:
                 Alert(
                     title: Text("加载草稿？"),
                     message: Text("发现上次保存的建议草稿。"),
-                    primaryButton: .default(Text("加载草稿"), action: {
-                        startImageTask { await loadSavedDraft() }
-                    }),
-                    secondaryButton: .cancel(Text("不加载"), action: {
-                        Task { _ = await discardDraft() }
-                    })
+                    primaryButton: .default(
+                        Text("加载草稿"),
+                        action: {
+                            startImageTask { await loadSavedDraft() }
+                        }),
+                    secondaryButton: .cancel(
+                        Text("不加载"),
+                        action: {
+                            Task { _ = await discardDraft() }
+                        })
                 )
             case .missingContact:
                 Alert(
                     title: Text("你没有填写联系方式"),
                     message: Text("开发者非常希望与你沟通，向你反馈。"),
-                    primaryButton: .default(Text("继续提交"), action: {
-                        Task { await submit() }
-                    }),
-                    secondaryButton: .cancel(Text("返回补充"), action: {
-                        isContactFocused = true
-                    })
+                    primaryButton: .default(
+                        Text("继续提交"),
+                        action: {
+                            Task { await submit() }
+                        }),
+                    secondaryButton: .cancel(
+                        Text("返回补充"),
+                        action: {
+                            isContactFocused = true
+                        })
                 )
             }
         }
@@ -489,7 +548,10 @@ struct DeveloperSuggestionPage: View {
 
     private func requestSubmission() {
         guard !isBusy else { return }
-        if submissionRecoveryFailed { confirmation = .rebuildSubmission; return }
+        if submissionRecoveryFailed {
+            confirmation = .rebuildSubmission
+            return
+        }
         if contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             confirmation = .missingContact
         } else {
@@ -510,10 +572,12 @@ struct DeveloperSuggestionPage: View {
             alert = AppAlert.userInput(title: "提交失败", message: "图片仍在处理中，请稍候。")
             return
         }
-        guard imageDrafts.allSatisfy({
-            if case .prepared = $0.status { return true }
-            return false
-        }) else {
+        guard
+            imageDrafts.allSatisfy({
+                if case .prepared = $0.status { return true }
+                return false
+            })
+        else {
             alert = AppAlert.userInput(title: "提交失败", message: "有图片未处理完成，请删除后重新选择。")
             return
         }
@@ -528,8 +592,10 @@ struct DeveloperSuggestionPage: View {
                     contact: contact.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? nil
                         : contact.trimmingCharacters(in: .whitespacesAndNewlines),
-                    appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
-                    build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?",
+                    appVersion: Bundle.main.object(
+                        forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?",
+                    build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+                        ?? "?",
                     systemVersion: UIDevice.current.systemVersion,
                     deviceModel: UIDevice.current.model,
                     networkStatus: context.networkStatus,
@@ -569,7 +635,10 @@ struct DeveloperSuggestionPage: View {
         isUpdatingDraft = true
         defer { isUpdatingDraft = false }
         let removed = await dependencies.drafts.removeSuggestion()
-        if removed { submissionAttempt.restore(nil); submissionRecoveryFailed = false }
+        if removed {
+            submissionAttempt.restore(nil)
+            submissionRecoveryFailed = false
+        }
         if !removed {
             alert = AppAlert.informational(title: "草稿清理遇到问题", message: "当前页面内容已保留，请稍后重试清理。")
         }
@@ -582,16 +651,22 @@ struct DeveloperSuggestionPage: View {
         defer { isUpdatingDraft = false }
         await imageTask?.value
         guard !Task.isCancelled, !submissionRecoveryFailed else { return false }
-        do { return await dependencies.drafts.saveSuggestion(try draftSnapshot()) }
-        catch { return false }
+        do { return await dependencies.drafts.saveSuggestion(try draftSnapshot()) } catch {
+            return false
+        }
     }
 
     private func draftSnapshot() throws -> DeveloperSuggestionDraftSnapshot {
-        let images = imageDrafts.map { ComposerImageDraftSnapshot(filename: $0.filename,
-            previewData: $0.previewData, uploadData: $0.uploadData) }
+        let images = imageDrafts.map {
+            ComposerImageDraftSnapshot(
+                filename: $0.filename,
+                previewData: $0.previewData, uploadData: $0.uploadData)
+        }
         let draft = DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact)
-        return DeveloperSuggestionDraftSnapshot(text: text, images: images, contact: contact,
-            pendingSubmissionMetadata: try submissionAttempt.pending?.draftMetadata(matching: draft))
+        return DeveloperSuggestionDraftSnapshot(
+            text: text, images: images, contact: contact,
+            pendingSubmissionMetadata: try submissionAttempt.pending?.draftMetadata(matching: draft)
+        )
     }
 
     private func checkDraftOnAppear() async {
@@ -599,8 +674,9 @@ struct DeveloperSuggestionPage: View {
         let result = await dependencies.drafts.loadSuggestion()
         guard !Task.isCancelled else { return }
         didCheckDraft = true
-        if result.snapshot != nil { confirmation = .restoreDraft }
-        else if let message = result.recoveryMessage {
+        if result.snapshot != nil {
+            confirmation = .restoreDraft
+        } else if let message = result.recoveryMessage {
             alert = AppAlert.informational(title: "建议草稿恢复需要处理", message: message)
         }
     }
@@ -625,7 +701,8 @@ struct DeveloperSuggestionPage: View {
             }
         } catch {
             submissionRecoveryFailed = true
-            alert = AppAlert.informational(title: "建议内容已部分恢复", message: "文字与可用图片已保留。请核对内容，并选择使用恢复内容继续编辑。")
+            alert = AppAlert.informational(
+                title: "建议内容已部分恢复", message: "文字与可用图片已保留。请核对内容，并选择使用恢复内容继续编辑。")
         }
         imageDrafts = draft.images.map {
             ComposerImageDraft(
@@ -664,7 +741,9 @@ struct DeveloperSuggestionPage: View {
                     updated.uploadData = data
                     updated.progress = 100
                     updated.status = .prepared
-                } else { updated.status = .failed("图片无法处理") }
+                } else {
+                    updated.status = .failed("图片无法处理")
+                }
                 return updated
             }
         }
@@ -688,7 +767,10 @@ struct DeveloperSuggestionPage: View {
         guard !isLoadingImages, !isSubmitting else { return }
         isLoadingImages = true
         imageTask = Task { @MainActor in
-            defer { isLoadingImages = false; imageTask = nil }
+            defer {
+                isLoadingImages = false
+                imageTask = nil
+            }
             await operation()
         }
     }
@@ -702,11 +784,15 @@ struct DeveloperSuggestionPage: View {
         for item in selectedItems {
             guard !Task.isCancelled, imageDrafts.count < 6 else { return }
             do {
-                guard let source = try await media.loadBoundedImageData(from: item) else { throw SettingsServiceError.uploadFailed }
+                guard let source = try await media.loadBoundedImageData(from: item) else {
+                    throw SettingsServiceError.uploadFailed
+                }
                 let data = try await imagePreparer.prepare(source)
                 guard !Task.isCancelled else { return }
-                imageDrafts.append(ComposerImageDraft(previewData: data, filename: "suggestion-\(UUID().uuidString).jpg",
-                    uploadData: data, status: .prepared))
+                imageDrafts.append(
+                    ComposerImageDraft(
+                        previewData: data, filename: "suggestion-\(UUID().uuidString).jpg",
+                        uploadData: data, status: .prepared))
             } catch {
                 guard !TaskCancellation.matches(error) else { return }
                 alert = AppAlert.userInput(title: "图片添加失败", message: error.localizedDescription)
@@ -721,8 +807,9 @@ struct DeveloperSuggestionPage: View {
 
     private func retryImageDraft(id: ComposerImageDraft.ID) {
         guard !isSubmitting, !isLoadingImages,
-              let draft = imageDrafts.first(where: { $0.id == id }),
-              case .failed = draft.status else { return }
+            let draft = imageDrafts.first(where: { $0.id == id }),
+            case .failed = draft.status
+        else { return }
 
         var retryingDraft = draft
         retryingDraft.progress = 0
@@ -736,8 +823,8 @@ struct DeveloperSuggestionPage: View {
     }
 }
 
-private extension ComposerImageDraft.Status {
-    var isCompressing: Bool {
+extension ComposerImageDraft.Status {
+    fileprivate var isCompressing: Bool {
         if case .compressing = self { return true }
         return false
     }

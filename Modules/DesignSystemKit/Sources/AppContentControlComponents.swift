@@ -24,7 +24,9 @@ public struct AppListSectionHeader: View {
 
 /// AppNavigationRowLabel 为导航行提供标题、可选图标和披露标记。
 public struct AppNavigationRowLabel: View {
-    public init(title: String, systemImage: String? = nil, showsDisclosureIndicator: Bool = false) {
+    public init(
+        title: String, systemImage: String? = nil, showsDisclosureIndicator: Bool = false
+    ) {
         self.title = title
         self.systemImage = systemImage
         self.showsDisclosureIndicator = showsDisclosureIndicator
@@ -85,7 +87,7 @@ public struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
         .pickerStyle(.segmented)
         .frame(maxWidth: .infinity)
         .appSelectionFeedback(trigger: selection)
-            .accessibilityIdentifier("ui.app-segmented-picker.value")
+        .accessibilityIdentifier("ui.app-segmented-picker.value")
     }
 }
 
@@ -203,7 +205,7 @@ public struct AppOrderedSearchBar<Order: Hashable, OrderContent: View>: View {
             .buttonStyle(.plain)
             .disabled(text.isEmpty)
             .accessibilityLabel("清除搜索")
-                .accessibilityIdentifier("ui.app-ordered-search-bar.清除搜索")
+            .accessibilityIdentifier("ui.app-ordered-search-bar.清除搜索")
         }
         .padding(.horizontal, AppDesignSystem.Spacing.content)
         .padding(.vertical, AppDesignSystem.Spacing.regular)
@@ -234,13 +236,20 @@ public struct AppSearchBarContainer<Content: View>: View {
 public struct AppSelectionRow: View {
     private let title: String
     private let isSelected: Bool
-    public init(title: String, isSelected: Bool) { self.title = title; self.isSelected = isSelected }
+    public init(title: String, isSelected: Bool) {
+        self.title = title
+        self.isSelected = isSelected
+    }
     public var body: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text(title)
             Spacer()
             Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? AppDesignSystem.Palette.Accent.primary : AppDesignSystem.Foreground.secondaryColor)
+                .foregroundStyle(
+                    isSelected
+                        ? AppDesignSystem.Palette.Accent.primary
+                        : AppDesignSystem.Foreground.secondaryColor
+                )
                 .accessibilityHidden(true)
         }
         .contentShape(Rectangle())
@@ -252,7 +261,11 @@ public struct AppSelectionRow: View {
 
 /// AppMultiSelectionList 统一多选列表的行布局、选中图标、全选入口和完成按钮。
 public struct AppMultiSelectionList<Item: Hashable>: View {
-    public init(title: String, items: [Item], itemTitle: @escaping (Item) -> String, selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>, initialScrollItem: Item? = nil, onToggleAll: (() -> Void)? = nil) {
+    public init(
+        title: String, items: [Item], itemTitle: @escaping (Item) -> String,
+        selectAllTitle: String?, showsCompletionButton: Bool, selectedItems: Binding<[Item]>,
+        initialScrollItem: Item? = nil, onToggleAll: (() -> Void)? = nil
+    ) {
         self.title = title
         self.items = items
         self.itemTitle = itemTitle
@@ -275,54 +288,63 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
 
     public var body: some View {
         ScrollViewReader { proxy in
-        List {
-            if selectAllTitle != nil {
-                Section {
-                    Button(toggleAllTitle) { toggleAll() }
-                    .disabled(items.isEmpty)
-                    .accessibilityValue("已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共 \(items.count) 项")
-                    .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
-                }
-            }
-
-            Section {
-                if items.isEmpty { Text("暂无可选项").foregroundStyle(AppDesignSystem.Foreground.secondary) }
-                ForEach(items, id: \.self) { item in
-                    let isSelected = selectedItems.contains(item)
-                    Button {
-                        toggle(item)
-                    } label: {
-                        AppSelectionRow(title: itemTitle(item), isSelected: isSelected)
+            List {
+                if selectAllTitle != nil {
+                    Section {
+                        Button(toggleAllTitle) { toggleAll() }
+                            .disabled(items.isEmpty)
+                            .accessibilityValue(
+                                """
+                                已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共\
+                                 \(items.count) 项
+                                """
+                            )
+                            .appInteractiveListRow()
+                            .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(itemTitle(item))
-                    .accessibilityValue(isSelected ? "已选择" : "未选择")
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAddTraits(isSelected ? .isSelected : [])
-                    .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.app-multi-selection-list.item.\(String(reflecting: item))")
-                    .id(item)
+                }
+
+                Section {
+                    if items.isEmpty {
+                        Text("暂无可选项").foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    }
+                    ForEach(items, id: \.self) { item in
+                        let isSelected = selectedItems.contains(item)
+                        Button {
+                            toggle(item)
+                        } label: {
+                            AppSelectionRow(title: itemTitle(item), isSelected: isSelected)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(itemTitle(item))
+                        .accessibilityValue(isSelected ? "已选择" : "未选择")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
+                        .appInteractiveListRow()
+                        .accessibilityIdentifier(
+                            "ui.app-multi-selection-list.item.\(String(reflecting: item))"
+                        )
+                        .id(item)
+                    }
                 }
             }
-        }
-        .accessibilityIdentifier("interaction.AppMultiSelectionList.list")
-        .appGroupedListStyle()
-        .appSelectionFeedback(trigger: selectedItems)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if showsCompletionButton {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                        .accessibilityIdentifier("ui.app-multi-selection-list.done")
+            .accessibilityIdentifier("interaction.AppMultiSelectionList.list")
+            .appGroupedListStyle()
+            .appSelectionFeedback(trigger: selectedItems)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if showsCompletionButton {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { dismiss() }
+                            .accessibilityIdentifier("ui.app-multi-selection-list.done")
+                    }
                 }
             }
-        }
-        .onAppear {
-            if let initialScrollItem { proxy.scrollTo(initialScrollItem, anchor: .center) }
-        }
+            .onAppear {
+                if let initialScrollItem { proxy.scrollTo(initialScrollItem, anchor: .center) }
+            }
         }
     }
 
@@ -341,7 +363,10 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     }
 
     private func toggleAll() {
-        if let onToggleAll { onToggleAll(); return }
+        if let onToggleAll {
+            onToggleAll()
+            return
+        }
         let availableItems = Set(items)
         selectedItems = availableItems.isSubset(of: Set(selectedItems)) ? [] : items
     }
@@ -359,16 +384,22 @@ public struct AppHorizontalControlFramesKey: PreferenceKey {
 }
 
 /// 为 segmented 内容区提供一致的横向轻扫判定。
-public func makeHorizontalSwitchGesture(excluding controlFrames: [CGRect] = [], onStep: @escaping (Int) -> Void) -> some Gesture {
+public func horizontalSwitchGesture(
+    excluding controlFrames: [CGRect] = [], onStep: @escaping (Int) -> Void
+) -> some Gesture {
     DragGesture(minimumDistance: 24, coordinateSpace: .global)
         .onEnded { value in
-            guard !controlFrames.contains(where: { $0.contains(value.startLocation) }) else { return }
+            guard !controlFrames.contains(where: { $0.contains(value.startLocation) }) else {
+                return
+            }
             let horizontal = value.translation.width
             let vertical = value.translation.height
             let horizontalDistance = abs(horizontal)
             let verticalDistance = abs(vertical)
 
-            guard horizontalDistance > verticalDistance, horizontalDistance >= 56 else { return }
+            guard horizontalDistance > verticalDistance, horizontalDistance >= 56 else {
+                return
+            }
             onStep(horizontal < 0 ? 1 : -1)
         }
 }

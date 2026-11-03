@@ -93,13 +93,13 @@ struct ScheduleEntryDetailSheet: View {
                             dismiss()
                         }
                         .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.edit")
+                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.edit")
                         Button("删除", role: .destructive) {
                             dismiss()
                             onDeleteCustomSchedule()
                         }
                         .appInteractiveListRow(isDestructive: true)
-                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.delete")
+                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.delete")
                     }
 
                     Section {
@@ -107,7 +107,7 @@ struct ScheduleEntryDetailSheet: View {
                             onImportCustomSchedule(entry.sourceID)
                         }
                         .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.schedule-entry-detail-sheet.导入到系统日历")
+                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.导入到系统日历")
                         Button("移除日历事件", role: .destructive) {
                             onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
                         }
@@ -149,7 +149,7 @@ struct ScheduleEntryDetailSheet: View {
                     message: Text(target.message),
                     primaryButton: .destructive(Text("删除")) {
                         switch target {
-                        case let .occurrence(_, _, week):
+                        case .occurrence(_, _, let week):
                             onDeleteCourseOccurrence(target.courseID, week)
                         case .wholeCourse:
                             onDeleteCourse(target.courseID)
@@ -176,22 +176,22 @@ struct ScheduleEntryDetailSheet: View {
 
         var id: String {
             switch self {
-            case let .occurrence(courseID, _, _): return "occurrence-\(courseID)"
-            case let .wholeCourse(courseID, _): return "whole-\(courseID)"
+            case .occurrence(let courseID, _, _): return "occurrence-\(courseID)"
+            case .wholeCourse(let courseID, _): return "whole-\(courseID)"
             }
         }
 
         var courseID: String {
             switch self {
-            case let .occurrence(courseID, _, _), let .wholeCourse(courseID, _): return courseID
+            case .occurrence(let courseID, _, _), .wholeCourse(let courseID, _): return courseID
             }
         }
 
         var message: String {
             switch self {
-            case let .occurrence(_, courseName, week):
+            case .occurrence(_, let courseName, let week):
                 return "你要删除的是第\(week)周的一节课：\(courseName)"
-            case let .wholeCourse(_, courseName):
+            case .wholeCourse(_, let courseName):
                 return "你要删除的是\(courseName)这门课的本学期所有课程"
             }
         }
@@ -232,7 +232,10 @@ struct ScheduleEntryDetailSheet: View {
             if allowsCourseMutation, let target {
                 Section {
                     Button("调这节课") {
-                        guard let draft = courseArrangementDraftForOccurrence(target.course.id, target.week) else { return }
+                        guard
+                            let draft = courseArrangementDraftForOccurrence(
+                                target.course.id, target.week)
+                        else { return }
                         courseArrangementDrafts = [draft]
                         courseArrangementEditorMode = .occurrence(week: target.week)
                     }
@@ -245,7 +248,8 @@ struct ScheduleEntryDetailSheet: View {
                     Button("删除这节课", role: .destructive) {
                         pendingCourseDeletion = .occurrence(
                             courseID: target.course.id,
-                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name),
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(
+                                first.name),
                             week: target.week
                         )
                     }
@@ -253,7 +257,8 @@ struct ScheduleEntryDetailSheet: View {
                     Button("删除这门课", role: .destructive) {
                         pendingCourseDeletion = .wholeCourse(
                             courseID: first.id,
-                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)
+                            courseName: ScheduleDisplayNormalizer.normalizeCourseTitle(
+                                first.name)
                         )
                     }
                     .appInteractiveListRow(isDestructive: true)
@@ -269,7 +274,8 @@ struct ScheduleEntryDetailSheet: View {
                     }
                     .appInteractiveListRow()
                     Button("移除这节课日历事件", role: .destructive) {
-                        onDeleteCalendarMarkers(["\(target.course.id)-w\(target.week)"], currentTerm)
+                        onDeleteCalendarMarkers(
+                            ["\(target.course.id)-w\(target.week)"], currentTerm)
                     }
                     .appInteractiveListRow(isDestructive: true)
                     Button("移除这门课日历事件", role: .destructive) {
@@ -281,12 +287,14 @@ struct ScheduleEntryDetailSheet: View {
 
             if index < academicCourseGroupsByCourse.count - 1 {
                 Divider()
-                    .listRowInsets(EdgeInsets(
-                        top: AppDesignSystem.Spacing.content,
-                        leading: AppDesignSystem.Spacing.none,
-                        bottom: AppDesignSystem.Spacing.content,
-                        trailing: AppDesignSystem.Spacing.none
-                    ))
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: AppDesignSystem.Spacing.content,
+                            leading: AppDesignSystem.Spacing.none,
+                            bottom: AppDesignSystem.Spacing.content,
+                            trailing: AppDesignSystem.Spacing.none
+                        )
+                    )
                     .listRowBackground(Color.clear)
             }
         }
@@ -296,7 +304,7 @@ struct ScheduleEntryDetailSheet: View {
         var groups: [[CourseRecord]] = []
         for course in academicCourses {
             if let index = groups.firstIndex(where: {
-                scheduleCourseArrangementIdentity($0[0]) == scheduleCourseArrangementIdentity(course)
+                arrangementIdentity($0[0]) == arrangementIdentity(course)
             }) {
                 groups[index].append(course)
             } else {
@@ -333,11 +341,18 @@ struct ScheduleEntryDetailSheet: View {
     private func courseAttributeRows(for group: [CourseRecord]) -> [CourseAttributeRow] {
         guard let first = group.first else { return [] }
         let teachers = unique(group.map(\.teacher).filter { !$0.isEmpty })
-        let classrooms = unique(group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter { !$0.isEmpty })
+        let classrooms = unique(
+            group.map { ScheduleDisplayNormalizer.normalizeClassroom($0.classroom) }.filter {
+                !$0.isEmpty
+            })
         return [
-            CourseAttributeRow(label: "名称", value: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)),
-            CourseAttributeRow(label: "地点", value: classrooms.isEmpty ? "暂无" : classrooms.joined(separator: "、")),
-            CourseAttributeRow(label: "教师", value: teachers.isEmpty ? "暂无" : teachers.joined(separator: "、")),
+            CourseAttributeRow(
+                label: "名称", value: ScheduleDisplayNormalizer.normalizeCourseTitle(first.name)),
+            CourseAttributeRow(
+                label: "地点",
+                value: classrooms.isEmpty ? "暂无" : classrooms.joined(separator: "、")),
+            CourseAttributeRow(
+                label: "教师", value: teachers.isEmpty ? "暂无" : teachers.joined(separator: "、")),
             CourseAttributeRow(label: "学分", value: first.creditText),
         ]
     }

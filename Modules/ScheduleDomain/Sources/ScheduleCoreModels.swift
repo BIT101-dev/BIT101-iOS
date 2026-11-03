@@ -21,7 +21,9 @@ public nonisolated enum ScheduleDisplayMode: String, CaseIterable, Codable, Iden
 }
 
 /// 课程卡片在“名称”和“地点”之间切换的内容模式。
-public nonisolated enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable, Sendable {
+public nonisolated enum ScheduleCardContentMode: String, CaseIterable, Codable, Identifiable,
+    Sendable
+{
     case nameAndLocation
     case name
     case location
@@ -50,13 +52,16 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
 
     /// 节次身份、时间顺序与日界点规则供缓存、分享和设置共用。
     public static func isValidTable(_ slots: [TimeSlot]) -> Bool {
-        guard !slots.isEmpty, slots.count <= ScheduleCourseConstraints.maximumSection else { return false }
+        guard !slots.isEmpty, slots.count <= ScheduleCourseConstraints.maximumSection else {
+            return false
+        }
         var previousID = 0
         var previousEnd = -1
         for slot in slots {
             guard slot.id == previousID + 1,
-                  let start = validMinutes(slot.start), let end = validMinutes(slot.end),
-                  start >= previousEnd, end > start else { return false }
+                let start = validMinutes(slot.start), let end = validMinutes(slot.end),
+                start >= previousEnd, end > start
+            else { return false }
             previousID = slot.id
             previousEnd = end
         }
@@ -115,8 +120,8 @@ public nonisolated struct TimeSlot: Codable, Hashable, Identifiable, Sendable {
             parts.count == 2,
             let hour = Int(parts[0]),
             let minute = Int(parts[1]),
-            (0 ... 23).contains(hour) || (hour == 24 && minute == 0),
-            (0 ... 59).contains(minute)
+            (0...23).contains(hour) || (hour == 24 && minute == 0),
+            (0...59).contains(minute)
         else {
             return nil
         }
@@ -159,7 +164,9 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
 
     /// 学分使用有限数值；待排课程保留空坐标，已排课程携带完整周次与上课坐标。
     public var hasValidPlacement: Bool {
-        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, credit.isFinite else { return false }
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, credit.isFinite else {
+            return false
+        }
         if weeks.isEmpty && weekday == 0 && startSection == 0 && endSection == 0 { return true }
         return !weeks.isEmpty && weeks.allSatisfy(ScheduleCourseConstraints.isValidWeek)
             && (1...7).contains(weekday) && startSection > 0 && endSection >= startSection
@@ -167,7 +174,8 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, term, name, teacher, classroom, description, weeks, weekday, startSection, endSection
+        case id, term, name, teacher, classroom, description, weeks, weekday, startSection,
+            endSection
         case campus, number, credit, hour, type, category, department
     }
 
@@ -191,8 +199,12 @@ public nonisolated struct CourseRecord: Codable, Identifiable, Hashable, Sendabl
         category = try values.decode(String.self, forKey: .category)
         department = try values.decode(String.self, forKey: .department)
         guard hasValidPlacement else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
-                debugDescription: "Course requires finite credits, valid weeks, weekday and bounded sections."))
+            throw DecodingError.dataCorrupted(
+                .init(
+                    codingPath: decoder.codingPath,
+                    debugDescription:
+                        "Course requires finite credits, valid weeks, weekday and bounded sections."
+                ))
         }
     }
 
@@ -327,24 +339,34 @@ public nonisolated func scheduleCourseIdentity(_ course: CourseRecord) -> String
     scheduleCourseIdentity(number: course.number, name: course.name, teacher: course.teacher)
 }
 
-public nonisolated func scheduleCourseIdentity(number: String, name: String, teacher: String) -> String {
+public nonisolated func scheduleCourseIdentity(number: String, name: String, teacher: String)
+    -> String
+{
     let number = number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if !number.isEmpty {
         return "number:\(number)|name:\(name)"
     }
-    return "name:\(name)|teacher:\(teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    return
+        """
+        name:\(name)|teacher:\
+        \(teacher.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+        """
 }
 
 /// 同一门课在同一星期、同一节次的排课身份。
-public nonisolated func scheduleCourseArrangementIdentity(_ course: CourseRecord) -> String {
+public nonisolated func arrangementIdentity(_ course: CourseRecord) -> String {
     let campus = course.campus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let classroom = course.classroom.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    return "\(scheduleCourseIdentity(course))|weekday:\(course.weekday)|sections:\(course.startSection)-\(course.endSection)|campus:\(campus)|classroom:\(classroom)"
+    return
+        """
+        \(scheduleCourseIdentity(course))|weekday:\(course.weekday)|sections:\
+        \(course.startSection)-\(course.endSection)|campus:\(campus)|classroom:\(classroom)
+        """
 }
 
 /// 课表刷新时用于定位同一门学校课程的稳定身份。
-public nonisolated func scheduleCourseSourceIdentity(_ course: CourseRecord) -> String {
+public nonisolated func courseSourceIdentity(_ course: CourseRecord) -> String {
     let number = course.number.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if !number.isEmpty {
         return "number:\(number)"
@@ -374,11 +396,11 @@ public nonisolated func scheduleCourseSourceValue(_ course: CourseRecord) -> Str
     ].joined(separator: "\u{001F}")
 }
 
-public nonisolated func scheduleCourseSourceRecordsEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
+public nonisolated func courseSourcesEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
     lhs.map(scheduleCourseSourceValue).sorted() == rhs.map(scheduleCourseSourceValue).sorted()
 }
 
-public nonisolated func scheduleCourseDisplayRecordsEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
+public nonisolated func courseDisplaysEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
     lhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
         == rhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
 }
@@ -401,11 +423,14 @@ public nonisolated struct ExamRecord: Codable, Identifiable, Hashable, Sendable 
     public var isPendingArrangement: Bool { beginTime.isEmpty && endTime.isEmpty }
     public var hasValidPlacement: Bool {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !courseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        if isPendingArrangement { return dateString.isEmpty || ScheduleSharedDateCodec.parseDate(dateString) != nil }
+            !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !courseID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+        if isPendingArrangement {
+            return dateString.isEmpty || ScheduleSharedDateCodec.parseDate(dateString) != nil
+        }
         guard ScheduleSharedDateCodec.parseDate(dateString) != nil,
-              let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime)
+            let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime)
         else { return false }
         return start < 24 * 60 && end > start
     }
@@ -452,7 +477,10 @@ public nonisolated enum DDLImagePolicy {
 public nonisolated struct DDLImageAttachment: Codable, Identifiable, Hashable, Sendable {
     public let id: UUID
     public let data: Data
-    public init(id: UUID = UUID(), data: Data) { self.id = id; self.data = data }
+    public init(id: UUID = UUID(), data: Data) {
+        self.id = id
+        self.data = data
+    }
 }
 
 /// 学校同步与手动新建共用的 DDL 本地记录。
@@ -471,15 +499,18 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let suffix = " 已到期"
         guard trimmedTitle.hasSuffix(suffix) else { return title }
-        return String(trimmedTitle.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmedTitle.dropLast(suffix.count)).trimmingCharacters(
+            in: .whitespacesAndNewlines)
     }
     public var hasValidRecord: Bool {
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              dueAt.timeIntervalSince1970.isFinite,
-              DDLImagePolicy.isValid(images ?? []) else { return false }
-        return isSchoolSynced || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && title.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
-            && text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+            dueAt.timeIntervalSince1970.isFinite,
+            DDLImagePolicy.isValid(images ?? [])
+        else { return false }
+        return isSchoolSynced
+            || !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && title.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+                && text.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
     }
     public var sourceTitle: String {
         switch group {
@@ -492,19 +523,33 @@ public nonisolated struct DDLEventRecord: Codable, Identifiable, Hashable, Senda
     public var browserURL: URL? {
         switch group {
         case "lexue":
-            guard let timestamp = Int(exactly: dueAt.timeIntervalSince1970.rounded(.down)) else { return nil }
-            return URL(string: "https://lexue.bit.edu.cn/calendar/view.php?view=day&time=\(timestamp)")
+            guard let timestamp = Int(exactly: dueAt.timeIntervalSince1970.rounded(.down)) else {
+                return nil
+            }
+            return URL(
+                string: "https://lexue.bit.edu.cn/calendar/view.php?view=day&time=\(timestamp)")
         case "eclass":
-            if id.hasPrefix("eclass:"), let activityID = Int(id.dropFirst("eclass:".count)), activityID > 0,
-               let courseID = sourceCourseIDs?.filter({ $0 > 0 }).min() {
-                return URL(string: "https://zy-eclass.bit.edu.cn/course/\(courseID)/learning-activity/full-screen#/\(activityID)")
+            if id.hasPrefix("eclass:"), let activityID = Int(id.dropFirst("eclass:".count)),
+                activityID > 0,
+                let courseID = sourceCourseIDs?.filter({ $0 > 0 }).min()
+            {
+                return URL(
+                    string:
+                        """
+                        https://zy-eclass.bit.edu.cn/course/\(courseID)/learning-activity/full-\
+                        screen#/\(activityID)
+                        """
+                )
             }
             return URL(string: "https://zy-eclass.bit.edu.cn/user/index")
         default:
             return nil
         }
     }
-    public init(id: String, group: String, title: String, text: String, dueAt: Date, done: Bool, sourceCourseIDs: Set<Int>? = nil, images: [DDLImageAttachment]? = nil) {
+    public init(
+        id: String, group: String, title: String, text: String, dueAt: Date, done: Bool,
+        sourceCourseIDs: Set<Int>? = nil, images: [DDLImageAttachment]? = nil
+    ) {
         self.id = id
         self.group = group
         self.title = title
@@ -524,7 +569,10 @@ public struct DDLDraft: Equatable {
     public var dueAt = Date()
     public var text = ""
     public var images: [DDLImageAttachment] = []
-    public init(title: String = "", dueAt: Date = Date(), text: String = "", images: [DDLImageAttachment] = []) {
+    public init(
+        title: String = "", dueAt: Date = Date(), text: String = "",
+        images: [DDLImageAttachment] = []
+    ) {
         self.title = title
         self.dueAt = dueAt
         self.text = text
@@ -547,10 +595,14 @@ public nonisolated struct CustomScheduleRecord: Codable, Identifiable, Hashable,
     public var hasValidPlacement: Bool {
         let dates = [dateString] + (additionalDateStrings ?? [])
         guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              [title, subtitle, description].allSatisfy({ $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes }),
-              dates.allSatisfy({ ScheduleSharedDateCodec.parseDate($0) != nil }), Set(dates).count == dates.count,
-              let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime) else { return false }
+            !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            [title, subtitle, description].allSatisfy({
+                $0.utf8.count <= ScheduleCourseConstraints.maximumFieldBytes
+            }),
+            dates.allSatisfy({ ScheduleSharedDateCodec.parseDate($0) != nil }),
+            Set(dates).count == dates.count,
+            let start = TimeSlot.validMinutes(beginTime), let end = TimeSlot.validMinutes(endTime)
+        else { return false }
         return start < 24 * 60 && end > start
     }
     public var occurrenceDateStrings: [String] {
@@ -559,7 +611,10 @@ public nonisolated struct CustomScheduleRecord: Codable, Identifiable, Hashable,
     public func occurrenceID(for dateString: String) -> String {
         "custom-\(id)-\(dateString)"
     }
-    public init(id: String, title: String, subtitle: String, description: String, dateString: String, beginTime: String, endTime: String, additionalDateStrings: [String]? = nil) {
+    public init(
+        id: String, title: String, subtitle: String, description: String, dateString: String,
+        beginTime: String, endTime: String, additionalDateStrings: [String]? = nil
+    ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -622,7 +677,9 @@ public nonisolated struct BuildingRecord: Codable, Identifiable, Hashable, Senda
     public let buildingCode: String
     public let campusName: String
     public let campusCode: String
-    public init(id: String, name: String, buildingCode: String, campusName: String, campusCode: String) {
+    public init(
+        id: String, name: String, buildingCode: String, campusName: String, campusCode: String
+    ) {
         self.id = id
         self.name = name
         self.buildingCode = buildingCode
@@ -641,7 +698,9 @@ public nonisolated struct ClassroomRecord: Codable, Identifiable, Hashable, Send
     public var hasValidOccupancy: Bool {
         !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && busyTimeCodes.allSatisfy { (1...ScheduleCourseConstraints.maximumSection).contains($0) }
+            && busyTimeCodes.allSatisfy {
+                (1...ScheduleCourseConstraints.maximumSection).contains($0)
+            }
     }
     public init(id: String, name: String, busyTimeCodes: [Int]) {
         self.id = id
@@ -659,7 +718,9 @@ public nonisolated struct ClassroomAvailability: Identifiable, Hashable, Sendabl
     public let prettyFreeTimes: String
     public let isFreeNow: Bool
     public let freeSections: [Int]
-    public init(id: String, name: String, prettyFreeTimes: String, isFreeNow: Bool, freeSections: [Int]) {
+    public init(
+        id: String, name: String, prettyFreeTimes: String, isFreeNow: Bool, freeSections: [Int]
+    ) {
         self.id = id
         self.name = name
         self.prettyFreeTimes = prettyFreeTimes

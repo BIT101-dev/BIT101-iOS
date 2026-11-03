@@ -4,44 +4,65 @@ import CommunityTransport
 import CommunityUI
 import Foundation
 import MediaKit
-@testable import GalleryFeature
 import Testing
+
+@testable import GalleryFeature
 
 @MainActor
 struct ComposerLifecycleTests {
     @Test(.timeLimit(.minutes(1)), arguments: ["read", "empty", "prepare"])
-    func mixedImageImportsKeepValidPhotosAfterAnIndividualFailure(failure: String) async {
-        let sources: [@MainActor () async throws -> Data?] = [{ Data([1]) }, {
-            if failure == "read" { throw CocoaError(.fileReadCorruptFile) }
-            return failure == "empty" ? nil : Data([2])
-        }, { Data([3]) }]
+    func mixedImageImportsKeepValidPhotos(failure: String) async {
+        let sources: [@MainActor () async throws -> Data?] = [
+            { Data([1]) },
+            {
+                if failure == "read" { throw CocoaError(.fileReadCorruptFile) }
+                return failure == "empty" ? nil : Data([2])
+            }, { Data([3]) },
+        ]
         let prepare: @MainActor (Data) async throws -> Data = { data in
             if data == Data([2]) { throw CocoaError(.fileReadCorruptFile) }
             return data
         }
-        var prepared: [Data] = [], failures = 0
-        await ImageDataCompressor.importImages(from: sources, prepare: prepare, isCurrent: { true },
+        var prepared: [Data] = []
+        var failures = 0
+        await ImageDataCompressor.importImages(
+            from: sources, prepare: prepare, isCurrent: { true },
             onPrepared: { prepared.append($0) }, onFailure: { _ in failures += 1 })
         #expect(prepared == [Data([1]), Data([3])] && failures == 1)
-        let images = ComposerImageUploads(upload: { data, _ in
-            .init(mid: String(data[0]), url: "", lowUrl: "")
-        }, prepare: prepare, isCurrentSession: { true })
+        let images = ComposerImageUploads(
+            upload: { data, _ in
+                .init(mid: String(data[0]), url: "", lowUrl: "")
+            }, prepare: prepare, isCurrentSession: { true })
         await images.addImages(from: sources)
         #expect(images.drafts.map(\.previewData) == prepared && images.errorMessage != nil)
         #expect(images.uploadedImages.map(\.mid) == ["1", "3"] && images.isReadyToSubmit)
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func imageImportsStopAfterCancellationOrOwnerReplacement(cancel: Bool) async throws {
+    func imageImportsStopCancelOrOwnerReplacement(cancel: Bool) async throws {
         let gate = Gate()
-        var current = true, prepared: [Data] = [], failures = 0, laterReads = 0
+        var current = true
+        var prepared: [Data] = []
+        var failures = 0
+        var laterReads = 0
         let task = Task {
-            await ImageDataCompressor.importImages(from: [{ await gate.pause(); return Data([1]) }, {
-                laterReads += 1; return Data([2])
-            }], prepare: { $0 }, isCurrent: { current },
+            await ImageDataCompressor.importImages(
+                from: [
+                    {
+                        await gate.pause()
+                        return Data([1])
+                    },
+                    {
+                        laterReads += 1
+                        return Data([2])
+                    },
+                ], prepare: { $0 }, isCurrent: { current },
                 onPrepared: { prepared.append($0) }, onFailure: { _ in failures += 1 })
         }
-        defer { task.cancel(); gate.resume() }
+        defer {
+            task.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         if cancel { task.cancel() } else { current = false }
         gate.resume()
@@ -49,19 +70,24 @@ struct ComposerLifecycleTests {
         #expect(prepared.isEmpty && failures == 0 && laterReads == 0)
     }
 
-    @Test(.timeLimit(.minutes(1))) func cancellingARetriedLegacyImageRetainsItsPreviewBytes() async throws {
+    @Test(.timeLimit(.minutes(1))) func cancellingRetriedLegacyRetainsPreviewBytes() async throws {
         let gate = Gate()
         var received = Data()
-        let images = ComposerImageUploads(upload: { data, _ in
-            received = data
-            await gate.pause()
-            try Task.checkCancellation()
-            return .init(mid: "unexpected", url: "", lowUrl: "")
-        }, prepare: { $0 }, isCurrentSession: { true })
-        let draft = ComposerImageDraft(previewData: Data([7]), filename: "legacy.jpg", status: .failed("重试"))
+        let images = ComposerImageUploads(
+            upload: { data, _ in
+                received = data
+                await gate.pause()
+                try Task.checkCancellation()
+                return .init(mid: "unexpected", url: "", lowUrl: "")
+            }, prepare: { $0 }, isCurrentSession: { true })
+        let draft = ComposerImageDraft(
+            previewData: Data([7]), filename: "legacy.jpg", status: .failed("重试"))
         images.restore([draft])
         let retry = Task { await images.retry(id: draft.id) }
-        defer { retry.cancel(); gate.resume() }
+        defer {
+            retry.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         #expect(received == draft.previewData)
         retry.cancel()
@@ -71,8 +97,9 @@ struct ComposerLifecycleTests {
         #expect(!images.hasUploadingImages && images.uploadedImages.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func restoringAnUploadedDraftReusesItsRemoteImage() async throws {
-        let service = Service(), drafts = Drafts()
+    @Test(.timeLimit(.minutes(1))) func restoringUploadedDraftReusesRemoteImage() async throws {
+        let service = Service()
+        let drafts = Drafts()
         let original = model(service, drafts: drafts)
         original.title = "图片草稿"
         original.text = "正文"
@@ -88,16 +115,21 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["task", "transport", "caller"])
-    func cancelledImageUploadsRetainBytesAndOfferRetry(kind: String) async throws {
+    func cancelledImageUploadsRetainBytes(kind: String) async throws {
         let gate = Gate()
         let recovery = UploadRecovery()
-        let uploaded = CommunityImage(mid: "uploaded", url: "https://example.invalid/image.jpg", lowUrl: "")
-        let images = ComposerImageUploads(upload: { _, _ in
-            if recovery.retrying { return uploaded }
-            if kind == "caller" { await gate.pause(); try Task.checkCancellation() }
-            if kind == "transport" { throw URLError(.cancelled) }
-            throw CancellationError()
-        }, prepare: { $0 }, isCurrentSession: { true })
+        let uploaded = CommunityImage(
+            mid: "uploaded", url: "https://example.invalid/image.jpg", lowUrl: "")
+        let images = ComposerImageUploads(
+            upload: { _, _ in
+                if recovery.retrying { return uploaded }
+                if kind == "caller" {
+                    await gate.pause()
+                    try Task.checkCancellation()
+                }
+                if kind == "transport" { throw URLError(.cancelled) }
+                throw CancellationError()
+            }, prepare: { $0 }, isCurrentSession: { true })
         let adding = Task { await images.addImages(from: [{ Data([7]) }]) }
         if kind == "caller" {
             try await gate.waitUntilPaused()
@@ -106,7 +138,8 @@ struct ComposerLifecycleTests {
         }
         await adding.value
         let draft = try #require(images.drafts.first)
-        #expect(draft.previewData == Data([7]) && !images.hasUploadingImages && !images.isReadyToSubmit)
+        #expect(
+            draft.previewData == Data([7]) && !images.hasUploadingImages && !images.isReadyToSubmit)
         if case .failed = draft.status {} else { Issue.record("取消后应提供重试") }
         recovery.retrying = true
         await images.retry(id: draft.id)
@@ -114,11 +147,14 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func restoredClaimSurvivesEitherCatalogueLoadingOrder(loadFirst: Bool) async {
-        let service = Service(), drafts = Drafts()
+    func restoredClaimSurvivesEitherCatalogueOrder(loadFirst: Bool) async {
+        let service = Service()
+        let drafts = Drafts()
         service.claims = [.init(id: 0, text: "无声明")]
-        drafts.result = .loaded(.init(title: "草稿", text: "正文", selectedTags: [], customTags: [],
-            anonymous: false, isPublic: true, selectedClaimID: 99, images: []))
+        drafts.result = .loaded(
+            .init(
+                title: "草稿", text: "正文", selectedTags: [], customTags: [],
+                anonymous: false, isPublic: true, selectedClaimID: 99, images: []))
         let viewModel = model(service, drafts: drafts)
         if loadFirst { await viewModel.loadClaimsIfNeeded() }
         await viewModel.restoreDraft()
@@ -127,10 +163,13 @@ struct ComposerLifecycleTests {
         #expect(viewModel.claims.contains { $0.id == 99 })
     }
 
-    @Test(.timeLimit(.minutes(1))) func commentImageDraftsRetainFailedBytesAndRetryWithinTheirSession() async {
-        let service = Service(), identity = Identity(), owner = CommunitySessionIdentity(accountIdentifier: "composer-A", generation: 1)
+    @Test(.timeLimit(.minutes(1))) func commentImageDraftsRetainFailedBytes() async {
+        let service = Service()
+        let identity = Identity()
+        let owner = CommunitySessionIdentity(accountIdentifier: "composer-A", generation: 1)
         service.uploadFailures = 1
-        let images = ComposerImageUploads(upload: { try await service.uploadImage(data: $0, filename: $1) },
+        let images = ComposerImageUploads(
+            upload: { try await service.uploadImage(data: $0, filename: $1) },
             prepare: { $0 }, isCurrentSession: { identity.current == owner })
         await images.addImages(from: [{ Data([7]) }])
         #expect(images.drafts.first?.previewData == Data([7]) && !images.isReadyToSubmit)
@@ -143,18 +182,34 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-    func savingDuringImageImportRetainsTheWholeSelection(pausePreparation: Bool) async throws {
-        let preparation = Gate(), upload = Gate(), drafts = Drafts(), service = Service()
+    func savingRetainsWholeSelection(pausePreparation: Bool) async throws {
+        let preparation = Gate()
+        let upload = Gate()
+        let drafts = Drafts()
+        let service = Service()
         service.uploadGate = upload
         var first = true
-        let viewModel = model(service, drafts: drafts, prepare: { data in
-            if pausePreparation && first { first = false; await preparation.pause() }
-            return data
-        })
+        let viewModel = model(
+            service, drafts: drafts,
+            prepare: { data in
+                if pausePreparation && first {
+                    first = false
+                    await preparation.pause()
+                }
+                return data
+            })
         let adding = Task { await viewModel.addImages(from: [{ Data([7]) }, { Data([8]) }]) }
-        defer { adding.cancel(); viewModel.cancelPendingOperations(); preparation.resume(); upload.resume() }
-        if pausePreparation { try await preparation.waitUntilPaused() }
-        else { try await upload.waitUntilPaused() }
+        defer {
+            adding.cancel()
+            viewModel.cancelPendingOperations()
+            preparation.resume()
+            upload.resume()
+        }
+        if pausePreparation {
+            try await preparation.waitUntilPaused()
+        } else {
+            try await upload.waitUntilPaused()
+        }
         #expect(viewModel.hasDraftContent)
         let saving = Task { await viewModel.saveDraft() }
         if pausePreparation {
@@ -165,18 +220,22 @@ struct ComposerLifecycleTests {
         #expect(await saving.value)
         #expect(drafts.result.snapshot?.images.map(\.previewData) == [Data([7]), Data([8])])
         viewModel.cancelPendingOperations()
-        preparation.resume(); upload.resume()
+        preparation.resume()
+        upload.resume()
         await adding.value
     }
 
-    @Test(.timeLimit(.minutes(1))) func editingKeepsAnExistingClaimOutsideTheCurrentCatalogue() async {
+    @Test(.timeLimit(.minutes(1))) func editingKeepsExistingClaimOutsideCatalogue() async {
         let service = Service()
         service.claims = [.init(id: 0, text: "无声明")]
         let original = poster()
         let viewModel = model(service, editing: original)
         await viewModel.loadClaimsIfNeeded()
         #expect(viewModel.selectedClaimID == original.claim.id && !viewModel.hasUnsavedEdits)
-        #expect(viewModel.claims.contains { $0.id == original.claim.id && $0.text == original.claim.text })
+        #expect(
+            viewModel.claims.contains {
+                $0.id == original.claim.id && $0.text == original.claim.text
+            })
     }
 
     private final class UploadRecovery { var retrying = false }
@@ -189,7 +248,10 @@ struct ComposerLifecycleTests {
         func waitUntilPaused() async throws {
             try await waitForTestEvent { pending != nil }
         }
-        func resume() { pending?.resume(); pending = nil }
+        func resume() {
+            pending?.resume()
+            pending = nil
+        }
     }
 
     private final class Identity {
@@ -198,21 +260,29 @@ struct ComposerLifecycleTests {
 
     private final class Drafts: GalleryComposerDraftStoring, ComposerPublicationStoring {
         private var publications: [String: [String: ComposerPublicationAttempt]] = [:]
-        func loadPublication(kind: ComposerPublicationKind, owner: String) async throws -> ComposerPublicationAttempt? { publications[owner]?[kind.rawValue] }
-        func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws -> ComposerPublicationStart {
-            if let current = publications[owner]?[content.kind.rawValue] { return .pending(current) }
-            let attempt = ComposerPublicationAttempt(accountStorageIdentifier: owner, content: content)
+        func loadPublication(kind: ComposerPublicationKind, owner: String) async throws
+            -> ComposerPublicationAttempt?
+        { publications[owner]?[kind.rawValue] }
+        func beginPublication(_ content: ComposerPublicationContent, owner: String) async throws
+            -> ComposerPublicationStart
+        {
+            if let current = publications[owner]?[content.kind.rawValue] {
+                return .pending(current)
+            }
+            let attempt = ComposerPublicationAttempt(
+                accountStorageIdentifier: owner, content: content)
             publications[owner, default: [:]][content.kind.rawValue] = attempt
             return .started(attempt)
         }
         func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool {
-            let owner = expected.accountStorageIdentifier, kind = expected.content.kind.rawValue
+            let owner = expected.accountStorageIdentifier
+            let kind = expected.content.kind.rawValue
             guard let current = publications[owner]?[kind] else { return true }
             guard current == expected else { return false }
             publications[owner]?[kind] = nil
             return true
         }
-        func resetPublicationsAfterReview(owner: String) async throws { publications[owner] = nil }
+        func resetReviewedPublications(owner: String) async throws { publications[owner] = nil }
         var result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot> = .missing
         var loadCount = 0
         var saveCount = 0
@@ -249,7 +319,8 @@ struct ComposerLifecycleTests {
             removalGate = nil
             await gate?.pause()
             guard !failsRemoval else { return false }
-            revision += 1; result = .missing
+            revision += 1
+            result = .missing
             return true
         }
         func captureGalleryCleanup() async -> ComposerDraftCleanup {
@@ -260,7 +331,9 @@ struct ComposerLifecycleTests {
             cleanupAttempts += 1
             guard revision == captured else { return true }
             guard !failsRemoval else { return false }
-            cleanupCount += 1; revision += 1; result = .missing
+            cleanupCount += 1
+            revision += 1
+            result = .missing
             return true
         }
     }
@@ -301,15 +374,31 @@ struct ComposerLifecycleTests {
             let gate = uploadGate
             uploadGate = nil
             await gate?.pause()
-            if uploadFailures > 0 { uploadFailures -= 1; throw URLError(.networkConnectionLost) }
-            return CommunityImage(mid: "image-\(uploads.count)", url: "https://example.invalid/image.jpg", lowUrl: "")
+            if uploadFailures > 0 {
+                uploadFailures -= 1
+                throw URLError(.networkConnectionLost)
+            }
+            return CommunityImage(
+                mid: "image-\(uploads.count)", url: "https://example.invalid/image.jpg", lowUrl: "")
         }
-        func createPoster(title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws -> Int {
-            try await send(.init(id: nil, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: "[]"))
+        func createPoster(
+            title: String, text: String, imageMids: [String], anonymous: Bool, tags: [String],
+            claimID: Int, isPublic: Bool
+        ) async throws -> Int {
+            try await send(
+                .init(
+                    id: nil, title: title, text: text, mids: imageMids, tags: tags,
+                    anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: "[]"))
             return 42
         }
-        func updatePoster(id: Int, title: String, text: String, imageMids: [String], plugins: String, anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool) async throws {
-            try await send(.init(id: id, title: title, text: text, mids: imageMids, tags: tags, anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: plugins))
+        func updatePoster(
+            id: Int, title: String, text: String, imageMids: [String], plugins: String,
+            anonymous: Bool, tags: [String], claimID: Int, isPublic: Bool
+        ) async throws {
+            try await send(
+                .init(
+                    id: id, title: title, text: text, mids: imageMids, tags: tags,
+                    anonymous: anonymous, claimID: claimID, isPublic: isPublic, plugins: plugins))
         }
         private func send(_ payload: Payload) async throws {
             submissions.append(payload)
@@ -317,14 +406,19 @@ struct ComposerLifecycleTests {
             submissionGate = nil
             await gate?.pause()
             if failsSubmission { throw URLError(.notConnectedToInternet) }
-            if unknownSubmission { throw CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost)) }
+            if unknownSubmission {
+                throw CommunityCreateOutcomeUnknown(underlying: URLError(.networkConnectionLost))
+            }
         }
     }
 
-    private func model(_ service: Service = Service(), drafts: Drafts = Drafts(), identity: Identity = Identity(),
-                       editing: GalleryPosterDetail? = nil, uploader: Service? = nil,
-                       prepare: @escaping (Data) async -> Data? = { $0 }) -> GalleryComposerViewModel {
-        GalleryComposerViewModel(editingPoster: editing, service: service, images: uploader ?? service, drafts: drafts,
+    private func model(
+        _ service: Service = Service(), drafts: Drafts = Drafts(), identity: Identity = Identity(),
+        editing: GalleryPosterDetail? = nil, uploader: Service? = nil,
+        prepare: @escaping (Data) async -> Data? = { $0 }
+    ) -> GalleryComposerViewModel {
+        GalleryComposerViewModel(
+            editingPoster: editing, service: service, images: uploader ?? service, drafts: drafts,
             currentIdentity: { identity.current }, prepareImageData: prepare)
     }
     private func valid(_ model: GalleryComposerViewModel) {
@@ -333,16 +427,23 @@ struct ComposerLifecycleTests {
         model.selectedTags = ["校园", "生活"]
     }
     private func snapshot() -> GalleryComposerDraftSnapshot {
-        .init(title: "草稿标题", text: "草稿正文", selectedTags: ["校园"], customTags: ["自定义"], anonymous: true,
-            isPublic: false, selectedClaimID: 3, images: [.init(filename: "saved.jpg", previewData: Data([7]), uploadData: nil)])
+        .init(
+            title: "草稿标题", text: "草稿正文", selectedTags: ["校园"], customTags: ["自定义"], anonymous: true,
+            isPublic: false, selectedClaimID: 3,
+            images: [.init(filename: "saved.jpg", previewData: Data([7]), uploadData: nil)])
     }
-    private func poster(images: [CommunityImage] = [], plugins: String = "[]") -> GalleryPosterDetail {
-        .init(anonymous: true, claim: .init(id: 3, text: "声明"), commentNum: 0, createTime: "", editTime: "", id: 42,
+    private func poster(images: [CommunityImage] = [], plugins: String = "[]")
+        -> GalleryPosterDetail
+    {
+        .init(
+            anonymous: true, claim: .init(id: 3, text: "声明"), commentNum: 0, createTime: "",
+            editTime: "", id: 42,
             images: images, like: false, likeNum: 0, own: true, plugins: plugins, public: false,
-            tags: ["校园", "生活"], text: "帖子正文", title: "帖子标题", updateTime: "", user: .placeholder(id: 1, nickname: "作者"))
+            tags: ["校园", "生活"], text: "帖子正文", title: "帖子标题", updateTime: "",
+            user: .placeholder(id: 1, nickname: "作者"))
     }
 
-    @Test func tagEditingNormalizesDeduplicatesAndSharesTheLimit() {
+    @Test func tagEditingNormalizesSharesLimitLimit() {
         let viewModel = model()
         #expect(viewModel.hasDraftContent == false)
         viewModel.selectedTags = [" 校园 ", "生活"]
@@ -388,7 +489,7 @@ struct ComposerLifecycleTests {
         #expect(viewModel.isLoadingClaims == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func claimFailuresAllowAnotherAttemptAndKeepDefaults() async {
+    @Test(.timeLimit(.minutes(1))) func claimFailuresAllowAnotherAttempt() async {
         let service = Service()
         service.failsClaims = true
         let viewModel = model(service)
@@ -402,7 +503,7 @@ struct ComposerLifecycleTests {
         #expect(viewModel.claims.map(\.id) == [0])
     }
 
-    @Test(.timeLimit(.minutes(1))) func draftRestoreOwnsFieldsImagesAndTheOneTimePrompt() async {
+    @Test(.timeLimit(.minutes(1))) func draftRestoreOwnsFieldsImages() async {
         let drafts = Drafts()
         drafts.result = .loaded(snapshot())
         let viewModel = model(drafts: drafts, prepare: { Data([42]) + $0 })
@@ -421,8 +522,10 @@ struct ComposerLifecycleTests {
         #expect(drafts.result.snapshot?.images.first?.uploadData == Data([42, 7]))
     }
 
-    @Test(.timeLimit(.minutes(1))) func recoveryPausesSavingAndPreservesLiveEditing() async {
-        for result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot> in [.unreadable, .unsupportedVersion(2)] {
+    @Test(.timeLimit(.minutes(1))) func recoveryPausesSavingPreservesLiveEditing() async {
+        for result: ComposerDraftLoadResult<GalleryComposerDraftSnapshot> in [
+            .unreadable, .unsupportedVersion(2),
+        ] {
             let drafts = Drafts()
             drafts.result = result
             let viewModel = model(drafts: drafts)
@@ -438,7 +541,7 @@ struct ComposerLifecycleTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1))) func failedDiscardPreservesDraftAndKeepsTheEditorOpen() async {
+    @Test(.timeLimit(.minutes(1))) func failedDiscardPreservesDraft() async {
         let drafts = Drafts()
         drafts.result = .loaded(snapshot())
         drafts.failsRemoval = true
@@ -463,11 +566,12 @@ struct ComposerLifecycleTests {
         #expect(viewModel.isSavingDraft == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func successfulCreationUsesTheSelectedUploaderAndClearsItsDraft() async throws {
+    @Test(.timeLimit(.minutes(1))) func successfulCreationUsesSelectedUploader() async throws {
         let service = Service()
         let uploader = Service()
         let drafts = Drafts()
-        let viewModel = model(service, drafts: drafts, uploader: uploader, prepare: { Data([42]) + $0 })
+        let viewModel = model(
+            service, drafts: drafts, uploader: uploader, prepare: { Data([42]) + $0 })
         valid(viewModel)
         await viewModel.addImages(from: [{ Data([7]) }])
         #expect(uploader.uploads == [Data([42, 7])])
@@ -481,8 +585,9 @@ struct ComposerLifecycleTests {
         #expect(viewModel.isSubmitting == false)
     }
 
-    @Test(.timeLimit(.minutes(1))) func confirmedPublicationCompletesWhileCleanupFails() async throws {
-        let service = Service(), drafts = Drafts()
+    @Test(.timeLimit(.minutes(1))) func confirmedPublishCompletes() async throws {
+        let service = Service()
+        let drafts = Drafts()
         drafts.failsRemoval = true
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
@@ -496,12 +601,16 @@ struct ComposerLifecycleTests {
         #expect(service.submissions.count == 1 && drafts.cleanupCount == 0)
     }
 
-    @Test(.timeLimit(.minutes(1))) func editingPostsPreservesNewPostDraftsAndExistingImages() async {
+    @Test(.timeLimit(.minutes(1))) func editingPostsPreservesNewPostDrafts() async {
         let drafts = Drafts()
         drafts.result = .loaded(snapshot())
         let service = Service()
-        let image = CommunityImage(mid: "existing", url: "https://example.invalid/image.jpg", lowUrl: "")
-        let viewModel = model(service, drafts: drafts, editing: poster(images: [image], plugins: #"[{"type":"future","data":{"value":"preserved"}}]"#))
+        let image = CommunityImage(
+            mid: "existing", url: "https://example.invalid/image.jpg", lowUrl: "")
+        let viewModel = model(
+            service, drafts: drafts,
+            editing: poster(
+                images: [image], plugins: #"[{"type":"future","data":{"value":"preserved"}}]"#))
         #expect(viewModel.title == "帖子标题")
         #expect(viewModel.hasUnsavedEdits == false)
         viewModel.title = "修改标题"
@@ -516,14 +625,16 @@ struct ComposerLifecycleTests {
         #expect(await viewModel.submit())
         #expect(service.submissions.first?.id == 42)
         #expect(service.submissions.first?.mids == ["existing"])
-        #expect(service.submissions.first?.plugins == #"[{"type":"future","data":{"value":"preserved"}}]"#)
+        #expect(
+            service.submissions.first?.plugins
+                == #"[{"type":"future","data":{"value":"preserved"}}]"#)
         #expect(drafts.cleanupCount == 0)
         #expect(drafts.result.snapshot?.title == "草稿标题")
         viewModel.removeExistingImage(id: image.id)
         #expect(viewModel.existingImages.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func failedSubmissionsPreserveDraftsAndAllowRetry() async {
+    @Test(.timeLimit(.minutes(1))) func failedSubmissionsPreserveDrafts() async {
         let service = Service()
         service.failsSubmission = true
         let drafts = Drafts()
@@ -538,7 +649,7 @@ struct ComposerLifecycleTests {
         #expect(service.submissions.count == 2)
     }
 
-    @Test(.timeLimit(.minutes(1))) func uncertainCreationPreservesItsDraftAndStopsAnotherSubmission() async {
+    @Test(.timeLimit(.minutes(1))) func uncertainCreationPreservesDraft() async {
         let service = Service()
         service.unknownSubmission = true
         let drafts = Drafts()
@@ -556,7 +667,7 @@ struct ComposerLifecycleTests {
         #expect(service.submissions.count == 1)
     }
 
-    @Test(.timeLimit(.minutes(1))) func imageFailuresAreRetryableAndTheLimitIncludesExistingImages() async {
+    @Test(.timeLimit(.minutes(1))) func imageFailuresAreRetryable() async {
         let service = Service()
         service.uploadFailures = 1
         let viewModel = model(service)
@@ -571,17 +682,26 @@ struct ComposerLifecycleTests {
         viewModel.removeImageDraft(id: id)
         #expect(viewModel.imageDrafts.count == 8)
         await viewModel.retryImageUpload(id: id)
-        let full = model(editing: poster(images: (0..<9).map { .init(mid: String($0), url: "", lowUrl: "") }))
+        let full = model(
+            editing: poster(images: (0..<9).map { .init(mid: String($0), url: "", lowUrl: "") }))
         await full.addImages(from: [{ Data([7]) }])
         #expect(full.imageDrafts.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func suspendedImagePreparationKeepsTheEditorResponsiveAndHonorsCancellation() async throws {
+    @Test(.timeLimit(.minutes(1))) func suspendedImagePreparationKeepsResponsive() async throws {
         let gate = Gate()
         let service = Service()
-        let viewModel = model(service, prepare: { data in await gate.pause(); return Data([42]) + data })
+        let viewModel = model(
+            service,
+            prepare: { data in
+                await gate.pause()
+                return Data([42]) + data
+            })
         let adding = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        defer { adding.cancel(); gate.resume() }
+        defer {
+            adding.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         viewModel.title = "继续编辑"
         #expect(viewModel.isAddingImages)
@@ -594,7 +714,7 @@ struct ComposerLifecycleTests {
         #expect(service.uploads.isEmpty)
     }
 
-    @Test(.timeLimit(.minutes(1))) func imagePreparationFailuresAndEmptyDataKeepTheEditorReady() async {
+    @Test(.timeLimit(.minutes(1))) func imagePreparationFailures() async {
         let viewModel = model(prepare: { _ in nil })
         await viewModel.addImages(from: [{ Data([7]) }, { nil }, { throw URLError(.cancelled) }])
         #expect(viewModel.imageDrafts.isEmpty)
@@ -603,23 +723,35 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["read", "prepare"], [false, true])
-    func draftRestorationOwnsTheEditorAcrossSuspensionAndCancellation(stage: String, cancelled: Bool) async throws {
-        let gate = Gate(), drafts = Drafts(), service = Service()
+    func draftRestoreOwnsEditorAcrossSuspension(stage: String, cancelled: Bool) async throws {
+        let gate = Gate()
+        let drafts = Drafts()
+        let service = Service()
         drafts.result = .loaded(snapshot())
         if stage == "read" { drafts.readGate = gate }
-        let viewModel = model(service, drafts: drafts, prepare: { data in
-            if stage == "prepare" { await gate.pause() }
-            return data
-        })
+        let viewModel = model(
+            service, drafts: drafts,
+            prepare: { data in
+                if stage == "prepare" { await gate.pause() }
+                return data
+            })
         valid(viewModel)
         let previousTitle = viewModel.title
         let restoring = Task { await viewModel.restoreDraft() }
-        defer { restoring.cancel(); gate.resume() }
+        defer {
+            restoring.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         #expect(viewModel.isRestoringDraft && viewModel.isBusy)
         #expect(viewModel.title == previousTitle && viewModel.imageDrafts.isEmpty)
         await viewModel.restoreDraft()
-        await viewModel.addImages(from: [{ Issue.record("Images entered during draft restoration"); return Data([9]) }])
+        await viewModel.addImages(from: [
+            {
+                Issue.record("Images entered during draft restoration")
+                return Data([9])
+            }
+        ])
         #expect(await viewModel.saveDraft() == false)
         #expect(await viewModel.discardDraft() == false)
         #expect(await viewModel.submit() == false)
@@ -639,11 +771,17 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["save", "publish", "discard"])
-    func savingPublishingAndDiscardingExcludeEachOther(first: String) async throws {
-        let gate = Gate(), drafts = Drafts(), service = Service()
-        if first == "save" { drafts.saveGate = gate }
-        else if first == "publish" { service.submissionGate = gate }
-        else { drafts.removalGate = gate }
+    func savingPublish(first: String) async throws {
+        let gate = Gate()
+        let drafts = Drafts()
+        let service = Service()
+        if first == "save" {
+            drafts.saveGate = gate
+        } else if first == "publish" {
+            service.submissionGate = gate
+        } else {
+            drafts.removalGate = gate
+        }
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
         let pending = Task {
@@ -651,7 +789,10 @@ struct ComposerLifecycleTests {
             if first == "publish" { return await viewModel.submit() }
             return await viewModel.discardDraft()
         }
-        defer { pending.cancel(); gate.resume() }
+        defer {
+            pending.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         #expect(viewModel.isBusy)
         #expect(await viewModel.discardDraft() == false)
@@ -666,7 +807,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func duplicateSubmissionUsesOneCapturedPayloadAndPreservesNewDraftRevisions() async throws {
+    func duplicateSubmissionUsesOneCapturedPayload() async throws {
         let gate = Gate()
         let service = Service()
         service.submissionGate = gate
@@ -674,7 +815,10 @@ struct ComposerLifecycleTests {
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
         let pending = Task { await viewModel.submit() }
-        defer { pending.cancel(); gate.resume() }
+        defer {
+            pending.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         #expect(await viewModel.submit() == false)
         viewModel.title = "后续编辑"
@@ -687,13 +831,16 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func removedImagesAndDuplicateRetriesHonorTheActiveUpload() async throws {
+    func removedImagesAndRetriesHonorActiveUpload() async throws {
         let gate = Gate()
         let service = Service()
         service.uploadGate = gate
         let viewModel = model(service)
         let pending = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        defer { pending.cancel(); gate.resume() }
+        defer {
+            pending.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         let id = viewModel.imageDrafts[0].id
         await viewModel.retryImageUpload(id: id)
@@ -706,13 +853,16 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func pageCancellationStopsPublicationAndAllowsFreshWork() async throws {
+    func pageCancelStopsPublish() async throws {
         let gate = Gate()
         let service = Service()
         service.uploadGate = gate
         let viewModel = model(service)
         let pending = Task { await viewModel.addImages(from: [{ Data([7]) }]) }
-        defer { pending.cancel(); gate.resume() }
+        defer {
+            pending.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         viewModel.cancelPendingOperations()
         gate.resume()
@@ -724,7 +874,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func accountRoundTripsDiscardLateSubmissionAndDraftRestoration() async throws {
+    func accountRoundTripsDiscardLateSubmission() async throws {
         let identity = Identity()
         let drafts = Drafts()
         drafts.result = .loaded(snapshot())
@@ -732,7 +882,10 @@ struct ComposerLifecycleTests {
         drafts.readGate = readGate
         let viewModel = model(drafts: drafts, identity: identity)
         let pending = Task { await viewModel.restoreDraft() }
-        defer { pending.cancel(); readGate.resume() }
+        defer {
+            pending.cancel()
+            readGate.resume()
+        }
         try await readGate.waitUntilPaused()
         identity.current = .init(accountIdentifier: "composer-B", generation: 2)
         identity.current = .init(accountIdentifier: "composer-A", generation: 3)
@@ -746,7 +899,7 @@ struct ComposerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func cancelledSubmissionRetainsTheDraftAndReturnsCancellation() async throws {
+    func cancelledSubmissionRetainsDraft() async throws {
         let gate = Gate()
         let service = Service()
         service.submissionGate = gate
@@ -754,7 +907,10 @@ struct ComposerLifecycleTests {
         let viewModel = model(service, drafts: drafts)
         valid(viewModel)
         let pending = Task { await viewModel.submit() }
-        defer { pending.cancel(); gate.resume() }
+        defer {
+            pending.cancel()
+            gate.resume()
+        }
         try await gate.waitUntilPaused()
         pending.cancel()
         gate.resume()

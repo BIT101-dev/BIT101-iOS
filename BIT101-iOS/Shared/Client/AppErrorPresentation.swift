@@ -3,7 +3,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-
 nonisolated struct AppErrorPresentation: Identifiable {
     let id = UUID()
     let title: String
@@ -16,22 +15,27 @@ nonisolated struct AppErrorPresentation: Identifiable {
 
     var allowsSchoolServiceLink: Bool { showsRecoveryLinks && schoolServiceURL != nil }
     var schoolServiceLinkTitle: String {
-        SchoolServiceIssue(error: underlyingError)?.actionTitle ?? SchoolServiceIssue.serviceActionTitle
+        SchoolServiceIssue(error: underlyingError)?.actionTitle
+            ?? SchoolServiceIssue.serviceActionTitle
     }
 
     func sharesFailure(with other: Self) -> Bool {
         guard message == other.message, allowsDiagnostics == other.allowsDiagnostics,
-              showsRecoveryLinks == other.showsRecoveryLinks, schoolServiceURL == other.schoolServiceURL,
-              recoveryAction == other.recoveryAction else { return false }
+            showsRecoveryLinks == other.showsRecoveryLinks,
+            schoolServiceURL == other.schoolServiceURL,
+            recoveryAction == other.recoveryAction
+        else { return false }
         if let cause = underlyingError, let otherCause = other.underlyingError {
-            let error = cause as NSError, otherError = otherCause as NSError
+            let error = cause as NSError
+            let otherError = otherCause as NSError
             return error.domain == otherError.domain && error.code == otherError.code
         }
         return title == other.title
     }
 
     static var versionText: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let version =
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         return "\(version) (\(build))"
     }
@@ -42,11 +46,14 @@ extension AppErrorPresentation: DiagnosticAlertPresentable {}
 extension AppErrorPresentation {
     init(alert: any DiagnosticAlertPresentable) {
         if let issue = SchoolServiceIssue(error: alert.underlyingError) {
-            self.init(title: issue.title, message: issue.message, allowsDiagnostics: false,
+            self.init(
+                title: issue.title, message: issue.message, allowsDiagnostics: false,
                 showsRecoveryLinks: true, schoolServiceURL: issue.serviceURL,
                 recoveryAction: nil, underlyingError: alert.underlyingError)
         } else {
-            self.init(title: alert.title, message: alert.message, allowsDiagnostics: alert.allowsDiagnostics,
+            self.init(
+                title: alert.title, message: alert.message,
+                allowsDiagnostics: alert.allowsDiagnostics,
                 showsRecoveryLinks: alert.showsRecoveryLinks, schoolServiceURL: nil,
                 recoveryAction: alert.recoveryAction, underlyingError: alert.underlyingError)
         }
@@ -76,8 +83,12 @@ final class AppErrorPresenter {
     private let currentPresenter: @MainActor () -> UIViewController?
     private let retryDelay: @MainActor () async throws -> Void
 
-    init(presenter: (@MainActor () -> UIViewController?)? = nil,
-         retryDelay: @escaping @MainActor () async throws -> Void = { try await Task.sleep(for: .milliseconds(300)) }) {
+    init(
+        presenter: (@MainActor () -> UIViewController?)? = nil,
+        retryDelay: @escaping @MainActor () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(300))
+        }
+    ) {
         currentPresenter = presenter ?? Self.topViewController
         self.retryDelay = retryDelay
     }
@@ -111,8 +122,9 @@ final class AppErrorPresenter {
     }
 
     func setModalPresented(_ isPresented: Bool, id: UUID) {
-        if isPresented { activeModals.insert(id) }
-        else {
+        if isPresented {
+            activeModals.insert(id)
+        } else {
             activeModals.remove(id)
             if activeModals.isEmpty, !queue.isEmpty { retryPresentation() }
         }
@@ -120,8 +132,15 @@ final class AppErrorPresenter {
 
     private func enqueue(_ presentation: AppErrorPresentation) {
         if let activePresentation, dismissalWaiters[activePresentation.id] == nil,
-           activePresentation.sharesFailure(with: presentation) { return }
-        guard !queue.contains(where: { dismissalWaiters[$0.id] == nil && $0.sharesFailure(with: presentation) }) else { return }
+            activePresentation.sharesFailure(with: presentation)
+        {
+            return
+        }
+        guard
+            !queue.contains(where: {
+                dismissalWaiters[$0.id] == nil && $0.sharesFailure(with: presentation)
+            })
+        else { return }
         queue.append(presentation)
         presentNextIfPossible()
     }
@@ -132,7 +151,10 @@ final class AppErrorPresenter {
         let waiterID = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !Task.isCancelled else { continuation.resume(); return }
+                guard !Task.isCancelled else {
+                    continuation.resume()
+                    return
+                }
                 dismissalWaiters[presentation.id, default: []].append(
                     DismissalWaiter(id: waiterID, continuation: continuation)
                 )
@@ -148,7 +170,7 @@ final class AppErrorPresenter {
 
     private func cancelWaiter(presentationID: UUID, waiterID: UUID) {
         guard var waiters = dismissalWaiters[presentationID],
-              let index = waiters.firstIndex(where: { $0.id == waiterID })
+            let index = waiters.firstIndex(where: { $0.id == waiterID })
         else { return }
         let waiter = waiters.remove(at: index)
         if waiters.isEmpty {
@@ -160,7 +182,9 @@ final class AppErrorPresenter {
                         guard self?.activePresentationID == presentationID else { return }
                         self?.finishPresentedItem()
                     }
-                } else { finishPresentedItem() }
+                } else {
+                    finishPresentedItem()
+                }
             }
             if queue.isEmpty, !isPresenting {
                 retryTask?.cancel()
@@ -175,10 +199,12 @@ final class AppErrorPresenter {
     private func presentNextIfPossible() {
         guard !isPresenting, !queue.isEmpty, activeModals.isEmpty else { return }
         guard let presenter = currentPresenter(), !presenter.isBeingDismissed else {
-            retryPresentation(); return
+            retryPresentation()
+            return
         }
         if presenter is UIAlertController {
-            retryPresentation(); return
+            retryPresentation()
+            return
         }
 
         retryTask?.cancel()
@@ -186,19 +212,26 @@ final class AppErrorPresenter {
         isPresenting = true
         let item = queue.removeFirst()
         activePresentation = item
-        let message = item.allowsDiagnostics
+        let message =
+            item.allowsDiagnostics
             ? "\(item.message)\n\n版本 \(AppErrorPresentation.versionText)"
             : item.message
-        let controller = UIAlertController(title: item.title, message: message, preferredStyle: .alert)
+        let controller = UIAlertController(
+            title: item.title, message: message, preferredStyle: .alert)
         activeAlertController = controller
-#if BIT101_UI_TESTING
+        #if BIT101_UI_TESTING
         controller.view.accessibilityIdentifier = "ui-test.scene"
-        controller.view.accessibilityValue = "\(ProcessInfo.processInfo.processIdentifier):\(UITestSceneConfiguration.shared.snapshot.revision)"
-#endif
+        controller.view.accessibilityValue =
+            """
+            \(ProcessInfo.processInfo.processIdentifier):\
+            \(UITestSceneConfiguration.shared.snapshot.revision)
+            """
+        #endif
         var recoveryActionButton: UIAlertAction?
 
         if let recoveryAction = item.recoveryAction {
-            let action = UIAlertAction(title: recoveryAction.title, style: .default) { [weak self] _ in
+            let action = UIAlertAction(title: recoveryAction.title, style: .default) {
+                [weak self] _ in
                 switch recoveryAction {
                 case .openAppSettings:
                     if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -213,20 +246,26 @@ final class AppErrorPresenter {
 
         if item.allowsDiagnostics {
             if item.showsRecoveryLinks {
-            controller.addAction(UIAlertAction(title: "查看是否有更新", style: .default) { [weak self] _ in
-                UIApplication.shared.open(BIT101AppStore.url)
-                self?.finishAlert()
-            })
+                controller.addAction(
+                    UIAlertAction(title: "查看是否有更新", style: .default) { [weak self] _ in
+                        UIApplication.shared.open(BIT101AppStore.url)
+                        self?.finishAlert()
+                    })
             }
-            controller.addAction(UIAlertAction(title: "向开发者分享错误信息", style: .default) { [weak self] _ in
-                self?.presentReportSheet(for: item)
-            })
+            controller.addAction(
+                UIAlertAction(title: "向开发者分享错误信息", style: .default) { [weak self] _ in
+                    self?.presentReportSheet(for: item)
+                })
         }
         if item.showsRecoveryLinks, item.allowsSchoolServiceLink {
-            controller.addAction(UIAlertAction(title: item.schoolServiceLinkTitle, style: .default) { [weak self] _ in
-                if let schoolServiceURL = item.schoolServiceURL { UIApplication.shared.open(schoolServiceURL) }
-                self?.finishAlert()
-            })
+            controller.addAction(
+                UIAlertAction(title: item.schoolServiceLinkTitle, style: .default) {
+                    [weak self] _ in
+                    if let schoolServiceURL = item.schoolServiceURL {
+                        UIApplication.shared.open(schoolServiceURL)
+                    }
+                    self?.finishAlert()
+                })
         }
         let dismissAction = UIAlertAction(title: "知道了", style: .cancel) { [weak self] _ in
             self?.finishAlert()
@@ -248,9 +287,10 @@ final class AppErrorPresenter {
                 retryReportSheet(for: item, generation: generation)
                 return
             }
-            let controller = UIHostingController(rootView: AppErrorReportSheet(alert: item) { [weak self] in
-                self?.finishReportSheet()
-            })
+            let controller = UIHostingController(
+                rootView: AppErrorReportSheet(alert: item) { [weak self] in
+                    self?.finishReportSheet()
+                })
             controller.modalPresentationStyle = .pageSheet
             let delegate = ReportPresentationDelegate { [weak self] in self?.finishReportSheet() }
             reportDelegate = delegate
@@ -294,7 +334,8 @@ final class AppErrorPresenter {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, self.presentationGeneration == generation,
-                  self.activePresentationID == presentationID else { return }
+                self.activePresentationID == presentationID
+            else { return }
             self.finishPresentedItem()
         }
     }
@@ -304,21 +345,28 @@ final class AppErrorPresenter {
         let generation = presentationGeneration
         let delay = retryDelay
         retryTask = Task { @MainActor [weak self] in
-            do { try await delay() }
-            catch {
+            do { try await delay() } catch {
                 if self?.presentationGeneration == generation { self?.retryTask = nil }
                 return
             }
-            guard let self, !Task.isCancelled, self.presentationGeneration == generation else { return }
+            guard let self, !Task.isCancelled, self.presentationGeneration == generation else {
+                return
+            }
             self.retryTask = nil
             self.presentNextIfPossible()
         }
     }
 
-    static func availableViewController(using presenter: @MainActor () -> UIViewController?) async throws -> UIViewController? {
+    static func availableViewController(using presenter: @MainActor () -> UIViewController?)
+        async throws -> UIViewController?
+    {
         try Task.checkCancellation()
         while let controller = presenter() {
-            if !(controller is UIAlertController), !controller.isBeingDismissed, controller.presentedViewController == nil { return controller }
+            if !(controller is UIAlertController), !controller.isBeingDismissed,
+                controller.presentedViewController == nil
+            {
+                return controller
+            }
             try await Task.sleep(for: .milliseconds(300))
         }
         return nil
@@ -328,16 +376,21 @@ final class AppErrorPresenter {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .filter { $0.activationState == .foregroundActive }
-        guard let root = scenes.flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController else { return nil }
+        guard let root = scenes.flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController
+        else { return nil }
 
         func descend(_ controller: UIViewController) -> UIViewController {
             if let presented = controller.presentedViewController, !presented.isBeingDismissed {
                 return descend(presented)
             }
-            if let navigation = controller as? UINavigationController, let visible = navigation.visibleViewController {
+            if let navigation = controller as? UINavigationController,
+                let visible = navigation.visibleViewController
+            {
                 return descend(visible)
             }
-            if let tab = controller as? UITabBarController, let selected = tab.selectedViewController {
+            if let tab = controller as? UITabBarController,
+                let selected = tab.selectedViewController
+            {
                 return descend(selected)
             }
             return controller
@@ -349,30 +402,38 @@ final class AppErrorPresenter {
 private final class ReportPresentationDelegate: NSObject, UIAdaptivePresentationControllerDelegate {
     let onDismiss: () -> Void
     init(onDismiss: @escaping () -> Void) { self.onDismiss = onDismiss }
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { onDismiss() }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        onDismiss()
+    }
 }
-
 
 extension View {
     /// 向页面状态组件注入主 App 的诊断恢复操作，保持设计系统与错误基础设施解耦。
-    func appDiagnosticRecoveryActions() -> some View {
-#if BIT101_UI_TESTING
+    func diagnosticRecoveryActions() -> some View {
+        #if BIT101_UI_TESTING
         let sceneRevision = UITestSceneConfiguration.shared.snapshot.revision
-#endif
+        #endif
         return environment(\.appDiagnosticAlert) { alert in
-#if BIT101_UI_TESTING
-            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else { return }
-#endif
+            #if BIT101_UI_TESTING
+            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
+                return
+            }
+            #endif
             AppErrorPresenter.shared.present(alert)
         }
-            .environment(\.appDiagnosticModalActivity) { id, isPresented in
-#if BIT101_UI_TESTING
-                guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else { return }
-#endif
-                AppErrorPresenter.shared.setModalPresented(isPresented, id: id)
+        .environment(\.appDiagnosticModalActivity) { id, isPresented in
+            #if BIT101_UI_TESTING
+            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
+                return
             }
-            .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics, error in
-            AnyView(DiagnosticRecoveryActions(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: error))
+            #endif
+            AppErrorPresenter.shared.setModalPresented(isPresented, id: id)
+        }
+        .environment(\.appFailureRecoveryActions) { title, message, allowsDiagnostics, error in
+            AnyView(
+                DiagnosticRecoveryActions(
+                    title: title, message: message, allowsDiagnostics: allowsDiagnostics,
+                    underlyingError: error))
         }
     }
 }
@@ -385,7 +446,10 @@ struct DiagnosticRecoveryActions: View {
     @State private var reportAlert: AppAlert?
 
     var presentation: AppErrorPresentation {
-        AppErrorPresentation(alert: AppAlert(title: title, message: message, allowsDiagnostics: allowsDiagnostics, underlyingError: underlyingError))
+        AppErrorPresentation(
+            alert: AppAlert(
+                title: title, message: message, allowsDiagnostics: allowsDiagnostics,
+                underlyingError: underlyingError))
     }
 
     var body: some View {
@@ -396,7 +460,9 @@ struct DiagnosticRecoveryActions: View {
                     .font(AppDesignSystem.Typography.footnote)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
-            if presentation.allowsSchoolServiceLink, let schoolServiceURL = presentation.schoolServiceURL {
+            if presentation.allowsSchoolServiceLink,
+                let schoolServiceURL = presentation.schoolServiceURL
+            {
                 Link(presentation.schoolServiceLinkTitle, destination: schoolServiceURL)
                     .accessibilityIdentifier("diagnostic.school-service")
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -404,7 +470,8 @@ struct DiagnosticRecoveryActions: View {
             if presentation.allowsDiagnostics {
                 Link("查看是否有更新", destination: BIT101AppStore.url)
                 Button("向开发者分享错误信息") {
-                    reportAlert = AppAlert(title: title, message: message, underlyingError: underlyingError)
+                    reportAlert = AppAlert(
+                        title: title, message: message, underlyingError: underlyingError)
                 }
             }
         }
@@ -470,25 +537,33 @@ private struct AppErrorReportSheet: View {
                     .padding(.top, AppDesignSystem.Spacing.content)
                 }
                 Section("留言（可选）") {
-                    TextField("", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"), axis: .vertical)
-                        .lineLimit(3...6)
-                        .accessibilityIdentifier("error-report.comment")
+                    TextField(
+                        "", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"),
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
+                    .accessibilityIdentifier("error-report.comment")
                 }
                 Section("联系方式（可选）") {
-                    TextField("", text: $viewModel.contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"), axis: .vertical)
-                        .lineLimit(1 ... 3)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($isContactFocused)
-                        .accessibilityLabel("联系方式")
-                        .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
-                        .accessibilityIdentifier("ui.app-error-report-sheet.联系方式")
+                    TextField(
+                        "", text: $viewModel.contact, prompt: AppInputPrompt.text("微信、QQ 或邮箱"),
+                        axis: .vertical
+                    )
+                    .lineLimit(1...3)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($isContactFocused)
+                    .accessibilityLabel("联系方式")
+                    .accessibilityHint("可填写微信、QQ、邮箱或其他联系方式")
+                    .accessibilityIdentifier("ui.app-error-report-sheet.联系方式")
                 }
             }
             .navigationTitle("分享错误信息")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("取消") { close() }
-                    .accessibilityIdentifier("ui.app-error-report-sheet.cancel") }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { close() }
+                        .accessibilityIdentifier("ui.app-error-report-sheet.cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(viewModel.isSubmitting ? "提交中" : "提交") {
                         requestSubmission()
@@ -513,7 +588,12 @@ private struct AppErrorReportSheet: View {
                 case .rawResponse:
                     Alert(
                         title: Text("确认提交原始网络响应？"),
-                        message: Text("原始网络响应可能包含学号、姓名、课程、成绩等个人信息。密码、Cookie、Token 等认证信息会强制脱敏。\n\n报告由开发者私下用于排查本 App 的故障，排查完成后删除。信息使用咨询：systemd@linux.do。"),
+                        message: Text(
+                            """
+                            原始网络响应可能包含学号、姓名、课程、成绩等个人信息。密码、Cookie、Token 等认证信息会强制脱敏。\n\n报告由开发者私下用\
+                            于排查本 App 的故障，排查完成后删除。信息使用咨询：systemd@linux.do。
+                            """
+                        ),
                         primaryButton: .default(Text("确认提交"), action: submitAndClose),
                         secondaryButton: .cancel(Text("取消"))
                     )
@@ -555,33 +635,31 @@ private struct AppErrorReportSheet: View {
     }
 
     private func cancelTasks() {
-        submissionTask?.cancel(); submissionTask = nil
-        confirmationTask?.cancel(); confirmationTask = nil
+        submissionTask?.cancel()
+        submissionTask = nil
+        confirmationTask?.cancel()
+        confirmationTask = nil
     }
 
     @ViewBuilder
     private var modeExplanation: some View {
         if viewModel.mode == .sanitized {
-            (
-                Text("仅包含 App 版本、设备与系统信息、网络状态、请求接口、状态码等；")
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            (Text("仅包含 App 版本、设备与系统信息、网络状态、请求接口、状态码等；")
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 + Text("系统会自动隐藏密码、Cookie、Token、姓名、学号等敏感字段。")
-                    .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
-            )
-            .font(AppDesignSystem.Typography.footnote)
+                .font(AppDesignSystem.Typography.footnoteEmphasis)
+                .foregroundStyle(AppDesignSystem.Palette.Accent.primary))
+                .font(AppDesignSystem.Typography.footnote)
         } else {
-            (
-                Text("包含接口返回的原始内容，")
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            (Text("包含接口返回的原始内容，")
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 + Text("可能包含学号、姓名、课程、成绩等个人信息。")
-                    .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
+                .font(AppDesignSystem.Typography.footnoteEmphasis)
+                .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 + Text("密码、Cookie、Token 等认证信息仍会强制脱敏。")
-                    .font(AppDesignSystem.Typography.footnoteEmphasis)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-            )
-            .font(AppDesignSystem.Typography.footnote)
+                .font(AppDesignSystem.Typography.footnoteEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary))
+                .font(AppDesignSystem.Typography.footnote)
         }
     }
 

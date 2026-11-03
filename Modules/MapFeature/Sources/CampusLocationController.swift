@@ -40,7 +40,7 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
     }
 
     /// 根据当前授权状态请求权限；已有权限由地图桥接层启动位置更新。
-    func requestAuthorizationIfNeeded() {
+    func authorizeIfNeeded() {
         switch authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -64,16 +64,23 @@ final class CampusLocationController: NSObject, ObservableObject, CLLocationMana
         notice = CampusLocationFailurePolicy.notice(for: error)
     }
 
-    func openDirections(to place: CampusMapPlace,
-        using open: (MKMapItem, [String: Any]) -> Bool = { $0.openInMaps(launchOptions: $1) }) {
+    func openDirections(
+        to place: CampusMapPlace,
+        using open: (MKMapItem, [String: Any]) -> Bool = { $0.openInMaps(launchOptions: $1) }
+    ) {
         let destination = MKMapItem(placemark: MKPlacemark(coordinate: place.coordinate))
         destination.name = place.name
-        notice = open(destination, [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking]) ? nil : MapNotice(
-            title: "打开系统地图失败",
-            message: "请稍后再次点按步行导航。你可以继续使用当前校园地图查看地点。",
-            allowsDiagnostics: false,
-            showsRecoveryLinks: false
-        )
+        notice =
+            open(
+                destination,
+                [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking])
+            ? nil
+            : MapNotice(
+                title: "打开系统地图失败",
+                message: "请稍后再次点按步行导航。你可以继续使用当前校园地图查看地点。",
+                allowsDiagnostics: false,
+                showsRecoveryLinks: false
+            )
     }
 
     /// 更新定位授权状态；当前位置由地图桥接层继续处理。
@@ -97,7 +104,8 @@ nonisolated enum CampusLocationFailurePolicy {
     static func contains(_ error: Error, code: CLError.Code) -> Bool {
         ErrorChain.contains(error) { error in
             let candidate = error as NSError
-            return candidate.domain == kCLErrorDomain && CLError.Code(rawValue: candidate.code) == code
+            return candidate.domain == kCLErrorDomain
+                && CLError.Code(rawValue: candidate.code) == code
         }
     }
 }

@@ -68,7 +68,7 @@
 - **状态**：`AppLoadingState`、`AppInlineLoadingState`、`AppEmptyState`、`AppFailureState` 提供加载、空态、失败与恢复操作；诊断操作通过环境注入。
 - **触感**：`appSelectionFeedback` 与 `appImpactFeedback` 使用系统反馈能力。
 
-错误分类由客户端基础设施提供，恢复操作通过 `appDiagnosticRecoveryActions()` 注入 `AppFailureState`。业务页面负责内容、状态和操作绑定。
+错误分类由客户端基础设施提供，恢复操作通过 `diagnosticRecoveryActions()` 注入 `AppFailureState`。业务页面负责内容、状态和操作绑定。
 
 课程半星评分使用原生 `Stepper` 增减并归零；地图桥接层按系统减弱动态效果设置执行相机动作。长文本的完整阅读采用原生文本布局、动态字体与选择能力。
 
