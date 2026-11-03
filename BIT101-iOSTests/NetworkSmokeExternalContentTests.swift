@@ -757,17 +757,6 @@ extension ReleaseNetworkSmokeLifecycleTests {
         #expect(reports.count == 2)
     }
 
-    private static func selectedEclassPages(for stage: String) -> [Int] {
-        switch stage {
-        case "missing": [2]
-        case "truncated": [1]
-        case "reversed": [2, 1]
-        case "duplicate": [1, 1]
-        case "fallback", "empty", "full-terminal": [1]
-        default: [1, 2]
-        }
-    }
-
     private static func smokeScope(
         for stage: String,
         redirectHost: String?
@@ -808,4 +797,17 @@ extension ReleaseNetworkSmokeLifecycleTests {
         return .schedule
     }
 }
+extension NetworkSmokeExternalContentTests {
+    private static func selectedEclassPages(for stage: String) -> [Int] {
+        switch stage {
+        case "missing": [2]
+        case "truncated": [1]
+        case "reversed": [2, 1]
+        case "duplicate": [1, 1]
+        case "fallback", "empty", "full-terminal": [1]
+        default: [1, 2]
+        }
+    }
+}
+
 #endif

@@ -31,7 +31,7 @@ struct GallerySubscriptionsView: View {
         self.onOpenResource = onOpenResource
     }
 
-    private func handleItemTap(item: GallerySubscriptionItem) {
+    private func handleItemTap(item: GallerySubscription) {
         guard let resource = item.resource else { return }
         guard resource.kind == "poster" else {
             onOpenResource(resource.kind, resource.id)
@@ -50,7 +50,7 @@ struct GallerySubscriptionsView: View {
     }
 
     @ViewBuilder
-    private func itemLabel(item: GallerySubscriptionItem) -> some View {
+    private func itemLabel(item: GallerySubscription) -> some View {
         let displayTitle = item.text.isEmpty ? item.resourceTitle : item.text
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             Text(displayTitle)
@@ -69,7 +69,7 @@ struct GallerySubscriptionsView: View {
     }
 
     @ViewBuilder
-    private func subscriptionRow(item: GallerySubscriptionItem) -> some View {
+    private func subscriptionRow(item: GallerySubscription) -> some View {
         Button {
             handleItemTap(item: item)
         } label: {
@@ -193,7 +193,7 @@ struct GalleryFeedView: View {
         }
     }
 
-    private func handleOpenImage(index: Int, images: [CommunityRemoteImage]) {
+    private func handleOpenImage(index: Int, images: [CommunityImage]) {
         let request = ImagePreviewRequest(
             remoteImages: images.map(\.previewImage),
             initialIndex: index)

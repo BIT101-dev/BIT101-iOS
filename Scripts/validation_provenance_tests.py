@@ -243,6 +243,7 @@ def test_identity_self_test() -> None:
                 return_value=[path.relative_to(subject.ROOT).as_posix() for path in sources],
             ),
             patch("validation_inputs.includes_input", return_value=True),
+            patch("validation_result_readers.test_inventory", return_value={"Probe/check"}),
             patch.object(subject, "test_inventory", return_value={"Probe/check"}),
         ):
             try:
@@ -309,6 +310,7 @@ def run_self_test(recorder) -> None:
             patch.object(module, "write_report") as saved,
             patch.object(module, "test_summary", return_value=summary),
             patch.object(module, "smoke_summary", return_value=summary),
+            patch("validation_result_readers.test_inventory", return_value={"Suite/testRun"}),
             patch.object(module, "test_inventory", return_value={"Suite/testRun"}),
             patch.object(module, "complete_summary", return_value=True),
             patch.object(module, "environment_context", return_value={}),
@@ -433,6 +435,7 @@ def check_group_bundle_self_test(module) -> None:
             ("invalid", "a" * 64),
             ("a" * 64, None),
         ):
+
             def mock_identity(path, current_raw=raw):
                 if current_raw:
                     return current_raw
@@ -545,7 +548,7 @@ def artifact_lock_self_test(module) -> None:
             patch.dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1"),
             patch.object(Path, "exists", lambda path: bool(names) and path == diagnostics),
             patch.object(Path, "is_dir", return_value=False),
-            patch.object(Path, "iterdir", side_effect=mock_iterdir),
+            patch.object(Path, "iterdir", autospec=True, side_effect=mock_iterdir),
             patch.object(Path, "unlink", lambda path, **kwargs: retained.discard(path.name)),
             patch.object(Path, "open", return_value=nullcontext(BytesIO())),
             patch.object(os, "walk", return_value=[]),
@@ -687,7 +690,12 @@ def selected_coverage_self_test(module) -> None:
             patch.object(module, "write_report") as saved,
             patch.object(module, "test_summary", return_value=summary),
             patch.object(module, "complete_summary", return_value=True),
+            patch(
+                ("validation_result_readers.test_case_inventory"),
+                return_value={("Suite/testRun"): 1},
+            ),
             patch.object(module, "test_case_inventory", return_value={"Suite/testRun": 1}),
+            patch("validation_result_readers.test_inventory", return_value={"Suite/testRun"}),
             patch.object(module, "test_inventory", return_value={"Suite/testRun"}),
             patch.object(Path, "is_file", return_value=True),
             patch.object(

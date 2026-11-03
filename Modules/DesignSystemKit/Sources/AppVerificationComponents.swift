@@ -293,6 +293,7 @@ public struct AppVerificationSheet: View {
                     } label: {
                         submitButtonLabel
                     }
+                    .accessibilityIdentifier("verification.submit")
                     .disabled(
                         submissionInProgress
                             || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha)

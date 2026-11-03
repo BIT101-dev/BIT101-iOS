@@ -402,7 +402,7 @@ private struct PaperDetailViewScene: View {
         }
     }
 
-    private func openImage(_ image: PaperContentInlineImage) {
+    private func openImage(_ image: PaperInlineImage) {
         guard let initialIndex = inlineImages.firstIndex(of: image) else {
             return
         }
@@ -600,7 +600,7 @@ private struct PaperContentBlockView: View {
     }
 
     @ViewBuilder
-    private func listView(items: [String], ordered: Bool) -> some View {
+    private func listView(items: [AttributedString], ordered: Bool) -> some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 let prefix = ordered ? "\(index + 1)." : "•"

@@ -424,11 +424,16 @@ if args.self_test:
 
 
 def missing_imports(sources, *, only=None):
-    declared = (root / "Scripts/style-requirements.txt").read_text().splitlines()
-    external = sys.stdlib_module_names | {"openpyxl"} | {
-        requirement.split("==", 1)[0].replace("-", "_")
-        for requirement in declared if requirement.strip() and not requirement.startswith("#")
-    }
+    declared = Path(__file__).with_name("style-requirements.txt").read_text().splitlines()
+    external = (
+        sys.stdlib_module_names
+        | {"openpyxl"}
+        | {
+            requirement.split("==", 1)[0].replace("-", "_")
+            for requirement in declared
+            if requirement.strip() and not requirement.startswith("#")
+        }
+    )
     errors = []
     for name, source in sources.items():
         if only is not None and name != only:

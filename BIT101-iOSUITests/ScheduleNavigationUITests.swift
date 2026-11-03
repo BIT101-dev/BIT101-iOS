@@ -614,7 +614,8 @@ extension UIAutomationTestCase {
             }
             let wheels = pickerState.snapshots(matching: .pickerWheel)
             if !wheels.isEmpty {
-                exerciseTimePickerWheels(nativePicker, wheels: wheels, origin: origin)
+                exerciseTimePickerWheels(
+                    nativePicker, wheels: wheels, origin: origin, coverage: coverage)
             } else if identifier == "ddl.editor.date" {
                 exerciseSystemCalendar(nativePicker)
             }
@@ -628,8 +629,9 @@ extension UIAutomationTestCase {
     @MainActor
     private func exerciseTimePickerWheels(
         _ nativePicker: UIElement,
-        wheels: [UIElementSnapshot],
-        origin: XCUICoordinate
+        wheels: [any XCUIElementSnapshot],
+        origin: UIAutomationCoordinate,
+        coverage: DatePickerCoverage
     ) {
         let exercisedWheels = coverage == .contract ? wheels : Array(wheels.prefix(1))
         for (index, state) in exercisedWheels.enumerated() {

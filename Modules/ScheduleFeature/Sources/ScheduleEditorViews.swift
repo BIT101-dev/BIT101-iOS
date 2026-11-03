@@ -50,7 +50,7 @@ struct AddCourseSheet: View {
         .interactiveDismissDisabled(hasChanges)
     }
 
-    private var selectedWeeksBinding: Binding<Set<Int>> {
+    private var selectedWeeksBinding: Binding<[Int]> {
         Binding(
             get: {
                 (try? ScheduleCourseEditor.parseWeeks(draft.weeksText)) ?? []
@@ -189,7 +189,8 @@ struct CourseArrangementEditorSheet: View {
         for arrangement: Binding<CourseArrangementDraft>
     ) -> some View {
         let originalBuilding = arrangement.wrappedValue.original.buildingName
-        let isCustomBuilding = !originalBuilding.isEmpty
+        let isCustomBuilding =
+            !originalBuilding.isEmpty
             && !buildings.contains(where: { $0.name == originalBuilding })
 
         return Picker("楼宇", selection: arrangement.draft.buildingName) {

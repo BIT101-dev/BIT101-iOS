@@ -10,54 +10,11 @@ import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from validation_provenance import sampling_evidence_current
+from restore_diagnostics import simulator_startup_diagnostics
 
 ROOT = Path(__file__).resolve().parents[1]
 PROOF = ROOT / "build/DeviceInstall/restore-readiness.json"
 PROCESS = ROOT / "build/DeviceInstall/restore-process.json"
-
-
-def simulator_startup_diagnostics(device: str, process: int) -> None:
-    import sys
-
-    subprocess.run(
-        [
-            "xcrun",
-            "simctl",
-            "spawn",
-            device,
-            "log",
-            "show",
-            "--style",
-            "compact",
-            "--info",
-            "--last",
-            "2m",
-            "--predicate",
-            (
-                'subsystem == "BIT101" AND (category == "RestoreReadiness" OR category == "LoginKe'
-                'ychain" OR category == "PersistentBackup")'
-            ),
-        ],
-        check=False,
-        stdout=sys.stderr,
-        stderr=sys.stderr,
-    )
-    reports = Path.home() / "Library/Logs/DiagnosticReports"
-    for report in reports.glob("BIT101-iOS-*.ips"):
-        try:
-            payload = json.loads(report.read_text().partition("\n")[2])
-            if not isinstance(payload, dict) or payload.get("pid") != process:
-                continue
-            print(
-                f"启动崩溃：{report} · {json.dumps(payload.get('exception'), ensure_ascii=False)}",
-                file=sys.stderr,
-            )
-            thread = payload.get("threads", [])[payload.get("faultingThread", 0)]
-            for frame in thread.get("frames", []):
-                print("  " + str(frame.get("symbol") or frame.get("imageOffset")), file=sys.stderr)
-            break
-        except (OSError, ValueError, TypeError, IndexError):
-            continue
 
 
 def invalidate() -> None:
@@ -396,9 +353,9 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
                 )
                 expected_prepared = prepared if operation == "app" else 0
                 expected_code = original or expected_prepared
-                if result.returncode != expected_code or (
-                    "PREPARED" in result.stdout
-                ) != (operation == "app"):
+                if result.returncode != expected_code or ("PREPARED" in result.stdout) != (
+                    operation == "app"
+                ):
                     findings.append(
                         "恢复准备自测：原生测试与主机编译重叠，设备操作完成后归集子进程及失败状态"
                     )

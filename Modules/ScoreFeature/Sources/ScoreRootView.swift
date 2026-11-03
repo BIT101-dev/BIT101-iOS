@@ -119,7 +119,7 @@ public struct ScoreListPage: View {
     }
 
     @ViewBuilder
-    private func pendingCourseItem(course: PendingCourse, isSelected: Bool) -> some View {
+    private func pendingCourseItem(course: ScoreCourseSummary, isSelected: Bool) -> some View {
         AppBrowserListRow(
             isSelected: isSelected,
             action: { selectedPage = .course(.init(course: course)) }
@@ -130,7 +130,7 @@ public struct ScoreListPage: View {
     }
 
     @ViewBuilder
-    private func pendingCoursesSection(pendingCourses: [PendingCourse]) -> some View {
+    private func pendingCoursesSection(pendingCourses: [ScoreCourseSummary]) -> some View {
         Section("未出分") {
             ForEach(pendingCourses) { course in
                 pendingCourseItem(

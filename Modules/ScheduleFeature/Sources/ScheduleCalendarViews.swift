@@ -559,7 +559,7 @@ struct CourseScheduleCalendarView: View {
 
     private func quantizedTimeRow(
         index: Int,
-        slot: ScheduleTimeTableSlot,
+        slot: TimeSlot,
         leftWidth: CGFloat,
         dayWidth: CGFloat,
         rowHeight: CGFloat,

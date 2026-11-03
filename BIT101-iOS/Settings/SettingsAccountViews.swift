@@ -97,7 +97,7 @@ struct AccountSettingsPage: View {
     }
 
     @ViewBuilder
-    private func profileSection(_ profile: ProfileSnapshot) -> some View {
+    private func profileSection(_ profile: MineUserInfo) -> some View {
         Section("个人信息") {
             avatarRow(profile)
             nicknameButton(profile)
@@ -117,7 +117,7 @@ struct AccountSettingsPage: View {
         }
     }
 
-    private func avatarRow(_ profile: ProfileSnapshot) -> some View {
+    private func avatarRow(_ profile: MineUserInfo) -> some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Text("头像")
             Spacer()
@@ -143,7 +143,7 @@ struct AccountSettingsPage: View {
         }
     }
 
-    private func nicknameButton(_ profile: ProfileSnapshot) -> some View {
+    private func nicknameButton(_ profile: MineUserInfo) -> some View {
         Button {
             nicknameText = profile.user.nickname
             showNicknameEditor = true
@@ -154,7 +154,7 @@ struct AccountSettingsPage: View {
         .appInteractiveListRow()
     }
 
-    private func mottoButton(_ profile: ProfileSnapshot) -> some View {
+    private func mottoButton(_ profile: MineUserInfo) -> some View {
         let displayValue = profile.user.motto.isEmpty ? "空" : profile.user.motto
         return Button {
             mottoText = profile.user.motto
@@ -195,6 +195,7 @@ struct AccountSettingsPage: View {
             } label: {
                 loginStatusLabel
             }
+            .accessibilityIdentifier("settings.account.loginStatus")
             .disabled(isBusy)
             .appInteractiveListRow()
 

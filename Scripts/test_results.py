@@ -4,6 +4,7 @@
 import sys
 from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
+from test_module_metrics import export_module_metrics, module_result
 
 
 def workflow_start(arguments: list[str]) -> None:
@@ -628,12 +629,8 @@ def append_ui_interaction_report_lines(
         count = sum(row.get(kind, {}).get("count", 0) for row in query_metrics)
         seconds = sum(row.get(kind, {}).get("seconds", 0) for row in query_metrics)
         lines.append(f"{label}：{int(count)} 次；累计 {seconds:.1f} 秒")
-    control_actions = [
-        float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)
-    ]
-    lines.append(
-        f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒"
-    )
+    control_actions = [float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)]
+    lines.append(f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒")
     inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
     if inventories:
         from ui_inventory import merge
@@ -648,9 +645,7 @@ def append_ui_interaction_report_lines(
             f"待补充访问的标识：{len(pending)}"
             + ("；" + "、".join(pending[:10]) if pending else "")
         )
-    replacements = [
-        float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)
-    ]
+    replacements = [float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)]
     lines.append(f"输入控件更新：{len(replacements)} 次；累计 {sum(replacements):.1f} 秒")
     keyboard_finishes = output.count("UI keyboard finish")
     lines.append(f"键盘完成动作：{keyboard_finishes} 次")
@@ -672,14 +667,11 @@ def append_ui_interaction_report_lines(
         elif "Wait for " in line and " to idle" in line:
             wait_started = float(timestamp[1]) if "com.apple.springboard" in line else None
         elif (
-            "App animations complete notification not received" in line
-            and wait_started is not None
+            "App animations complete notification not received" in line and wait_started is not None
         ):
             system_waits.append(float(timestamp[1]) - wait_started)
             wait_started = None
-    lines.append(
-        f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒"
-    )
+    lines.append(f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒")
     query_retries = len(re.findall(r"\(retry \d+\)", output))
     lines.append(f"控件查询重试：{query_retries} 次")
     lines.append(f"系统通知横幅处理：{output.count('UI notification banner dismissed')} 次")
@@ -699,9 +691,7 @@ def append_ui_interaction_report_lines(
                 snapshot_seconds += duration
         previous_step = current_step
     lines.append(f"界面快照请求：{snapshot_count} 次；阶段耗时约 {snapshot_seconds:.1f} 秒")
-    preparations = [
-        float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)
-    ]
+    preparations = [float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)]
     if preparations:
         lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
 
@@ -950,143 +940,6 @@ def record_native_metrics(arguments: list[str]) -> None:
         if coverage_error:
             print(coverage_error)
         raise SystemExit("覆盖率采集失败。")
-
-
-def module_result(events: Path, status: int) -> dict:
-    from validation_evidence import module_event_summary
-
-    try:
-        result = module_event_summary(events.read_text())
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        if status == 0:
-            raise
-        return dict(passed=False, exitCode=status, diagnostic=f"模块事件读取失败：{error}")
-    return dict(result, passed=result["failedTests"] == 0 and status == 0, exitCode=status)
-
-
-def export_module_metrics(arguments: list[str]) -> None:
-    cli_arguments = ["", *arguments]
-    import json
-    import os
-    from pathlib import Path
-    import subprocess
-    import sys
-
-    coverage_path, report_path, root_path = map(Path, cli_arguments[1:4])
-    status = int(cli_arguments[4]) if len(cli_arguments) > 4 else 0
-    sys.path.insert(0, str(root_path / "Scripts"))
-    from validation_inputs import module_coverage_executables
-
-    tests = module_result(report_path.parent / "module-events.jsonl", status)
-    if status:
-        from command_output import FailureSummary
-
-        log = report_path.parent / "modules.log"
-        details = FailureSummary()
-        if log.is_file():
-            with log.open() as source:
-                for line in source:
-                    details.add(line)
-        if diagnostic := tests.get("diagnostic"):
-            details.add(diagnostic + "\n")
-        report_path.with_name("test-failures.txt").write_text("".join(details.lines()))
-        rows = [
-            "# 模块测试指标",
-            "结果来源：" + json.dumps(dict(family="modules", exitCode=status, coverage=None)),
-            f"结果：Failed · 进程状态 {status}",
-            "完整日志：" + str(log),
-            "验证输入：" + os.environ["BIT101_VALIDATION_INPUT_IDENTITY"],
-            "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
-        ]
-        if "totalTests" in tests:
-            rows.append(
-                (
-                    f"总计 "
-                    f"{tests['totalTests']}"
-                    f"；通过 "
-                    f"{tests['passedTests']}"
-                    f"；失败 "
-                    f"{tests['failedTests']}"
-                    f"；跳过 "
-                    f"{tests['skippedTests']}"
-                )
-            )
-        report_path.write_text("\n".join(rows) + "\n")
-        return
-    test_count = tests["passedTests"]
-    executed = tests["executedTests"]
-    products = coverage_path.parent.parent
-    executables = module_coverage_executables(root_path, products)
-    command = [
-        "xcrun",
-        "llvm-cov",
-        "export",
-        str(executables[0]),
-        "-instr-profile",
-        str(coverage_path.parent / "default.profdata"),
-    ]
-    for executable in executables[1:]:
-        command += ["-object", str(executable)]
-    coverage_text = subprocess.check_output(command, text=True)
-    coverage = json.loads(coverage_text)
-    coverage_path.write_text(coverage_text)
-    modules = {}
-    for section in coverage["data"]:
-        for file in section["files"]:
-            path = Path(file["filename"])
-            if not path.is_relative_to(root_path / "Modules"):
-                continue
-            module = path.relative_to(root_path / "Modules").parts[0]
-            lines = file["summary"]["lines"]
-            covered, count = modules.get(module, (0, 0))
-            modules[module] = covered + lines["covered"], count + lines["count"]
-    if not modules:
-        raise SystemExit("模块覆盖率需要包含生产源码。")
-    covered = sum(row[0] for row in modules.values())
-    count = sum(row[1] for row in modules.values())
-    rows = [
-        "# 模块生产源码行覆盖率",
-        "结果来源：" + json.dumps(dict(family="modules", coverage=str(coverage_path))),
-        (
-            f"总计 "
-            f"{tests['totalTests']}"
-            f"；通过 "
-            f"{test_count}"
-            f"；失败 "
-            f"{tests['failedTests']}"
-            f"；跳过 "
-            f"{tests['skippedTests']}"
-        ),
-        "测试实例：" + json.dumps(tests["testCases"]),
-        "验证输入：" + os.environ["BIT101_VALIDATION_INPUT_IDENTITY"],
-        "验证运行：" + os.environ["BIT101_VALIDATION_RUN_ID"],
-        f"统计范围：macOS 可执行生产源码，共 {len(modules)} 个模块",
-        f"合计：{covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)",
-        *[
-            f"- {name}: {covered / count * 100 if count else 0:.2f}% ({covered}/{count} lines)"
-            for name, (covered, count) in sorted(modules.items())
-        ],
-    ]
-    report_path.write_text("\n".join(rows) + "\n")
-    with report_path.open("a") as stream:
-        stream.write("已执行用例：" + json.dumps(sorted(set(executed))) + "\n")
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_path:
-        table = [
-            "## 模块回归",
-            f"{test_count} 项测试通过；统计范围为 macOS 可执行生产源码。",
-            "",
-            "| 模块 | 行覆盖率 | 覆盖行 / 可执行行 |",
-            "| --- | ---: | ---: |",
-        ]
-        table += [
-            f"| {name} | {hit / total * 100 if total else 0:.2f}% | {hit} / {total} |"
-            for name, (hit, total) in sorted(modules.items())
-        ]
-        table += [f"| 合计 | {covered / count * 100 if count else 0:.2f}% | {covered} / {count} |"]
-        with Path(summary_path).open("a", encoding="utf-8") as summary:
-            summary.write("\n".join(table) + "\n")
-    print(f"[覆盖率] {len(modules)} 个模块 · {covered}/{count} 行")
 
 
 def selected_inventory(arguments: list[str]) -> None:

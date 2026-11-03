@@ -259,7 +259,7 @@ struct GalleryCommentComposerSheet: View {
             : "添加图片"
     }
 
-    private func handleImageRetry(id: String) {
+    private func handleImageRetry(id: UUID) {
         Task { await imageUploads.retry(id: id) }
     }
 
@@ -290,6 +290,7 @@ struct GalleryCommentComposerSheet: View {
 
     @ViewBuilder
     private var imagesSection: some View {
+        let pickerTitle = imagePickerTitle
         Section("图片") {
             PhotosPicker(
                 selection: $selectedPhotoItems,
@@ -297,7 +298,7 @@ struct GalleryCommentComposerSheet: View {
                     1, ComposerDraftImagePolicy.maximumImageCount - imageCount),
                 matching: .images
             ) {
-                Text(imagePickerTitle)
+                Text(pickerTitle)
             }
             .disabled(
                 isSubmitting || isUploadingImages

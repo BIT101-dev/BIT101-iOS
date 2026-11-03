@@ -604,7 +604,7 @@ final class UITestHTTPTransport: HTTPTransport {
         method: String,
         body: [String: Any],
         url: URL
-    ) throws -> ([String: Any], (HTTPURLResponse, Data)?) {
+    ) throws -> ([String: Any], (Data, URLResponse)?) {
         if method == "DELETE" {
             deletedPaperIDs.insert(id)
         }
@@ -612,9 +612,10 @@ final class UITestHTTPTransport: HTTPTransport {
             let item = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
             return (item, nil)
         }
-        let hasConflict = AppUITestBootstrap.environment[
-            "BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"
-        ] == "1" && failedPaths.insert("paper-edit-conflict").inserted
+        let hasConflict =
+            AppUITestBootstrap.environment[
+                "BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"
+            ] == "1" && failedPaths.insert("paper-edit-conflict").inserted
         if hasConflict, let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
             createdPapers[index]["title"] = "远端更新的文章"
             createdPapers[index]["update_time"] = "2026-10-26T00:00:00Z"

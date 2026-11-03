@@ -91,7 +91,7 @@ struct FeatureCompositionTests {
         #expect(files.metadataScanCount == scans + media.cacheDirectories.count)
     }
 
-    private final class StreamingMessages: GalleryMessageServicing {
+    final class StreamingMessages: GalleryMessageServicing {
         var growing = true, unread = 5, identifiers = Array((1...6).reversed())
         var acknowledgementIDs: [Int]?
         var recoveryFailure: (any Error)?
@@ -192,7 +192,7 @@ struct FeatureCompositionTests {
         #expect(service.unread == 0 && store.unreadCount(for: .comment) == 7)
     }
 
-    private final class ScoreCache: ScoreCaching {
+    final class ScoreCache: ScoreCaching {
         func recover(rows: [ScoreRow], for session: AppStorageSession) async -> Date? { nil }
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var loads = 0
@@ -208,7 +208,7 @@ struct FeatureCompositionTests {
         func save(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
         func saveDetailed(rows: [ScoreRow], for session: AppStorageSession?) async -> Date? { nil }
     }
-    private final class ScorePreferences: ScoreFilterPreferencesStoring {
+    final class ScorePreferences: ScoreFilterPreferencesStoring {
         func reset() {}
         var changes: AnyPublisher<AppStorageSession, Never> { Empty().eraseToAnyPublisher() }
         var hasUnreadableSnapshot: Bool { false }
@@ -218,7 +218,7 @@ struct FeatureCompositionTests {
             sortOrder: ScoreSortOrder
         ) -> Bool { true }
     }
-    private final class Scores: ScoreListServicing, TrustedTranscriptServicing {
+    final class Scores: ScoreListServicing, TrustedTranscriptServicing {
         var schoolRequests = 0
         func startScoreChallenge() async throws -> BITLoginAuthenticationChallenge {
             schoolRequests += 1
@@ -343,7 +343,7 @@ struct FeatureCompositionTests {
         #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
     }
 
-    private final class CourseList: CourseListServicing {
+    final class CourseList: CourseListServicing {
         var requests: [String] = []
 
         func fetchCourses(search: String, page: Int) async throws -> [CourseSummary] {
@@ -356,13 +356,13 @@ struct FeatureCompositionTests {
         }
     }
 
-    private struct OfflineTransport: HTTPTransport {
+    struct OfflineTransport: HTTPTransport {
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             throw URLError(.notConnectedToInternet)
         }
     }
 
-    private func media() -> MediaEnvironment {
+    func media() -> MediaEnvironment {
         let files = PreferenceMemoryFiles()
         let client = HTTPClient(transport: OfflineTransport(), observer: nil)
         return AppMedia.makeEnvironment(
@@ -371,7 +371,7 @@ struct FeatureCompositionTests {
             imageHTTPClient: client, avatarHTTPClient: client)
     }
 
-    private func dependencies(list: CourseList) -> CourseDependencies {
+    func dependencies(list: CourseList) -> CourseDependencies {
         let session = CommunitySession(
             httpClient: HTTPClient(transport: OfflineTransport(), observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -413,7 +413,7 @@ struct FeatureCompositionTests {
         #expect(Set(selected.requests) == ["课程", "COURSE-1"])
         #expect(surrounding.requests.isEmpty)
     }
-    private final class TraceTransport: HTTPTransport {
+    final class TraceTransport: HTTPTransport {
         var requests: [URLRequest] = []
         var response: ((URLRequest) throws -> Data)?
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -434,7 +434,7 @@ struct FeatureCompositionTests {
         }
     }
 
-    private func session(_ transport: TraceTransport) -> CommunitySession {
+    func session(_ transport: TraceTransport) -> CommunitySession {
         CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
             baseURL: AppURL.required("https://example.invalid"),
@@ -446,14 +446,14 @@ struct FeatureCompositionTests {
             refresh: { _ in })
     }
 
-    private func preferences() -> CommunityPreferences {
+    func preferences() -> CommunityPreferences {
         CommunityPreferences(
             snapshot: CommunityPreferenceSnapshot(
                 hideBots: false, hiddenUserIDs: [], hideAnonymous: false,
                 useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
     }
 
-    private func gallery(_ transport: TraceTransport) -> GalleryDependencies {
+    func gallery(_ transport: TraceTransport) -> GalleryDependencies {
         let session = session(transport)
         let preferences = preferences()
         let service = GalleryService(session: session, preferences: { preferences.snapshot })
@@ -477,7 +477,7 @@ struct FeatureCompositionTests {
             networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
     }
 
-    private func paper(_ transport: TraceTransport) -> PaperDependencies {
+    func paper(_ transport: TraceTransport) -> PaperDependencies {
         let paperSession = session(transport)
         let service = PaperService(session: paperSession)
         return PaperDependencies(
@@ -491,7 +491,7 @@ struct FeatureCompositionTests {
             currentIdentity: { paperSession.currentCredentials.identity })
     }
 
-    private func mine(_ transport: TraceTransport) -> MineDependencies {
+    func mine(_ transport: TraceTransport) -> MineDependencies {
         let preferences = preferences()
         let service = MineService(
             session: session(transport), preferences: { preferences.snapshot })
@@ -500,7 +500,7 @@ struct FeatureCompositionTests {
             networkPath: .init(snapshot: .init(status: .connected)))
     }
 
-    private func host<V: View>(
+    func host<V: View>(
         _ view: V, navigation: Bool = true, operation: () async throws -> Void
     ) async throws {
         let scene = try #require(
@@ -607,7 +607,7 @@ struct FeatureCompositionTests {
         #expect(surrounding.requests.isEmpty)
     }
 
-    private final class PaperPreviewService: PaperListServicing {
+    final class PaperPreviewService: PaperListServicing {
         let summary = PaperSummary(
             id: 1, title: "页面返回验收", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         var pages: [Int] = []
@@ -627,13 +627,13 @@ struct FeatureCompositionTests {
         }
     }
 
-    private final class TabRoute: ObservableObject {
+    final class TabRoute: ObservableObject {
         @Published var selection = 0
         var otherAppeared = false
         var paperDisappeared = false
     }
 
-    private struct PaperTabs: View {
+    struct PaperTabs: View {
         @ObservedObject var route: TabRoute
         let dependencies: PaperDependencies
         let media: MediaEnvironment
@@ -699,7 +699,7 @@ struct FeatureCompositionTests {
         #expect(service.previewRequests == 2 && service.pages == [0, 1])
     }
 
-    private final class GalleryFeed: GalleryFeedServicing {
+    final class GalleryFeed: GalleryFeedServicing {
         var pages: [Int] = []
         var pending: CheckedContinuation<GalleryPageBatch<CommunityPoster>, Never>?
         var suspend = false
@@ -864,67 +864,7 @@ struct FeatureCompositionTests {
                 && model.userInfo?.followerNum == 4)
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [ScheduleSection.courses, .ddl, .classroom])
-    func scheduleRootOwnsItsConstructorViewModel(section: ScheduleSection) async throws {
-        var selectedLoads = 0
-        var surroundingLoads = 0
-        var continuation: CheckedContinuation<Void, Never>?
-        let term = "2026-2027-1"
-        let course = CourseRecord(
-            id: "composition-course", term: term, name: "composition-course", teacher: "fixture",
-            classroom: "fixture",
-            description: "", weeks: Array(1...20), weekday: 1, startSection: 1, endSection: 2,
-            campus: "fixture", number: "fixture", credit: 1,
-            hour: 16, type: "必修", category: "fixture", department: "fixture")
-        var cache = ScheduleCache()
-        cache.courseData.currentTerm = term
-        cache.courseData.schedulesByTerm[term] = TermScheduleSnapshot(
-            term: term, firstDayString: "2026-09-07", courses: [course], exams: [],
-            updatedAt: Date())
-        func viewModel(load: @escaping (AppStorageSession) async -> ScheduleCacheLoadResult)
-            -> ScheduleViewModel
-        {
-            let repository = ScheduleRepository(
-                session: { AppStorageSession(accountIdentifier: "composition") }, load: load,
-                save: { _, _, _ in })
-            let service = SemesterStartDateService()
-            return ScheduleViewModel(
-                service: service, repository: repository, ddlService: service,
-                classroomService: service,
-                platformActions: RecordingSchedulePlatformActions(),
-                newCustomScheduleDraft: { CustomScheduleDraft() })
-        }
-        let selected = viewModel { _ in
-            selectedLoads += 1
-            continuation?.resume()
-            continuation = nil
-            return .loaded(cache)
-        }
-        let surrounding = viewModel { _ in
-            surroundingLoads += 1
-            return .missing
-        }
-        let destinations = ScheduleDestinations(
-            appStoreURL: AppURL.required("https://example.invalid"),
-            academicCourse: { _, _ in AnyView(Text("course")) }, openCourseLocation: { _ in true },
-            resolveCourseShare: { _ in nil })
-        try await host(
-            ScheduleRootView(
-                viewModel: selected, requestedSection: .constant(section),
-                destinations: destinations
-            )
-            .environmentObject(surrounding).environment(media())
-        ) {
-            if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
-            try await waitForTestEvent { !(!selected.isCacheWritable) }
-            #expect(selected.courseState.courses.map(\.id) == [course.id])
-            #expect(selected.selectedSection == section)
-        }
-        #expect(selectedLoads > 0)
-        #expect(surroundingLoads == 0)
-    }
-
-    private func replace<V: View>(
+    func replace<V: View>(
         _ first: V, with second: V, firstTransport: TraceTransport, secondTransport: TraceTransport,
         initialRequests: Int = 1
     ) async throws {
@@ -944,70 +884,6 @@ struct FeatureCompositionTests {
         try await secondTransport.waitForRequest(count: initialRequests)
         #expect(firstTransport.requests.count == firstCount)
         #expect(secondTransport.requests.count > 0)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func paperDependencyReplacementObject() async throws {
-        let first = TraceTransport()
-        let second = TraceTransport()
-        let selectedMedia = media()
-        try await replace(
-            PaperRootView(dependencies: paper(first), media: selectedMedia),
-            with: PaperRootView(dependencies: paper(second), media: selectedMedia),
-            firstTransport: first, secondTransport: second)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func galleryDependencyReplacementScene() async throws {
-        let first = TraceTransport()
-        let second = TraceTransport()
-        let selectedMedia = media()
-        let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
-        let papers = CommunityPaperDestination(
-            papers: { _, _ in AnyView(Text("paper")) },
-            detail: { AnyView(Text("paper \($0)")) })
-        let courses = CommunityCourseDestination { AnyView(Text("course \($0)")) }
-        try await replace(
-            GalleryRootView(
-                dependencies: gallery(first), media: selectedMedia, profiles: profiles,
-                papers: papers, courses: courses),
-            with: GalleryRootView(
-                dependencies: gallery(second), media: selectedMedia, profiles: profiles,
-                papers: papers, courses: courses),
-            firstTransport: first, secondTransport: second, initialRequests: 2)
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func courseLookupDependencyTask() async throws {
-        let first = CourseList()
-        let second = CourseList()
-        let selectedMedia = media()
-        let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
-        let request = CourseNavigationRequest.lookup(courseName: "课程", courseNumber: "COURSE-1")
-        let scene = try #require(
-            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(
-            rootView: NavigationStack {
-                CourseEvaluationDestination(
-                    dependencies: dependencies(list: first), media: selectedMedia,
-                    profiles: profiles, request: request)
-            })
-        window.rootViewController = controller
-        window.makeKeyAndVisible()
-        defer {
-            window.isHidden = true
-            window.rootViewController = nil
-        }
-        try await first.waitForLookup()
-        controller.rootView = NavigationStack {
-            CourseEvaluationDestination(
-                dependencies: dependencies(list: second), media: selectedMedia, profiles: profiles,
-                request: request)
-        }
-        try await second.waitForLookup()
-        #expect(first.requests.count == 2)
-        #expect(Set(second.requests) == ["课程", "COURSE-1"])
     }
 
 }

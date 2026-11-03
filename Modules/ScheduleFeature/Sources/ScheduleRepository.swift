@@ -282,7 +282,7 @@ public final class ScheduleRepository: ObservableObject {
 
     private func attemptConflictResolution(
         snapshot: ScheduleCache,
-        source: ScheduleSaveSource,
+        source: ScheduleCacheSaveSource,
         account: AppStorageSession,
         generation: Int,
         operation: Int
@@ -295,10 +295,11 @@ public final class ScheduleRepository: ObservableObject {
             persistenceGeneration == operation, !Task.isCancelled
         else { return false }
         reloadAfterPersistence = false
-        guard remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
-            || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
-            || remote.syncData.cloudSyncBaselineUserState
-                != snapshot.syncData.cloudSyncBaselineUserState
+        guard
+            remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
+                || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
+                || remote.syncData.cloudSyncBaselineUserState
+                    != snapshot.syncData.cloudSyncBaselineUserState
         else { return nil }
         guard await reconcile(with: remote) else { return false }
         let rebased = cache

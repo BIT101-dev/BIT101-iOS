@@ -491,7 +491,7 @@ struct DeveloperSuggestionPage: View {
         .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 
-    private func suggestionConfirmationAlert(for item: SuggestionConfirmationItem) -> Alert {
+    private func suggestionConfirmationAlert(for item: DeveloperSuggestionConfirmation) -> Alert {
         switch item {
         case .rebuildSubmission:
             return Alert(

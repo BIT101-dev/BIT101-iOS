@@ -130,8 +130,6 @@ struct GalleryMessagesView: View {
     }
 
     var body: some View {
-        let type = viewModel.selectedType
-        let state = viewModel.state(for: type)
         ZStack {
             AppDesignSystem.Palette.Background.grouped
                 .ignoresSafeArea()

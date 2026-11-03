@@ -4,6 +4,7 @@ import ScheduleContracts
 import ScheduleDomain
 import ScheduleSharedStore
 import StorageCore
+import Testing
 
 @MainActor
 struct ScheduleSharedStoreTests {

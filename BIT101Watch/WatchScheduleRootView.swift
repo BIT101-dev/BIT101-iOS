@@ -85,7 +85,7 @@ struct WatchScheduleRootView: View {
     }
 
     @ViewBuilder
-    private func nextOccurrenceCard(_ next: ScheduleOccurrence) -> some View {
+    private func nextOccurrenceCard(_ next: ScheduleExternalOccurrence) -> some View {
         VStack(
             alignment: .leading,
             spacing: AppDesignSystem.Spacing.regular
@@ -138,7 +138,7 @@ struct WatchScheduleRootView: View {
     }
 
     @ViewBuilder
-    private func upcomingOccurrenceRow(_ occurrence: ScheduleOccurrence) -> some View {
+    private func upcomingOccurrenceRow(_ occurrence: ScheduleExternalOccurrence) -> some View {
         VStack(
             alignment: .leading,
             spacing: AppDesignSystem.Spacing.micro

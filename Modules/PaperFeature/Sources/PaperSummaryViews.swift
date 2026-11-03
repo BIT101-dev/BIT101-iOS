@@ -31,7 +31,7 @@ struct PaperSummaryCard: View {
             : AppDesignSystem.Typography.bodyEmphasis
     }
 
-    private var authorForegroundStyle: Color {
+    private var authorForegroundStyle: HierarchicalShapeStyle {
         previewMetadata == nil
             ? AppDesignSystem.Foreground.secondary
             : AppDesignSystem.Foreground.primary

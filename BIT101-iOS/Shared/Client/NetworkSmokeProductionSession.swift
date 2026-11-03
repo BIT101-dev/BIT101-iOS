@@ -165,7 +165,7 @@ enum NetworkSmokeProductionSession {
     private static func verifyPosterComments(
         gallery: any NetworkSmokeGalleryServicing,
         candidateID: Int,
-        identity: @escaping () -> CommunitySessionIdentity?
+        identity: @escaping () -> CommunitySessionIdentity
     ) async throws {
         for order in CommunityCommentOrder.allCases {
             _ = try await NetworkSmokePaging.commentBatch(

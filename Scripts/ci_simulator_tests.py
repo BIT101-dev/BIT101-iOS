@@ -148,13 +148,21 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         patch.object(ci, "ci_validation_environment", side_effect=environment_fixture),
         patch("validation_environment.environment_context", return_value=context),
         patch("validation_environment.ci_commit_findings", return_value=[]),
-        patch("validation_evidence.test_inventory", side_effect=lambda group: inventory[group]),
+        patch(
+            ("validation_result_readers.test_inventory"), side_effect=lambda group: inventory[group]
+        ),
+        patch(("validation_evidence.test_inventory"), side_effect=lambda group: inventory[group]),
+        patch(
+            ("validation_result_readers.test_selectors"),
+            side_effect=lambda group: {name: name + ("()") for name in inventory[group]},
+        ),
         patch(
             "validation_evidence.test_selectors",
             side_effect=lambda group: {name: name + "()" for name in inventory[group]},
         ),
         patch("validation_coverage.shard_inventory", side_effect=selected),
-        patch("validation_evidence.test_case_inventory", return_value=cases),
+        patch(("validation_result_readers.test_case_inventory"), return_value=cases),
+        patch(("validation_evidence.test_case_inventory"), return_value=cases),
         patch("validation_evidence.native_source_coverage", return_value=lines),
         patch("validation_evidence.validate_community_write_test_output"),
         patch("validation_coverage.shard_inventory", side_effect=selected),

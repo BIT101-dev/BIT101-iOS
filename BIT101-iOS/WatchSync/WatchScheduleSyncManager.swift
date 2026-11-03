@@ -370,7 +370,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     private func sendReachableMessage(
         session: WCSession,
-        knownRevision: Int?,
+        knownRevision: UInt64,
         generation: UInt64,
         completion: @escaping WatchScheduleRequestQueue.Completion
     ) {
@@ -415,7 +415,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     private func handleReachableError(
         error: Error,
-        knownRevision: Int?,
+        knownRevision: UInt64,
         generation: UInt64,
         completion: @escaping WatchScheduleRequestQueue.Completion
     ) {
@@ -435,7 +435,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     private func queueFallbackContext(
         session: WCSession,
-        knownRevision: Int?,
+        knownRevision: UInt64,
         completion: @escaping WatchScheduleRequestQueue.Completion
     ) {
         do {

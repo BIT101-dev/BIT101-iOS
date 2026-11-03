@@ -781,6 +781,7 @@ def community_recovery_self_test() -> list[str]:
     }
     with (
         patch("validation_evidence.input_identity", return_value="source"),
+        patch("validation_smoke_readers.network_inventory", return_value={"community.login"}),
         patch("validation_evidence.network_inventory", return_value={"community.login"}),
         patch("validation_evidence.environment_context", return_value=cleanup_environment),
         patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture-run"),

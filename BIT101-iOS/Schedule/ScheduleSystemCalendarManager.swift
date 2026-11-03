@@ -720,7 +720,7 @@ actor ScheduleSystemCalendarManager {
     }
 
     private func collectBatchEvents(
-        from batches: [ScheduleSystemCalendarBatch]
+        from batches: [ImportedBatch]
     ) -> [String: EKEvent] {
         var eventsByIdentifier: [String: EKEvent] = [:]
         for batch in batches {

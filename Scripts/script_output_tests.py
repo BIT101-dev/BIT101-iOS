@@ -510,6 +510,7 @@ def combined_audit_order_findings() -> list[str]:
             return result
 
         ui = SimpleNamespace(
+            swift_files=lambda: [],
             main=lambda _: record("ui", ui_status),
             **{
                 name: lambda: record("self-ui", [])

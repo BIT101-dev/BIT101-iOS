@@ -185,7 +185,7 @@ struct PaperComposerView: View {
     }
 
     @ViewBuilder
-    private func conflictReviewSection(_ latest: PaperSummary) -> some View {
+    private func conflictReviewSection(_ latest: PaperDetail) -> some View {
         Section("核对文章更新") {
             Text("当前编辑内容已保留。确认覆盖后，保存会提交当前标题、简介、正文和匿名设置。")
                 .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -564,10 +564,12 @@ final class PaperComposerViewModel {
             }
             if TaskCancellation.matches(error) { return false }
             if editingPaper == nil {
-                guard await handlePublicationFailure(
-                    publication: publication,
-                    drafts: drafts
-                ) else {
+                guard
+                    await handlePublicationFailure(
+                        publication: publication,
+                        drafts: drafts
+                    )
+                else {
                     return false
                 }
             }
@@ -579,7 +581,7 @@ final class PaperComposerViewModel {
 
     private func handlePublicationFailure(
         publication: ComposerPublicationAttempt?,
-        drafts: CommunityDraftStore
+        drafts: any ComposerPublicationStoring
     ) async -> Bool {
         guard let publication else {
             publicationReview = .requiresRecovery
