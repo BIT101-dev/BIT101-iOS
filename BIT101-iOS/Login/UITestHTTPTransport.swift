@@ -208,16 +208,7 @@ final class UITestHTTPTransport: HTTPTransport {
                 payload = [:] as [String: String]
             } else {
                 if failedPaths.insert(path).inserted { throw URLError(.networkConnectionLost) }
-                payload =
-                    page == "0"
-                    ? subscriptions.sorted { $0.key < $1.key }.filter { $0.value > 0 }
-                        .enumerated().map { index, item in
-                            [
-                                "id": index + 1, "subscription_time": timestamp,
-                                "obj": item.key, "level": item.value,
-                                "text": item.key == "course1" ? "收藏课程" : "自动化测试话题",
-                            ] as [String: Any]
-                        } : []
+                payload = subscriptionPayload(page: page, timestamp: timestamp)
             }
         case "upload/image":
             imageUploads += 1
@@ -335,11 +326,7 @@ final class UITestHTTPTransport: HTTPTransport {
                 } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
                     payload = paginationItems(poster, page: page, key: "title", title: "分页话题")
                 } else {
-                    payload =
-                        page == "0"
-                        ? ([poster] + createdPosters).filter {
-                            !deletedPosterIDs.contains($0["id"] as? Int ?? 0)
-                        } : []
+                    payload = activePosters(page: page)
                 }
             }
         case "papers":
@@ -412,39 +399,14 @@ final class UITestHTTPTransport: HTTPTransport {
                 else {
                     return try jsonResponse(["error": "not_found"], url: url, statusCode: 404)
                 }
-                if method == "DELETE" {
-                    if path.hasPrefix("posters/") {
-                        deletedPosterIDs.insert(id)
-                    } else {
-                        deletedPaperIDs.insert(id)
-                    }
-                }
                 if path.hasPrefix("posters/") {
-                    if method == "PUT", id == 1 { posterChanges.merge(body) { _, new in new } }
-                    if method == "PUT",
-                        let index = createdPosters.firstIndex(where: { $0["id"] as? Int == id })
-                    {
-                        for (key, value) in body { createdPosters[index][key] = value }
-                    }
-                    payload = createdPosters.first(where: { $0["id"] as? Int == id }) ?? poster
+                    payload = updatePosterDetail(id: id, method: method, body: body)
                 } else {
-                    if method == "PUT",
-                        AppUITestBootstrap.environment[
-                            "BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"] == "1",
-                        failedPaths.insert("paper-edit-conflict").inserted,
-                        let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id })
-                    {
-                        createdPapers[index]["title"] = "远端更新的文章"
-                        createdPapers[index]["update_time"] = "2026-10-26T00:00:00Z"
-                        return try jsonResponse(
-                            ["message": "文章已有更新"], url: url, statusCode: 409)
-                    }
-                    if method == "PUT",
-                        let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id })
-                    {
-                        for (key, value) in body { createdPapers[index][key] = value }
-                    }
-                    payload = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
+                    let (item, conflict) = try updatePaperDetail(
+                        id: id, method: method, body: body, url: url
+                    )
+                    if let conflict { return conflict }
+                    payload = item
                 }
             } else if path.hasPrefix("reaction/comments/") {
                 let components = path.split(separator: "/")
@@ -597,6 +559,75 @@ final class UITestHTTPTransport: HTTPTransport {
             "comment_num": 0, "own": true, "rate": 4, "reply_user": replyUser, "reply_obj": "",
             "text": readingText(text, ending: "长评末尾"), "sub": [],
         ]
+    }
+
+    private func subscriptionPayload(page: String, timestamp: String) -> [Any] {
+        guard page == "0" else { return [] }
+        return subscriptions.sorted { $0.key < $1.key }.filter { $0.value > 0 }
+            .enumerated().map { index, item in
+                let text = item.key == "course1" ? "收藏课程" : "自动化测试话题"
+                return [
+                    "id": index + 1, "subscription_time": timestamp,
+                    "obj": item.key, "level": item.value,
+                    "text": text,
+                ] as [String: Any]
+            }
+    }
+
+    private func activePosters(page: String) -> [Any] {
+        guard page == "0" else { return [] }
+        return ([poster] + createdPosters).filter {
+            !deletedPosterIDs.contains($0["id"] as? Int ?? 0)
+        }
+    }
+
+    private func updatePosterDetail(id: Int, method: String, body: [String: Any]) -> [String: Any] {
+        if method == "DELETE" {
+            deletedPosterIDs.insert(id)
+        }
+        guard method == "PUT" else {
+            return createdPosters.first(where: { $0["id"] as? Int == id }) ?? poster
+        }
+        if id == 1 {
+            posterChanges.merge(body) { _, new in new }
+        }
+        if let index = createdPosters.firstIndex(where: { $0["id"] as? Int == id }) {
+            for (key, value) in body {
+                createdPosters[index][key] = value
+            }
+        }
+        return createdPosters.first(where: { $0["id"] as? Int == id }) ?? poster
+    }
+
+    private func updatePaperDetail(
+        id: Int,
+        method: String,
+        body: [String: Any],
+        url: URL
+    ) throws -> ([String: Any], (HTTPURLResponse, Data)?) {
+        if method == "DELETE" {
+            deletedPaperIDs.insert(id)
+        }
+        guard method == "PUT" else {
+            let item = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
+            return (item, nil)
+        }
+        let hasConflict = AppUITestBootstrap.environment[
+            "BIT101_UI_TEST_PAPER_EDIT_CONFLICT_ONCE"
+        ] == "1" && failedPaths.insert("paper-edit-conflict").inserted
+        if hasConflict, let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
+            createdPapers[index]["title"] = "远端更新的文章"
+            createdPapers[index]["update_time"] = "2026-10-26T00:00:00Z"
+            let response = try jsonResponse(["message": "文章已有更新"], url: url, statusCode: 409)
+            return ([:], response)
+        }
+        if let index = createdPapers.firstIndex(where: { $0["id"] as? Int == id }) {
+            for (key, value) in body {
+                createdPapers[index][key] = value
+            }
+        }
+        let item = createdPapers.first(where: { $0["id"] as? Int == id }) ?? paper
+        return (item, nil)
     }
 }
 

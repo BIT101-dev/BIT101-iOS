@@ -84,6 +84,15 @@ def manage_runtimes(
     def platform(runtime):
         return runtime["name"].split()[0]
 
+    def matching_targets(runtime, device):
+        device_type = device["deviceTypeIdentifier"]
+        return [
+            row
+            for row in targets
+            if platform(row) == platform(runtime)
+            and any(kind["identifier"] == device_type for kind in row["supportedDeviceTypes"])
+        ]
+
     data = inventory()
     target_version = version_tuple(version)
     selected = [row for row in data["runtimes"] if platform(row) == platform_name]
@@ -105,15 +114,7 @@ def manage_runtimes(
             for device in data["devices"].get(runtime["identifier"], []):
                 if device["udid"] not in identifiers:
                     continue
-                matches = [
-                    row
-                    for row in targets
-                    if platform(row) == platform(runtime)
-                    and any(
-                        kind["identifier"] == device["deviceTypeIdentifier"]
-                        for kind in row["supportedDeviceTypes"]
-                    )
-                ]
+                matches = matching_targets(runtime, device)
                 if not matches:
                     raise ValueError(
                         f"{device['name']} 的目标运行时需要支持 {device['deviceTypeIdentifier']}。"

@@ -109,7 +109,7 @@ python3 Scripts/generate_campus_map_fixture.py /path/to/课程表.xlsx --allow-n
 Scripts/run-extended-tests.sh CampusMapLocationTests
 ```
 
-生成器合并地点并更新固定文件 `BIT101-iOSTests/Fixtures/campus-map-locations.json`。新增地点标为 `review: pending`，人工核对校园地图后，将可匹配地点的 `expected` 填为建筑名称并标为 `mapped`；排除地点的 `expected` 填为 `null` 并标为 `excluded`。完成审核后运行上述地点回归，验收全部记录的审核状态与匹配结果。
+生成器合并地点并更新固定文件 `BIT101-iOSTests/Fixtures/campus-map-locations.json`。新增地点标为 `review: pending`，人工核对校园地图后，将可匹配地点的 `expected` 填为建筑名称并标为 `mapped`；排除地点的 `expected` 填为 `null` 并标为 `excluded`。完成审核后运行上述地点复验，验收全部记录的审核状态与匹配结果。
 
 ## 编译与运行
 

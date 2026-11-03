@@ -39,13 +39,7 @@ struct FreeClassroomTabView: View {
                         systemImage: "building.2.crop.circle",
                         message: emptyStateMessage,
                         actionTitle: canClearSectionFilter ? "清除节次筛选" : "刷新空教室",
-                        onAction: {
-                            if canClearSectionFilter {
-                                viewModel.setClassroomSections([])
-                            } else {
-                                Task { await viewModel.refreshClassroomPage() }
-                            }
-                        }
+                        onAction: handleEmptyStateAction
                     )
                     .frame(maxWidth: .infinity)
                 }
@@ -53,34 +47,7 @@ struct FreeClassroomTabView: View {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(availabilities) { classroom in
-                        let matchesAllSelectedSections = isExactMatch(for: classroom)
-                        HStack(
-                            alignment: .firstTextBaseline,
-                            spacing: AppDesignSystem.Spacing.content
-                        ) {
-                            Text(classroom.name)
-                                .font(AppDesignSystem.Typography.body)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .lineLimit(1)
-                                .allowsTightening(true)
-                                .minimumScaleFactor(0.8)
-                                .layoutPriority(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(classroom.prettyFreeTimes)
-                                .font(
-                                    matchesAllSelectedSections
-                                        ? AppDesignSystem.Typography.subheadlineEmphasis
-                                        : AppDesignSystem.Typography.subheadline
-                                )
-                                .foregroundStyle(
-                                    matchesAllSelectedSections
-                                        ? AppDesignSystem.Foreground.primary
-                                        : AppDesignSystem.Foreground.secondary
-                                )
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                        }
-                        .padding(.vertical, AppDesignSystem.Spacing.tiny)
+                        classroomRow(classroom)
                     }
                 }
             }
@@ -89,6 +56,44 @@ struct FreeClassroomTabView: View {
         .appGroupedListStyle(insetViewport: usesSidebar)
         .scrollContentBackground(.hidden)
         .background(AppDesignSystem.Palette.Background.grouped)
+    }
+
+    private func handleEmptyStateAction() {
+        if canClearSectionFilter {
+            viewModel.setClassroomSections([])
+        } else {
+            Task { await viewModel.refreshClassroomPage() }
+        }
+    }
+
+    private func classroomRow(_ classroom: ClassroomAvailability) -> some View {
+        let matchesAllSelectedSections = isExactMatch(for: classroom)
+        let font = matchesAllSelectedSections
+            ? AppDesignSystem.Typography.subheadlineEmphasis
+            : AppDesignSystem.Typography.subheadline
+        let foregroundStyle = matchesAllSelectedSections
+            ? AppDesignSystem.Foreground.primary
+            : AppDesignSystem.Foreground.secondary
+
+        return HStack(
+            alignment: .firstTextBaseline,
+            spacing: AppDesignSystem.Spacing.content
+        ) {
+            Text(classroom.name)
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .lineLimit(1)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.8)
+                .layoutPriority(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(classroom.prettyFreeTimes)
+                .font(font)
+                .foregroundStyle(foregroundStyle)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 
     @ViewBuilder

@@ -289,43 +289,14 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     public var body: some View {
         ScrollViewReader { proxy in
             List {
-                if selectAllTitle != nil {
-                    Section {
-                        Button(toggleAllTitle) { toggleAll() }
-                            .disabled(items.isEmpty)
-                            .accessibilityValue(
-                                """
-                                已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共\
-                                 \(items.count) 项
-                                """
-                            )
-                            .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
-                    }
-                }
+                selectAllSection
 
                 Section {
                     if items.isEmpty {
                         Text("暂无可选项").foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
                     ForEach(items, id: \.self) { item in
-                        let isSelected = selectedItems.contains(item)
-                        Button {
-                            toggle(item)
-                        } label: {
-                            AppSelectionRow(title: itemTitle(item), isSelected: isSelected)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(itemTitle(item))
-                        .accessibilityValue(isSelected ? "已选择" : "未选择")
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityAddTraits(isSelected ? .isSelected : [])
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier(
-                            "ui.app-multi-selection-list.item.\(String(reflecting: item))"
-                        )
-                        .id(item)
+                        itemRow(item)
                     }
                 }
             }
@@ -334,16 +305,58 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
             .appSelectionFeedback(trigger: selectedItems)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if showsCompletionButton {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("完成") { dismiss() }
-                            .accessibilityIdentifier("ui.app-multi-selection-list.done")
-                    }
-                }
-            }
+            .toolbar { completionToolbar }
             .onAppear {
                 if let initialScrollItem { proxy.scrollTo(initialScrollItem, anchor: .center) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectAllSection: some View {
+        if selectAllTitle != nil {
+            Section {
+                Button(toggleAllTitle) { toggleAll() }
+                    .disabled(items.isEmpty)
+                    .accessibilityValue(
+                        """
+                        已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共\
+                         \(items.count) 项
+                        """
+                    )
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func itemRow(_ item: Item) -> some View {
+        let isSelected = selectedItems.contains(item)
+        Button {
+            toggle(item)
+        } label: {
+            AppSelectionRow(title: itemTitle(item), isSelected: isSelected)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(itemTitle(item))
+        .accessibilityValue(isSelected ? "已选择" : "未选择")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .appInteractiveListRow()
+        .accessibilityIdentifier(
+            "ui.app-multi-selection-list.item.\(String(reflecting: item))"
+        )
+        .id(item)
+    }
+
+    @ToolbarContentBuilder
+    private var completionToolbar: some ToolbarContent {
+        if showsCompletionButton {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("完成") { dismiss() }
+                    .accessibilityIdentifier("ui.app-multi-selection-list.done")
             }
         }
     }

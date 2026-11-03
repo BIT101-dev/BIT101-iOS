@@ -26,6 +26,39 @@ def current_result_bundle(bundle: Path) -> Path:
     return max(available, key=result_bundle_modified) if available else bundle
 
 
+def export_failure_hierarchy_attachments(
+    bundle: Path, selected: dict[str, str], output: Path, incoming: Path
+) -> None:
+    import subprocess
+
+    with output.open("w") as combined:
+        for identifier, name in selected.items():
+            incoming.unlink(missing_ok=True)
+            subprocess.run(
+                [
+                    "xcrun",
+                    "xcresulttool",
+                    "export",
+                    "object",
+                    "--legacy",
+                    "--type",
+                    "file",
+                    "--path",
+                    str(bundle),
+                    "--id",
+                    identifier,
+                    "--output-path",
+                    str(incoming),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            combined.write(f"=== {name} · {identifier} ===\n")
+            with incoming.open() as attachment:
+                combined.write(attachment.read())
+            combined.write("\n")
+
+
 def report_test_results(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -318,34 +351,7 @@ def report_test_results(arguments: list[str]) -> None:
             incoming = diagnostics / "failure-hierarchy.txt"
             diagnostics.mkdir(parents=True, exist_ok=True)
             try:
-                with output.open("w") as combined:
-                    for identifier, name in selected.items():
-                        incoming.unlink(missing_ok=True)
-                        subprocess.run(
-                            [
-                                "xcrun",
-                                "xcresulttool",
-                                "export",
-                                "object",
-                                "--legacy",
-                                "--type",
-                                "file",
-                                "--path",
-                                str(bundle),
-                                "--id",
-                                identifier,
-                                "--output-path",
-                                str(incoming),
-                            ],
-                            check=True,
-                            stdout=subprocess.DEVNULL,
-                        )
-                        title = f"=== {name} · {identifier} ===\n"
-                        combined.write(title)
-                        with incoming.open() as attachment:
-                            for line in attachment:
-                                combined.write(line)
-                        combined.write("\n")
+                export_failure_hierarchy_attachments(bundle, selected, output, incoming)
             finally:
                 incoming.unlink(missing_ok=True)
             print(f"诊断附件：{len(selected)} 份 · {bundle}")
@@ -551,6 +557,173 @@ def report_test_failures(arguments: list[str]) -> None:
             show_report_lines(lines(), Path(cli_arguments[1]), "测试失败摘要")
 
 
+def is_ui_automation_blocked(actions: list, failures: list[dict]) -> bool:
+    if actions or not failures:
+        return False
+    messages = ("enabling automation mode", "Not authorized for performing UI testing actions")
+    for failure in failures:
+        text = failure.get("failureText", "")
+        if not any(message in text for message in messages):
+            return False
+    return True
+
+
+def append_ui_interaction_report_lines(
+    lines: list[str], result_bundle: str, summary: dict, report_path: str
+) -> None:
+    import json
+    import re
+    import subprocess
+
+    lines.append(
+        "交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；常规场景复用 App 进程，核心持久化场景结束进程后验证冷启动恢复。"
+    )
+    diagnostics = Path(report_path).parent / "diagnostics"
+    clear_diagnostic_exports(diagnostics)
+    try:
+        subprocess.run(
+            [
+                "xcrun",
+                "xcresulttool",
+                "export",
+                "diagnostics",
+                "--path",
+                result_bundle,
+                "--output-path",
+                str(diagnostics),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+        )
+        output = "\n".join(
+            path.read_text(errors="replace")
+            for path in diagnostics.rglob("StandardOutputAndStandardError.txt")
+        )
+        with (Path(report_path).parent / "ui-tests.log").open("a") as log:
+            log.write("\n" + output)
+    finally:
+        clear_diagnostic_exports(diagnostics)
+    launches = len(re.findall(r"\bt =\s*[\d.]+s\s+Launch BIT101-dev\.BIT101-iOS\b", output))
+    processes = sorted(set(re.findall(r"UI automation App process: (\d+)", output)))
+    lines.append(f"App 启动次数：{launches}；App 进程：{', '.join(processes) or '未采集'}")
+    actions = re.findall(r"\bt =\s*[\d.]+s\s+(Tap|Type|Swipe|Press|Pinch)\b", output)
+    lines.append(
+        f"系统交互动作：{len(actions)}；"
+        + "；".join(
+            f"{action} {actions.count(action)}"
+            for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]
+        )
+    )
+    activations = [
+        float(value) for value in re.findall(r"UI accessibility activate: ([\d.]+)", output)
+    ]
+    lines.append(f"控件无障碍激活：{len(activations)} 次；累计 {sum(activations):.1f} 秒")
+    query_metrics = [
+        json.loads(value) for value in re.findall(r"UI query metrics: (\{[^\n]+\})", output)
+    ]
+    for kind, label in (
+        ("liveQueries", "App 内界面查询"),
+        ("sharedSnapshots", "共享原生快照读取"),
+    ):
+        count = sum(row.get(kind, {}).get("count", 0) for row in query_metrics)
+        seconds = sum(row.get(kind, {}).get("seconds", 0) for row in query_metrics)
+        lines.append(f"{label}：{int(count)} 次；累计 {seconds:.1f} 秒")
+    control_actions = [
+        float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)
+    ]
+    lines.append(
+        f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒"
+    )
+    inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
+    if inventories:
+        from ui_inventory import merge
+
+        inventory = merge([json.loads(value) for value in inventories], set(processes))
+        lines.append("控件库存：" + json.dumps(inventory, ensure_ascii=False))
+        lines.append(
+            f"运行中发现的交互标识：{inventory['observed']}；已访问 {inventory['visited']}"
+        )
+        pending = inventory.get("pending", [])
+        lines.append(
+            f"待补充访问的标识：{len(pending)}"
+            + ("；" + "、".join(pending[:10]) if pending else "")
+        )
+    replacements = [
+        float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)
+    ]
+    lines.append(f"输入控件更新：{len(replacements)} 次；累计 {sum(replacements):.1f} 秒")
+    keyboard_finishes = output.count("UI keyboard finish")
+    lines.append(f"键盘完成动作：{keyboard_finishes} 次")
+    lines.append(f"滚动定位准备：{output.count('UI scroll reveal')} 次")
+    interaction_total = sum(map(len, (actions, activations, control_actions, replacements)))
+    interaction_total += keyboard_finishes
+    lines.append(f"交互动作合计：{interaction_total}")
+    failures = summary.get("testFailures", [])
+    if is_ui_automation_blocked(actions, failures):
+        lines.append("真机自动化初始化或授权阻塞；本批实际交互待验证。")
+    wait_started = None
+    system_waits = []
+    for line in output.splitlines():
+        timestamp = re.search(r"t =\s*([\d.]+)s", line)
+        if not timestamp:
+            continue
+        if "Start Test" in line:
+            wait_started = None
+        elif "Wait for " in line and " to idle" in line:
+            wait_started = float(timestamp[1]) if "com.apple.springboard" in line else None
+        elif (
+            "App animations complete notification not received" in line
+            and wait_started is not None
+        ):
+            system_waits.append(float(timestamp[1]) - wait_started)
+            wait_started = None
+    lines.append(
+        f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒"
+    )
+    query_retries = len(re.findall(r"\(retry \d+\)", output))
+    lines.append(f"控件查询重试：{query_retries} 次")
+    lines.append(f"系统通知横幅处理：{output.count('UI notification banner dismissed')} 次")
+    snapshot_count = 0
+    snapshot_seconds = 0.0
+    previous_step = None
+    for line in output.splitlines():
+        step = re.search(r"t =\s*([\d.]+)s\s+(.*)", line)
+        if not step:
+            continue
+        current_step = (float(step[1]), step[2].strip())
+        if current_step[1].startswith("Requesting snapshot"):
+            snapshot_count += 1
+        if previous_step and previous_step[1].startswith("Requesting snapshot"):
+            duration = current_step[0] - previous_step[0]
+            if duration >= 0:
+                snapshot_seconds += duration
+        previous_step = current_step
+    lines.append(f"界面快照请求：{snapshot_count} 次；阶段耗时约 {snapshot_seconds:.1f} 秒")
+    preparations = [
+        float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)
+    ]
+    if preparations:
+        lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
+
+
+def append_catalyst_coverage_lines(lines: list[str], report_path: str) -> None:
+    from validation_evidence import native_source_coverage
+
+    build = Path(report_path).parent / "Build"
+    profiles = list((build / "ProfileData").glob("*/Coverage.profdata"))
+    if len(profiles) != 1:
+        raise SystemExit("Catalyst 覆盖率需要本次运行的唯一采样。")
+    modules = native_source_coverage(
+        build / "Products/Release-maccatalyst", profiles[0], catalyst=True
+    )
+    for name, (covered, executable) in sorted(modules.items()):
+        if executable:
+            label = name if name == "BIT101-iOS.app" else "Catalyst/" + name
+            lines.append(
+                f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)"
+            )
+
+
 def record_native_metrics(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -635,174 +808,9 @@ def record_native_metrics(arguments: list[str]) -> None:
     ]
     if coverage is None or mode == "ui":
         if mode == "ui":
-            lines.append(
-                "交互覆盖依据 docs/UI_INTERACTION_COVERAGE.md；常规场景复用 App 进程，核心持久化场景结束进程后验证冷启动恢复。"
-            )
-            diagnostics = Path(report_path).parent / "diagnostics"
-            clear_diagnostic_exports(diagnostics)
-            try:
-                subprocess.run(
-                    [
-                        "xcrun",
-                        "xcresulttool",
-                        "export",
-                        "diagnostics",
-                        "--path",
-                        result_bundle,
-                        "--output-path",
-                        str(diagnostics),
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                )
-                output = "\n".join(
-                    path.read_text(errors="replace")
-                    for path in diagnostics.rglob("StandardOutputAndStandardError.txt")
-                )
-                with (Path(report_path).parent / "ui-tests.log").open("a") as log:
-                    log.write("\n" + output)
-            finally:
-                clear_diagnostic_exports(diagnostics)
-            launches = len(re.findall(r"\bt =\s*[\d.]+s\s+Launch BIT101-dev\.BIT101-iOS\b", output))
-            processes = sorted(set(re.findall(r"UI automation App process: (\d+)", output)))
-            lines.append(f"App 启动次数：{launches}；App 进程：{', '.join(processes) or '未采集'}")
-            actions = re.findall(r"\bt =\s*[\d.]+s\s+(Tap|Type|Swipe|Press|Pinch)\b", output)
-            lines.append(
-                f"系统交互动作：{len(actions)}；"
-                + "；".join(
-                    f"{action} {actions.count(action)}"
-                    for action in ["Tap", "Type", "Swipe", "Press", "Pinch"]
-                )
-            )
-            activations = [
-                float(value) for value in re.findall(r"UI accessibility activate: ([\d.]+)", output)
-            ]
-            lines.append(f"控件无障碍激活：{len(activations)} 次；累计 {sum(activations):.1f} 秒")
-            query_metrics = [
-                json.loads(value) for value in re.findall(r"UI query metrics: (\{[^\n]+\})", output)
-            ]
-            for kind, label in (
-                ("liveQueries", "App 内界面查询"),
-                ("sharedSnapshots", "共享原生快照读取"),
-            ):
-                count = sum(row.get(kind, {}).get("count", 0) for row in query_metrics)
-                seconds = sum(row.get(kind, {}).get("seconds", 0) for row in query_metrics)
-                lines.append(f"{label}：{int(count)} 次；累计 {seconds:.1f} 秒")
-            control_actions = [
-                float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)
-            ]
-            lines.append(
-                f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒"
-            )
-            inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
-            if inventories:
-                from ui_inventory import merge
-
-                inventory = merge([json.loads(value) for value in inventories], set(processes))
-                lines.append("控件库存：" + json.dumps(inventory, ensure_ascii=False))
-                lines.append(
-                    f"运行中发现的交互标识：{inventory['observed']}；已访问 {inventory['visited']}"
-                )
-                pending = inventory.get("pending", [])
-                lines.append(
-                    f"待补充访问的标识：{len(pending)}"
-                    + ("；" + "、".join(pending[:10]) if pending else "")
-                )
-            replacements = [
-                float(value) for value in re.findall(r"UI input replace: ([\d.]+)", output)
-            ]
-            lines.append(f"输入控件更新：{len(replacements)} 次；累计 {sum(replacements):.1f} 秒")
-            keyboard_finishes = output.count("UI keyboard finish")
-            lines.append(f"键盘完成动作：{keyboard_finishes} 次")
-            lines.append(f"滚动定位准备：{output.count('UI scroll reveal')} 次")
-            interaction_total = sum(map(len, (actions, activations, control_actions, replacements)))
-            interaction_total += keyboard_finishes
-            lines.append(f"交互动作合计：{interaction_total}")
-            failures = summary.get("testFailures", [])
-            if (
-                not actions
-                and failures
-                and all(
-                    any(
-                        message in failure.get("failureText", "")
-                        for message in [
-                            "enabling automation mode",
-                            "Not authorized for performing UI testing actions",
-                        ]
-                    )
-                    for failure in failures
-                )
-            ):
-                lines.append("真机自动化初始化或授权阻塞；本批实际交互待验证。")
-            wait_started = None
-            system_waits = []
-            for line in output.splitlines():
-                timestamp = re.search(r"t =\s*([\d.]+)s", line)
-                if not timestamp:
-                    continue
-                if "Start Test" in line:
-                    wait_started = None
-                if "Wait for " in line and " to idle" in line:
-                    wait_started = float(timestamp[1]) if "com.apple.springboard" in line else None
-                if (
-                    "App animations complete notification not received" in line
-                    and wait_started is not None
-                ):
-                    system_waits.append(float(timestamp[1]) - wait_started)
-                    wait_started = None
-            lines.append(
-                f"系统动画等待超时：{len(system_waits)} 次；累计 {sum(system_waits):.1f} 秒"
-            )
-            query_retries = len(re.findall(r"\(retry \d+\)", output))
-            lines.append(f"控件查询重试：{query_retries} 次")
-            lines.append(f"系统通知横幅处理：{output.count('UI notification banner dismissed')} 次")
-            snapshot_count = 0
-            snapshot_seconds = 0.0
-            previous_step = None
-            for line in output.splitlines():
-                step = re.search(r"t =\s*([\d.]+)s\s+(.*)", line)
-                if not step:
-                    continue
-                current_step = (float(step[1]), step[2].strip())
-                if current_step[1].startswith("Requesting snapshot"):
-                    snapshot_count += 1
-                if previous_step and previous_step[1].startswith("Requesting snapshot"):
-                    duration = current_step[0] - previous_step[0]
-                    if duration >= 0:
-                        snapshot_seconds += duration
-                previous_step = current_step
-            lines.append(f"界面快照请求：{snapshot_count} 次；阶段耗时约 {snapshot_seconds:.1f} 秒")
-            preparations = [
-                float(value) for value in re.findall(r"UI scene preparation: ([\d.]+)", output)
-            ]
-            if preparations:
-                lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
+            append_ui_interaction_report_lines(lines, result_bundle, summary, report_path)
         elif mode in {"catalyst", "catalyst-release-runtime"}:
-            from validation_evidence import native_source_coverage
-
-            build = Path(report_path).parent / "Build"
-            profiles = list((build / "ProfileData").glob("*/Coverage.profdata"))
-            if len(profiles) != 1:
-                raise SystemExit("Catalyst 覆盖率需要本次运行的唯一采样。")
-            modules = native_source_coverage(
-                build / "Products/Release-maccatalyst", profiles[0], catalyst=True
-            )
-            for name, (covered, executable) in sorted(modules.items()):
-                if executable:
-                    label = name if name == "BIT101-iOS.app" else "Catalyst/" + name
-                    lines.append(
-                        (
-                            f"- "
-                            f"{label}"
-                            f": "
-                            f"{covered * 100 / executable:.2f}"
-                            f"% ("
-                            f"{covered}"
-                            f"/"
-                            f"{executable}"
-                            f" lines)"
-                        )
-                    )
+            append_catalyst_coverage_lines(lines, report_path)
         else:
             lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
             if coverage_error:

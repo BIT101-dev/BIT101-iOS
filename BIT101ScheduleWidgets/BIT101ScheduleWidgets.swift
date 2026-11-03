@@ -135,38 +135,43 @@ private struct DeadlineWidgetEntryView: View {
                 Text(emptyText).font(AppDesignSystem.Typography.caption)
             }
         default:
-            VStack(
-                alignment: .leading,
-                spacing: family == .systemLarge
-                    ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular
-            ) {
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    Label("DDL", systemImage: "checklist")
-                    Spacer(minLength: AppDesignSystem.Spacing.none)
-                    if family == .systemMedium, let first = entry.resolved.deadlines.first {
-                        remainingText(first)
-                    }
-                }
-                .font(AppDesignSystem.Typography.captionEmphasis)
-                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                if entry.resolved.deadlines.isEmpty {
-                    Text(emptyText)
-                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(Array(entry.resolved.deadlines.prefix(itemLimit))) { deadline in
-                        deadlineRow(deadline, compact: family != .systemSmall)
-                        if family == .systemLarge
-                            && deadline.id != entry.resolved.deadlines.prefix(itemLimit).last?.id
-                        {
-                            Divider()
-                        }
-                    }
-                }
-                Spacer(minLength: AppDesignSystem.Spacing.none)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            defaultFamilyBody
         }
+    }
+
+    @ViewBuilder
+    private var defaultFamilyBody: some View {
+        VStack(
+            alignment: .leading,
+            spacing: family == .systemLarge
+                ? AppDesignSystem.Spacing.tiny : AppDesignSystem.Spacing.regular
+        ) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Label("DDL", systemImage: "checklist")
+                Spacer(minLength: AppDesignSystem.Spacing.none)
+                if family == .systemMedium, let first = entry.resolved.deadlines.first {
+                    remainingText(first)
+                }
+            }
+            .font(AppDesignSystem.Typography.captionEmphasis)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            if entry.resolved.deadlines.isEmpty {
+                Text(emptyText)
+                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(Array(entry.resolved.deadlines.prefix(itemLimit))) { deadline in
+                    deadlineRow(deadline, compact: family != .systemSmall)
+                    if family == .systemLarge
+                        && deadline.id != entry.resolved.deadlines.prefix(itemLimit).last?.id
+                    {
+                        Divider()
+                    }
+                }
+            }
+            Spacer(minLength: AppDesignSystem.Spacing.none)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var itemLimit: Int {
@@ -688,37 +693,7 @@ private struct ScheduleWidgetEntryView: View {
                     .lineLimit(1)
                 }
 
-                if !entry.nextOccurrences.dropFirst().isEmpty {
-                    Text("后续")
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                    ForEach(Array(entry.nextOccurrences.dropFirst().prefix(1))) { occurrence in
-                        HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                                Text(occurrence.title)
-                                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
-
-                                let meta = secondaryMetaText(for: occurrence)
-                                if !meta.isEmpty {
-                                    Text(meta)
-                                        .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                            Text(occurrence.rangeText)
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
+                mediumSubsequentSection
             } else {
                 emptyState
             }
@@ -751,41 +726,7 @@ private struct ScheduleWidgetEntryView: View {
                     }
                 }
 
-                if !entry.nextOccurrences.dropFirst().isEmpty {
-                    Text("后续")
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                    VStack(spacing: AppDesignSystem.Spacing.regular) {
-                        ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
-                            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro)
-                                {
-                                    Text(occurrence.title)
-                                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(
-                                            AppDesignSystem.External.Scale.widgetTitle)
-
-                                    let meta = secondaryMetaText(for: occurrence)
-                                    if !meta.isEmpty {
-                                        Text(meta)
-                                            .font(AppDesignSystem.Typography.caption)
-                                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-
-                                Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                                Text(occurrence.rangeText)
-                                    .font(AppDesignSystem.Typography.captionEmphasis)
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                }
+                largeSubsequentSection
             } else {
                 emptyState
             }
@@ -793,6 +734,65 @@ private struct ScheduleWidgetEntryView: View {
             Spacer(minLength: AppDesignSystem.Spacing.none)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var mediumSubsequentSection: some View {
+        if !entry.nextOccurrences.dropFirst().isEmpty {
+            Text("后续")
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+            ForEach(Array(entry.nextOccurrences.dropFirst().prefix(1))) { occurrence in
+                subsequentOccurrenceRow(occurrence, spacing: AppDesignSystem.Spacing.tiny)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var largeSubsequentSection: some View {
+        if !entry.nextOccurrences.dropFirst().isEmpty {
+            Text("后续")
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+            VStack(spacing: AppDesignSystem.Spacing.regular) {
+                ForEach(Array(entry.nextOccurrences.dropFirst().prefix(4))) { occurrence in
+                    subsequentOccurrenceRow(
+                        occurrence, spacing: AppDesignSystem.Spacing.regular)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func subsequentOccurrenceRow(
+        _ occurrence: ScheduleExternalOccurrence,
+        spacing: CGFloat
+    ) -> some View {
+        HStack(spacing: spacing) {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                Text(occurrence.title)
+                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                    .lineLimit(1)
+                    .minimumScaleFactor(AppDesignSystem.External.Scale.widgetTitle)
+
+                let meta = secondaryMetaText(for: occurrence)
+                if !meta.isEmpty {
+                    Text(meta)
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: AppDesignSystem.Spacing.none)
+
+            Text(occurrence.rangeText)
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .lineLimit(1)
+        }
     }
 
     /// 大号组件主课的地点和老师摘要。

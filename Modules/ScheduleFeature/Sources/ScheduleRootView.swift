@@ -65,22 +65,26 @@ public struct ScheduleRootView: View {
                 if displayedSection == .classroom {
                     content
                 } else {
-                    NavigationStack {
-                        content
-                            .padding(
-                                .top,
-                                expandedNavigation
-                                    ? layout.contentTopInset : AppDesignSystem.Spacing.none
-                            )
-                            .appBrowserNavigationBar()
-                            .navigationBarTitleDisplayMode(.inline)
-                    }
+                    rootNavigationStack
                 }
             }
             .environment(\.scheduleCurrentDate, context.date)
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
+    private var navigationContentTopPadding: CGFloat {
+        expandedNavigation ? layout.contentTopInset : AppDesignSystem.Spacing.none
+    }
+
+    private var rootNavigationStack: some View {
+        NavigationStack {
+            content
+                .padding(.top, navigationContentTopPadding)
+                .appBrowserNavigationBar()
+                .navigationBarTitleDisplayMode(.inline)
+        }
     }
 
     private var content: some View {
@@ -90,19 +94,7 @@ public struct ScheduleRootView: View {
                     FreeClassroomTabView(viewModel: viewModel.classroom)
                         .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
                 } else {
-                    AppPairedPages(showsFirst: displayedSection == .courses) {
-                        CourseScheduleTabView(
-                            viewModel: viewModel, resetSignal: courseTabResetSignal,
-                            destinations: destinations)
-                    } second: {
-                        DDLScheduleTabView(viewModel: viewModel.ddl)
-                            .safeAreaPadding(
-                                .bottom,
-                                layout.usesBottomTabBar
-                                    ? AppDesignSystem.Spacing.none
-                                    : layout.safeAreaInsets.bottom)
-                    }
-                    .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
+                    pairedPages
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -198,6 +190,22 @@ public struct ScheduleRootView: View {
         }
         .environmentObject(viewModel)
         .environmentObject(viewModel.ddl)
+    }
+
+    private var pairedPages: some View {
+        AppPairedPages(showsFirst: displayedSection == .courses) {
+            CourseScheduleTabView(
+                viewModel: viewModel, resetSignal: courseTabResetSignal,
+                destinations: destinations)
+        } second: {
+            DDLScheduleTabView(viewModel: viewModel.ddl)
+                .safeAreaPadding(
+                    .bottom,
+                    layout.usesBottomTabBar
+                        ? AppDesignSystem.Spacing.none
+                        : layout.safeAreaInsets.bottom)
+        }
+        .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
     }
 
     @ViewBuilder private var sectionTabs: some View {

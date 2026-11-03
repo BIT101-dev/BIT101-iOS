@@ -30,6 +30,88 @@ NATIVE_INTERACTION_KINDS = set(NATIVE_INTERACTION_ACTIONS)
 LITERAL = r'"((?:[^"\\]|\\.)+)"'
 
 
+def _binding_candidate_type(binding: dict, call_start: int) -> str | None:
+    start = binding["start"]
+    if start <= call_start < start + len(binding["value"].encode()):
+        typed = re.match(r"\w+\s*:\s*([^=]+)=", binding["value"])
+        if typed:
+            return typed[1].strip()
+    return None
+
+
+def _init_candidates(facts: dict, call: dict, bindings: dict, path: str) -> list[str]:
+    candidates = expected_argument_types(facts, call, context=bindings, path=path)
+    returns = [
+        value
+        for value in facts.get("functionReturns", [])
+        if value["start"] == call["start"]
+    ]
+    matching_names = {(v["name"], tuple(v["scope"])) for v in returns}
+    candidates += [
+        fn.get("returnType", "")
+        for fn in facts.get("functionRanges", [])
+        if fn["start"] <= call["start"] < fn["end"]
+        and (fn["name"], tuple(fn["scope"])) in matching_names
+    ]
+    for binding in facts.get("bindings", []):
+        cand = _binding_candidate_type(binding, call["start"])
+        if cand:
+            candidates.append(cand)
+    return candidates
+
+
+def _resolve_candidate_kind(
+    types, path: str, call: dict, candidate: str, constructor_names: set[str]
+) -> tuple[str | None, tuple | None]:
+    parts = canonical_type_scope([candidate])
+    if not parts or parts[-1] not in constructor_names:
+        return None, None
+    scope = call["scope"] + call.get("lexicalScope", [])
+    owner = types.resolve(path, candidate, scope)
+    terminal = types.terminal_name(path, candidate, scope)
+    parts = canonical_type_scope([terminal])
+    if parts and parts[-1] in NATIVE_INTERACTION_KINDS:
+        return parts[-1], owner
+    bases = types.bases(owner) if owner else set()
+    for base in sorted(bases):
+        unprefixed = base.removeprefix("UIKit.")
+        if unprefixed in NATIVE_INTERACTION_KINDS:
+            return unprefixed, owner
+    return None, None
+
+
+def _is_space_or_custom_bar_item(call_value: str) -> bool:
+    space_pattern = (
+        r"\b(?:systemItem|barButtonSystemItem):\s*"
+        r"(?:UIBarButtonItem\.SystemItem)?\.(?:flexibleSpace|fixedSpace)\b"
+    )
+    return bool(re.search(space_pattern, call_value) or re.search(r"\bcustomView:", call_value))
+
+
+def _is_non_editable_binding(binding: dict, call: dict, expressions: list[dict]) -> bool:
+    start = binding["start"]
+    if not (start <= call["start"] < start + len(binding["value"].encode())):
+        return False
+    name = re.escape(binding.get("bindingName", ""))
+    pattern = name + r"\.isEditable\s*=\s*false"
+    scope = call["scope"]
+    lexical = binding.get("lexicalScope", [])
+    return any(
+        val["scope"] == scope
+        and val.get("lexicalScope", []) == lexical
+        and re.fullmatch(pattern, val["value"])
+        for val in expressions
+    )
+
+
+def _is_read_only_text_view(facts: dict, call: dict) -> bool:
+    expressions = facts.get("expressions", [])
+    return any(
+        _is_non_editable_binding(b, call, expressions)
+        for b in facts.get("bindings", [])
+    )
+
+
 def native_controls(syntax: dict):
     types = SwiftTypeIndex(syntax)
     bindings = SwiftBindingTypes(syntax, types)
@@ -50,84 +132,21 @@ def native_controls(syntax: dict):
             continue
         for call in facts.get("invocations", []):
             called = call["value"].split("(", 1)[0].strip()
-            candidates = [called.removesuffix(".init")]
             if called == ".init":
-                candidates = expected_argument_types(facts, call, context=bindings, path=path)
-                returns = [
-                    value
-                    for value in facts.get("functionReturns", [])
-                    if value["start"] == call["start"]
-                ]
-                candidates += [
-                    function.get("returnType", "")
-                    for function in facts.get("functionRanges", [])
-                    if function["start"] <= call["start"] < function["end"]
-                    and any(
-                        value["name"] == function["name"] and value["scope"] == function["scope"]
-                        for value in returns
-                    )
-                ]
-                for binding in facts.get("bindings", []):
-                    if not (
-                        binding[("start")]
-                        <= call[("start")]
-                        < binding[("start")] + len(binding[("value")].encode())
-                    ):
-                        continue
-                    typed = re.match(r"\w+\s*:\s*([^=]+)=", binding["value"])
-                    if typed:
-                        candidates.append(typed[1].strip())
+                candidates = _init_candidates(facts, call, bindings, path)
+            else:
+                candidates = [called.removesuffix(".init")]
             for candidate in candidates:
-                parts = canonical_type_scope([candidate])
-                if not parts or parts[-1] not in constructor_names:
-                    continue
-                owner = types.resolve(path, candidate, call["scope"] + call.get("lexicalScope", []))
-                candidate = types.terminal_name(
-                    path, candidate, call["scope"] + call.get("lexicalScope", [])
+                kind, owner = _resolve_candidate_kind(
+                    types, path, call, candidate, constructor_names
                 )
-                parts = canonical_type_scope([candidate])
-                bases = types.bases(owner) if owner else set()
-                kind = (
-                    parts[-1]
-                    if parts and parts[-1] in NATIVE_INTERACTION_KINDS
-                    else next(
-                        (
-                            base.removeprefix("UIKit.")
-                            for base in sorted(bases)
-                            if base.removeprefix("UIKit.") in NATIVE_INTERACTION_KINDS
-                        ),
-                        None,
-                    )
-                )
-                if not (kind):
+                if not kind:
                     continue
-                if kind == "UIBarButtonItem" and re.search(
-                    (
-                        "\\b(?:systemItem|barButtonSystemItem):\\s*(?:UIBarButtonItem\\.System"
-                        "Item)?\\.(?:flexibleSpace|fixedSpace)\\b"
-                    ),
-                    call["value"],
-                ):
-                    continue
-                if kind == "UIBarButtonItem" and re.search(r"\bcustomView:", call["value"]):
+                if kind == "UIBarButtonItem" and _is_space_or_custom_bar_item(call["value"]):
                     continue
                 action = NATIVE_INTERACTION_ACTIONS[kind]
-                if kind == "UITextView":
-                    for binding in facts.get("bindings", []):
-                        if not (
-                            binding[("start")]
-                            <= call[("start")]
-                            < binding[("start")] + len(binding[("value")].encode())
-                        ):
-                            continue
-                        name = re.escape(binding.get("bindingName", ""))
-                        if any(
-                            value["scope"] == call["scope"]
-                            and value.get("lexicalScope", []) == binding.get("lexicalScope", [])
-                            and re.fullmatch(name + r"\.isEditable\s*=\s*false", value["value"])
-                            for value in facts.get("expressions", [])
-                        ):
-                            action = "tap"
+                if kind == "UITextView" and _is_read_only_text_view(facts, call):
+                    action = "tap"
                 yield path, facts, dict(call, name=kind, owner=owner, nativeAction=action)
                 break
 

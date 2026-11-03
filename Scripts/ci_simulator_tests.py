@@ -14,6 +14,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
+def simulator_shard_artifact(group: str, index: int) -> str:
+    if group == "release-runtime":
+        return "validation-ios-app-tests"
+    shard_group = "app" if group == "all" else group
+    return f"validation-ios-test-shards-{shard_group}-{index}"
+
+
 def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
     maintenance_self_test()
     runtime_maintenance_self_test()
@@ -214,11 +221,7 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                 ):
                     exec(compile(producer, "<simulator-producer>", "exec"), {})
                 assert METADATA_PREFIX in files[metrics]
-                artifact = (
-                    "validation-ios-app-tests"
-                    if group == "release-runtime"
-                    else f"validation-ios-test-shards-{'app' if group == 'all' else group}-{index}"
-                )
+                artifact = simulator_shard_artifact(group, index)
                 artifacts[artifact] = files[metrics], current_tree
         with patch(
             "validation_coverage.shard_inventory",

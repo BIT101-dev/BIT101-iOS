@@ -253,20 +253,10 @@ final class CommunityWriteSmoke {
                             try NetworkSmokePaging.checkSampleBudget(
                                 page: page, items: scanned.count)
                             try progress.record(rows.map(\.id))
-                            for row in rows {
-                                do {
-                                    let detail = try await papers.fetchPaper(id: row.id)
-                                    if detail.own
-                                        && PaperEditorContentBuilder.plainText(
-                                            from: detail.content
-                                        ).contains(text)
-                                    {
-                                        result.insert(row.id)
-                                    }
-                                } catch let error
-                                    where Self.isMissingContent(error, kind: .paper)
-                                { continue }
-                            }
+                            let matchingIDs = try await Self.matchingPaperIDs(
+                                in: rows, text: text, papers: papers
+                            )
+                            result.formUnion(matchingIDs)
                         }
                         page += 1
                     }
@@ -586,7 +576,7 @@ final class CommunityWriteSmoke {
                         })
                 } catch {
                     if Self.creationWasRejected(error) {
-                        journal.attempts.removeAll { $0 == kind }
+                        Self.removeAttempts(for: kind, from: &journal)
                         try persist(journal)
                     }
                     throw error
@@ -604,9 +594,10 @@ final class CommunityWriteSmoke {
                     fieldsMatch(created, kind: kind, text: journal.marker)
                 else { throw failure("验收内容创建结果异常") }
                 if kind == .poster {
-                    guard !created.imageMids.isEmpty,
-                        uploadedImage.map({ created.imageMids == [$0] }) ?? true
-                    else { throw failure("帖子图片引用验收待完成") }
+                    let imageMatches = uploadedImage == nil || created.imageMids == [uploadedImage!]
+                    guard !created.imageMids.isEmpty, imageMatches else {
+                        throw failure("帖子图片引用验收待完成")
+                    }
                     journal.evidence.append("图片提交 poster\(id)")
                     try await operations.verifyImages(created.images)
                 }
@@ -821,29 +812,10 @@ final class CommunityWriteSmoke {
     ) async throws {
         var failures: [String] = []
         if let target = journal.followTarget {
-            if try await recoverOperation(
-                "恢复关注", failures: &failures,
-                operation: {
-                    let identifier = "follow:user\(target)"
-                    guard
-                        !journal.followSubmissionPending
-                            || confirmation?.settledMutations?.contains(identifier) == true
-                    else { throw failure("关注切换结果待服务端确认") }
-                    journal.followSubmissionPending = false
-                    try persist(journal)
-                    if try await operations.following(target) == false {
-                        _ = try await submitToggle(identifier, journal: &journal) {
-                            try await operations.follow(target)
-                        }
-                    }
-                    guard try await operations.following(target) else {
-                        throw failure("验收关注恢复待完成")
-                    }
-                })
-            {
-                journal.followTarget = nil
-            }
-            try persist(journal)
+            try await recoverFollow(
+                target, journal: &journal, operations: operations,
+                confirmation: confirmation, failures: &failures
+            )
         }
         for kind in Set(journal.attempts) {
             _ = try await recoverOperation(
@@ -865,37 +837,10 @@ final class CommunityWriteSmoke {
         }
         try persist(journal)
         for like in journal.likes {
-            if try await recoverOperation(
-                "恢复点赞 " + like.target.kind.rawValue, failures: &failures,
-                operation: {
-                    guard
-                        like.submissionPending != true
-                            || confirmation?.settledMutations?.contains(like.recoveryID) == true
-                    else { throw failure("点赞切换结果待服务端确认") }
-                    journal.markSubmission(like.recoveryID, pending: false)
-                    try persist(journal)
-                    if let current = try await operations.read(like.target.kind, like.target.id) {
-                        guard
-                            like.target.kind == .course
-                                || current.owned
-                                    && matches(current.text, marker: journal.marker)
-                        else { throw failure("验收点赞目标身份异常") }
-                        if current.liked != like.original {
-                            _ = try await submitToggle(like.recoveryID, journal: &journal) {
-                                try await operations.like(like.target.kind, like.target.id)
-                            }
-                        }
-                    }
-                    if let restored = try await operations.read(
-                        like.target.kind, like.target.id), restored.liked != like.original
-                    {
-                        throw failure("点赞恢复待完成")
-                    }
-                })
-            {
-                journal.likes.removeAll { $0.target == like.target }
-            }
-            try persist(journal)
+            try await recoverLike(
+                like, journal: &journal, operations: operations,
+                confirmation: confirmation, failures: &failures
+            )
         }
         var parentIndex = 0
         while parentIndex < journal.parents.count {
@@ -905,41 +850,10 @@ final class CommunityWriteSmoke {
                 journal.commentAttempts.contains(parent)
                     || journal.comments.contains(where: { journal.commentParents[$0] == nil })
             else { continue }
-            _ = try await recoverOperation(
-                "查找评论 " + parent, failures: &failures,
-                operation: {
-                    var found = false
-                    for comment in try await operations.comments(parent, nil)
-                    where comment.own && comment.text == journal.marker {
-                        if !journal.comments.contains(comment.id)
-                            || journal.commentParents[comment.id] == nil
-                        {
-                            found = true
-                        }
-                        if !journal.comments.contains(comment.id) {
-                            journal.comments.append(comment.id)
-                        }
-                        journal.commentParents[comment.id] = parent
-                        if !parent.hasPrefix("comment") {
-                            let replies = "comment\(comment.id)"
-                            if !journal.parents.contains(replies) {
-                                journal.parents.append(replies)
-                            }
-                        }
-                    }
-                    if found {
-                        journal.commentAttempts.removeAll { $0 == parent }
-                    } else if journal.commentAttempts.contains(parent), let confirmation,
-                        confirmation.parents.contains(parent)
-                    {
-                        journal.commentAttempts.removeAll { $0 == parent }
-                        journal.evidence.append(
-                            "服务端确认未创建评论 \(parent)：\(confirmation.serverReceipt)")
-                    }
-                    guard !journal.commentAttempts.contains(parent) else {
-                        throw failure("验收评论创建结果待服务端确认")
-                    }
-                })
+            try await recoverCommentsForParent(
+                parent, journal: &journal, operations: operations,
+                confirmation: confirmation, failures: &failures
+            )
         }
         journal.comments = journal.comments.reduce(into: [Int]()) {
             if !$0.contains($1) { $0.append($1) }
@@ -947,82 +861,22 @@ final class CommunityWriteSmoke {
         try persist(journal)
         let commentIDs = journal.comments
         for id in journal.comments.reversed() {
-            if try await recoverOperation(
-                "删除 comment\(id)", failures: &failures,
-                operation: {
-                    let replies = "comment\(id)"
-                    if journal.parents.contains(replies) {
-                        guard !journal.commentAttempts.contains(replies) else {
-                            throw failure("验收回复创建结果待服务端确认")
-                        }
-                        guard
-                            try await operations.comments(replies, nil).allSatisfy({
-                                !commentIDs.contains($0.id)
-                                    && !($0.own && $0.text == journal.marker)
-                            })
-                        else { throw failure("验收回复清理待完成") }
-                        retireComments(replies, journal: &journal)
-                        try persist(journal)
-                    }
-                    guard let parent = journal.commentParents[id] else {
-                        throw failure("验收评论缺少所属对象记录")
-                    }
-                    guard
-                        let current = try await operations.comments(parent, [id]).first(where: {
-                            $0.id == id
-                        })
-                    else { return }
-                    guard current.own, current.user.id == journal.account,
-                        current.obj == parent, current.text == journal.marker
-                    else { throw failure("验收评论清理目标身份异常") }
-                    try await operations.deleteComment(id)
-                })
-            {
-                journal.evidence.append("删除 comment\(id)")
-            }
-            try persist(journal)
+            try await deleteRecoveredComment(
+                id: id, commentIDs: commentIDs, journal: &journal,
+                operations: operations, failures: &failures
+            )
         }
         for parent in journal.parents {
-            if try await recoverOperation(
-                "确认评论删除 " + parent, failures: &failures,
-                operation: {
-                    guard !journal.commentAttempts.contains(parent) else {
-                        throw failure("验收评论创建结果待服务端确认")
-                    }
-                    guard
-                        try await operations.comments(parent, nil).allSatisfy({
-                            !commentIDs.contains($0.id)
-                                && !($0.own && $0.text == journal.marker)
-                        })
-                    else { throw failure("验收评论清理待完成") }
-                })
-            {
-                retireComments(parent, journal: &journal)
-            }
-            try persist(journal)
+            try await confirmCommentDeletion(
+                parent: parent, commentIDs: commentIDs, journal: &journal,
+                operations: operations, failures: &failures
+            )
         }
         if !journal.comments.isEmpty { failures.append("验收评论需要服务端删除确认") }
         for target in journal.targets.reversed() where target.kind != .course {
-            if try await recoverOperation(
-                "删除 " + target.kind.rawValue, failures: &failures,
-                operation: {
-                    guard !journal.parents.contains(target.kind.rawValue + String(target.id))
-                    else { throw failure("验收评论清理待完成") }
-                    if let current = try await operations.read(target.kind, target.id) {
-                        guard current.owned, matches(current.text, marker: journal.marker)
-                        else { throw failure("验收清理目标身份异常") }
-                        try await operations.delete(target.kind, target.id)
-                    }
-                    guard try await operations.read(target.kind, target.id) == nil else {
-                        throw failure("验收内容清理待完成")
-                    }
-                })
-            {
-                journal.targets.removeAll { $0 == target }
-                journal.likes.removeAll { $0.target == target }
-                journal.evidence.append("服务端确认删除 \(target.kind.rawValue)\(target.id)")
-            }
-            try persist(journal)
+            try await deleteRecoveredTarget(
+                target, journal: &journal, operations: operations, failures: &failures
+            )
         }
         if !journal.attempts.isEmpty || !journal.commentAttempts.isEmpty {
             failures.append("验收创建结果待服务端确认")
@@ -1033,6 +887,244 @@ final class CommunityWriteSmoke {
             throw failure(failures.joined(separator: "；"))
         }
         try save(nil)
+    }
+
+    private static func matchingPaperIDs(
+        in rows: [PaperSummary], text: String, papers: PaperService
+    ) async throws -> [Int] {
+        var matches: [Int] = []
+        for row in rows {
+            do {
+                let detail = try await papers.fetchPaper(id: row.id)
+                let plain = PaperEditorContentBuilder.plainText(from: detail.content)
+                if detail.own && plain.contains(text) {
+                    matches.append(row.id)
+                }
+            } catch let error where isMissingContent(error, kind: .paper) {
+                continue
+            }
+        }
+        return matches
+    }
+
+    private static func removeAttempts(for kind: Kind, from journal: inout Journal) {
+        journal.attempts.removeAll { $0 == kind }
+    }
+
+    private func recoverFollow(
+        _ target: Int,
+        journal: inout Journal,
+        operations: Operations,
+        confirmation: CommunityWriteRecoveryConfirmation?,
+        failures: inout [String]
+    ) async throws {
+        let succeeded = try await recoverOperation("恢复关注", failures: &failures) {
+            let identifier = "follow:user\(target)"
+            guard !journal.followSubmissionPending
+                || confirmation?.settledMutations?.contains(identifier) == true
+            else { throw failure("关注切换结果待服务端确认") }
+            journal.followSubmissionPending = false
+            try persist(journal)
+            if try await operations.following(target) == false {
+                _ = try await submitToggle(identifier, journal: &journal) {
+                    try await operations.follow(target)
+                }
+            }
+            guard try await operations.following(target) else {
+                throw failure("验收关注恢复待完成")
+            }
+        }
+        if succeeded {
+            journal.followTarget = nil
+        }
+        try persist(journal)
+    }
+
+    private func recoverLike(
+        _ like: Journal.Like,
+        journal: inout Journal,
+        operations: Operations,
+        confirmation: CommunityWriteRecoveryConfirmation?,
+        failures: inout [String]
+    ) async throws {
+        let succeeded = try await recoverOperation(
+            "恢复点赞 " + like.target.kind.rawValue, failures: &failures
+        ) {
+            guard like.submissionPending != true
+                || confirmation?.settledMutations?.contains(like.recoveryID) == true
+            else { throw failure("点赞切换结果待服务端确认") }
+            journal.markSubmission(like.recoveryID, pending: false)
+            try persist(journal)
+            if let current = try await operations.read(like.target.kind, like.target.id) {
+                guard like.target.kind == .course
+                    || current.owned && matches(current.text, marker: journal.marker)
+                else { throw failure("验收点赞目标身份异常") }
+                if current.liked != like.original {
+                    _ = try await submitToggle(like.recoveryID, journal: &journal) {
+                        try await operations.like(like.target.kind, like.target.id)
+                    }
+                }
+            }
+            if let restored = try await operations.read(like.target.kind, like.target.id),
+                restored.liked != like.original
+            {
+                throw failure("点赞恢复待完成")
+            }
+        }
+        if succeeded {
+            journal.likes.removeAll { $0.target == like.target }
+        }
+        try persist(journal)
+    }
+
+    private func recoverCommentsForParent(
+        _ parent: String,
+        journal: inout Journal,
+        operations: Operations,
+        confirmation: CommunityWriteRecoveryConfirmation?,
+        failures: inout [String]
+    ) async throws {
+        _ = try await recoverOperation("查找评论 " + parent, failures: &failures) {
+            var found = false
+            for comment in try await operations.comments(parent, nil)
+            where comment.own && comment.text == journal.marker {
+                if !journal.comments.contains(comment.id)
+                    || journal.commentParents[comment.id] == nil
+                {
+                    found = true
+                }
+                if !journal.comments.contains(comment.id) {
+                    journal.comments.append(comment.id)
+                }
+                journal.commentParents[comment.id] = parent
+                if !parent.hasPrefix("comment") {
+                    let replies = "comment\(comment.id)"
+                    if !journal.parents.contains(replies) {
+                        journal.parents.append(replies)
+                    }
+                }
+            }
+            if found {
+                journal.commentAttempts.removeAll { $0 == parent }
+            } else if journal.commentAttempts.contains(parent), let confirmation,
+                confirmation.parents.contains(parent)
+            {
+                journal.commentAttempts.removeAll { $0 == parent }
+                journal.evidence.append(
+                    "服务端确认未创建评论 \(parent)：\(confirmation.serverReceipt)")
+            }
+            guard !journal.commentAttempts.contains(parent) else {
+                throw failure("验收评论创建结果待服务端确认")
+            }
+        }
+    }
+
+    private func deleteRecoveredComment(
+        id: Int,
+        commentIDs: [Int],
+        journal: inout Journal,
+        operations: Operations,
+        failures: inout [String]
+    ) async throws {
+        let succeeded = try await recoverOperation("删除 comment\(id)", failures: &failures) {
+            let replies = "comment\(id)"
+            if journal.parents.contains(replies) {
+                guard !journal.commentAttempts.contains(replies) else {
+                    throw failure("验收回复创建结果待服务端确认")
+                }
+                let cleaned = try await areRepliesCleaned(
+                    replies: replies,
+                    commentIDs: commentIDs,
+                    marker: journal.marker,
+                    operations: operations
+                )
+                guard cleaned else { throw failure("验收回复清理待完成") }
+                retireComments(replies, journal: &journal)
+                try persist(journal)
+            }
+            guard let parent = journal.commentParents[id] else {
+                throw failure("验收评论缺少所属对象记录")
+            }
+            let parentComments = try await operations.comments(parent, [id])
+            guard let current = parentComments.first(where: { $0.id == id }) else { return }
+            guard current.own, current.user.id == journal.account,
+                current.obj == parent, current.text == journal.marker
+            else { throw failure("验收评论清理目标身份异常") }
+            try await operations.deleteComment(id)
+        }
+        if succeeded {
+            journal.evidence.append("删除 comment\(id)")
+        }
+        try persist(journal)
+    }
+
+    private func areRepliesCleaned(
+        replies: String,
+        commentIDs: [Int],
+        marker: String,
+        operations: Operations
+    ) async throws -> Bool {
+        let repliesList = try await operations.comments(replies, nil)
+        return repliesList.allSatisfy {
+            !commentIDs.contains($0.id) && !($0.own && $0.text == marker)
+        }
+    }
+
+    private func confirmCommentDeletion(
+        parent: String,
+        commentIDs: [Int],
+        journal: inout Journal,
+        operations: Operations,
+        failures: inout [String]
+    ) async throws {
+        let succeeded = try await recoverOperation(
+            "确认评论删除 " + parent, failures: &failures
+        ) {
+            guard !journal.commentAttempts.contains(parent) else {
+                throw failure("验收评论创建结果待服务端确认")
+            }
+            let cleaned = try await areRepliesCleaned(
+                replies: parent,
+                commentIDs: commentIDs,
+                marker: journal.marker,
+                operations: operations
+            )
+            guard cleaned else { throw failure("验收评论清理待完成") }
+        }
+        if succeeded {
+            retireComments(parent, journal: &journal)
+        }
+        try persist(journal)
+    }
+
+    private func deleteRecoveredTarget(
+        _ target: Target,
+        journal: inout Journal,
+        operations: Operations,
+        failures: inout [String]
+    ) async throws {
+        let succeeded = try await recoverOperation(
+            "删除 " + target.kind.rawValue, failures: &failures
+        ) {
+            guard !journal.parents.contains(target.kind.rawValue + String(target.id)) else {
+                throw failure("验收评论清理待完成")
+            }
+            if let current = try await operations.read(target.kind, target.id) {
+                guard current.owned, matches(current.text, marker: journal.marker) else {
+                    throw failure("验收清理目标身份异常")
+                }
+                try await operations.delete(target.kind, target.id)
+            }
+            guard try await operations.read(target.kind, target.id) == nil else {
+                throw failure("验收内容清理待完成")
+            }
+        }
+        if succeeded {
+            journal.targets.removeAll { $0 == target }
+            journal.likes.removeAll { $0.target == target }
+            journal.evidence.append("服务端确认删除 \(target.kind.rawValue)\(target.id)")
+        }
+        try persist(journal)
     }
 
     private func retireComments(_ parent: String, journal: inout Journal) {

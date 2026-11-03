@@ -49,102 +49,12 @@ struct AccountSettingsPage: View {
     var body: some View {
         List {
             if let profile {
-                Section("个人信息") {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("头像")
-                        Spacer()
-                        Button {
-                            isShowingPhotoPicker = true
-                        } label: {
-                            AppAvatarView(
-                                imageURL: profile.user.avatar.thumbnailURL,
-                                fallbackImageURL: profile.user.avatar.originalURL,
-                                size: AppDesignSystem.Size.Avatar.standard,
-                                tint: AppDesignSystem.Palette.Accent.primary
-                            )
-                        }
-                        .accessibilityLabel("头像")
-                        .accessibilityHint("选择新头像")
-                        .disabled(isBusy)
-                        .photosPicker(
-                            isPresented: $isShowingPhotoPicker,
-                            selection: $selectedPhoto,
-                            matching: .images
-                        )
-                        .appInteractiveListRow()
-                    }
-
-                    Button {
-                        nicknameText = profile.user.nickname
-                        showNicknameEditor = true
-                    } label: {
-                        LabeledContent("昵称", value: profile.user.nickname)
-                    }
-                    .disabled(isBusy)
-                    .appInteractiveListRow()
-
-                    Button {
-                        mottoText = profile.user.motto
-                        showMottoEditor = true
-                    } label: {
-                        LabeledContent(
-                            "个性签名", value: profile.user.motto.isEmpty ? "空" : profile.user.motto)
-                    }
-                    .disabled(isBusy)
-                    .appInteractiveListRow()
-
-                    SettingsSensitiveValueRow(
-                        title: "学号",
-                        value: studentID,
-                        isRevealed: $isShowingStudentID
-                    )
-
-                    SettingsSensitiveValueRow(
-                        title: "UID",
-                        value: String(profile.user.id),
-                        isRevealed: $isShowingUID
-                    )
-                }
+                profileSection(profile)
             }
 
-            if profile == nil, model.isLoadingProfile || model.profileLoadError != nil {
-                Section("个人信息") {
-                    if model.isLoadingProfile {
-                        AppInlineLoadingState("正在加载个人信息")
-                    } else if let error = model.profileLoadError {
-                        AppFailureState(
-                            title: "个人信息加载失败",
-                            systemImage: "person.crop.circle.badge.exclamationmark",
-                            message: error.localizedDescription,
-                            onRetry: { profileMutation.start { await model.loadProfile() } })
-                    }
-                }
-            }
+            profileLoadingSection
 
-            Section("登录状态") {
-                Button {
-                    profileMutation.start { await model.checkLogin() }
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("登录状态检查")
-                        Spacer()
-                        if isCheckingLogin {
-                            ProgressView()
-                                .accessibilityLabel("正在检查登录状态")
-                        } else {
-                            Text(isLoggedIn ? "已登录" : "未登录")
-                                .foregroundStyle(.tint)
-                        }
-                    }
-                }
-                .disabled(isBusy)
-                .appInteractiveListRow()
-
-                Button("退出登录", role: .destructive, action: onLogout)
-                    .accessibilityIdentifier("settings.account.logout")
-                    .disabled(isBusy)
-                    .appInteractiveListRow(isDestructive: true)
-            }
+            loginStatusSection
         }
         .accessibilityIdentifier("interaction.AccountSettingsPage.list")
         .appGroupedListStyle()
@@ -184,6 +94,133 @@ struct AccountSettingsPage: View {
         }
         .diagnosticAlert(item: $model.alert)
         .onDisappear { profileMutation.cancel() }
+    }
+
+    @ViewBuilder
+    private func profileSection(_ profile: ProfileSnapshot) -> some View {
+        Section("个人信息") {
+            avatarRow(profile)
+            nicknameButton(profile)
+            mottoButton(profile)
+
+            SettingsSensitiveValueRow(
+                title: "学号",
+                value: studentID,
+                isRevealed: $isShowingStudentID
+            )
+
+            SettingsSensitiveValueRow(
+                title: "UID",
+                value: String(profile.user.id),
+                isRevealed: $isShowingUID
+            )
+        }
+    }
+
+    private func avatarRow(_ profile: ProfileSnapshot) -> some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Text("头像")
+            Spacer()
+            Button {
+                isShowingPhotoPicker = true
+            } label: {
+                AppAvatarView(
+                    imageURL: profile.user.avatar.thumbnailURL,
+                    fallbackImageURL: profile.user.avatar.originalURL,
+                    size: AppDesignSystem.Size.Avatar.standard,
+                    tint: AppDesignSystem.Palette.Accent.primary
+                )
+            }
+            .accessibilityLabel("头像")
+            .accessibilityHint("选择新头像")
+            .disabled(isBusy)
+            .photosPicker(
+                isPresented: $isShowingPhotoPicker,
+                selection: $selectedPhoto,
+                matching: .images
+            )
+            .appInteractiveListRow()
+        }
+    }
+
+    private func nicknameButton(_ profile: ProfileSnapshot) -> some View {
+        Button {
+            nicknameText = profile.user.nickname
+            showNicknameEditor = true
+        } label: {
+            LabeledContent("昵称", value: profile.user.nickname)
+        }
+        .disabled(isBusy)
+        .appInteractiveListRow()
+    }
+
+    private func mottoButton(_ profile: ProfileSnapshot) -> some View {
+        let displayValue = profile.user.motto.isEmpty ? "空" : profile.user.motto
+        return Button {
+            mottoText = profile.user.motto
+            showMottoEditor = true
+        } label: {
+            LabeledContent("个性签名", value: displayValue)
+        }
+        .disabled(isBusy)
+        .appInteractiveListRow()
+    }
+
+    @ViewBuilder
+    private var profileLoadingSection: some View {
+        if profile == nil, model.isLoadingProfile || model.profileLoadError != nil {
+            Section("个人信息") {
+                if model.isLoadingProfile {
+                    AppInlineLoadingState("正在加载个人信息")
+                } else if let error = model.profileLoadError {
+                    AppFailureState(
+                        title: "个人信息加载失败",
+                        systemImage: "person.crop.circle.badge.exclamationmark",
+                        message: error.localizedDescription,
+                        onRetry: { retryLoadProfile() }
+                    )
+                }
+            }
+        }
+    }
+
+    private func retryLoadProfile() {
+        profileMutation.start { await model.loadProfile() }
+    }
+
+    private var loginStatusSection: some View {
+        Section("登录状态") {
+            Button {
+                profileMutation.start { await model.checkLogin() }
+            } label: {
+                loginStatusLabel
+            }
+            .disabled(isBusy)
+            .appInteractiveListRow()
+
+            Button("退出登录", role: .destructive, action: onLogout)
+                .accessibilityIdentifier("settings.account.logout")
+                .disabled(isBusy)
+                .appInteractiveListRow(isDestructive: true)
+        }
+    }
+
+    private var loginStatusText: String {
+        isLoggedIn ? "已登录" : "未登录"
+    }
+
+    private var loginStatusLabel: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Text("登录状态检查")
+            Spacer()
+            if isCheckingLogin {
+                ProgressView()
+                    .accessibilityLabel("正在检查登录状态")
+            } else {
+                Text(loginStatusText)
+                    .foregroundStyle(.tint)
+            }
+        }
     }
 
     private func updateProfile(nickname: String?, motto: String?) async {

@@ -132,18 +132,31 @@ nonisolated final class PreviewFileOwnership: Sendable {
             let paths = state.withLock { $0.paths }
             var succeeded = true
             for file in children {
-                let path = files.canonicalFileURL(file).path
-                if paths.contains(path) {
-                    state.withLock { $0.deferredRemoval[path] = (file, files) }
-                } else {
-                    do {
-                        try files.removeItem(at: file)
-                        state.withLock { $0.deferredRemoval[path] = nil }
-                    } catch { succeeded = false }
+                if purgeChildFile(file, activePaths: paths, using: files) == false {
+                    succeeded = false
                 }
             }
             removeReleasedFiles()
             return succeeded
+        }
+    }
+
+    private func purgeChildFile(
+        _ file: URL,
+        activePaths: Set<String>,
+        using files: any AppFileService
+    ) -> Bool {
+        let path = files.canonicalFileURL(file).path
+        if activePaths.contains(path) {
+            state.withLock { $0.deferredRemoval[path] = (file, files) }
+            return true
+        }
+        do {
+            try files.removeItem(at: file)
+            state.withLock { $0.deferredRemoval[path] = nil }
+            return true
+        } catch {
+            return false
         }
     }
 }

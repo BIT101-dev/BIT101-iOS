@@ -173,9 +173,7 @@ private struct DDLSettingsNumberPickerSheet: View {
                     .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
-                        if onSubmit(value) { dismiss() }
-                    }
+                    Button("完成", action: handleDone)
                     .disabled(!repository.acceptsEdits)
                     .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
                 }
@@ -183,6 +181,12 @@ private struct DDLSettingsNumberPickerSheet: View {
         }
         .presentationDetents([.height(AppDesignSystem.Schedule.ddlNumericPickerHeight)])
         .presentationDragIndicator(.visible)
+    }
+
+    private func handleDone() {
+        if onSubmit(value) {
+            dismiss()
+        }
     }
 }
 

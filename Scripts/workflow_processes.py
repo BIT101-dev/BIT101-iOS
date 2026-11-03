@@ -101,9 +101,10 @@ def stop_process_tree(root: int, *, grace_seconds: float = 5) -> None:
     forced = False
     while remaining:
         if not forced or time.monotonic() >= deadline:
+            sig = signal.SIGKILL if forced else signal.SIGTERM
             for pid in remaining:
                 try:
-                    os.kill(pid, signal.SIGKILL if forced else signal.SIGTERM)
+                    os.kill(pid, sig)
                 except ProcessLookupError:
                     pass
             if forced:

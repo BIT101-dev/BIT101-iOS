@@ -244,6 +244,24 @@ def ci_result_wiring_findings(jobs: dict) -> list[str]:
     return errors
 
 
+def check_command_forbidden_ui(words: list[str]) -> bool:
+    for index, word in enumerate(words):
+        if word.endswith("run-extended-tests.sh"):
+            arguments = words[index + 1 :]
+            if any(value in {"ui", "build-ui", "preview"} for value in arguments):
+                return True
+            if arguments[:1] == ["verify"] and not any(
+                not value.startswith("-") for value in arguments[1:]
+            ):
+                return True
+            if arguments[:2] == ["simulator", "verify"]:
+                return True
+        elif word.endswith("xcodebuild"):
+            if any("UITests" in value or "UIAutomation" in value for value in words[index + 1 :]):
+                return True
+    return False
+
+
 def ci_ui_execution_findings(jobs: dict) -> list[str]:
     errors = []
 
@@ -266,21 +284,8 @@ def ci_ui_execution_findings(jobs: dict) -> list[str]:
                     words = shlex.split(line, comments=True)
                 except ValueError:
                     continue
-                for index, word in enumerate(words):
-                    if word.endswith("run-extended-tests.sh"):
-                        arguments = words[index + 1 :]
-                        forbidden |= any(
-                            value in {"ui", "build-ui", "preview"} for value in arguments
-                        )
-                        forbidden |= arguments[:1] == ["verify"] and not any(
-                            not value.startswith("-") for value in arguments[1:]
-                        )
-                        forbidden |= arguments[:2] == ["simulator", "verify"]
-                    if word.endswith("xcodebuild"):
-                        forbidden |= any(
-                            "UITests" in value or "UIAutomation" in value
-                            for value in words[index + 1 :]
-                        )
+                if check_command_forbidden_ui(words):
+                    forbidden = True
         if forbidden:
             errors.append(
                 f".github/workflows/ci.yml: {name} 禁止执行 UITest；UI 测试由本地真机验收。"
@@ -902,12 +907,9 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
             network = [
                 step
                 for step in steps
-                if any(
-                    step_has_role(step, role)
-                    for role in {
-                        "Restore native compilation cache",
-                        "Load target branch coverage baseline",
-                    }
+                if (
+                    step_has_role(step, "Restore native compilation cache")
+                    or step_has_role(step, "Load target branch coverage baseline")
                 )
             ]
             inventory = [
@@ -1681,6 +1683,26 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     return findings
 
 
+def check_test_results_native_coverage(metrics_source: str) -> bool:
+    metrics = ast.parse(metrics_source)
+    handlers = []
+    for node in ast.walk(metrics):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and key.value == "native-metrics"
+                    and isinstance(value, ast.Name)
+                ):
+                    handlers.append(value.id)
+    return any(
+        isinstance(node, ast.Constant) and node.value == "xccov"
+        for function in metrics.body
+        if isinstance(function, ast.FunctionDef) and function.name in handlers
+        for node in ast.walk(function)
+    )
+
+
 def audit_wiring_findings(
     ROOT, scheme_inventory_findings, extension_dependency_findings
 ) -> list[str]:
@@ -1786,23 +1808,7 @@ def audit_wiring_findings(
         errors.append("Scripts/run-extended-tests.sh: 真机测试入口不存在")
     else:
         test_source = active_script_markers(test_script.read_text(encoding="utf-8"))
-        metrics = ast.parse((SCRIPT_ROOT / "test_results.py").read_text())
-        handlers = [
-            value.id
-            for node in ast.walk(metrics)
-            if isinstance(node, ast.Dict)
-            for key, value in zip(node.keys, node.values)
-            if isinstance(key, ast.Constant)
-            and key.value == "native-metrics"
-            and isinstance(value, ast.Name)
-        ]
-        native_coverage = any(
-            isinstance(node, ast.Constant) and node.value == "xccov"
-            for function in metrics.body
-            if isinstance(function, ast.FunctionDef) and function.name in handlers
-            for node in ast.walk(function)
-        )
-        if not native_coverage:
+        if not check_test_results_native_coverage((SCRIPT_ROOT / "test_results.py").read_text()):
             errors.append("Scripts/test_results.py: 原生指标处理需要提取代码覆盖率")
         required_test_metrics = (
             ("native-metrics", "真机测试需要接入原生指标处理"),

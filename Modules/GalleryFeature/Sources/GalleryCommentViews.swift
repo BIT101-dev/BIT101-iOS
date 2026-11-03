@@ -33,6 +33,53 @@ struct GalleryPosterCommentsSection: View {
     let onLoadMore: (CommunityComment?) -> Void
     let onRetry: () -> Void
 
+    @ViewBuilder
+    private func commentRow(index: Int, comment: CommunityComment) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            GalleryCommentRow(
+                comment: comment,
+                likingCommentIDs: likingCommentIDs,
+                onReply: onReply,
+                onLikeComment: onLikeComment,
+                onReportComment: onReportComment,
+                onDeleteComment: onDeleteComment,
+                onOpenImage: onOpenImage,
+                onOpenUser: onOpenUser
+            )
+
+            if index != comments.count - 1 {
+                Divider()
+                    .padding(.leading, AppDesignSystem.Comment.replyInset)
+            }
+        }
+        .onAppear {
+            onLoadMore(comment)
+        }
+    }
+
+    @ViewBuilder
+    private var commentListContent: some View {
+        LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+            ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
+                commentRow(index: index, comment: comment)
+            }
+        }
+        .appCommentSectionStyle()
+    }
+
+    @ViewBuilder
+    private var commentsOrEmptyView: some View {
+        if comments.isEmpty {
+            Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, AppDesignSystem.Spacing.section)
+        } else {
+            commentListContent
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
@@ -51,41 +98,7 @@ struct GalleryPosterCommentsSection: View {
                     onRetry: onRetry
                 )
             default:
-                if comments.isEmpty {
-                    Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
-                        .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppDesignSystem.Spacing.section)
-                } else {
-                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(comments.enumerated()), id: \.element.id) {
-                            index, comment in
-                            VStack(spacing: AppDesignSystem.Spacing.none) {
-                                GalleryCommentRow(
-                                    comment: comment,
-                                    likingCommentIDs: likingCommentIDs,
-                                    onReply: onReply,
-                                    onLikeComment: onLikeComment,
-                                    onReportComment: onReportComment,
-                                    onDeleteComment: onDeleteComment,
-                                    onOpenImage: onOpenImage,
-                                    onOpenUser: onOpenUser
-                                )
-
-                                if index != comments.count - 1 {
-                                    Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
-                                }
-                            }
-                            .onAppear {
-                                onLoadMore(comment)
-                            }
-                        }
-
-                    }
-                    .appCommentSectionStyle()
-                }
+                commentsOrEmptyView
                 CommunityPaginationFooter(
                     isLoading: isLoadingMore, errorMessage: paginationError,
                     showsContinuation: canContinue
@@ -236,13 +249,87 @@ struct GalleryCommentComposerSheet: View {
                 isCurrentSession: { dependencies.currentIdentity() == owner }))
     }
 
+    private var imageCount: Int {
+        imageUploads.drafts.count
+    }
+
+    private var imagePickerTitle: String {
+        imageCount >= ComposerDraftImagePolicy.maximumImageCount
+            ? "已达到图片上限"
+            : "添加图片"
+    }
+
+    private func handleImageRetry(id: String) {
+        Task { await imageUploads.retry(id: id) }
+    }
+
+    @ViewBuilder
+    private func imageTile(index: Int, draft: ComposerImageDraft) -> some View {
+        ComposerImageTile(
+            draft: draft,
+            onRetry: { handleImageRetry(id: draft.id) },
+            onRemove: { imageUploads.remove(id: draft.id) },
+            onOpen: { openImage(id: draft.id) },
+            previewAccessibilityLabel: "预览第\(index + 1)张评论图片",
+            removeAccessibilityLabel: "移除第\(index + 1)张评论图片")
+    }
+
+    @ViewBuilder
+    private var imageThumbnailsRow: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                ForEach(
+                    Array(imageUploads.drafts.enumerated()), id: \.element.id
+                ) { index, draft in
+                    imageTile(index: index, draft: draft)
+                }
+            }
+        }
+        .accessibilityIdentifier("interaction.GalleryCommentComposerSheet.images")
+    }
+
+    @ViewBuilder
+    private var imagesSection: some View {
+        Section("图片") {
+            PhotosPicker(
+                selection: $selectedPhotoItems,
+                maxSelectionCount: max(
+                    1, ComposerDraftImagePolicy.maximumImageCount - imageCount),
+                matching: .images
+            ) {
+                Text(imagePickerTitle)
+            }
+            .disabled(
+                isSubmitting || isUploadingImages
+                    || imageCount >= ComposerDraftImagePolicy.maximumImageCount
+            )
+            .accessibilityLabel("添加评论图片")
+            .accessibilityValue("\(imageCount) 张")
+            .appInteractiveListRow()
+
+            if isUploadingImages {
+                AppInlineLoadingState("上传中")
+            }
+            if let uploadError = imageUploads.errorMessage {
+                Text(uploadError)
+                    .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+                    .accessibilityIdentifier("comment.image-upload.error")
+            }
+            if imageCount > 0 {
+                Text("已添加 \(imageCount) 张图片")
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                imageThumbnailsRow
+            }
+        }
+    }
+
     var body: some View {
         let submission = CommunityCommentSubmission(
             objectID: target.objectID,
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             anonymous: anonymous, replyObjectID: target.replyObjectID,
             replyUID: target.replyUID, imageMids: uploadedImages.map(\.mid))
-        let imageCount = imageUploads.drafts.count
         NavigationStack {
             Form {
                 AppCommentComposerContentSection(anonymous: $anonymous) {
@@ -258,58 +345,7 @@ struct GalleryCommentComposerSheet: View {
                     isSubmissionRequested = true
                 }
                 .disabled(isUploadingImages)
-                Section("图片") {
-                    PhotosPicker(
-                        selection: $selectedPhotoItems,
-                        maxSelectionCount: max(
-                            1, ComposerDraftImagePolicy.maximumImageCount - imageCount),
-                        matching: .images
-                    ) {
-                        Text(
-                            imageCount >= ComposerDraftImagePolicy.maximumImageCount
-                                ? "已达到图片上限" : "添加图片")
-                    }
-                    .disabled(
-                        isSubmitting || isUploadingImages
-                            || imageCount >= ComposerDraftImagePolicy.maximumImageCount
-                    )
-                    .accessibilityLabel("添加评论图片")
-                    .accessibilityValue("\(imageCount) 张")
-                    .appInteractiveListRow()
-
-                    if isUploadingImages {
-                        AppInlineLoadingState("上传中")
-                    }
-                    if let uploadError = imageUploads.errorMessage {
-                        Text(uploadError)
-                            .foregroundStyle(AppDesignSystem.Palette.Status.danger)
-                            .accessibilityIdentifier("comment.image-upload.error")
-                    }
-                    if imageCount > 0 {
-                        Text("已添加 \(imageCount) 张图片")
-                            .font(AppDesignSystem.Typography.caption)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        ScrollView(.horizontal) {
-                            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                ForEach(
-                                    Array(imageUploads.drafts.enumerated()), id: \.element.id
-                                ) { index, draft in
-                                    ComposerImageTile(
-                                        draft: draft,
-                                        onRetry: {
-                                            Task { await imageUploads.retry(id: draft.id) }
-                                        },
-                                        onRemove: { imageUploads.remove(id: draft.id) },
-                                        onOpen: { openImage(id: draft.id) },
-                                        previewAccessibilityLabel: "预览第\(index + 1)张评论图片",
-                                        removeAccessibilityLabel: "移除第\(index + 1)张评论图片")
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier(
-                            "interaction.GalleryCommentComposerSheet.images")
-                    }
-                }
+                imagesSection
             }
             .disabled(isSubmitting || isSubmissionRequested)
             .navigationTitle(target.title)

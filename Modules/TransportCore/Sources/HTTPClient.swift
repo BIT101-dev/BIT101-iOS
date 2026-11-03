@@ -305,32 +305,35 @@ public struct HTTPClient {
 
     public nonisolated static func errorMessage(from data: Data) -> String? {
         guard data.count <= HTTPResponseResourceLimits.maximumErrorBytes else { return nil }
-        if let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
-            if let text = value as? String { return boundedErrorMessage(text) }
-            guard let object = value as? [String: Any] else { return nil }
-            for key in ["message", "msg", "detail", "error"] {
-                if let value = object[key] as? String, let message = boundedErrorMessage(value) {
-                    return message
-                }
-                if let nested = object[key] as? [String: Any] {
-                    for field in ["message", "msg", "detail", "error"] {
-                        if let value = nested[field] as? String,
-                            let message = boundedErrorMessage(value)
-                        {
-                            return message
-                        }
+        guard let value = try? JSONSerialization.jsonObject(
+            with: data,
+            options: [.fragmentsAllowed]
+        ) else {
+            guard
+                let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
+                    in: .whitespacesAndNewlines),
+                let first = text.first, !["<", "{", "["].contains(first)
+            else { return nil }
+            return boundedErrorMessage(text)
+        }
+
+        if let text = value as? String { return boundedErrorMessage(text) }
+        guard let object = value as? [String: Any] else { return nil }
+        for key in ["message", "msg", "detail", "error"] {
+            if let value = object[key] as? String, let message = boundedErrorMessage(value) {
+                return message
+            }
+            if let nested = object[key] as? [String: Any] {
+                for field in ["message", "msg", "detail", "error"] {
+                    if let value = nested[field] as? String,
+                        let message = boundedErrorMessage(value)
+                    {
+                        return message
                     }
                 }
             }
-            return nil
         }
-
-        guard
-            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
-                in: .whitespacesAndNewlines),
-            let first = text.first, !["<", "{", "["].contains(first)
-        else { return nil }
-        return boundedErrorMessage(text)
+        return nil
     }
 
     private nonisolated static func boundedErrorMessage(_ value: String) -> String? {

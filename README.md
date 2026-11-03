@@ -45,7 +45,7 @@ Scripts/run-extended-tests.sh ui About
 `build` 编译 App 与扩展；`modules` 运行本机模块测试；`ui` 后可直接填写多个用例关键词，合并为一个真机批次。
 
 - [新电脑开发环境](docs/SETUP.md)：外部工具安装、账号签名和首次构建装机。
-- [架构与数据边界](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
+- [系统架构与数据范围](docs/ARCHITECTURE.md)：模块职责、依赖注入、网络、存储与扩展协作。
 - [设计系统](docs/DESIGN_SYSTEM.md)：公共令牌、组件和界面规范。
 - [构建与测试](docs/TESTING.md)：真机流程、测试分组、固定产物和 CI。
 - [UI 交互覆盖](docs/UI_INTERACTION_COVERAGE.md)：逐项交互、对应 UI 用例、测试数据和执行流程。
@@ -56,6 +56,6 @@ Scripts/run-extended-tests.sh ui About
 - 本仓库维护者负责 iOS 客户端及真机验证。
 - Android、Web 和服务端由对应团队维护，本仓库用于接口参考、功能对照和问题记录。
 - 本仓库维护者管理 `aihelpme.dev`；`bit101.cn` 等 BIT101 域名归属对应主体。
-- 跨模块调整遵循账号隔离、公共领域端口、共享草稿与设计系统边界；依赖和平台副作用由 App 显式组装，验证结果保存在既有固定日志与结果包中。
+- 跨模块调整遵循账号隔离、公共领域端口、共享草稿与设计系统规范；依赖和平台副作用由 App 显式组装，验证结果保存在既有固定日志与结果包中。
 
 发现问题请提交 Issue。

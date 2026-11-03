@@ -43,16 +43,11 @@ enum NetworkSmokeProductionSession {
                 {
                     do {
                         stage = .galleryComments
-                        for order in CommunityCommentOrder.allCases {
-                            _ = try await NetworkSmokePaging.commentBatch(
-                                for: "poster\(candidate.id)", order: order,
-                                currentIdentity: dependencies.communityIdentity
-                            ) {
-                                try await gallery.fetchComments(
-                                    objectID: "poster\(candidate.id)", order: order,
-                                    page: $0 == 0 ? nil : $0)
-                            }
-                        }
+                        try await Self.verifyPosterComments(
+                            gallery: gallery,
+                            candidateID: candidate.id,
+                            identity: dependencies.communityIdentity
+                        )
                         selectedPoster = candidate
                         break
                     } catch is NetworkSmokePaging.SamplingError { continue }
@@ -165,6 +160,24 @@ enum NetworkSmokeProductionSession {
             observer: HTTPClient.appObserver,
             nativeAuthenticator: AppNativeSchoolAuthentication.make(
                 state: state, productionPolicy: true))
+    }
+
+    private static func verifyPosterComments(
+        gallery: any NetworkSmokeGalleryServicing,
+        candidateID: Int,
+        identity: @escaping () -> CommunitySessionIdentity?
+    ) async throws {
+        for order in CommunityCommentOrder.allCases {
+            _ = try await NetworkSmokePaging.commentBatch(
+                for: "poster\(candidateID)", order: order,
+                currentIdentity: identity
+            ) {
+                let page = $0 == 0 ? nil : $0
+                return try await gallery.fetchComments(
+                    objectID: "poster\(candidateID)", order: order, page: page
+                )
+            }
+        }
     }
 }
 #endif

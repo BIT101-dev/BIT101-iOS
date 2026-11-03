@@ -206,6 +206,87 @@ struct CourseScheduleTabView: View {
         }
     }
 
+    private func landscapeCalendarContent(
+        refreshStatusHeight: CGFloat,
+        calendarHeight: CGFloat
+    ) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.content) {
+            List { refreshStatusSection }
+                .accessibilityIdentifier("interaction.CourseScheduleTabView.refresh")
+                .appGroupedListStyle()
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(true)
+                .frame(height: refreshStatusHeight)
+            calendarSurface(height: calendarHeight)
+                .clipShape(
+                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
+                )
+                .padding(.horizontal, AppDesignSystem.Spacing.section)
+        }
+        .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
+            updateRefreshStatusContentHeight(height)
+        }
+    }
+
+    private func portraitCalendarContent(
+        listHeight: CGFloat,
+        calendarHeight: CGFloat
+    ) -> some View {
+        List {
+            refreshStatusSection
+            // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
+            // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
+            // 手动添加日程入口保持可用。
+            Section {
+                calendarSurface(height: calendarHeight)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(AppDesignSystem.Palette.Background.grouped)
+            }
+        }
+        .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
+        .appGroupedListStyle()
+        .scrollContentBackground(.hidden)
+        .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
+        .frame(height: listHeight, alignment: .top)
+        .zIndex(0)
+        .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
+            updateRefreshStatusContentHeight(height)
+        }
+    }
+
+    private func updateRefreshStatusContentHeight(_ height: CGFloat) {
+        guard height > 0 else { return }
+        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+    }
+
+    private func saveCourseArrangements(
+        _ arrangements: [CourseArrangementDraft],
+        _ mode: CourseArrangementEditorMode
+    ) -> Bool {
+        do {
+            switch mode {
+            case .course:
+                try viewModel.updateCourseArrangements(arrangements)
+            case .occurrence:
+                guard let arrangement = arrangements.first,
+                    let weeks = try? ScheduleCourseEditor.parseWeeks(
+                        arrangement.draft.weeksText)
+                else {
+                    throw viewModel.scheduleValidationError("至少选择一周课程。")
+                }
+                try viewModel.updateCourseOccurrences(
+                    id: arrangement.id,
+                    weeks: weeks,
+                    draft: arrangement.draft
+                )
+            }
+            return true
+        } catch {
+            presentSaveError(error)
+            return false
+        }
+    }
+
     /// 课表分区主体。
     ///
     /// 更新时间沿模块分组行展示，横屏表格按所属分栏的可用高度铺开。
@@ -229,52 +310,15 @@ struct CourseScheduleTabView: View {
 
             ZStack(alignment: .bottomTrailing) {
                 if usesLandscapeCalendar {
-                    VStack(spacing: AppDesignSystem.Spacing.content) {
-                        List { refreshStatusSection }
-                            .accessibilityIdentifier(
-                                "interaction.CourseScheduleTabView.refresh"
-                            )
-                            .appGroupedListStyle()
-                            .scrollContentBackground(.hidden)
-                            .scrollDisabled(true)
-                            .frame(height: refreshStatusHeight)
-                        calendarSurface(height: calendarHeight)
-                            .clipShape(
-                                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
-                            )
-                            .padding(.horizontal, AppDesignSystem.Spacing.section)
-                    }
-                    .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
-                        guard height > 0 else { return }
-                        refreshStatusContentHeight = max(
-                            height, AppDesignSystem.Size.Control.touchTarget)
-                    }
-                } else {
-                    List {
-                        refreshStatusSection
-
-                        // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
-                        // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
-                        // 手动添加日程入口保持可用。
-                        Section {
-                            calendarSurface(height: calendarHeight)
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(AppDesignSystem.Palette.Background.grouped)
-                        }
-                    }
-                    .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
-                    .appGroupedListStyle()
-                    .scrollContentBackground(.hidden)
-                    .scrollDisabled(
-                        calendarAxisMode == .quantized || activeSchedule.firstDay != nil
+                    landscapeCalendarContent(
+                        refreshStatusHeight: refreshStatusHeight,
+                        calendarHeight: calendarHeight
                     )
-                    .frame(height: listHeight, alignment: .top)
-                    .zIndex(0)
-                    .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
-                        guard height > 0 else { return }
-                        refreshStatusContentHeight = max(
-                            height, AppDesignSystem.Size.Control.touchTarget)
-                    }
+                } else {
+                    portraitCalendarContent(
+                        listHeight: listHeight,
+                        calendarHeight: calendarHeight
+                    )
                 }
 
             }
@@ -321,30 +365,7 @@ struct CourseScheduleTabView: View {
                     }
                     return viewModel.courseArrangementDraft(for: course, week: week)
                 },
-                onSaveCourseArrangements: { arrangements, mode in
-                    do {
-                        switch mode {
-                        case .course:
-                            try viewModel.updateCourseArrangements(arrangements)
-                        case .occurrence:
-                            guard let arrangement = arrangements.first,
-                                let weeks = try? ScheduleCourseEditor.parseWeeks(
-                                    arrangement.draft.weeksText)
-                            else {
-                                throw viewModel.scheduleValidationError("至少选择一周课程。")
-                            }
-                            try viewModel.updateCourseOccurrences(
-                                id: arrangement.id,
-                                weeks: weeks,
-                                draft: arrangement.draft
-                            )
-                        }
-                        return true
-                    } catch {
-                        presentSaveError(error)
-                        return false
-                    }
-                },
+                onSaveCourseArrangements: saveCourseArrangements,
                 onDeleteCourseOccurrence: { courseID, week in
                     guard
                         let course = activeSchedule.courses.first(where: { $0.id == courseID })

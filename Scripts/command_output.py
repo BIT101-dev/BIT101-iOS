@@ -202,6 +202,89 @@ def show_log(path: Path, failed: bool) -> None:
         print(f"[输出] {path.stem} 共 {count} 行 · {path}")
 
 
+def temporary_result_bundle(line: str) -> Path | None:
+    match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
+    if not match:
+        return None
+    path = Path(match[1])
+    temp_dir = Path(tempfile.gettempdir()).resolve()
+    if path.parent.resolve() == temp_dir and path.name.startswith("ResultBundle_"):
+        return path
+    return None
+
+
+class CommandStreamCollector:
+    def __init__(self, display_limit: int, diagnostics: BoundedLines, failures: FailureSummary):
+        self.display_limit = display_limit
+        self.diagnostics = diagnostics
+        self.failures = failures
+        self.diagnostic_count = 0
+        self.streamed = set()
+        self.streamed_characters = 0
+        self.summary_count = 0
+        self.summary_tests = 0
+        self.summary = ""
+        self.dependency_warning_count = 0
+        self.cache_warning_count = 0
+        self.dependency_example = ""
+        self.temporary_results = set()
+
+    def process_line(self, line: str, build_command: bool, report) -> None:
+        report.write(line)
+        if build_command and (bundle := temporary_result_bundle(line)):
+            self.temporary_results.add(bundle)
+            return
+        if not line.strip():
+            return
+        self.failures.add(line)
+        if (
+            "error:" in line
+            or "warning:" in line
+            or useful_line(line)
+            and (line.lstrip().startswith("✘") or "failed" in line.lower())
+        ):
+            report.flush()
+            if self.handle_diagnostic(line):
+                return
+        if "Test run with" in line:
+            self.summary, clipped = bounded_text(line.strip(), self.diagnostics.character_limit)
+            self.diagnostics.truncated |= clipped
+            self.summary_count += 1
+            self.summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
+
+    def handle_diagnostic(self, line: str) -> bool:
+        if dependency := re.match(
+            (
+                "warning: '(.+)' is missing a dependency on '(.+)' because dependency "
+                "scan of Swift module"
+            ),
+            line,
+        ):
+            self.dependency_warning_count += 1
+            if not self.dependency_example:
+                self.dependency_example = f"{dependency[1]} → {dependency[2]}"
+            return True
+        if re.match(
+            (
+                "warning: (?:failed to load CAS object: unknown object|.*llvmcas://.*:"
+                " No such file or directory)"
+            ),
+            line,
+        ):
+            self.cache_warning_count += 1
+            return True
+        if self.diagnostics.add(line):
+            self.diagnostic_count += 1
+            if (
+                len(self.streamed) < self.display_limit // 2
+                and self.streamed_characters + len(line) <= self.diagnostics.character_limit // 2
+            ):
+                print(line, end="", flush=True)
+                self.streamed.add(line)
+                self.streamed_characters += len(line)
+        return False
+
+
 def run_command(arguments: list[str]) -> int:
     signal.signal(signal.SIGINT, lambda *_: sys.exit(130))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
@@ -216,77 +299,26 @@ def run_command(arguments: list[str]) -> int:
     display_limit = OUTPUT_LINE_LIMIT
     diagnostics = BoundedLines(display_limit)
     failures = FailureSummary(display_limit)
-    diagnostic_count = 0
-    streamed = set()
-    streamed_characters = 0
-    summary_count = summary_tests = 0
-    summary = ""
-    dependency_warning_count = 0
-    cache_warning_count = 0
-    dependency_example = ""
-    temporary_results = set()
+    collector = CommandStreamCollector(display_limit, diagnostics, failures)
     try:
         with report_path.open("w", encoding="utf-8", buffering=1) as report:
             for line in process.stdout:
-                report.write(line)
-                if build_command:
-                    match = re.search(r"Writing error result bundle to (.+\.xcresult)\s*$", line)
-                    if match:
-                        path = Path(match[1])
-                        if path.parent.resolve() == Path(
-                            tempfile.gettempdir()
-                        ).resolve() and path.name.startswith("ResultBundle_"):
-                            temporary_results.add(path)
-                            continue
-                if not line.strip():
-                    continue
-                failures.add(line)
-                if (
-                    "error:" in line
-                    or "warning:" in line
-                    or useful_line(line)
-                    and (line.lstrip().startswith("✘") or "failed" in line.lower())
-                ):
-                    report.flush()
-                    if dependency := re.match(
-                        (
-                            "warning: '(.+)' is missing a dependency on '(.+)' because dependency "
-                            "scan of Swift module"
-                        ),
-                        line,
-                    ):
-                        dependency_warning_count += 1
-                        if not dependency_example:
-                            dependency_example = f"{dependency[1]} → {dependency[2]}"
-                        continue
-                    elif re.match(
-                        (
-                            "warning: (?:failed to load CAS object: unknown object|.*llvmcas://.*:"
-                            " No such file or directory)"
-                        ),
-                        line,
-                    ):
-                        cache_warning_count += 1
-                        continue
-                    elif diagnostics.add(line):
-                        diagnostic_count += 1
-                        if (
-                            len(streamed) < display_limit // 2
-                            and streamed_characters + len(line) <= diagnostics.character_limit // 2
-                        ):
-                            print(line, end="", flush=True)
-                            streamed.add(line)
-                            streamed_characters += len(line)
-                if "Test run with" in line:
-                    summary, clipped = bounded_text(line.strip(), diagnostics.character_limit)
-                    diagnostics.truncated |= clipped
-                    summary_count += 1
-                    summary_tests += int(re.search(r"Test run with (\d+) tests?", line)[1])
+                collector.process_line(line, build_command, report)
         exit_code = process.wait()
     except BaseException:
         stop_process_tree(process.pid)
         process.wait()
         raise
+    temporary_results = collector.temporary_results
+    dependency_warning_count = collector.dependency_warning_count
+    dependency_example = collector.dependency_example
+    cache_warning_count = collector.cache_warning_count
+    diagnostic_count = collector.diagnostic_count
+    streamed = collector.streamed
+    streamed_characters = collector.streamed_characters
+    summary_count = collector.summary_count
+    summary = collector.summary
+    summary_tests = collector.summary_tests
     for path in temporary_results:
         if exit_code and path.is_dir():
             destination = Path(os.environ["BIT101_COMMAND_DIAGNOSTICS"]) / "test-results.xcresult"

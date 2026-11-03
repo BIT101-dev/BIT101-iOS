@@ -329,25 +329,30 @@ struct AppShellView: View {
     private var compactTabs: some View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.allCases) { tab in
-                Group {
-                    if tab == .schedule || tab == .gallery || tab == .score || tab == .mine {
-                        tabContent(tab)
-                    } else {
-                        NavigationStack { tabContent(tab) }
-                    }
-                }
-                .environment(\.appPageIsVisible, tab == selectedTab)
-                .tint(tab.tintColor)
-                .accentColor(tab.tintColor)
-                .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                .tag(tab)
-                .tabItem {
-                    Label(tab.title, systemImage: tab.systemImage)
-                        .accessibilityIdentifier("app.tab.\(tab.rawValue)")
-                }
+                tabItemView(for: tab)
             }
         }
         .accessibilityIdentifier("app.navigation.grouped")
+    }
+
+    @ViewBuilder
+    private func tabItemView(for tab: AppTab) -> some View {
+        Group {
+            if tab == .schedule || tab == .gallery || tab == .score || tab == .mine {
+                tabContent(tab)
+            } else {
+                NavigationStack { tabContent(tab) }
+            }
+        }
+        .environment(\.appPageIsVisible, tab == selectedTab)
+        .tint(tab.tintColor)
+        .accentColor(tab.tintColor)
+        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+        .tag(tab)
+        .tabItem {
+            Label(tab.title, systemImage: tab.systemImage)
+                .accessibilityIdentifier("app.tab.\(tab.rawValue)")
+        }
     }
 
     private func isHidden(_ destination: AppDestination) -> Bool {

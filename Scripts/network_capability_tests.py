@@ -1789,6 +1789,43 @@ def network_discovery_self_test() -> None:
             assert any("新增生产服务" in error for error in network_capability_findings(index))
     from unittest.mock import patch
 
+    def assert_capability_variant(sources, harness_path, getter_path, signature, declaration):
+        if signature == "init()":
+            sources[harness_path] = (
+                "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
+                "\n                        enum Factory { static var existing: ReadService"
+                "; static func cached() -> ReadService { existing } }\n                   "
+                "     struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached()"
+                " } }\n                        #endif"
+            )
+            errors = network_capability_findings(swift_syntax_index_sources(sources))
+            assert any(
+                "ReadService.init()" in error and "静态可达服务调用" in error
+                for error in errors
+            ), errors
+        if signature == "rows()" and "get async" not in declaration:
+            sources[getter_path] = sources[getter_path].replace(
+                (
+                    "public var rows: Task<HTTPResponse, Error> { Task { try await client."
+                    "send(request) } }"
+                ),
+                (
+                    "public var rows: Task<HTTPResponse, Error> { get { Task { try await c"
+                    "lient.send(request) } } set {} }"
+                ),
+            )
+            sources[harness_path] = (
+                "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
+                "\n                        struct ReleaseNetworkSmokeRunner { var service:"
+                " ReadService; func run() { service.rows = existingTask } }\n             "
+                "           #endif"
+            )
+            errors = network_capability_findings(swift_syntax_index_sources(sources))
+            assert any(
+                "ReadService.rows()" in error and "静态可达服务调用" in error
+                for error in errors
+            ), errors
+
     harness_path = "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"
     for declaration, signature, invocation in [
         (
@@ -1863,41 +1900,9 @@ def network_discovery_self_test() -> None:
                 )
                 errors = network_capability_findings(swift_syntax_index_sources(sources))
                 assert any("静态可达服务调用" in error for error in errors), (declaration, errors)
-                if signature == "init()":
-                    sources[harness_path] = (
-                        "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
-                        "\n                        enum Factory { static var existing: ReadService"
-                        "; static func cached() -> ReadService { existing } }\n                   "
-                        "     struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached()"
-                        " } }\n                        #endif"
-                    )
-                    errors = network_capability_findings(swift_syntax_index_sources(sources))
-                    assert any(
-                        "ReadService.init()" in error and "静态可达服务调用" in error
-                        for error in errors
-                    ), errors
-                if signature == "rows()" and "get async" not in declaration:
-                    sources[getter_path] = sources[getter_path].replace(
-                        (
-                            "public var rows: Task<HTTPResponse, Error> { Task { try await client."
-                            "send(request) } }"
-                        ),
-                        (
-                            "public var rows: Task<HTTPResponse, Error> { get { Task { try await c"
-                            "lient.send(request) } } set {} }"
-                        ),
-                    )
-                    sources[harness_path] = (
-                        "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
-                        "\n                        struct ReleaseNetworkSmokeRunner { var service:"
-                        " ReadService; func run() { service.rows = existingTask } }\n             "
-                        "           #endif"
-                    )
-                    errors = network_capability_findings(swift_syntax_index_sources(sources))
-                    assert any(
-                        "ReadService.rows()" in error and "静态可达服务调用" in error
-                        for error in errors
-                    ), errors
+                assert_capability_variant(
+                    sources, harness_path, getter_path, signature, declaration
+                )
     protocol = (
         "public protocol RequestSending { func send(_ request: URLRequest) async throws -> HTTPRes"
         "ponse }; extension HTTPClient: RequestSending {}"

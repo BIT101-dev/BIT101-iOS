@@ -373,6 +373,87 @@ final class GalleryComposerViewModel: ObservableObject {
         }
     }
 
+    private func beginGalleryPublication(
+        content: ComposerPublicationContent,
+        operation: Int
+    ) async throws -> ComposerPublicationAttempt? {
+        let started = try await drafts.beginPublication(
+            content, owner: owner.accountIdentifier)
+        switch started {
+        case .pending(let attempt):
+            guard isCurrent(operation) else { return nil }
+            publicationReview = .pending(attempt)
+            alert = AppAlert(
+                title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+            return nil
+        case .started(let attempt):
+            return attempt
+        }
+    }
+
+    private func cleanupDraftAfterPublish(
+        cleanup: (@Sendable () async -> Bool)?,
+        publication: ComposerPublicationAttempt?
+    ) {
+        guard let cleanup else { return }
+        didPublish = true
+        let acceptedPublication = publication
+        Task {
+            guard await cleanup() else {
+                Self.logger.error("已发布内容的草稿清理受阻，保留原草稿供后续处理。")
+                return
+            }
+            guard let acceptedPublication else { return }
+            do {
+                _ = try await drafts.finishPublication(acceptedPublication)
+            } catch {
+                Self.logger.error(
+                    "清理已发布事务受阻：\(String(describing: error), privacy: .private)")
+            }
+        }
+    }
+
+    private func handleSubmissionError(
+        _ error: Error,
+        publication: ComposerPublicationAttempt?,
+        operation: Int
+    ) async {
+        guard isCurrent(operation) else { return }
+        if error is CommunityUpdateOutcomeUnknown {
+            alert = AppAlert(title: "保存结果待确认", error: error)
+            return
+        }
+        if error is CommunityCreateOutcomeUnknown {
+            alert = AppAlert(title: "发布结果待确认", error: error)
+            return
+        }
+        guard !TaskCancellation.matches(error) else { return }
+        if editingPoster == nil {
+            await finalizeFailedPublication(publication, operation: operation)
+        }
+        alert = AppAlert(title: "发布失败", error: error)
+    }
+
+    private func finalizeFailedPublication(
+        _ publication: ComposerPublicationAttempt?,
+        operation: Int
+    ) async {
+        guard let publication else {
+            publicationReview = .requiresRecovery
+            return
+        }
+        do {
+            _ = try await drafts.finishPublication(publication)
+            guard isCurrent(operation) else { return }
+            await refreshPublicationReview(operation)
+        } catch {
+            guard isCurrent(operation) else { return }
+            publicationReview = .requiresRecovery
+            Self.logger.error(
+                "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
+        }
+    }
+
     func submit() async -> Bool {
         let operation = generation
         guard !isBusy, isCurrent(operation) else { return false }
@@ -422,75 +503,26 @@ final class GalleryComposerViewModel: ObservableObject {
                     let content = ComposerPublicationContent.gallery(
                         title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
-                    let started = try await drafts.beginPublication(
-                        content, owner: owner.accountIdentifier)
-                    switch started {
-                    case .pending(let attempt):
-                        guard isCurrent(operation) else { return false }
-                        publicationReview = .pending(attempt)
-                        alert = AppAlert(
-                            title: "发布结果待确认", message: CommunityCreateOutcomeUnknown.reviewMessage)
+                    guard let attempt = try await beginGalleryPublication(
+                        content: content, operation: operation)
+                    else {
                         return false
-                    case .started(let attempt):
-                        publication = attempt
                     }
+                    publication = attempt
                     guard isCurrent(operation) else {
-                        if let publication { _ = try await drafts.finishPublication(publication) }
+                        _ = try await drafts.finishPublication(attempt)
                         return false
                     }
-                    if let publication { publicationReview = .pending(publication) }
+                    publicationReview = .pending(attempt)
                     _ = try await service.createPoster(
                         title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
                 }
                 guard isCurrent(operation) else { return false }
-                if let cleanup {
-                    didPublish = true
-                    let acceptedPublication = publication
-                    Task {
-                        if await cleanup() {
-                            if let acceptedPublication {
-                                do {
-                                    _ = try await drafts.finishPublication(acceptedPublication)
-                                } catch {
-                                    Self.logger.error(
-                                        "清理已发布事务受阻：\(String(describing: error), privacy: .private)")
-                                }
-                            }
-                        } else {
-                            Self.logger.error("已发布内容的草稿清理受阻，保留原草稿供后续处理。")
-                        }
-                    }
-                }
+                cleanupDraftAfterPublish(cleanup: cleanup, publication: publication)
                 return isCurrent(operation)
             } catch {
-                if isCurrent(operation), error is CommunityUpdateOutcomeUnknown {
-                    alert = AppAlert(title: "保存结果待确认", error: error)
-                    return false
-                }
-                if isCurrent(operation), error is CommunityCreateOutcomeUnknown {
-                    alert = AppAlert(title: "发布结果待确认", error: error)
-                    return false
-                }
-                if isCurrent(operation), !TaskCancellation.matches(error) {
-                    if editingPoster == nil {
-                        if let publication {
-                            do {
-                                _ = try await drafts.finishPublication(publication)
-                                guard isCurrent(operation) else { return false }
-                                await refreshPublicationReview(operation)
-                            } catch {
-                                guard isCurrent(operation) else { return false }
-                                publicationReview = .requiresRecovery
-                                Self.logger.error(
-                                    "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
-                            }
-                        } else {
-                            publicationReview = .requiresRecovery
-                        }
-                    }
-                    alert = AppAlert(title: "发布失败", error: error)
-                }
+                await handleSubmissionError(error, publication: publication, operation: operation)
                 return false
             }
         }

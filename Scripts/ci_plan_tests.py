@@ -493,6 +493,11 @@ def environment_self_test(subject) -> None:
         environment.assert_called_with("build-release")
 
 
+def strip_diagnostic_results(raw_paths: str) -> str:
+    excluded = ".build/extended-automation/diagnostics/test-results.xcresult"
+    return "\n".join(line for line in raw_paths.splitlines() if line != excluded)
+
+
 def wiring_self_test(subject) -> None:
     from ci_wiring_rules import ci_wiring_findings
 
@@ -583,15 +588,22 @@ def wiring_self_test(subject) -> None:
         for step in changed["jobs"][name]["steps"]:
             settings = step.get("env", {})
             if "BIT101_DIAGNOSTIC_PATHS" in settings:
-                settings["BIT101_DIAGNOSTIC_PATHS"] = "\n".join(
-                    line
-                    for line in settings["BIT101_DIAGNOSTIC_PATHS"].splitlines()
-                    if line != ".build/extended-automation/diagnostics/test-results.xcresult"
+                settings["BIT101_DIAGNOSTIC_PATHS"] = strip_diagnostic_results(
+                    settings["BIT101_DIAGNOSTIC_PATHS"]
                 )
         assert any(
             "诊断" in message or "原始 XCTest" in message
             for message in ci_wiring_findings(json.dumps(changed))
         ), name
+
+
+def rejected_job_states(results: dict, required_jobs) -> list[dict]:
+    rejected = []
+    for name in required_jobs:
+        for state in ("success", "skipped", "failure", "cancelled", None):
+            if state != results[name]["result"]:
+                rejected.append(results | {name: {"result": state}})
+    return rejected
 
 
 def acceptance_self_test(subject) -> None:
@@ -730,12 +742,7 @@ def acceptance_self_test(subject) -> None:
                 results | {"extra": {"result": "success"}},
                 {name: job for name, job in results.items() if name != "static-audit"},
             ]
-            for name in module.REQUIRED_JOBS:
-                rejected.extend(
-                    results | {name: {"result": state}}
-                    for state in ("success", "skipped", "failure", "cancelled", None)
-                    if state != results[name]["result"]
-                )
+            rejected.extend(rejected_job_states(results, module.REQUIRED_JOBS))
             for states in rejected:
                 try:
                     module.current(json.dumps(states))

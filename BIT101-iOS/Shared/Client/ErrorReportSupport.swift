@@ -210,45 +210,11 @@ nonisolated enum ErrorReportRedactor {
                     url.user = "[REDACTED]"
                     url.password = nil
                 }
-                if studentID != nil { url.fragment = nil }
-                if url.percentEncodedFragment != nil {
-                    let decodedFragment = try decodedPercent(url.percentEncodedFragment ?? "")
-                    var fragmentFields = URLComponents()
-                    fragmentFields.query = url.fragment ?? ""
-                    let candidates =
-                        try [decodedFragment]
-                        + (fragmentFields.queryItems ?? []).map { try decodedPercent($0.name) }
-                    if url.fragment == nil || candidates.contains(where: isProtectedName) {
-                        url.fragment = "[REDACTED]"
-                    } else {
-                        let safeFragment = redactCredentials(
-                            decodedFragment, credentials: credentials)
-                        if safeFragment != decodedFragment { url.fragment = safeFragment }
-                    }
-                }
+                try sanitizeFragment(url: &url, credentials: credentials, studentID: studentID)
                 url.queryItems = try url.queryItems?.map { item in
-                    let name = try decodedPercent(item.name)
-                    let safeName = redactCredentials(name, credentials: credentials)
-                    let outputName = safeName == name ? item.name : safeName
-                    if studentID != nil || isProtectedName(name) {
-                        return URLQueryItem(name: outputName, value: "[REDACTED]")
-                    }
-                    let decoded = try item.value.map(decodedPercent)
-                    let nested = decoded.flatMap {
-                        $0.range(
-                            of: #"https?://"#, options: [.regularExpression, .caseInsensitive])
-                            == nil
-                            ? nil
-                            : redactURLs(
-                                $0, credentials: credentials, studentID: studentID, depth: depth + 1
-                            )
-                    }
-                    let safeValue = (nested ?? decoded).map {
-                        redactCredentials($0, credentials: credentials)
-                    }
-                    return URLQueryItem(
-                        name: outputName,
-                        value: safeValue == decoded ? item.value : safeValue)
+                    try sanitizeQueryItem(
+                        item, credentials: credentials, studentID: studentID, depth: depth
+                    )
                 }
                 output.replaceSubrange(range, with: url.string ?? "[REDACTED]")
             } catch {
@@ -256,6 +222,58 @@ nonisolated enum ErrorReportRedactor {
             }
         }
         return output
+    }
+
+    private static func sanitizeFragment(
+        url: inout URLComponents,
+        credentials: [String],
+        studentID: String?
+    ) throws {
+        if studentID != nil { url.fragment = nil }
+        guard url.percentEncodedFragment != nil else { return }
+        let decodedFragment = try decodedPercent(url.percentEncodedFragment ?? "")
+        var fragmentFields = URLComponents()
+        fragmentFields.query = url.fragment ?? ""
+        let candidates =
+            try [decodedFragment]
+            + (fragmentFields.queryItems ?? []).map { try decodedPercent($0.name) }
+        if url.fragment == nil || candidates.contains(where: isProtectedName) {
+            url.fragment = "[REDACTED]"
+            return
+        }
+        let safeFragment = redactCredentials(decodedFragment, credentials: credentials)
+        if safeFragment != decodedFragment { url.fragment = safeFragment }
+    }
+
+    private static func sanitizeQueryItem(
+        _ item: URLQueryItem,
+        credentials: [String],
+        studentID: String?,
+        depth: Int
+    ) throws -> URLQueryItem {
+        let name = try decodedPercent(item.name)
+        let safeName = redactCredentials(name, credentials: credentials)
+        let outputName = safeName == name ? item.name : safeName
+        if studentID != nil || isProtectedName(name) {
+            return URLQueryItem(name: outputName, value: "[REDACTED]")
+        }
+        let decoded = try item.value.map(decodedPercent)
+        let nested = decoded.flatMap { value -> String? in
+            let hasHTTP = value.range(
+                of: #"https?://"#, options: [.regularExpression, .caseInsensitive]
+            ) != nil
+            guard hasHTTP else { return nil }
+            return redactURLs(
+                value, credentials: credentials, studentID: studentID, depth: depth + 1
+            )
+        }
+        let safeValue = (nested ?? decoded).map {
+            redactCredentials($0, credentials: credentials)
+        }
+        return URLQueryItem(
+            name: outputName,
+            value: safeValue == decoded ? item.value : safeValue
+        )
     }
 
     @MainActor

@@ -231,14 +231,16 @@ def repository_input_names(root: Path) -> list[str]:
     return sorted(set(names.decode().split("\0")) - {""})
 
 
+def filter_worker_directories(names: list[str]) -> list[str]:
+    return [name for name in names if name not in WORKER_GENERATED_DIRECTORIES]
+
+
 def repository_script_paths(root: Path, suffixes: set[str]) -> list[Path]:
     paths = set()
     for directory in ("Scripts", "Cloudflare", ".githooks"):
         for parent, children, files in os.walk(root / directory):
             if directory == "Cloudflare":
-                children[:] = [
-                    name for name in children if name not in WORKER_GENERATED_DIRECTORIES
-                ]
+                children[:] = filter_worker_directories(children)
             for name in files:
                 path = Path(parent) / name
                 if (
@@ -249,6 +251,25 @@ def repository_script_paths(root: Path, suffixes: set[str]) -> list[Path]:
                 ) and path.is_file():
                     paths.add(path)
     return sorted(paths)
+
+
+def extract_ast_imports(source: str, package: str, name: str, add) -> None:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            base = (
+                ".".join(package.split(".")[: len(package.split(".")) - node.level + 1])
+                if node.level
+                else ""
+            )
+            module = ".".join(filter(None, (base, node.module)))
+            if module and not (node.level and module == name):
+                add(module)
+            for alias in node.names:
+                if alias.name != "*":
+                    add(".".join(filter(None, (module, alias.name))))
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                add(alias.name)
 
 
 def python_import_dependencies(sources: dict[str, str]) -> dict[str, set[str]]:
@@ -269,22 +290,7 @@ def python_import_dependencies(sources: dict[str, str]) -> dict[str, set[str]]:
                 if (dependency := ".".join(parts[:length])) != name or module == name
             )
 
-        for node in ast.walk(ast.parse(source)):
-            if isinstance(node, ast.ImportFrom):
-                base = (
-                    ".".join(package.split(".")[: len(package.split(".")) - node.level + 1])
-                    if node.level
-                    else ""
-                )
-                module = ".".join(filter(None, (base, node.module)))
-                if module and not (node.level and module == name):
-                    add(module)
-                for alias in node.names:
-                    if alias.name != "*":
-                        add(".".join(filter(None, (module, alias.name))))
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    add(alias.name)
+        extract_ast_imports(source, package, name, add)
         graph[name] = imports & sources.keys()
     return graph
 
@@ -454,7 +460,10 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "BIT101-iOSTests"
         scripts = TEST_SCRIPTS
     elif host == "ui":
-        tests = root == "BIT101-iOSUITests" or name == "docs/UI_INTERACTION_COVERAGE.md"
+        tests = root == "BIT101-iOSUITests" or name in {
+            "docs/UI_INTERACTION_COVERAGE.md",
+            "Scripts/ui-interactions.json",
+        }
         scripts = TEST_SCRIPTS | {
             "ui_source_facts.py",
             "ui_explanatory_text.py",
@@ -718,6 +727,7 @@ def self_test() -> None:
     assert not includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "manual-device")
     assert includes_input("Scripts/ManualEvidenceProbe.swift", "manual-device")
     assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
+    assert includes_input("Scripts/ui-interactions.json", "ui")
     for name in PERFORMANCE_TEST_FILES:
         assert (
             includes_input(name, "all")
@@ -769,6 +779,15 @@ def native_project_paths(project: dict, root: Path) -> dict[str, Path]:
     return paths
 
 
+def synchronized_group_exceptions(group: dict, objects: dict, identifier: str) -> set[str]:
+    return {
+        name
+        for exception in group.get("exceptions", [])
+        if objects[exception].get("target") == identifier
+        for name in objects[exception].get("membershipExceptions", [])
+    }
+
+
 def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str], set[Path]]]:
     objects = project["objects"]
     paths = native_project_paths(project, root)
@@ -784,12 +803,7 @@ def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str
         for group_id in target.get("fileSystemSynchronizedGroups", []):
             group = objects[group_id]
             directory = paths.get(group_id, root / group["path"])
-            excluded = {
-                name
-                for exception in group.get("exceptions", [])
-                if objects[exception].get("target") == identifier
-                for name in objects[exception].get("membershipExceptions", [])
-            }
+            excluded = synchronized_group_exceptions(group, objects, identifier)
             sources.update(
                 path
                 for path in directory.rglob("*.swift")

@@ -88,23 +88,7 @@ struct PaperComposerView: View {
                 }
             }
             if let latest = model.conflictingPaper {
-                Section("核对文章更新") {
-                    Text("当前编辑内容已保留。确认覆盖后，保存会提交当前标题、简介、正文和匿名设置。")
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    NavigationLink("查看最新文章") {
-                        PaperDetailView(
-                            dependencies: dependencies, media: media,
-                            initialPaper: .init(
-                                id: latest.id, title: latest.title, intro: latest.intro,
-                                likeNum: latest.likeNum, commentNum: latest.commentNum,
-                                updateTime: latest.updateTime), onChanged: {})
-                    }
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("paper.edit.review-latest")
-                    Button("使用当前内容覆盖此版本") { model.confirmEditVersion() }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("paper.edit.confirm-version")
-                }
+                conflictReviewSection(latest)
             }
             Section("文章草稿") {
                 Button("管理文章草稿") { isManagingDrafts = true }
@@ -137,18 +121,10 @@ struct PaperComposerView: View {
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(model.isSubmitting ? "保存中…" : model.editingPaper == nil ? "发布" : "保存") {
-                    guard submitTask == nil else { return }
-                    submitTask = Task {
-                        defer { submitTask = nil }
-                        if await model.submit(
-                            service: dependencies.composer, drafts: dependencies.drafts),
-                            !Task.isCancelled
-                        {
-                            onCreated()
-                            dismiss()
-                        }
-                    }
+                Button(
+                    model.isSubmitting ? "保存中…" : model.editingPaper == nil ? "发布" : "保存"
+                ) {
+                    performSubmit()
                 }
                 .disabled(
                     isBusy || model.publicationReview.needsReview
@@ -206,6 +182,49 @@ struct PaperComposerView: View {
             NavigationStack { PaperDraftsView(isCurrentOwner: { model.isCurrentOwner }) }
         }
         .diagnosticAlert(item: $model.alert)
+    }
+
+    @ViewBuilder
+    private func conflictReviewSection(_ latest: PaperSummary) -> some View {
+        Section("核对文章更新") {
+            Text("当前编辑内容已保留。确认覆盖后，保存会提交当前标题、简介、正文和匿名设置。")
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            NavigationLink("查看最新文章") {
+                PaperDetailView(
+                    dependencies: dependencies,
+                    media: media,
+                    initialPaper: .init(
+                        id: latest.id,
+                        title: latest.title,
+                        intro: latest.intro,
+                        likeNum: latest.likeNum,
+                        commentNum: latest.commentNum,
+                        updateTime: latest.updateTime
+                    ),
+                    onChanged: {}
+                )
+            }
+            .appInteractiveListRow()
+            .accessibilityIdentifier("paper.edit.review-latest")
+            Button("使用当前内容覆盖此版本") { model.confirmEditVersion() }
+                .appInteractiveListRow()
+                .accessibilityIdentifier("paper.edit.confirm-version")
+        }
+    }
+
+    private func performSubmit() {
+        guard submitTask == nil else { return }
+        submitTask = Task {
+            defer { submitTask = nil }
+            let success = await model.submit(
+                service: dependencies.composer,
+                drafts: dependencies.drafts
+            )
+            if success, !Task.isCancelled {
+                onCreated()
+                dismiss()
+            }
+        }
     }
 
     private func loadDraft() async {
@@ -545,23 +564,37 @@ final class PaperComposerViewModel {
             }
             if TaskCancellation.matches(error) { return false }
             if editingPaper == nil {
-                if let publication {
-                    do {
-                        _ = try await drafts.finishPublication(publication)
-                        await refreshPublicationReview(drafts: drafts)
-                    } catch {
-                        guard isCurrentOwner else { return false }
-                        publicationReview = .requiresRecovery
-                        Self.logger.error(
-                            "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
-                    }
-                } else {
-                    publicationReview = .requiresRecovery
+                guard await handlePublicationFailure(
+                    publication: publication,
+                    drafts: drafts
+                ) else {
+                    return false
                 }
             }
             guard isCurrentOwner else { return false }
             alert = AppAlert(title: "发布失败", error: error)
             return false
+        }
+    }
+
+    private func handlePublicationFailure(
+        publication: ComposerPublicationAttempt?,
+        drafts: CommunityDraftStore
+    ) async -> Bool {
+        guard let publication else {
+            publicationReview = .requiresRecovery
+            return true
+        }
+        do {
+            _ = try await drafts.finishPublication(publication)
+            await refreshPublicationReview(drafts: drafts)
+            return true
+        } catch {
+            guard isCurrentOwner else { return false }
+            publicationReview = .requiresRecovery
+            Self.logger.error(
+                "结束失败发布的事务受阻：\(String(describing: error), privacy: .private)")
+            return true
         }
     }
 }

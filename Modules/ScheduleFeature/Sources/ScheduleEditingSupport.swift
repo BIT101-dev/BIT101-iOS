@@ -125,23 +125,7 @@ struct DayAdjustmentSheet: View {
                     LabeledContent("当前周次", value: "第\(context.week)周")
                 }
 
-                Section("操作") {
-                    AppSegmentedPicker(title: "类型", selection: $draft.mode) {
-                        ForEach(ScheduleDayAdjustmentMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-
-                    if draft.mode == .transfer {
-                        DatePicker(
-                            "调至", selection: $draft.targetDate, displayedComponents: .date
-                        )
-                        .environment(\.calendar, ScheduleDateCodec.calendar)
-                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
-                        .accessibilityIdentifier("schedule.adjustment.date")
-                        .appInteractiveListRow()
-                    }
-                }
+                operationSection
 
             }
             .navigationTitle("调休 / 放假")
@@ -171,6 +155,26 @@ struct DayAdjustmentSheet: View {
                     },
                     secondaryButton: .cancel(Text("取消"))
                 )
+            }
+        }
+    }
+
+    private var operationSection: some View {
+        Section("操作") {
+            AppSegmentedPicker(title: "类型", selection: $draft.mode) {
+                ForEach(ScheduleDayAdjustmentMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+
+            if draft.mode == .transfer {
+                DatePicker(
+                    "调至", selection: $draft.targetDate, displayedComponents: .date
+                )
+                .environment(\.calendar, ScheduleDateCodec.calendar)
+                .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+                .accessibilityIdentifier("schedule.adjustment.date")
+                .appInteractiveListRow()
             }
         }
     }

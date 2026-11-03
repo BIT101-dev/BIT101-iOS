@@ -183,6 +183,17 @@ def export_cache(flavor: str) -> None:
     print(f"编译缓存原始文件：{size / 1024**3:.2f} GiB。")
 
 
+def extract_cache_member(archive: zipfile.ZipFile, row: zipfile.ZipInfo, target: Path) -> None:
+    if row.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(row) as source, target.open("wb") as output:
+            shutil.copyfileobj(source, output)
+        if row.filename == "swift-syntax-indexer":
+            target.chmod(0o755)
+
+
 def restore_cache_payload(payload, flavor: str) -> bool:
     import zipfile
     from pathlib import PurePosixPath
@@ -214,15 +225,7 @@ def restore_cache_payload(payload, flavor: str) -> bool:
         destination = CACHE_ROOT / CACHE_STORE
         try:
             for row in members:
-                target = CACHE_ROOT / row.filename
-                if row.is_dir():
-                    target.mkdir(parents=True, exist_ok=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with archive.open(row) as source, target.open("wb") as output:
-                        shutil.copyfileobj(source, output)
-                    if row.filename == "swift-syntax-indexer":
-                        target.chmod(0o755)
+                extract_cache_member(archive, row, CACHE_ROOT / row.filename)
         except BaseException:
             shutil.rmtree(destination, ignore_errors=True)
             for name in CACHE_TOOLS:

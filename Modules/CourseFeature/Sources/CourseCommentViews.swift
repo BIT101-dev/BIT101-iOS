@@ -24,61 +24,84 @@ struct CourseCommentsSection: View {
     let onLoadMore: (CommunityComment?) -> Void
     let onRetry: () -> Void
 
+    private var emptyCommentText: String {
+        totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏"
+    }
+
+    @ViewBuilder
+    private func commentItemView(index: Int, comment: CommunityComment) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            CourseCommentRow(
+                comment: comment,
+                likingCommentIDs: likingCommentIDs,
+                onReply: onReply,
+                onLikeComment: onLikeComment,
+                onOpenImage: onOpenImage,
+                onOpenUser: onOpenUser
+            )
+
+            if index != comments.count - 1 {
+                Divider()
+                    .padding(.leading, AppDesignSystem.Comment.replyInset)
+            }
+        }
+        .onAppear {
+            onLoadMore(comment)
+        }
+    }
+
+    @ViewBuilder
+    private var commentListView: some View {
+        LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+            ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
+                commentItemView(index: index, comment: comment)
+            }
+
+            CommunityPaginationFooter(
+                isLoading: isLoadingMore,
+                errorMessage: paginationError
+            ) { onLoadMore(comments.last) }
+        }
+        .appCommentSectionStyle()
+    }
+
+    @ViewBuilder
+    private var commentListContent: some View {
+        if comments.isEmpty {
+            Text(emptyCommentText)
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, AppDesignSystem.Spacing.section)
+        } else {
+            commentListView
+        }
+    }
+
+    @ViewBuilder
+    private var commentContent: some View {
+        switch status {
+        case .idle where comments.isEmpty, .loading where comments.isEmpty:
+            AppInlineLoadingState("正在加载评论")
+
+        case .failed(let message) where comments.isEmpty:
+            AppFailureState(
+                title: "加载评论失败",
+                systemImage: "bubble.right.fill",
+                message: message,
+                onRetry: onRetry
+            )
+
+        default:
+            commentListContent
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) { EmptyView() }
 
-            switch status {
-            case .idle where comments.isEmpty, .loading where comments.isEmpty:
-                AppInlineLoadingState("正在加载评论")
-
-            case .failed(let message) where comments.isEmpty:
-                AppFailureState(
-                    title: "加载评论失败",
-                    systemImage: "bubble.right.fill",
-                    message: message,
-                    onRetry: onRetry
-                )
-
-            default:
-                if comments.isEmpty {
-                    Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
-                        .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppDesignSystem.Spacing.section)
-                } else {
-                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(comments.enumerated()), id: \.element.id) {
-                            index, comment in
-                            VStack(spacing: AppDesignSystem.Spacing.none) {
-                                CourseCommentRow(
-                                    comment: comment,
-                                    likingCommentIDs: likingCommentIDs,
-                                    onReply: onReply,
-                                    onLikeComment: onLikeComment,
-                                    onOpenImage: onOpenImage,
-                                    onOpenUser: onOpenUser
-                                )
-
-                                if index != comments.count - 1 {
-                                    Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
-                                }
-                            }
-                            .onAppear {
-                                onLoadMore(comment)
-                            }
-                        }
-
-                        CommunityPaginationFooter(
-                            isLoading: isLoadingMore,
-                            errorMessage: paginationError
-                        ) { onLoadMore(comments.last) }
-                    }
-                    .appCommentSectionStyle()
-                }
-            }
+            commentContent
         }
     }
 }
@@ -185,37 +208,7 @@ struct CourseCommentComposerSheet: View {
                     isSubmissionRequested = true
                 }
                 if supportsCourseRating {
-                    Section("评分") {
-                        Stepper(value: $rating, in: 0...10) {
-                            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                                HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                                    ForEach(1...5, id: \.self) { value in
-                                        Image(systemName: starSymbol(for: value))
-                                            .font(AppDesignSystem.Typography.title)
-                                            .foregroundStyle(AppDesignSystem.Course.accent)
-                                            .accessibilityHidden(true)
-                                    }
-                                }
-                                Text(
-                                    rating == 0
-                                        ? "请选择评分"
-                                        : CourseRatingText.text(from: rating, empty: "请选择评分")
-                                )
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
-                                .foregroundStyle(
-                                    rating == 0
-                                        ? AppDesignSystem.Foreground.secondaryColor
-                                        : AppDesignSystem.Course.accent)
-                            }
-                        }
-                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
-                        .accessibilityLabel("课程评分")
-                        .accessibilityValue(
-                            rating == 0
-                                ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分")
-                        )
-                        .accessibilityIdentifier("ui.course-comment-composer-sheet.rating")
-                    }
+                    ratingSection
                 }
             }
             .disabled(isSubmitting || isSubmissionRequested)
@@ -246,6 +239,51 @@ struct CourseCommentComposerSheet: View {
             }
         }
         .interactiveDismissDisabled(hasDraftContent || isSubmitting || isSubmissionRequested)
+    }
+
+    private var ratingDescription: String {
+        rating == 0 ? "请选择评分" : CourseRatingText.text(from: rating, empty: "请选择评分")
+    }
+
+    private var ratingForegroundStyle: Color {
+        rating == 0
+            ? AppDesignSystem.Foreground.secondaryColor
+            : AppDesignSystem.Course.accent
+    }
+
+    @ViewBuilder
+    private var starRatingRow: some View {
+        HStack(spacing: AppDesignSystem.Spacing.tiny) {
+            ForEach(1...5, id: \.self) { value in
+                Image(systemName: starSymbol(for: value))
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(AppDesignSystem.Course.accent)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ratingStepperLabel: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
+            starRatingRow
+            Text(ratingDescription)
+                .font(AppDesignSystem.Typography.bodyEmphasis)
+                .foregroundStyle(ratingForegroundStyle)
+        }
+    }
+
+    @ViewBuilder
+    private var ratingSection: some View {
+        Section("评分") {
+            Stepper(value: $rating, in: 0...10) {
+                ratingStepperLabel
+            }
+            .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+            .accessibilityLabel("课程评分")
+            .accessibilityValue(ratingDescription)
+            .accessibilityIdentifier("ui.course-comment-composer-sheet.rating")
+        }
     }
 
     private var supportsCourseRating: Bool {

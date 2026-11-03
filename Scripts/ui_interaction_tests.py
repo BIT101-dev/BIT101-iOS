@@ -10,7 +10,22 @@ from ui_rules import (
 )
 
 
+def inventory_json_self_test() -> None:
+    import json
+    from unittest.mock import patch
+    from ui_rules import configured_interactions
+
+    records = {
+        "View.swift:Screen": {"controls": {"Button": 1}, "tests": ["ScreenUITests/testOpen"]}
+    }
+    with patch.object(Path, "read_text", return_value=json.dumps(records)) as read:
+        result = configured_interactions()
+    assert result == {"View.swift:Screen": ({"Button": 1}, {"ScreenUITests/testOpen"})}
+    assert read.call_count == 1
+
+
 def interaction_inventory_boundary_findings() -> list[str]:
+    inventory_json_self_test()
     path = str(ROOT / "Modules/Example/Sources/Example.swift")
     original = swift_syntax_index_sources(
         {path: 'struct Screen: View { var body: some View { Button("入口") {} } }'}

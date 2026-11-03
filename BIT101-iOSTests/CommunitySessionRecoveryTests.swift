@@ -409,47 +409,56 @@ struct CommunitySessionRecoveryTests {
         defer { defaults.removePersistentDomain(forName: domain) }
         for outcome in ["rejected", "offline"] {
             for entry in ["startup", "client", "session"] {
-                let storage = LoginStorage(
-                    defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
-                try storage.saveLoginState(
-                    studentID: "A", password: "fixture", fakeCookie: "old-cookie",
-                    communityPasswordDigest: "digest")
-                let transport = SharedRenewalResponses()
-                let http = HTTPClient(transport: transport, observer: nil)
-                transport.outcome = outcome
-                let login = LoginService(
-                    storage: storage,
-                    apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
-                let model = LoginViewModel(service: login)
-                do {
-                    if entry == "startup" {
-                        _ = try await login.checkLogin()
-                        Issue.record("Rejected online credentials require recovery")
-                    } else {
-                        let client: CommunityAPIClient<RefreshFailure> =
-                            entry == "session"
-                            ? CommunitySession.appSession(storage: storage, httpClient: http)
-                                .client(errorDomain: "fixture")
-                            : CommunityAPIClient(
-                                storage: storage, httpClient: http, errorDomain: "fixture")
-                        try await client.requestVoid(path: "fixture-renewal", method: "GET")
-                        Issue.record("An expired session requires recovery")
-                    }
-                } catch {
-                    #expect(
-                        outcome == "offline"
-                            ? (error as? URLError)?.code == .timedOut
-                            : entry == "startup"
-                                ? error is CommunitySessionRestorationError
-                                : error is RefreshFailure)
-                }
-                #expect(model.screenState == .signedIn(studentID: "A") && login.hasCachedSession)
-                #expect(storage.fakeCookie == (outcome == "rejected" ? "" : "old-cookie"))
-                #expect(storage.currentPassword == "fixture")
-                await model.bootstrapIfNeeded()
-                #expect(model.screenState == .signedIn(studentID: "A"))
+                try await exerciseCredentialRejection(
+                    outcome: outcome, entry: entry, defaults: defaults)
             }
         }
+    }
+
+    private func exerciseCredentialRejection(
+        outcome: String,
+        entry: String,
+        defaults: UserDefaults
+    ) async throws {
+        let storage = LoginStorage(
+            defaults: defaults, credentials: Credentials(), clearSchoolCookies: { _ in })
+        try storage.saveLoginState(
+            studentID: "A", password: "fixture", fakeCookie: "old-cookie",
+            communityPasswordDigest: "digest")
+        let transport = SharedRenewalResponses()
+        let http = HTTPClient(transport: transport, observer: nil)
+        transport.outcome = outcome
+        let login = LoginService(
+            storage: storage,
+            apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
+        let model = LoginViewModel(service: login)
+        do {
+            if entry == "startup" {
+                _ = try await login.checkLogin()
+                Issue.record("Rejected online credentials require recovery")
+            } else {
+                let client: CommunityAPIClient<RefreshFailure> =
+                    entry == "session"
+                    ? CommunitySession.appSession(storage: storage, httpClient: http)
+                        .client(errorDomain: "fixture")
+                    : CommunityAPIClient(
+                        storage: storage, httpClient: http, errorDomain: "fixture")
+                try await client.requestVoid(path: "fixture-renewal", method: "GET")
+                Issue.record("An expired session requires recovery")
+            }
+        } catch {
+            #expect(
+                outcome == "offline"
+                    ? (error as? URLError)?.code == .timedOut
+                    : entry == "startup"
+                        ? error is CommunitySessionRestorationError
+                        : error is RefreshFailure)
+        }
+        #expect(model.screenState == .signedIn(studentID: "A") && login.hasCachedSession)
+        #expect(storage.fakeCookie == (outcome == "rejected" ? "" : "old-cookie"))
+        #expect(storage.currentPassword == "fixture")
+        await model.bootstrapIfNeeded()
+        #expect(model.screenState == .signedIn(studentID: "A"))
     }
 
     @Test(.timeLimit(.minutes(1)))

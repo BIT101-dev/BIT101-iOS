@@ -433,6 +433,11 @@ def check_group_bundle_self_test(module) -> None:
             ("invalid", "a" * 64),
             ("a" * 64, None),
         ):
+            def mock_identity(path, current_raw=raw):
+                if current_raw:
+                    return current_raw
+                raise ValueError("absent result bundle")
+
             row = {
                 "scope": "full",
                 "exitCode": 0,
@@ -450,12 +455,7 @@ def check_group_bundle_self_test(module) -> None:
                 patch.object(module, "complete_environment", return_value=True),
                 patch("validation_coverage.policy_floors", return_value={}),
                 patch.object(module, "result_bundle_findings", wraps=result_bundle_findings),
-                patch(
-                    "validation_performance.bundle_identity",
-                    side_effect=lambda path: (
-                        raw if raw else (_ for _ in ()).throw(ValueError("absent result bundle"))
-                    ),
-                ),
+                patch("validation_performance.bundle_identity", side_effect=mock_identity),
                 patch.object(Path, "is_file", return_value=True),
                 patch.object(Path, "read_text", return_value=json.dumps(report)),
                 patch.object(sys, "argv", ["evidence", "check-group", group]),
@@ -534,20 +534,18 @@ def artifact_lock_self_test(module) -> None:
         ("test-results.xcresult", "exported.log"),
     ):
         retained = set(names)
+
+        def mock_iterdir(path):
+            if path == diagnostics:
+                return iter([diagnostics / name for name in tuple(retained)])
+            return iter(())
+
         with (
             patch.object(sys, "argv", ["validation_artifacts.py", str(module.ROOT)]),
             patch.dict(os.environ, BIT101_EXTENDED_TESTS_LOCK_HELD="1"),
             patch.object(Path, "exists", lambda path: bool(names) and path == diagnostics),
             patch.object(Path, "is_dir", return_value=False),
-            patch.object(
-                Path,
-                "iterdir",
-                lambda path: (
-                    iter(diagnostics / name for name in tuple(retained))
-                    if path == diagnostics
-                    else iter(())
-                ),
-            ),
+            patch.object(Path, "iterdir", side_effect=mock_iterdir),
             patch.object(Path, "unlink", lambda path, **kwargs: retained.discard(path.name)),
             patch.object(Path, "open", return_value=nullcontext(BytesIO())),
             patch.object(os, "walk", return_value=[]),

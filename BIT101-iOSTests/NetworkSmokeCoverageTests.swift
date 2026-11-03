@@ -122,6 +122,9 @@ struct NetworkSmokeCoverageTests {
         let second = poster(
             2, likes: sample == "equal" ? 2 : 1,
             date: sample == "equal" ? first.createTime : "2026-01-01T00:00:00Z")
+        let third = poster(
+            3, likes: sample == "cross-page" ? 3 : 0,
+            date: sample == "cross-page" ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")
         for order in [GallerySearchOrder.like, .newest] {
             let load: (Int) async throws -> GalleryPageBatch<CommunityPoster> = { page in
                 let items: [CommunityPoster]
@@ -130,15 +133,7 @@ struct NetworkSmokeCoverageTests {
                 case "single": items = page == 0 ? [first] : []
                 case "separate-pages": items = page == 0 ? [first] : [second]
                 case "cross-page", "continued":
-                    items =
-                        page == 0
-                        ? [first, second]
-                        : [
-                            poster(
-                                3, likes: sample == "cross-page" ? 3 : 0,
-                                date: sample == "cross-page"
-                                    ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")
-                        ]
+                    items = page == 0 ? [first, second] : [third]
                 case "reversed": items = page == 0 ? [second, first] : []
                 default: items = page == 0 ? [first, second] : []
                 }
@@ -251,22 +246,19 @@ struct NetworkSmokeCoverageTests {
             id: 2, title: "", intro: "", likeNum: sample == "equal" ? 2 : 1,
             commentNum: sample == "equal" ? 2 : 1,
             updateTime: sample == "equal" ? first.updateTime : "2026-01-01T00:00:00Z")
+        let third = PaperSummary(
+            id: 3, title: "", intro: "",
+            likeNum: sample == "cross-page" ? 3 : 0,
+            commentNum: sample == "cross-page" ? 3 : 0,
+            updateTime: sample == "cross-page"
+                ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")
         for order in PaperSortOrder.allCases {
             let load: (Int) async throws -> [PaperSummary] = { page in
                 switch sample {
                 case "empty": return []
                 case "single": return page == 0 ? [first] : []
                 case "cross-page", "continued":
-                    return page == 0
-                        ? [first, second]
-                        : [
-                            PaperSummary(
-                                id: 3, title: "", intro: "",
-                                likeNum: sample == "cross-page" ? 3 : 0,
-                                commentNum: sample == "cross-page" ? 3 : 0,
-                                updateTime: sample == "cross-page"
-                                    ? "2026-01-03T00:00:00Z" : "2025-12-31T00:00:00Z")
-                        ]
+                    return page == 0 ? [first, second] : [third]
                 case "separate-pages": return page == 0 ? [first] : [second]
                 default: return page == 0 ? [first, second] : []
                 }
@@ -578,6 +570,13 @@ struct NetworkSmokeCoverageTests {
                 .utf8)
         let client = HTTPClient(transport: transport, observer: nil)
         let collector = NetworkSmokeRequestCollector()
+        let courseIDs: [Int]
+        switch stage {
+        case "empty": courseIDs = []
+        case "missing": courseIDs = [41]
+        case "wrong": courseIDs = [41, 45]
+        default: courseIDs = [41, 43]
+        }
         let operation = {
             var list = URLRequest(
                 url: AppURL.required("https://zy-eclass.bit.edu.cn/api/my-courses"))
@@ -586,9 +585,7 @@ struct NetworkSmokeCoverageTests {
             list.httpBody = Data(
                 #"{"page":1,"page_size":100,"fields":"id,name","conditions":{}}"#.utf8)
             _ = try await client.send(list)
-            for id in stage == "empty"
-                ? [] : stage == "missing" ? [41] : stage == "wrong" ? [41, 45] : [41, 43]
-            {
+            for id in courseIDs {
                 _ = try await client.send(
                     URLRequest(
                         url: AppURL.required(
@@ -700,31 +697,36 @@ struct NetworkSmokeCoverageTests {
         "broken-image",
     ])
     func paperSmokeUsesProductionRenderer(stage: String) throws {
-        let raw =
-            stage == "empty"
-            ? ""
-            : stage == "text-only"
-                ? "text"
-                : stage == "image-only"
-                    ? #"""
-                    {"blocks":[{"type":"image","data":{"file":{"url":"https://image.invali\#
-                    d/paper.png"}}}]}
-                    """#
-                    : stage == "unsupported"
-                        ? #"{"blocks":[{"type":"table","data":{}}]}"#
-                        : stage == "full-and-thumbnail"
-                            ? smokePaperContent.replacingOccurrences(
-                                of: "\"url\":\"https://image.invalid/paper.png\"",
-                                with:
-                                    """
-                                    \"url\":\"https://image.invalid/paper.png\",\"low_url\"\
-                                    :\"https://image.invalid/paper-low.png\"
-                                    """
-                            )
-                            : smokePaperContent.replacingOccurrences(
-                                of: "https://image.invalid/paper.png",
-                                with: stage == "broken-image"
-                                    ? "javascript:alert(1)" : "https://image.invalid/paper.png")
+        let raw: String
+        switch stage {
+        case "empty":
+            raw = ""
+        case "text-only":
+            raw = "text"
+        case "image-only":
+            raw = #"""
+            {"blocks":[{"type":"image","data":{"file":{"url":"https://image.invali\#
+            d/paper.png"}}}]}
+            """#
+        case "unsupported":
+            raw = #"{"blocks":[{"type":"table","data":{}}]}"#
+        case "full-and-thumbnail":
+            raw = smokePaperContent.replacingOccurrences(
+                of: "\"url\":\"https://image.invalid/paper.png\"",
+                with:
+                    """
+                    \"url\":\"https://image.invalid/paper.png\",\"low_url\"\
+                    :\"https://image.invalid/paper-low.png\"
+                    """
+            )
+        default:
+            let replacement =
+                stage == "broken-image"
+                ? "javascript:alert(1)" : "https://image.invalid/paper.png"
+            raw = smokePaperContent.replacingOccurrences(
+                of: "https://image.invalid/paper.png",
+                with: replacement)
+        }
         if stage == "valid" {
             #expect(
                 try NetworkSmokePaging.checkPaperContent(raw) == [
@@ -999,13 +1001,16 @@ struct NetworkSmokeCoverageTests {
             likeNum: sample == "equal" ? 2 : 1, commentNum: 0, own: false, rate: 0,
             replyUser: user(23), replyObj: "", text: "", sub: [])
         for order in CommunityCommentOrder.allCases {
+            let initialPair = order == .oldest ? [second, first] : [first, second]
+            let firstPageSingle = order == .oldest ? [second] : [first]
+            let secondPageSingle = order == .oldest ? [first] : [second]
             let load: (Int) async throws -> [CommunityComment] = { page in
                 switch sample {
                 case "empty": return []
                 case "single": return page == 0 ? [first] : []
                 case "cross-page", "continued":
                     if page == 0 {
-                        return order == .oldest ? [second, first] : [first, second]
+                        return initialPair
                     }
                     let newer = (sample == "cross-page") != (order == .oldest)
                     return [
@@ -1018,11 +1023,9 @@ struct NetworkSmokeCoverageTests {
                             replyUser: user(23), replyObj: "", text: "", sub: [])
                     ]
                 case "separate-pages":
-                    return order == .oldest
-                        ? (page == 0 ? [second] : [first]) : (page == 0 ? [first] : [second])
+                    return page == 0 ? firstPageSingle : secondPageSingle
                 default:
-                    return page == 0
-                        ? (order == .oldest ? [second, first] : [first, second]) : []
+                    return page == 0 ? initialPair : []
                 }
             }
             let identity = { CommunitySessionIdentity(accountIdentifier: "ordering") }

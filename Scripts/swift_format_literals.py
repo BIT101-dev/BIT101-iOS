@@ -65,6 +65,28 @@ def format_literal(data: bytes, literal: dict) -> str:
     return pounds + '"""\n' + body + '\n' + indent + '"""' + pounds
 
 
+def wrap_multiline_text(
+    text: str, indent: str, continuation: str, offset: int, allowed_offsets: set[int]
+) -> str:
+    remainder = text
+    pieces = []
+    while len(remainder) > 100:
+        limit = 100 - len(continuation)
+        cuts = [
+            cut for cut in range(len(indent) + 1, limit + 1)
+            if offset + cut in allowed_offsets
+        ]
+        if not cuts:
+            break
+        spaces = [cut for cut in cuts if remainder[cut - 1] == ' ']
+        cut = max(spaces or cuts)
+        pieces.append(remainder[:cut] + continuation)
+        remainder = indent + remainder[cut:]
+        offset += cut - len(indent)
+    pieces.append(remainder)
+    return '\n'.join(pieces)
+
+
 def wrap_multiline(raw, atoms, indent, continuation):
     lines = raw.splitlines(keepends=True)
     changes = []
@@ -79,24 +101,9 @@ def wrap_multiline(raw, atoms, indent, continuation):
     for line in lines[1:-1]:
         text = line.rstrip('\n')
         if len(text) > 100:
-            remainder = text
             offset = position - content_offset
-            pieces = []
-            while len(remainder) > 100:
-                limit = 100 - len(continuation)
-                cuts = [
-                    cut for cut in range(len(indent) + 1, limit + 1)
-                    if offset + cut in boundaries
-                ]
-                if not cuts:
-                    break
-                spaces = [cut for cut in cuts if remainder[cut - 1] == ' ']
-                cut = max(spaces or cuts)
-                pieces.append(remainder[:cut] + continuation)
-                remainder = indent + remainder[cut:]
-                offset += cut - len(indent)
-            pieces.append(remainder)
-            changes.append((position, position + len(text), '\n'.join(pieces)))
+            wrapped = wrap_multiline_text(text, indent, continuation, offset, boundaries)
+            changes.append((position, position + len(text), wrapped))
         position += len(line)
     for start, end, replacement in reversed(changes):
         raw = raw[:start] + replacement + raw[end:]

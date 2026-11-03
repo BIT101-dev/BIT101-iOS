@@ -37,82 +37,120 @@ private struct PaperSearchScene: View {
 
     var body: some View { content.environment(dependencies).environment(media) }
 
+    private var isInitialSearchState: Bool {
+        viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || (viewModel.state.status == .idle && viewModel.state.items.isEmpty)
+    }
+
+    @ViewBuilder
+    private var initialSearchPrompt: some View {
+        AppEmptyState(
+            title: "搜索文章",
+            systemImage: "magnifyingglass",
+            message: "输入关键词后，点击键盘上的搜索。"
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func searchFailureView(message: String) -> some View {
+        AppScrollStateContainer {
+            AppFailureState(
+                title: "搜索失败",
+                systemImage: "doc.text.magnifyingglass",
+                message: message,
+                underlyingError: viewModel.state.failureCause,
+                onRetry: {
+                    Task {
+                        await viewModel.performSearch()
+                    }
+                }
+            )
+        }
+    }
+
+    private func paperPaginationTaskId() -> Int? {
+        if viewModel.state.status == .loaded {
+            return viewModel.state.nextPage
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func paperRow(index: Int, paper: PaperSummary) -> some View {
+        AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
+            PaperSummaryCard(
+                paper: paper,
+                previewMetadata: viewModel.previewMetadata(for: paper.id),
+                previewFailed: viewModel.previewFailedIDs.contains(paper.id),
+                onOpen: {
+                    selectedPaper = paper
+                }
+            )
+        }
+        .task(id: viewModel.previewGeneration) {
+            await viewModel.loadPreviewMetadata(for: paper)
+        }
+        .task(id: paperPaginationTaskId()) {
+            await viewModel.loadMoreIfNeeded(currentPaper: paper)
+        }
+    }
+
+    @ViewBuilder
+    private var itemsList: some View {
+        ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) { index, paper in
+            paperRow(index: index, paper: paper)
+        }
+
+        CommunityPaginationFooter(
+            isLoading: viewModel.state.isLoadingMore,
+            errorMessage: viewModel.state.paginationError
+        ) {
+            await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+        }
+    }
+
+    @ViewBuilder
+    private var loadedResultsView: some View {
+        if viewModel.state.items.isEmpty {
+            AppScrollStateContainer {
+                AppEmptyState(
+                    title: "没有找到相关文章",
+                    systemImage: "doc.text.magnifyingglass",
+                    message: "换个关键词试试。"
+                )
+            }
+        } else {
+            itemsList
+        }
+    }
+
+    @ViewBuilder
+    private var statusResultsView: some View {
+        switch viewModel.state.status {
+        case .loading where viewModel.state.items.isEmpty:
+            AppInlineLoadingState("正在搜索文章")
+        case .failed(let message) where viewModel.state.items.isEmpty:
+            searchFailureView(message: message)
+        default:
+            loadedResultsView
+        }
+    }
+
+    @ViewBuilder
+    private var resultsBody: some View {
+        if isInitialSearchState {
+            initialSearchPrompt
+        } else {
+            statusResultsView
+        }
+    }
+
     private var content: some View {
         ScrollView {
             LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                 CommunityResultsContext(viewModel.displayedQueryDescription)
-                if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || viewModel.state.status == .idle && viewModel.state.items.isEmpty
-                {
-                    AppEmptyState(
-                        title: "搜索文章",
-                        systemImage: "magnifyingglass",
-                        message: "输入关键词后，点击键盘上的搜索。"
-                    )
-                    .frame(maxWidth: .infinity)
-                } else {
-                    switch viewModel.state.status {
-                    case .loading where viewModel.state.items.isEmpty:
-                        AppInlineLoadingState("正在搜索文章")
-                    case .failed(let message) where viewModel.state.items.isEmpty:
-                        AppScrollStateContainer {
-                            AppFailureState(
-                                title: "搜索失败",
-                                systemImage: "doc.text.magnifyingglass",
-                                message: message,
-                                underlyingError: viewModel.state.failureCause,
-                                onRetry: {
-                                    Task {
-                                        await viewModel.performSearch()
-                                    }
-                                }
-                            )
-                        }
-                    default:
-                        if viewModel.state.items.isEmpty {
-                            AppScrollStateContainer {
-                                AppEmptyState(
-                                    title: "没有找到相关文章",
-                                    systemImage: "doc.text.magnifyingglass",
-                                    message: "换个关键词试试。"
-                                )
-                            }
-                        } else {
-                            ForEach(Array(viewModel.state.items.enumerated()), id: \.element.id) {
-                                index, paper in
-                                AppFeedRow(isLast: index == viewModel.state.items.count - 1) {
-                                    PaperSummaryCard(
-                                        paper: paper,
-                                        previewMetadata: viewModel.previewMetadata(
-                                            for: paper.id),
-                                        previewFailed: viewModel.previewFailedIDs.contains(
-                                            paper.id),
-                                        onOpen: {
-                                            selectedPaper = paper
-                                        }
-                                    )
-                                }
-                                .task(id: viewModel.previewGeneration) {
-                                    await viewModel.loadPreviewMetadata(for: paper)
-                                }
-                                .task(
-                                    id: viewModel.state.status == .loaded
-                                        ? viewModel.state.nextPage : nil
-                                ) {
-                                    await viewModel.loadMoreIfNeeded(currentPaper: paper)
-                                }
-                            }
-
-                            CommunityPaginationFooter(
-                                isLoading: viewModel.state.isLoadingMore,
-                                errorMessage: viewModel.state.paginationError
-                            ) {
-                                await viewModel.loadMoreIfNeeded(
-                                    currentPaper: viewModel.state.items.last)
-                            }
-                        }
-                    }
-                }
+                resultsBody
             }
             .padding(.vertical, AppDesignSystem.Spacing.content)
         }

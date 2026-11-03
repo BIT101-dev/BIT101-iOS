@@ -28,36 +28,67 @@ struct GalleryReportSheet: View {
         self.onFinished = onFinished
     }
 
+    private var selectedTypeBinding: Binding<Int> {
+        Binding(
+            get: { model.selectedTypeID ?? model.reportTypes.first?.id ?? 0 },
+            set: { model.selectedTypeID = $0 }
+        )
+    }
+
+    @ViewBuilder
+    private var reportTypePicker: some View {
+        Picker("类型", selection: selectedTypeBinding) {
+            ForEach(model.reportTypes) { reportType in
+                Text(reportType.text).tag(reportType.id)
+            }
+        }
+        .appSelectionFeedback(trigger: model.selectedTypeID ?? 0)
+        .appInteractiveListRow()
+    }
+
+    @ViewBuilder
+    private var reportTypeContent: some View {
+        if model.isLoading {
+            ProgressView()
+        } else if model.reportTypes.isEmpty {
+            Text("暂无可用举报类型")
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            Button("重新加载", action: reloadReportTypes)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.gallery-report-sheet.reload")
+        } else {
+            reportTypePicker
+        }
+    }
+
+    @ViewBuilder
+    private var submitSection: some View {
+        Section {
+            Button(model.isSubmitting ? "提交中" : "提交举报", action: handleSubmitAction)
+                .frame(maxWidth: .infinity)
+                .disabled(
+                    model.isLoading || model.isSubmitting || model.resultNeedsReview
+                        || model.selectedTypeID == nil
+                )
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.gallery-report-sheet.submit")
+        }
+    }
+
+    private func reloadReportTypes() {
+        Task { await model.loadReportTypes() }
+    }
+
+    private func handleSubmitAction() {
+        Task { await submit() }
+    }
+
     var body: some View {
         @Bindable var model = model
         NavigationStack {
             Form {
                 Section("举报类型") {
-                    if model.isLoading {
-                        ProgressView()
-                    } else if model.reportTypes.isEmpty {
-                        Text("暂无可用举报类型")
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        Button("重新加载") { Task { await model.loadReportTypes() } }
-                            .appInteractiveListRow()
-                            .accessibilityIdentifier("ui.gallery-report-sheet.reload")
-                    } else {
-                        Picker(
-                            "类型",
-                            selection: Binding(
-                                get: {
-                                    model.selectedTypeID ?? model.reportTypes.first?.id ?? 0
-                                },
-                                set: { model.selectedTypeID = $0 }
-                            )
-                        ) {
-                            ForEach(model.reportTypes) { reportType in
-                                Text(reportType.text).tag(reportType.id)
-                            }
-                        }
-                        .appSelectionFeedback(trigger: model.selectedTypeID ?? 0)
-                        .appInteractiveListRow()
-                    }
+                    reportTypeContent
                 }
 
                 Section("补充说明") {
@@ -77,18 +108,7 @@ struct GalleryReportSheet: View {
                     }
                 }
 
-                Section {
-                    Button(model.isSubmitting ? "提交中" : "提交举报") {
-                        Task { await submit() }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .disabled(
-                        model.isLoading || model.isSubmitting || model.resultNeedsReview
-                            || model.selectedTypeID == nil
-                    )
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.gallery-report-sheet.submit")
-                }
+                submitSection
             }
             .disabled(model.isSubmitting || model.resultNeedsReview)
             .navigationTitle(target.title)

@@ -697,14 +697,7 @@ final class UITestSceneState: ObservableObject {
                     AppUITestBootstrap.releaseRequest(key)
                     reply(Data("released".utf8))
                 } else {
-                    let state =
-                        AppUITestBootstrap.pendingRequests[key] != nil
-                        ? "pending"
-                        : AppUITestBootstrap.holdingRequests[key] != nil
-                            ? "queued"
-                            : AppUITestBootstrap.completedRequests.contains(key)
-                                ? "completed" : "idle"
-                    reply(Data(state.utf8))
+                    reply(Data(Self.requestState(for: key).utf8))
                 }
                 return
             }
@@ -733,6 +726,18 @@ final class UITestSceneState: ObservableObject {
         revision += 1
     }
 
+    private static func requestState(for key: String) -> String {
+        if AppUITestBootstrap.pendingRequests[key] != nil {
+            return "pending"
+        }
+        if AppUITestBootstrap.holdingRequests[key] != nil {
+            return "queued"
+        }
+        if AppUITestBootstrap.completedRequests.contains(key) {
+            return "completed"
+        }
+        return "idle"
+    }
 }
 
 #endif

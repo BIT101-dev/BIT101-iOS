@@ -352,6 +352,71 @@ final class GalleryViewModel: ObservableObject {
         await refresh(feed: selectedFeed)
     }
 
+    private func refreshBotFeed(feed: GalleryFeedKind, generation: Int) async throws {
+        let batch = try await service.fetchBotFeed(startPage: 0)
+        try Task.checkCancellation()
+        guard refreshGenerations[feed] == generation else { return }
+        setState(for: feed) {
+            $0.posters = batch.items
+            $0.status = .loaded
+            $0.nextPage = batch.nextSourcePage
+            $0.canLoadMore = batch.canLoadMore
+            $0.needsContinuation = batch.items.isEmpty && batch.canLoadMore
+        }
+    }
+
+    private func refreshRecommendFeed(feed: GalleryFeedKind, generation: Int) async throws {
+        // 首屏沿源游标跳过过滤空页，可见内容发布后继续后台预取。
+        var sourcePage = 0
+        var progress = CommunityPageProgress<Int>()
+        var batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
+        while true {
+            try Task.checkCancellation()
+            guard refreshGenerations[feed] == generation else { return }
+            guard
+                !batch.canLoadMore
+                    || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
+            else { throw GalleryServiceError.invalidResponse }
+            try progress.record(batch.sourceIDs)
+            if !batch.items.isEmpty || !batch.canLoadMore
+                || batch.nextSourcePage >= GalleryPaging.maximumSourcePages
+            {
+                break
+            }
+            sourcePage = batch.nextSourcePage
+            batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
+        }
+        try Task.checkCancellation()
+        guard refreshGenerations[feed] == generation else { return }
+        let uniquePosters = try await Self.deduplicateInBackground(batch.items)
+        guard refreshGenerations[feed] == generation else { return }
+        setState(for: feed) {
+            $0.posters = uniquePosters
+            $0.status = .loaded
+            $0.nextPage = batch.nextSourcePage
+            $0.canLoadMore = batch.canLoadMore
+            $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
+        }
+        if batch.canLoadMore, !uniquePosters.isEmpty {
+            recommendPrefetch.start(from: batch.nextSourcePage)
+        }
+    }
+
+    private func refreshStandardFeed(feed: GalleryFeedKind, generation: Int) async throws {
+        let batch = try await service.fetchFeed(kind: feed, page: nil)
+        try Task.checkCancellation()
+        guard refreshGenerations[feed] == generation else { return }
+        let uniquePosters = try await Self.deduplicateInBackground(batch.items)
+        guard refreshGenerations[feed] == generation else { return }
+        setState(for: feed) {
+            $0.posters = uniquePosters
+            $0.status = .loaded
+            $0.nextPage = batch.nextSourcePage
+            $0.canLoadMore = batch.canLoadMore
+            $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
+        }
+    }
+
     /// 从第一页重新拉取指定 feed。
     ///
     /// 刷新失败和取消恢复请求开始前的快照，保持已有内容和分页位置。
@@ -377,81 +442,31 @@ final class GalleryViewModel: ObservableObject {
 
         do {
             if feed.isBotFeed {
-                let batch = try await service.fetchBotFeed(startPage: 0)
-                try Task.checkCancellation()
-                guard refreshGenerations[feed] == generation else { return }
-                setState(for: feed) {
-                    $0.posters = batch.items
-                    $0.status = .loaded
-                    $0.nextPage = batch.nextSourcePage
-                    $0.canLoadMore = batch.canLoadMore
-                    $0.needsContinuation = batch.items.isEmpty && batch.canLoadMore
-                }
+                try await refreshBotFeed(feed: feed, generation: generation)
+            } else if feed == .recommend {
+                try await refreshRecommendFeed(feed: feed, generation: generation)
             } else {
-                if feed == .recommend {
-                    // 首屏沿源游标跳过过滤空页，可见内容发布后继续后台预取。
-                    var sourcePage = 0
-                    var progress = CommunityPageProgress<Int>()
-                    var batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
-                    while true {
-                        try Task.checkCancellation()
-                        guard refreshGenerations[feed] == generation else { return }
-                        guard
-                            !batch.canLoadMore
-                                || (batch.nextSourcePage > sourcePage && !batch.sourceIDs.isEmpty)
-                        else { throw GalleryServiceError.invalidResponse }
-                        try progress.record(batch.sourceIDs)
-                        if !batch.items.isEmpty || !batch.canLoadMore
-                            || batch.nextSourcePage >= GalleryPaging.maximumSourcePages
-                        {
-                            break
-                        }
-                        sourcePage = batch.nextSourcePage
-                        batch = try await service.fetchRecommendPage(sourcePage: sourcePage)
-                    }
-                    try Task.checkCancellation()
-                    guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = try await Self.deduplicateInBackground(batch.items)
-                    guard refreshGenerations[feed] == generation else { return }
-                    setState(for: feed) {
-                        $0.posters = uniquePosters
-                        $0.status = .loaded
-                        $0.nextPage = batch.nextSourcePage
-                        $0.canLoadMore = batch.canLoadMore
-                        $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
-                    }
-                    if batch.canLoadMore, !uniquePosters.isEmpty {
-                        recommendPrefetch.start(from: batch.nextSourcePage)
-                    }
-                } else {
-                    let batch = try await service.fetchFeed(kind: feed, page: nil)
-                    try Task.checkCancellation()
-                    guard refreshGenerations[feed] == generation else { return }
-                    let uniquePosters = try await Self.deduplicateInBackground(batch.items)
-                    guard refreshGenerations[feed] == generation else { return }
-                    setState(for: feed) {
-                        $0.posters = uniquePosters
-                        $0.status = .loaded
-                        $0.nextPage = batch.nextSourcePage
-                        $0.canLoadMore = batch.canLoadMore
-                        $0.needsContinuation = uniquePosters.isEmpty && batch.canLoadMore
-                    }
-                }
+                try await refreshStandardFeed(feed: feed, generation: generation)
             }
             setState(for: feed) { $0.needsRefresh = false }
         } catch {
             guard refreshGenerations[feed] == generation else { return }
             let cancelled = TaskCancellation.matches(error)
+            let fallbackStatus: CommunityLoadStatus
+            if cancelled {
+                fallbackStatus = previousState.status == .loading
+                    ? (previousState.posters.isEmpty ? .idle : .loaded)
+                    : previousState.status
+            } else {
+                fallbackStatus = previousState.posters.isEmpty
+                    ? .failed(error.localizedDescription)
+                    : .loaded
+            }
             setState(for: feed) {
                 $0.posters = previousState.posters.preservingMetrics(from: $0.posters)
                 $0.needsRefresh = cancelled ? previousState.needsRefresh : true
                 $0.paginationError = previousState.paginationError
-                $0.status =
-                    cancelled
-                    ? (previousState.status == .loading
-                        ? (previousState.posters.isEmpty ? .idle : .loaded) : previousState.status)
-                    : (previousState.posters.isEmpty
-                        ? .failed(error.localizedDescription) : .loaded)
+                $0.status = fallbackStatus
                 $0.isLoadingMore = false
                 $0.nextPage = previousState.nextPage
                 $0.canLoadMore =

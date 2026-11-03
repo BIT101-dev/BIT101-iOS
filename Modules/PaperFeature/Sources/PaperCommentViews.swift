@@ -23,6 +23,76 @@ struct PaperCommentsSection: View {
     let onLoadMore: (CommunityComment?) -> Void
     let onRetry: () -> Void
 
+    private var emptyCommentText: String {
+        totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏"
+    }
+
+    @ViewBuilder
+    private func commentItemView(index: Int, comment: CommunityComment) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            PaperCommentRow(
+                comment: comment,
+                likingCommentIDs: likingCommentIDs,
+                onReply: onReply,
+                onLikeComment: onLikeComment,
+                onOpenImage: onOpenImage
+            )
+
+            if index != comments.count - 1 {
+                Divider()
+                    .padding(.leading, AppDesignSystem.Comment.replyInset)
+            }
+        }
+        .onAppear {
+            onLoadMore(comment)
+        }
+    }
+
+    @ViewBuilder
+    private var commentListView: some View {
+        LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+            ForEach(Array(comments.enumerated()), id: \.element.id) { index, comment in
+                commentItemView(index: index, comment: comment)
+            }
+
+            CommunityPaginationFooter(
+                isLoading: isLoadingMore,
+                errorMessage: paginationError
+            ) { onLoadMore(comments.last) }
+        }
+        .appCommentSectionStyle()
+    }
+
+    @ViewBuilder
+    private var commentListContent: some View {
+        if comments.isEmpty {
+            Text(emptyCommentText)
+                .font(AppDesignSystem.Typography.body)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, AppDesignSystem.Spacing.section)
+        } else {
+            commentListView
+        }
+    }
+
+    @ViewBuilder
+    private var commentContent: some View {
+        switch status {
+        case .idle where comments.isEmpty, .loading where comments.isEmpty:
+            AppInlineLoadingState("正在加载评论")
+        case .failed(let message) where comments.isEmpty:
+            AppFailureState(
+                title: "加载评论失败",
+                systemImage: "text.bubble",
+                message: message,
+                onRetry: onRetry
+            )
+        default:
+            commentListContent
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
             AppCommentSectionHeader(count: totalCommentCount) {
@@ -30,54 +100,7 @@ struct PaperCommentsSection: View {
                     order: Binding(get: { selectedOrder }, set: onSelectOrder))
             }
 
-            switch status {
-            case .idle where comments.isEmpty, .loading where comments.isEmpty:
-                AppInlineLoadingState("正在加载评论")
-            case .failed(let message) where comments.isEmpty:
-                AppFailureState(
-                    title: "加载评论失败",
-                    systemImage: "text.bubble",
-                    message: message,
-                    onRetry: onRetry
-                )
-            default:
-                if comments.isEmpty {
-                    Text(totalCommentCount == 0 ? "还没有评论" : "评论已根据社区规范隐藏")
-                        .font(AppDesignSystem.Typography.body)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, AppDesignSystem.Spacing.section)
-                } else {
-                    LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                        ForEach(Array(comments.enumerated()), id: \.element.id) {
-                            index, comment in
-                            VStack(spacing: AppDesignSystem.Spacing.none) {
-                                PaperCommentRow(
-                                    comment: comment,
-                                    likingCommentIDs: likingCommentIDs,
-                                    onReply: onReply,
-                                    onLikeComment: onLikeComment,
-                                    onOpenImage: onOpenImage
-                                )
-
-                                if index != comments.count - 1 {
-                                    Divider()
-                                        .padding(.leading, AppDesignSystem.Comment.replyInset)
-                                }
-                            }
-                            .onAppear {
-                                onLoadMore(comment)
-                            }
-                        }
-
-                        CommunityPaginationFooter(
-                            isLoading: isLoadingMore,
-                            errorMessage: paginationError
-                        ) { onLoadMore(comments.last) }
-                    }
-                    .appCommentSectionStyle()
-                }
-            }
+            commentContent
         }
     }
 }

@@ -407,6 +407,46 @@ def swift_regex_ranges(source: str) -> dict[int, int]:
     return character_regex_ranges(source, facts["regex-source"]["regexRanges"])
 
 
+def scan_swift_string_literal(
+    source: str,
+    index: int,
+    match: re.Match,
+    keep_literals: bool,
+    result: list[str],
+    code_fn,
+) -> int:
+    hashes, quotes = match.groups()
+    if keep_literals:
+        result[index : index + len(match[0])] = source[index : index + len(match[0])]
+    index += len(match[0])
+    closing = quotes + hashes
+    escape = "\\" + hashes
+    while index < len(source):
+        if source.startswith(escape + "(", index):
+            if keep_literals:
+                result[index : index + len(escape) + 1] = source[
+                    index : index + len(escape) + 1
+                ]
+            index = code_fn(index + len(escape) + 1, interpolation=True)
+        elif source.startswith(escape, index):
+            end = min(len(source), index + len(escape) + 1)
+            if keep_literals:
+                result[index:end] = source[index:end]
+            index = end
+        elif source.startswith(closing, index):
+            if keep_literals:
+                result[index : index + len(closing)] = source[
+                    index : index + len(closing)
+                ]
+            index += len(closing)
+            break
+        else:
+            if keep_literals:
+                result[index] = source[index]
+            index += 1
+    return index
+
+
 @cache
 def swift_code(source: str, keep_comments: bool = False, keep_literals: bool = False) -> str:
     """Retain executable Swift, including interpolation, with stable positions."""
@@ -457,45 +497,18 @@ def swift_code(source: str, keep_comments: bool = False, keep_literals: bool = F
                 continue
             match = string_start.match(source, index)
             if match:
-                hashes, quotes = match.groups()
-                if keep_literals:
-                    result[index : index + len(match[0])] = source[index : index + len(match[0])]
-                index += len(match[0])
-                closing = quotes + hashes
-                escape = "\\" + hashes
-                while index < len(source):
-                    if source.startswith(escape + "(", index):
-                        if keep_literals:
-                            result[index : index + len(escape) + 1] = source[
-                                index : index + len(escape) + 1
-                            ]
-                        index = code(index + len(escape) + 1, interpolation=True)
-                    elif source.startswith(escape, index):
-                        end = min(len(source), index + len(escape) + 1)
-                        if keep_literals:
-                            result[index:end] = source[index:end]
-                        index = end
-                    elif source.startswith(closing, index):
-                        if keep_literals:
-                            result[index : index + len(closing)] = source[
-                                index : index + len(closing)
-                            ]
-                        index += len(closing)
-                        break
-                    else:
-                        if keep_literals:
-                            result[index] = source[index]
-                        index += 1
+                index = scan_swift_string_literal(
+                    source, index, match, keep_literals, result, code
+                )
                 continue
-            if interpolation:
-                if source[index] == "(":
-                    depth += 1
-                elif source[index] == ")":
-                    depth -= 1
-                    if depth == 0:
-                        if keep_literals:
-                            result[index] = source[index]
-                        return index + 1
+            if interpolation and source[index] == "(":
+                depth += 1
+            elif interpolation and source[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    if keep_literals:
+                        result[index] = source[index]
+                    return index + 1
             result[index] = " " if source[index] == "`" else source[index]
             index += 1
         return index
@@ -671,6 +684,25 @@ def compilation_type_context(index: dict, path: str | None = None) -> tuple:
     return tuple(sorted(properties)), tuple(sorted(methods))
 
 
+def resolve_variable_type(facts, call, var_name, owner, properties):
+    for binding in facts["bindings"]:
+        value = re.match(
+            re.escape(var_name) + r"\s*=\s*([\w.]+)\s*\(", binding["value"]
+        )
+        binding_lexical = binding.get("lexicalScope", [])
+        if (
+            value
+            and binding["start"] < call["start"]
+            and binding["scope"] == call["scope"]
+            and call.get("lexicalScope", [])[: len(binding_lexical)] == binding_lexical
+        ):
+            return value[1]
+    for scope, name, kind in properties:
+        if scope == owner and name == var_name:
+            return kind
+    return None
+
+
 def local_member_calls(source: str, names: tuple, context: tuple = ((), ())) -> set[int]:
     facts = swift_syntax_index_sources({"local-methods": source})["local-methods"]
     own_context = compilation_type_context({"local-methods": facts})
@@ -695,27 +727,7 @@ def local_member_calls(source: str, names: tuple, context: tuple = ((), ())) -> 
             if visible:
                 kind = visible[-1]["type"]
             if kind is None:
-                for binding in facts["bindings"]:
-                    value = re.match(
-                        re.escape(variable[1]) + r"\s*=\s*([\w.]+)\s*\(", binding["value"]
-                    )
-                    if (
-                        value
-                        and binding["start"] < call["start"]
-                        and binding["scope"] == call["scope"]
-                        and call.get("lexicalScope", [])[: len(binding.get("lexicalScope", []))]
-                        == binding.get("lexicalScope", [])
-                    ):
-                        kind = value[1]
-            if kind is None:
-                kind = next(
-                    (
-                        kind
-                        for scope, name, kind in properties
-                        if scope == owner and name == variable[1]
-                    ),
-                    None,
-                )
+                kind = resolve_variable_type(facts, call, variable[1], owner, properties)
         if kind is None:
             continue
         kind = canonical_type_scope([kind.rstrip("?!")])

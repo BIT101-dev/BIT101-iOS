@@ -674,25 +674,7 @@ actor ScheduleSystemCalendarManager {
 
         do {
             return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
-                var eventsByIdentifier: [String: EKEvent] = [:]
-
-                for batch in batches {
-                    for identifier in batch.eventIdentifiers {
-                        if let event = eventStore.event(withIdentifier: identifier),
-                            isBIT101Event(event)
-                        {
-                            eventsByIdentifier[identifier] = event
-                        }
-                    }
-                    for event in taggedEvents(
-                        calendars: calendarForBatch(batch).map { [$0] },
-                        startDate: batch.startDate,
-                        endDate: batch.endDate,
-                        term: nil
-                    ) {
-                        eventsByIdentifier[event.eventIdentifier] = event
-                    }
-                }
+                var eventsByIdentifier = collectBatchEvents(from: batches)
 
                 // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
                 if let calendar = existingBIT101Calendar() {
@@ -735,6 +717,31 @@ actor ScheduleSystemCalendarManager {
             }
             throw error
         }
+    }
+
+    private func collectBatchEvents(
+        from batches: [ScheduleSystemCalendarBatch]
+    ) -> [String: EKEvent] {
+        var eventsByIdentifier: [String: EKEvent] = [:]
+        for batch in batches {
+            for identifier in batch.eventIdentifiers {
+                if let event = eventStore.event(withIdentifier: identifier),
+                    isBIT101Event(event)
+                {
+                    eventsByIdentifier[identifier] = event
+                }
+            }
+            let calendars = calendarForBatch(batch).map { [$0] }
+            for event in taggedEvents(
+                calendars: calendars,
+                startDate: batch.startDate,
+                endDate: batch.endDate,
+                term: nil
+            ) {
+                eventsByIdentifier[event.eventIdentifier] = event
+            }
+        }
+        return eventsByIdentifier
     }
 
     private func requireFullAccess() async throws {

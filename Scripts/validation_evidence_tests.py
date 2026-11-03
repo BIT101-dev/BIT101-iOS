@@ -14,6 +14,121 @@ from validation_performance_tests import developer_directory_self_test
 from validation_provenance_tests import network_trace_fixture, network_route_identity_self_test
 
 
+def _matching_post_requests(rows: list, suffix: str, name: str) -> list:
+    return [
+        row
+        for row in rows
+        if row["method"] == "POST"
+        and row["endpoint"].endswith(suffix)
+        and (name != "rate" or row.get("query", {}).get("obj", "").startswith("course"))
+    ]
+
+
+def _always_true(*args, **kwargs) -> bool:
+    return True
+
+
+def _make_malformed_coverage(coverage: dict, field: str, value) -> dict:
+    return {name: dict(row, **{field: value}) for name, row in coverage.items()}
+
+
+def _check_recorded_summary(module_name, subject, groups, original_is_file):
+    from contextlib import nullcontext, redirect_stdout
+    from io import StringIO
+
+    for recorded, expected in ((False, "待复验"), (True, "通过")):
+        output = StringIO()
+        arguments = ["validation_evidence.py", "summary"]
+        if recorded:
+            arguments.append("--recorded-environment")
+        with (
+            patch.object(subject, "report_lock", side_effect=nullcontext),
+            patch.object(
+                Path,
+                "is_file",
+                lambda path: path == subject.REPORT or original_is_file(path),
+            ),
+            patch.object(
+                Path,
+                "read_text",
+                return_value=json.dumps({"groups": {"modules": groups["modules"]}}),
+            ),
+            patch.object(sys, "argv", arguments),
+            patch.dict(os.environ, GITHUB_STEP_SUMMARY=""),
+            redirect_stdout(output),
+        ):
+            assert subject.main() == 0
+        assert f"| modules | full | {expected} |" in output.getvalue()
+
+
+def _run_network_record_case(
+    subject,
+    group,
+    base_result,
+    passed,
+    inventories,
+    check_output,
+    bit101_probes,
+    nullcontext,
+    redirect_stderr,
+    string_io_cls,
+):
+    result = dict(
+        base_result,
+        passed=passed,
+        coverageGaps=[],
+        runID="network-run",
+        startedAt=subject.utc_now().isoformat(),
+        finishedAt=subject.utc_now().isoformat(),
+    )
+    report = {}
+
+    def read(path, *args, **kwargs):
+        return json.dumps(report if path == subject.REPORT else result)
+
+    def save(value):
+        report.update(value)
+
+    def fake_check_output(command, *args, **kwargs):
+        if command == ["git", "rev-parse", "HEAD"] and kwargs.get("text"):
+            return "head"
+        return check_output(command, *args, **kwargs)
+
+    with (
+        patch.object(subject, "input_identity", return_value="current"),
+        patch.object(
+            subject, "network_inventory", side_effect=lambda scope="all": inventories[scope]
+        ),
+        patch.object(subject, "report_lock", side_effect=nullcontext),
+        patch.object(subject, "write_report", side_effect=save),
+        patch.object(Path, "is_file", return_value=True),
+        patch.object(Path, "read_text", read),
+        patch.object(subject.subprocess, "check_output", side_effect=fake_check_output),
+        patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="network-run"),
+        redirect_stderr(string_io_cls()),
+    ):
+        expected_code = 0 if passed else 1
+        assert subject.record(group, 0, "full", "current") == expected_code, group
+        with patch.object(sys, "argv", ["validation_evidence.py", "check-group", group]):
+            assert subject.main() == expected_code, group
+        if group == "network" and passed:
+            full = report["groups"][group]
+            original = result
+            result = network_trace_fixture(
+                dict(
+                    result,
+                    scope="bit101",
+                    requiredProbes=bit101_probes,
+                    executedProbes=bit101_probes,
+                )
+            )
+            assert subject.record(group, 0, "selected", "current") == 0
+            assert report["groups"][group]["lastFullRun"] == full
+            with patch.object(sys, "argv", ["validation_evidence.py", "check-group", group]):
+                assert subject.main() == 0
+            result = original
+
+
 def request_body_shape_self_test() -> None:
     from copy import deepcopy
     from network_request_contracts import complete
@@ -55,13 +170,7 @@ def request_body_shape_self_test() -> None:
         for field in ("bodyParameterNames", "finalBodyParameterNames"):
             for name in required:
                 rows = deepcopy(trace["requests"])
-                changed = [
-                    row
-                    for row in rows
-                    if row["method"] == "POST"
-                    and row["endpoint"].endswith(suffix)
-                    and (name != "rate" or row.get("query", {}).get("obj", "").startswith("course"))
-                ]
+                changed = _matching_post_requests(rows, suffix, name)
                 assert changed, (probe, name)
                 for row in changed:
                     row[field] = sorted(set(row[field]) - {name})
@@ -500,7 +609,7 @@ def run_self_test(subject) -> int:
                     for error in merge_findings(
                         core,
                         digest=current_digest,
-                        complete=lambda *args: True,
+                        complete=_always_true,
                         commit="commit",
                         recorded_environment=True,
                     )
@@ -711,17 +820,16 @@ def run_self_test(subject) -> int:
                     return ""
                 return original_read(path, *args, **kwargs)
 
+            def sample_rglob(path, pattern):
+                if path == ui_root:
+                    return iter([sample_path])
+                return original_rglob(path, pattern)
+
             subject.test_selectors.cache_clear()
             subject.test_inventory.cache_clear()
             errors = []
             with (
-                patch.object(
-                    Path,
-                    "rglob",
-                    lambda path, pattern: (
-                        iter([sample_path]) if path == ui_root else original_rglob(path, pattern)
-                    ),
-                ),
+                patch.object(Path, "rglob", sample_rglob),
                 patch.object(Path, "read_text", sample_read),
             ):
                 check_ui_test_inventory(errors, {})
@@ -1043,10 +1151,9 @@ def run_self_test(subject) -> int:
         for group in ("modules", "all", "ui"):
             for field in ("coveredLines", "executableLines"):
                 for value in (True, False, 1.0, "1", None):
-                    malformed = {
-                        name: dict(row, **{field: value})
-                        for name, row in summaries[group]["coverage"].items()
-                    }
+                    malformed = _make_malformed_coverage(
+                        summaries[group]["coverage"], field, value
+                    )
                     assert not subject.coverage_complete(
                         group, dict(summaries[group], coverage=malformed)
                     ), (group, field, value)
@@ -1512,7 +1619,7 @@ def run_self_test(subject) -> int:
         with (
             patch("ui_rules.source_runtime_interaction_findings", return_value=[]),
             patch("ui_source_facts.syntax_index", return_value={}),
-            patch("ui_rules.documented_interactions", return_value=[]),
+            patch("ui_rules.configured_interactions", return_value=[]),
         ):
             findings = subject.release_findings(report, "source")
             assert not findings, findings
@@ -1566,32 +1673,7 @@ def run_self_test(subject) -> int:
                     report, "source", recorded_environment=True
                 )
                 assert not recorded_findings, recorded_findings
-                from contextlib import nullcontext, redirect_stdout
-                from io import StringIO
-
-                for recorded, expected in ((False, "待复验"), (True, "通过")):
-                    output = StringIO()
-                    arguments = ["validation_evidence.py", "summary"] + (
-                        ["--recorded-environment"] if recorded else []
-                    )
-                    with (
-                        patch.object(subject, "report_lock", side_effect=nullcontext),
-                        patch.object(
-                            Path,
-                            "is_file",
-                            lambda path: path == subject.REPORT or original_is_file(path),
-                        ),
-                        patch.object(
-                            Path,
-                            "read_text",
-                            return_value=json.dumps({"groups": {"modules": groups["modules"]}}),
-                        ),
-                        patch.object(sys, "argv", arguments),
-                        patch.dict(os.environ, GITHUB_STEP_SUMMARY=""),
-                        redirect_stdout(output),
-                    ):
-                        assert subject.main() == 0
-                    assert f"| modules | full | {expected} |" in output.getvalue()
+                _check_recorded_summary(module_name, subject, groups, original_is_file)
             with patch(
                 f"{module_name}.environment_context",
                 return_value=dict(fixture_environment, xcode={"version": "changed"}),
@@ -2187,64 +2269,18 @@ def network_recording_self_test(subject, results) -> None:
     check_output = subject.subprocess.check_output
     for group, result in results.items():
         for passed in (True, False):
-            result = dict(
+            _run_network_record_case(
+                subject,
+                group,
                 result,
-                passed=passed,
-                coverageGaps=[],
-                runID="network-run",
-                startedAt=subject.utc_now().isoformat(),
-                finishedAt=subject.utc_now().isoformat(),
+                passed,
+                inventories,
+                check_output,
+                bit101_probes,
+                nullcontext,
+                redirect_stderr,
+                StringIO,
             )
-            report = {}
-
-            def read(path, *args, **kwargs):
-                return json.dumps(report if path == subject.REPORT else result)
-
-            def save(value):
-                report.update(value)
-
-            with (
-                patch.object(subject, "input_identity", return_value="current"),
-                patch.object(
-                    subject, "network_inventory", side_effect=lambda scope="all": inventories[scope]
-                ),
-                patch.object(subject, "report_lock", side_effect=nullcontext),
-                patch.object(subject, "write_report", side_effect=save),
-                patch.object(Path, "is_file", return_value=True),
-                patch.object(Path, "read_text", read),
-                patch.object(
-                    subject.subprocess,
-                    "check_output",
-                    side_effect=lambda command, *args, **kwargs: (
-                        "head"
-                        if command == ["git", "rev-parse", "HEAD"] and kwargs.get("text")
-                        else check_output(command, *args, **kwargs)
-                    ),
-                ),
-                patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="network-run"),
-                redirect_stderr(StringIO()),
-            ):
-                assert subject.record(group, 0, "full", "current") == (0 if passed else 1), group
-                with patch.object(sys, "argv", ["validation_evidence.py", "check-group", group]):
-                    assert subject.main() == (0 if passed else 1), group
-                if group == "network" and passed:
-                    full = report["groups"][group]
-                    original = result
-                    result = network_trace_fixture(
-                        dict(
-                            result,
-                            scope="bit101",
-                            requiredProbes=bit101_probes,
-                            executedProbes=bit101_probes,
-                        )
-                    )
-                    assert subject.record(group, 0, "selected", "current") == 0
-                    assert report["groups"][group]["lastFullRun"] == full
-                    with patch.object(
-                        sys, "argv", ["validation_evidence.py", "check-group", group]
-                    ):
-                        assert subject.main() == 0
-                    result = original
 
 
 def network_scope_boolean_self_test(subject) -> None:

@@ -18,6 +18,50 @@ struct PaperSummaryCard: View {
     var previewFailed = false
     let onOpen: () -> Void
 
+    private var authorNameText: String {
+        if let authorName = previewMetadata?.authorName {
+            return authorName
+        }
+        return previewFailed ? "作者暂不可用" : "加载中"
+    }
+
+    private var authorFont: Font {
+        previewMetadata == nil
+            ? AppDesignSystem.Typography.subheadline
+            : AppDesignSystem.Typography.bodyEmphasis
+    }
+
+    private var authorForegroundStyle: Color {
+        previewMetadata == nil
+            ? AppDesignSystem.Foreground.secondary
+            : AppDesignSystem.Foreground.primary
+    }
+
+    @ViewBuilder
+    private var authorHeader: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            AppAvatarView(
+                imageURL: previewMetadata?.avatarURL,
+                fallbackImageURL: previewMetadata?.avatarFallbackURL,
+                tint: AppDesignSystem.Palette.Status.neutral,
+                anonymous: previewMetadata?.isAnonymous == true
+            )
+
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                Text(authorNameText)
+                    .font(authorFont)
+                    .foregroundStyle(authorForegroundStyle)
+                    .lineLimit(1)
+
+                Text(AppDateText.timestampText(from: paper.updateTime))
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+
+            Spacer(minLength: AppDesignSystem.Spacing.content)
+        }
+    }
+
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
@@ -26,35 +70,7 @@ struct PaperSummaryCard: View {
                     .foregroundStyle(AppDesignSystem.Foreground.primary)
                     .lineLimit(2)
 
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    AppAvatarView(
-                        imageURL: previewMetadata?.avatarURL,
-                        fallbackImageURL: previewMetadata?.avatarFallbackURL,
-                        tint: AppDesignSystem.Palette.Status.neutral,
-                        anonymous: previewMetadata?.isAnonymous == true
-                    )
-
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                        Text(previewMetadata?.authorName ?? (previewFailed ? "作者暂不可用" : "加载中"))
-                            .font(
-                                previewMetadata == nil
-                                    ? AppDesignSystem.Typography.subheadline
-                                    : AppDesignSystem.Typography.bodyEmphasis
-                            )
-                            .foregroundStyle(
-                                previewMetadata == nil
-                                    ? AppDesignSystem.Foreground.secondary
-                                    : AppDesignSystem.Foreground.primary
-                            )
-                            .lineLimit(1)
-
-                        Text(AppDateText.timestampText(from: paper.updateTime))
-                            .font(AppDesignSystem.Typography.caption)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    }
-
-                    Spacer(minLength: AppDesignSystem.Spacing.content)
-                }
+                authorHeader
 
                 if !paper.intro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(paper.intro)

@@ -8,7 +8,7 @@
 
 同类规则共享一个入口。派生用于表达必要的几何关系；组件直接使用已有令牌。模块专用参数归所属模块，公共参数归共享层。
 
-`AppDesignSystem.Motion` 按选择变化和页面切换提供系统默认动画。页面读取 `accessibilityReduceMotion`，通过同一入口选择动画；系统导航和控件使用原生时序。触觉反馈归 `AppHapticFeedback`，选择或操作变化时通过 UIKit 系统生成器触发。加载、空态和失败展示归 `AppStateComponents`，尺寸与间距使用已有语义令牌。
+`AppDesignSystem.Motion` 按选择变化和页面切换提供系统默认动画。页面读取 `accessibilityReduceMotion`，通过同一入口选择动画；系统导航和控件使用原生时序。触觉反馈归 `AppHapticFeedback`，选择或操作变化时通过 UIKit 系统生成器触发。加载、空态和失败展示归 `AppStateComponents`，尺寸与间距使用已有设计令牌。
 
 客户端网络、存储、解析与并发规范见 [架构说明](ARCHITECTURE.md)。
 
@@ -17,7 +17,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `Modules/DesignSystemKit/Sources/DesignPrimitives.swift` | Foundation 基础值：间距、圆角、透明度刻度；定义 `AppDesignSystem` 根命名空间 |
-| `Modules/DesignSystemKit/Sources/AppDesignSystem.swift` | 主 App 尺寸、颜色、语义动画、UIKit 字体桥接与形状工厂 |
+| `Modules/DesignSystemKit/Sources/AppDesignSystem.swift` | 主 App 尺寸、颜色、交互动画、UIKit 字体桥接与形状工厂 |
 | `Modules/DesignSystemKit/Sources/AppLayoutComponents.swift` | 卡片、详情操作、浮动按钮与公共 List 样式 |
 | `Modules/DesignSystemKit/Sources/AppStateComponents.swift` | 加载、空态、失败与滚动状态 |
 | `Modules/DesignSystemKit/Sources/AppCommentComponents.swift` | 评论结构、头像正文排列与回复缩进 |
@@ -51,14 +51,14 @@
 
 主 App 与外部展示共同引用基础间距、透明度刻度和五档 SwiftUI 字体。UIKit 富文本桥接位于主 App 扩展，强调和特殊几何从基础角色派生；等宽数字直接从基础字体角色调用 `monospacedDigit()`。
 
-自定义颜色透明度统一从 `AppDesignSystem.Opacity` 派生。系统前景层级通过 `AppDesignSystem.Foreground` 暴露，页面使用设计系统语义入口，基础实现继续交给 SwiftUI 环境适配。
+自定义颜色透明度统一从 `AppDesignSystem.Opacity` 派生。系统前景层级通过 `AppDesignSystem.Foreground` 暴露，页面使用设计系统标准入口，基础实现继续交给 SwiftUI 环境适配。
 
-成绩和课程页面共用 `AppDesignSystem.Course.accent` 作为页面强调色。状态色、系统前景色和历史成绩图表的多序列颜色属于独立语义，保留对应令牌。
+成绩和课程页面共用 `AppDesignSystem.Course.accent` 作为页面强调色。状态色、系统前景色和历史成绩图表的多序列颜色属于独立分类，保留对应令牌。
 
 ## 公共组件
 
 - **容器**：`AppCard` 表达标准、紧凑、分组背景变体；`appGroupedListStyle()` 统一列表内容边距、section 间距和 52 点最小行高，动态字体按内容扩展。普通列表行与 DDL 卡片使用系统默认行边距；更新时间组件通过 `appListRowInsets()` 容纳 44 点点击区域、上下各 4 点边距及动态字体内容。原生 UI 公共断言核对访问到的更新时间行，专项验收覆盖四个数据页及辅助功能大字体。
-- **交互列表文字**：List、Form 和 Section 内的按钮、导航、Picker、Toggle、DatePicker、Link 与照片选择入口接入 `appInteractiveListRow()`，左侧标题使用系统主文字色，右侧值使用页面主题色；SF Symbol 使用对应的系统语义颜色。删除入口传入 `isDestructive: true` 使用警示色；浏览器导航行传入 `isSelected`，与信息流共用 `AppSelectionHighlight` 的浅色主题底，保持辅助信息可读。行内值和说明文字按各自语义着色。自定义标题组件同样遵循此约定。`check-ui-consistency.py` 基于 SwiftSyntax 检查控件自身样式和标题组件的前景色，并自测时间轴 Picker、删除入口、嵌套组件及字符串边界。
+- **交互列表文字**：List、Form 和 Section 内的按钮、导航、Picker、Toggle、DatePicker、Link 与照片选择入口接入 `appInteractiveListRow()`，左侧标题使用系统主文字色，右侧值使用页面主题色；SF Symbol 使用对应的系统预设颜色。删除入口传入 `isDestructive: true` 使用警示色；浏览器导航行传入 `isSelected`，与信息流共用 `AppSelectionHighlight` 的浅色主题底，保持辅助信息可读。行内值和说明文字按各自分类着色。自定义标题组件同样遵循此约定。`check-ui-consistency.py` 基于 SwiftSyntax 检查控件自身样式和标题组件的前景色，并自测时间轴 Picker、删除入口、嵌套组件及字符串范围。
 - **操作**：`AppDetailShareLink` 使用系统自适应标签，在菜单中展示动作名称与图标，在工具栏中使用系统样式；`AppDetailCircleButton`、`AppFloatingActionButton` 与 `AppFloatingActionStack` 统一触控区域、材质和布局。
 - **输入与标题**：`AppInputPrompt` 使用正文与系统 placeholder 颜色；`AppListSectionHeader` 与原生 `Section("标题")` 共同继承系统分组标题样式。列表分组通过正文承载实际内容，Section footer 解释文案由静态检查阻断。更新时间行的时间和加载提示使用副标题字号，刷新操作和只读标记使用正文字号。
 - **内容控制**：顶部 segmented、排序搜索栏和设置导航行共享公共组件。
@@ -97,18 +97,18 @@
 
 `Scripts/run-static-audit.sh` 汇总既有检查入口。每条规则及其派生检查由同一检查器维护，执行范围按用户要求选择。
 
-UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树。页面角色表登记视图职责；新增、改名或拆分相关页面时，同步角色登记和对应自测。固定几何、图表语义颜色及模块例外通过所属源码契约维护。
+UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树。页面角色表登记视图职责；新增、改名或拆分相关页面时，同步角色登记和对应自测。固定几何、图表预设颜色及模块例外通过所属源码契约维护。
 
 图片型 `Button`、`NavigationLink` 和 `Menu` 标签提供 `accessibilityLabel`。动态 SF Symbol 使用源码可枚举的有限字符串集合，菜单和操作按控件作用域判定。
 
-主 Tab UI 用例在辅助功能大字号及浅色、深色外观下验证可见区域、触达性、名称和窗口边界，失败时保存元素树与截图。设备截图覆盖 `.build/screenshot.png`；较长静态结果覆盖 `.build/ui-consistency-report.txt`。流程见 [构建与测试](TESTING.md)。
+主 Tab UI 用例在辅助功能大字号及浅色、深色外观下验证可见区域、触达性、名称和窗口边缘，失败时保存元素树与截图。设备截图覆盖 `.build/screenshot.png`；较长静态结果覆盖 `.build/ui-consistency-report.txt`。流程见 [构建与测试](TESTING.md)。
 
 横屏浏览分栏保持完整可用高度，编辑面板由所属呈现层处理键盘避让。横屏分栏内的列表按各自列宽布局，分组圆角和操作入口保持完整可见。
 
 横屏右侧详情通过 `appPaneBackButton` 提供公共返回入口，采用原生导航栏与系统按钮，iOS 27.1 起将该入口保留在所属栏的横向左上侧。课表 / DDL 各自持有导航容器；空教室与浏览页面共用 `AppBrowserLayout`，左右栏由同一公共组件承载原生导航栈，右栏初始内容支持查询结果或选择占位。节次筛选在右侧打开，返回后显示当前筛选结果；竖屏使用整页导航。空教室分区栏通过 `appBrowserHeader` 进入所属导航栈，刷新行位于页头下方。节次列表共用包含起止时间的 `ScheduleSectionSelectionPage`。
 
-单列浏览由一个原生导航栈承载列表与详情，宽幅浏览由并排的两个原生导航栈承载左右列。话题和文章的窄窗口切换共用 `AppPairedPages`，保留各页状态，由各自导航栈安排顶部间距。地图、话题、文章、课表和 DDL 共用 `appBrowserActions`：iOS 27.1 起，带水平系统安全区的紧凑竖屏窗口通过原生竖向工具栏排列侧方操作，其余窗口使用公共悬浮按钮组。空间紧凑时由系统更多菜单显示剩余操作，按钮通过原生标题和图标语义保留完整名称。页面可见性同步控制工具栏内容。单列子页保留窗口原有的工具栏策略；课表和浏览列表共用 `appBrowserNavigationBar` 安排原生导航栏与背景。顶部 Tab 与详情导航分行布局，详情保留原生控件的标准行高。课表刷新行使用设计系统最小行高，大字号由内容高度扩展。
+单列浏览由一个原生导航栈承载列表与详情，宽幅浏览由并排的两个原生导航栈承载左右列。话题和文章的窄窗口切换共用 `AppPairedPages`，保留各页状态，由各自导航栈安排顶部间距。地图、话题、文章、课表和 DDL 共用 `appBrowserActions`：iOS 27.1 起，带水平系统安全区的紧凑竖屏窗口通过原生竖向工具栏排列侧方操作，其余窗口使用公共悬浮按钮组。空间紧凑时由系统更多菜单显示剩余操作，按钮通过原生标题和图标名称保留完整名称。页面可见性同步控制工具栏内容。单列子页保留窗口原有的工具栏策略；课表和浏览列表共用 `appBrowserNavigationBar` 安排原生导航栏与背景。顶部 Tab 与详情导航分行布局，详情保留原生控件的标准行高。课表刷新行使用设计系统最小行高，大字号由内容高度扩展。
 
 横屏 DDL 与空教室结果共用 `appGroupedListStyle(insetViewport:)`，将公共水平间距分配到滚动容器与内容两侧，保留系统分组圆角并让行边缘对齐所属分栏。公共布局通过 `appContentColumn` 传递所属列。内部左栏按列宽保留标准行边距；靠窗口边缘的右栏与整页列表通过滚动容器内缩排列，行内容保持在系统侧栏旁的可用区域内。列表与正文组件分别持有所属内容边距。
 
-横屏日程将课表与单列 DDL 并排呈现。空教室、话题、文章、成绩、课程和个人页共用 `AppBrowserLayout`，由原生 `NavigationStack` 分别承载左侧列表与右侧详情，公共布局统一安排两列位置；话题和文章的操作按钮竖向悬浮于所属列表右下角，列表延伸至底部。iPad 横屏侧栏宽度统一为窗口安全区域高度的 9/16；系统提供纵向分隔区域时，分栏按该区域排列，列宽扣除窗口左侧安全区。iOS 27.1 起通过 `reservedRegions` 读取包含平展姿态的系统分隔位置，课表 / DDL、浏览列表和空教室筛选共用该分隔位置。筛选页与浏览页共用 `AppBrowserLayout` 的导航容器、内容安全区和列宽计算，切换页面保持列宽；竖屏浏览列表与详情使用完整可用宽度，横屏详情转回竖屏时回到列表。选中态使用内容下方的浅色主题底。主导航由系统 `TabView` 承载，系统安排其水平或垂直位置；iOS 18 起，宽幅窗口展开日程 / DDL、空教室、地图、话题、文章、成绩、课程、我的八个入口，窄窗口按当前子页归入五个主入口，页面身份保持稳定。分区栏放在原生导航栏下方，日程与成绩分区直接更新选择。水平系统安全区存在且顶部安全区为零时，内容顶部保留公共标准间距。主导航周围使用公共分组背景，刷新信息位于各自模块的分组列表内，使用公共刷新行高度与分组底色。日程主视图保持完整可用高度，编辑表单由所属弹窗处理键盘避让。横屏课表网格和悬浮操作延伸至所属容器的底部安全边界，系统手势安全区由系统维护；竖屏课表保留模块底部间距，悬浮操作使用公共 20 点底部间距。横竖屏共用所属业务主题色；页面同时提供当前主题的 tint 与 accentColor。
+横屏日程将课表与单列 DDL 并排呈现。空教室、话题、文章、成绩、课程和个人页共用 `AppBrowserLayout`，由原生 `NavigationStack` 分别承载左侧列表与右侧详情，公共布局统一安排两列位置；话题和文章的操作按钮竖向悬浮于所属列表右下角，列表延伸至底部。iPad 横屏侧栏宽度统一为窗口安全区域高度的 9/16；系统提供纵向分隔区域时，分栏按该区域排列，列宽扣除窗口左侧安全区。iOS 27.1 起通过 `reservedRegions` 读取包含平展姿态的系统分隔位置，课表 / DDL、浏览列表和空教室筛选共用该分隔位置。筛选页与浏览页共用 `AppBrowserLayout` 的导航容器、内容安全区和列宽计算，切换页面保持列宽；竖屏浏览列表与详情使用完整可用宽度，横屏详情转回竖屏时回到列表。选中态使用内容下方的浅色主题底。主导航由系统 `TabView` 承载，系统安排其水平或垂直位置；iOS 18 起，宽幅窗口展开日程 / DDL、空教室、地图、话题、文章、成绩、课程、我的八个入口，窄窗口按当前子页归入五个主入口，页面身份保持稳定。分区栏放在原生导航栏下方，日程与成绩分区直接更新选择。水平系统安全区存在且顶部安全区为零时，内容顶部保留公共标准间距。主导航周围使用公共分组背景，刷新信息位于各自模块的分组列表内，使用公共刷新行高度与分组底色。日程主视图保持完整可用高度，编辑表单由所属弹窗处理键盘避让。横屏课表网格和悬浮操作延伸至所属容器的底部安全边缘，系统手势安全区由系统维护；竖屏课表保留模块底部间距，悬浮操作使用公共 20 点底部间距。横竖屏共用所属业务主题色；页面同时提供当前主题的 tint 与 accentColor。

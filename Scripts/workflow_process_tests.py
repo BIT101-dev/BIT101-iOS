@@ -22,6 +22,10 @@ def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
     import workflow_processes as subject
 
+    def signal_release(path: Path) -> None:
+        with path.open("w") as stream:
+            stream.write("done\n")
+
     for overrides, expected in (
         ({"BIT101_WORKFLOW_TIMEOUT_SECONDS": "99999"}, 3700),
         ({"BIT101_WORKFLOW_TIMEOUT_SECONDS": "17"}, 117),
@@ -371,8 +375,7 @@ def workflow_lock_boundary_findings() -> list[str]:
                     raise ValueError(f"执行预算需要已知的生命周期事件：{event}")
                 timed_events.append(event)
                 if event == "cleanup":
-                    with release.open("w") as stream:
-                        stream.write("done\n")
+                    signal_release(release)
             timed.communicate(timeout=5)
             if (
                 not any(event.startswith("[超时]") for event in timed_events)
@@ -447,6 +450,14 @@ def workflow_lock_boundary_findings() -> list[str]:
 
 def process_group_boundary_findings(fixture: Path, read_line) -> list[str]:
     from workflow_processes import active_members, finish_process_group
+
+    def assert_lock_released(path: Path, descendant: int, group: int) -> None:
+        with path.open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return
+            assert descendant not in active_members({group}), "后台工作退出后释放锁"
 
     worker = fixture / "worker.sh"
     artifact = fixture / ".build/extended-automation.lock"
@@ -564,12 +575,7 @@ def process_group_boundary_findings(fixture: Path, read_line) -> list[str]:
             deadline = time.monotonic() + 5
             while controller.poll() is None and time.monotonic() < deadline:
                 for path in (artifact, device):
-                    with path.open("a") as lock:
-                        try:
-                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        except BlockingIOError:
-                            continue
-                        assert descendant not in active_members({group}), "后台工作退出后释放锁"
+                    assert_lock_released(path, descendant, group)
                 time.sleep(0.1)
             output, error = controller.communicate(timeout=5)
             assert controller.returncode == expected, (mode, output, error)

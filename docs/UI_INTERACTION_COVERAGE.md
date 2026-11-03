@@ -2,41 +2,41 @@
 
 ## 验收约定
 
-用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作语义清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言验证。
+用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作行为清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言验证。
 
-用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 、[社区发布流程](../BIT101-iOSUITests/CommunityPublishingUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共用 `UIAutomationTestCase`；[性能场景](../BIT101-iOSUITests/MaintenancePerformanceUITests.swift) 独立测量 App 启动与切周布局。完整批次顺序执行，各用例独立启动并结束 App 宿主，单个流程内复用进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。业务交互采用原生触摸与滚动，字段通过实际输入控件更新，公共键盘合同采用系统键盘；公共查询合同显式验收快速查询及控件动作与原生状态的一致性。运行耗时与操作类型从真机运行的固定指标文件读取。
+用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 、[社区发布流程](../BIT101-iOSUITests/CommunityPublishingUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共用 `UIAutomationTestCase`；[性能场景](../BIT101-iOSUITests/MaintenancePerformanceUITests.swift) 独立测量 App 启动与切周布局。完整批次顺序执行，各用例独立启动并结束 App 宿主，单个流程内复用进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。同页操作复用创建、导航和编辑过程，下表保留逐控件与业务分支的映射；同一流程可以对应多行。业务交互采用原生触摸与滚动，字段通过实际输入控件更新，公共键盘规范采用系统键盘；公共查询规范显式验收快速查询及控件动作与原生状态的一致性。运行耗时与操作类型从真机运行的固定指标文件读取。
 
-## 设备与窗口合同
+## 设备与窗口规范
 
-静态规则核对一级分组的公共背景样式及公共浏览行的选择归属。浏览导航回归覆盖冷启动后多轮切换成绩、话廊、日程入口，要求分区栏可点击并使用主导航下方的标准内容间距。`testScheduleChromeSurvivesRotations` 从设置详情进入日程，保持日程选中并连续六次切换方向，逐次核对刷新行位于主导航下方、竖屏分区栏可操作及选中周次。`testMineSettingsFillAvailableDetailWidth` 逐一进入账号、日历、DDL、话廊和关于设置，确认实际选中目标后，要求右侧列表或滚动区域达到可用详情宽度的 95%。`testClassroomLoadingKeepsThePageBackground` 保持首次空教室查询进行中，比较左右区域的实际背景像素并采样截图。截图先从活跃屏幕选择含可见内容的图像，Duo 内外屏通过同一流程采样。空成绩行与刷新行比较实际背景像素，并核对分组行两端的背景；iPad 与 Mac 的详情滚动后继续核对原生标题栏的遮蔽底色，iPhone 与 Duo 验收系统导航行为，成绩与课程行共同验收整行点击和浅色选中背景。
+静态规则核对一级分组的公共背景样式及公共浏览行的选择归属。浏览导航复验覆盖冷启动后多轮切换成绩、话廊、日程入口，要求分区栏可点击并使用主导航下方的标准内容间距。`testScheduleChromeSurvivesRotations` 从设置详情进入日程，保持日程选中并连续六次切换方向，逐次核对刷新行位于主导航下方、竖屏分区栏可操作及选中周次。`testMineSettingsFillAvailableDetailWidth` 逐一进入账号、日历、DDL、话廊和关于设置，确认实际选中目标后，要求右侧列表或滚动区域达到可用详情宽度的 95%。`testClassroomLoadingKeepsThePageBackground` 保持首次空教室查询进行中，比较左右区域的实际背景像素并采样截图。截图先从活跃屏幕选择含可见内容的图像，Duo 内外屏通过同一流程采样。空成绩行与刷新行比较实际背景像素，并核对分组行两端的背景；iPad 与 Mac 的详情滚动后继续核对原生标题栏的遮蔽底色，iPhone 与 Duo 验收系统导航行为，成绩与课程行共同验收整行点击和浅色选中背景。
 
-`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收空教室和个人页分栏、话题与文章及成绩和课程的列表与详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；同时比较各页侧栏宽度、主导航周围及刷新/统计/搜索行的实际背景像素，并核对选中行背景、悬浮按钮竖向排列与列表边界、详情分组单元格的分栏边界。旋转流程验证详情回到竖屏列表、重新进入全宽详情，以及分区栏和主导航的边界。Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边界核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
+`LandscapeLayoutUITests` 在支持宽幅布局的设备上核对实际横屏姿态，再验收空教室和个人页分栏、话题与文章及成绩和课程的列表与详情分栏、课表与单列 DDL 并排、地图工具、表单草稿及辅助功能字号；同时比较各页侧栏宽度、主导航周围及刷新/统计/搜索行的实际背景像素，并核对选中行背景、悬浮按钮竖向排列与列表边缘、详情分组单元格的分栏边缘。旋转流程验证详情回到竖屏列表、重新进入全宽详情，以及分区栏和主导航的范围。Duo 横屏验收前由 Device Hub 设置实际姿态。普通 iPhone 与 Duo 外屏核对竖屏方向限制，Duo 内屏和 iPad 核对横竖切换。原生 UI 操作按实际窗口边缘核对键盘工具栏，系统照片选择器按系统元素身份识别并完成取消。UI 流程按设备导入选图样本，设备偏好记录导入状态并随设备抹除重置。
 
-`testCompactWindowKeepsSystemBars` 核对紧凑窗口内的系统主导航、分组行水平边界、顶部标准间距与竖屏课表底部间距，并保存列表及课表截图，再核对节次筛选整页导航及返回。`testWindowChangesKeepInsets` 在系统提供分隔区域的窗口执行连续展开、折叠和重新展开；Device Hub 按逐行写入的 `Layout phase: close` / `Layout phase: open` 日志切换姿态，分别验收紧凑列表和恢复后的系统分隔位置。几何记录包含当前窗口、场景、安全区和分隔区域。横屏按内容末端与系统安全区对照核验，竖屏按课表及悬浮操作的模块间距核验。`testLandscapeDetailBackUseRightPanePane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边界，左栏及右栏详情共用该合同。
+`testCompactWindowKeepsSystemBars` 核对紧凑窗口内的系统主导航、分组行水平范围、顶部标准间距与竖屏课表底部间距，并保存列表及课表截图，再核对节次筛选整页导航及返回。`testWindowChangesKeepInsets` 在系统提供分隔区域的窗口执行连续展开、折叠和重新展开；Device Hub 按逐行写入的 `Layout phase: close` / `Layout phase: open` 日志切换姿态，分别验收紧凑列表和恢复后的系统分隔位置。几何记录包含当前窗口、场景、安全区和分隔区域。横屏按内容末端与系统安全区对照核验，竖屏按课表及悬浮操作的模块间距核验。`testLandscapeDetailBackUseRightPanePane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边缘，左栏及右栏详情共用该规范。
 
 `simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
 ## 公共组件验收归属
 
-公共组件的每类交互合同明确验收流程，相同交互集中验证一次；每个使用页面验证入口、绑定参数和业务结果。同一控件的布局或事件实现独立时，各自保留完整验收。测试归属静态明确，关键词运行直接执行所选流程。
+公共组件的每类交互规范明确验收流程，相同交互集中验证一次；每个使用页面验证入口、绑定参数和业务结果。同一控件的布局或事件实现独立时，各自保留完整验收。测试归属静态明确，关键词运行直接执行所选流程。
 
-| 公共实现 | 完整交互合同 | 页面接入验证 |
+| 公共实现 | 完整交互规范 | 页面接入验证 |
 | --- | --- | --- |
-| `AppVerificationSheet` | 图形验证覆盖图片、大小写、手动提交、阶段续接与拒绝后的重新发起；成绩流程验证空提交禁用、系统键盘逐位输入及手动验证、整段填入自动验证、错误提示、修改重试、取消和成功；验证码清洗、长度边界及自动提交策略由模块测试覆盖 | 课表、学校 DDL 和可信成绩单验证各自取消后的恢复、提交文案及自动验证后业务继续；课表与成绩单的错误保留 challenge、修改后继续和持久化由行为测试验收；SSO 面板复用同一输入实现 |
+| `AppVerificationSheet` | 图形验证覆盖图片、大小写、手动提交、阶段续接与拒绝后的重新发起；成绩流程验证空提交禁用、系统键盘逐位输入及手动验证、整段填入自动验证、错误提示、修改重试、取消和成功；验证码清洗、长度范围及自动提交策略由模块测试覆盖 | 课表、学校 DDL 和可信成绩单验证各自取消后的恢复、提交文案及自动验证后业务继续；课表与成绩单的错误保留 challenge、修改后继续和持久化由行为测试验收；SSO 面板复用同一输入实现 |
 | `ScoreFilterPage` | 学期筛选验证全选 / 清空和逐项切换 | 学期及类型分别验证绑定状态和成绩过滤结果 |
 | `CommunityCommentSortPicker` | 话题评论验证最新 / 高赞 / 最旧全部选项 | 文章评论验证排序入口、选择绑定及加载结果 |
 | `CommunityPaginationFooter` | 机器人分页验证继续加载，分页恢复验证失败原因、原位重试和后续内容 | 话题、文章、课程及评论保留各自分页游标和列表内容 |
-| 确认框控件查询 | 公共查询合同与原生 XCTest 比较控件属性，并通过真实点击验证关闭后恢复 | 各页面保留自身确认 / 取消与业务结果 |
+| 确认框控件查询 | 公共查询规范与原生 XCTest 比较控件属性，并通过真实点击验证关闭后恢复 | 各页面保留自身确认 / 取消与业务结果 |
 | 原生日期时间选择器 | DDL 流程验证翻月、年月选择、日期选择及逐列时间滚轮 | 自定义日程逐个打开日期 / 开始 / 结束入口，验证时间绑定、保存和重新读取 |
-| `AppCommentComposerContentSection` | 课程评论验证匿名开关，并与评分和发布结果一起验收 | 话题及文章保留各自评论 / 回复提交和取消；匿名发布属于各自编辑器合同 |
+| `AppCommentComposerContentSection` | 课程评论验证匿名开关，并与评分和发布结果一起验收 | 话题及文章保留各自评论 / 回复提交和取消；匿名发布属于各自编辑器规范 |
 | `KeyboardDismissSupport` | 课程评论通过系统键盘输入并实际点击完成按钮，登录验证空白点按、滚动收起及键盘提交 | 各页面验证完整字段值、实际控件绑定及业务结果 |
 | `systemImagePreview` | 可信成绩单验证多页切换和关闭，话题流程验证打开预览时的场景销毁 | 卡片、正文、评论、头像和成绩单第二页分别验证来源入口及返回页面 |
 
-文章搜索、点赞、发布和编辑分别归入已有连续页面流程；课程搜索、点赞、评分、发布与回复在同一详情中连续验收。文本表单通过实际输入控件连续填写，公共键盘合同集中验证聚焦、输入与收起，重新读取后的设置状态完成断言后交由下一场景的隔离重置清理。
+文章搜索、点赞、发布和编辑分别归入已有连续页面流程；课程搜索、点赞、评分、发布与回复在同一详情中连续验收。文本表单通过实际输入控件连续填写，公共键盘规范集中验证聚焦、输入与收起，重新读取后的设置状态完成断言后交由下一场景的隔离重置清理。
 
 UIKit 控件按构造类型、继承或别名进入源码清单，运行门禁核对输入、滚动、手势与菜单回调的实际证据。静态辅助功能标识通过对应变量或原生控件类型解析；目标动作和菜单闭包通过交互观察器记录实际执行。只读富文本核对正文点按及链接动作，滚动载体与其原生手势分别核对动作类型。
 
-完整覆盖以源码控件、动作类型和归属用例为单位，每项对应已观察实例上的实际动作。同一原生控件的无障碍包装按相同标识及几何合并，祖先行保留业务身份。挂载库存记录各次弹窗、日期值和禁用状态的观察与待访问项，供定位覆盖缺口；值域与互斥分支由所属行为断言和公共组件合同验收。
+完整覆盖以源码控件、动作类型和归属用例为单位，每项对应已观察实例上的实际动作。同一原生控件的无障碍包装按相同标识及几何合并，祖先行保留业务身份。挂载库存记录各次弹窗、日期值和禁用状态的观察与待访问项，供定位覆盖缺口；值域与互斥分支由所属行为断言和公共组件规范验收。
 
 ## 日程、登录和地图
 
@@ -54,24 +54,24 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行门禁�
 | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击 |
 | `ScheduleLayoutUITests/testScheduleKeepsWeek` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
 | `ScheduleLayoutUITests/testWeeklyHeaderKeepsItsCompactDateRow` | 26 点日期行及 44 点周次触控高度 |
-| `ScheduleLayoutUITests/testSideToolbarUsesSpaceAboveNavigation` | 地图、话题、文章、课表及 DDL 的原生侧方工具栏边界、竖向排列，以及系统更多菜单中的完整标题与可触达状态 |
-| `LandscapeLayoutUITests/testWindowUsesAdaptivePanes` | 当前窗口的资料 / 空教室分栏、话题 / 文章 / 成绩 / 课程列表与详情分栏、公共侧栏宽度、导航背景像素与刷新行边界、课表与单列 DDL 并排、地图图层切换、编辑草稿与键盘收起、辅助功能字号单列 |
+| `ScheduleLayoutUITests/testSideToolbarUsesSpaceAboveNavigation` | 地图、话题、文章、课表及 DDL 的原生侧方工具栏边缘、竖向排列，以及系统更多菜单中的完整标题与可触达状态 |
+| `LandscapeLayoutUITests/testWindowUsesAdaptivePanes` | 当前窗口的资料 / 空教室分栏、话题 / 文章 / 成绩 / 课程列表与详情分栏、公共侧栏宽度、导航背景像素与刷新行边缘、课表与单列 DDL 并排、地图图层切换、编辑草稿与键盘收起、辅助功能字号单列 |
 | `LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome` | 成绩 / 课程原生入口、列表与详情分栏、切页详情保留、与日程 / 话题 / 文章共享侧栏宽度及顶部背景 |
 | `LandscapeLayoutUITests/testGallerySurfaceChangesNavigation` | 话题与文章反复切换后的主导航与分区栏间距、当前操作入口及实际截图 |
 | `LandscapeLayoutUITests/testMineSettingsFillAvailableDetailWidth` | 逐一选中账号 / 日历 / DDL / 话廊 / 关于设置，核对右侧列表或滚动区域占满可用详情宽度 |
-| `LandscapeLayoutUITests/testScheduleChromeSurvivesRotations` | 从设置详情进入日程并保持选中，连续六次横竖旋转，核对刷新行与主导航边界、竖屏分区入口及当前周次 |
+| `LandscapeLayoutUITests/testScheduleChromeSurvivesRotations` | 从设置详情进入日程并保持选中，连续六次横竖旋转，核对刷新行与主导航边缘、竖屏分区入口及当前周次 |
 | `CommunityRecoveryUITests/testArticleCountersUpdateVisibleListDetail` | 文章详情点赞与评论后的卡片计数、横屏同屏展示与紧凑窗口返回列表 |
 | `LandscapeLayoutUITests/testSchoolCaptchaCanBeCancelled` | 图形验证图片、大小写、手动提交、取消重试、切换短信阶段清空输入及原课表查询继续 |
 | `LandscapeLayoutUITests/testRejectedSchoolCaptchaRequiresChallenge` | 图形验证码失败后结束挑战、保留拒绝提示与重新发起 |
 | `LandscapeLayoutUITests/testClassroomSmsUsesNativeDestination` | 空教室入口触发短信验证、当前页面承载验证、验证后续接查询与分区保持 |
 | `LandscapeLayoutUITests/testClassroomLoadingKeepsThePageBackground` | 宽幅空教室首次查询期间，比较侧栏和空结果区域的实际背景像素并记录截图 |
-| `LandscapeLayoutUITests/testLandscapeEdgesAndColumnBoundaries` | 横屏课表及悬浮按钮的底部安全区边界、各页统一分栏位置、Duo 系统分隔位置与顶部标准间距，iPad 双横屏方向回归 |
-| `LandscapeLayoutUITests/testCompactWindowKeepsSystemBars` | 紧凑窗口原生主导航及分组行边界、顶部标准间距、竖屏课表及悬浮操作底部间距与实际截图；课表 / DDL / 空教室切换时核对可见列表刷新行与时间文字的顶部边界，空教室节次筛选整页进入及返回后再次核对 |
-| `LandscapeLayoutUITests/testWindowChangesKeepInsets` | 连续展开、折叠及重新展开，紧凑列表安全边界及宽幅浏览列表按系统分隔位置恢复 |
+| `LandscapeLayoutUITests/testLandscapeEdgesAndColumnBoundaries` | 横屏课表及悬浮按钮的底部安全区边缘、各页统一分栏位置、Duo 系统分隔位置与顶部标准间距，iPad 双横屏方向复验 |
+| `LandscapeLayoutUITests/testCompactWindowKeepsSystemBars` | 紧凑窗口原生主导航及分组行边缘、顶部标准间距、竖屏课表及悬浮操作底部间距与实际截图；课表 / DDL / 空教室切换时核对可见列表刷新行与时间文字的顶部边缘，空教室节次筛选整页进入及返回后再次核对 |
+| `LandscapeLayoutUITests/testWindowChangesKeepInsets` | 连续展开、折叠及重新展开，紧凑列表安全范围及宽幅浏览列表按系统分隔位置恢复 |
 | `LandscapeLayoutUITests/testLandscapeDetailBackUseRightPanePane` | 右栏左上侧返回键、成绩排序返回占位、空教室节次筛选右栏呈现、选择、横竖屏导航续接及返回查询结果 |
 | `LoginAndScheduleUITests/testScheduleDayHolidayCancel` | 每日表头、放假 / 调休选择、确认取消、窗口取消 |
 | `ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations` | 放假确认、调休日期控件、调休确认、原日期和目标日期课程变更 |
-| `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边界对齐 |
+| `LoginAndScheduleUITests/testLinearScheduleTimelineScrollAndPinch` | 线性时间轴上下滚动、双指放大 / 缩小、缩放值更新及画布左边缘对齐 |
 | `LoginAndScheduleUITests/testCalendarSettingsPickersToggles` | 时间轴、显示方式、内容选择、周末 / 考试开关、主课表改名与重新装载恢复 |
 | `LoginAndScheduleUITests/testCalendarOfflineTermFailureAndCancel` | 学期入口、学校离线提示、关闭失败提示和返回设置 |
 | `CalendarInteractionUITests/testCalendarReminderCloudSwitches` | 两类云开关、提醒确认取消 / 开启、阈值滚轮保存 / 取消、重新装载状态、当前及其他账号的云端偏好清理确认 / 取消 / 结果与同步暂停 |
@@ -105,7 +105,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行门禁�
 | `ScheduleEditingUITests/testDdlEmptyStateExplainsRetentionWindow` | 过期日程与滞留范围说明 |
 | `ServiceInteractionUITests/testSchoolSsoddlVerifyCancel` | 学校 DDL 刷新、SSO 短信取消、验证继续、刷新结果 |
 | `CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh` | 空结果刷新、节次单选、全选 / 全不选、清除筛选与状态 |
-| `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` | 三个校区、图层、地图平移 / 双指缩放、重新装载恢复、公共按钮边界及系统更多菜单操作 |
+| `LoginAndScheduleUITests/testMapCampusLayerPanAndZoomPersist` | 三个校区、图层、地图平移 / 双指缩放、重新装载恢复、公共按钮边缘及系统更多菜单操作 |
 | `ScheduleNavigationUITests/testMapLocationAndScheduleLocationRoute` | 课程地点进入地图、定位 / 单次权限、下一节课导航到 Maps、返回 |
 
 ## 成绩与课程
@@ -226,21 +226,21 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行门禁�
 
 ## 执行流程
 
-学校短信复用 `AppSchoolSMSVerificationSheet` 的原生输入合同；`LoginLogicTests` 验证 UIKit 认证入口的面板组装、等待既有提示、取消与整段输入续接。
+学校短信复用 `AppSchoolSMSVerificationSheet` 的原生输入规范；`LoginLogicTests` 验证 UIKit 认证入口的面板组装、等待既有提示、取消与整段输入续接。
 
-`Scripts/check-ui-consistency.py` 将可执行测试、覆盖表与源码控件库存对照。静态库存覆盖 App、Modules、Watch 和两种 Widget 中的 SwiftUI、UIKit 控件及回调；完整运行按独立实例核对点击、输入、选择、长按、滑动、刷新和键盘提交证据。动态文案使用稳定标识，禁用分支由页面断言与公共组件合同共同验收。
+`Scripts/check-ui-consistency.py` 读取 `Scripts/ui-interactions.json`，核对源码控件数量及负责验证的测试。静态库存覆盖 App、Modules、Watch 和两种 Widget 中的 SwiftUI、UIKit 控件及回调；完整运行按独立实例核对点击、输入、选择、长按、滑动、刷新和键盘提交证据。动态文案使用稳定标识，禁用分支由页面断言与公共组件规范共同验收。
 
-页面流程使用原生 XCTest 触摸、滚动与手势，验证入口、参数绑定、业务结果和持久化重载。共享查询合同对照 App 渲染状态与 XCTest 原生状态，覆盖标识、类型、禁用状态、可触达性、布局及覆盖层遮挡。同一界面状态复用查询与快照；操作和状态等待刷新读取结果。导航按稳定控件身份定位，适配系统底栏和侧栏。
+页面流程使用原生 XCTest 触摸、滚动与手势，验证入口、参数绑定、业务结果和持久化重载。共享查询规范对照 App 渲染状态与 XCTest 原生状态，覆盖标识、类型、禁用状态、可触达性、布局及覆盖层遮挡。同一界面状态复用查询与快照；操作和状态等待刷新读取结果。导航按稳定控件身份定位，适配系统底栏和侧栏。
 
 公共更新时间行验收同时核对日程分区栏的窗口安全距离，并按窗口几何比较课表、DDL 和空教室顶部位置。课表底部验收根据实际系统导航栏位置计算：底栏窗口保留操作间距，侧栏与顶部导航窗口利用完整底部内容空间。
 
-字段通过原生触摸聚焦，核对第一响应者、命中控件及完整输入值。登录、密码、键盘提交和公共 TextView 合同使用系统键盘；公共字段合同比较键盘输入与控件输入后的绑定和业务结果。键盘附件验证实际按钮和焦点切换，背景收键盘操作遵循当前页面内容区域及系统键盘的触摸边界。
+字段通过原生触摸聚焦，核对第一响应者、命中控件及完整输入值。登录、密码、键盘提交和公共 TextView 规范使用系统键盘；公共字段规范比较键盘输入与控件输入后的绑定和业务结果。键盘附件验证实际按钮和焦点切换，背景收键盘操作遵循当前页面内容区域及系统键盘的触摸范围。
 
-公共按钮、开关和菜单合同对照原生操作与实际控件事件，核对最终状态和持久化结果。系统照片、日期和预览界面通过 XCTest 定位与操作；取消和返回确认目标页面或弹窗已经关闭。滚动、分页、拖动和缩放由实际手势触发，业务断言完成后验收当前滚动容器。系统通知横幅由共享短按路径处理，业务提示由所属页面流程断言。
+公共按钮、开关和菜单规范对照原生操作与实际控件事件，核对最终状态和持久化结果。系统照片、日期和预览界面通过 XCTest 定位与操作；取消和返回确认目标页面或弹窗已经关闭。滚动、分页、拖动和缩放由实际手势触发，业务断言完成后验收当前滚动容器。系统通知横幅由共享短按路径处理，业务提示由所属页面流程断言。
 
 完整批次串行执行，各用例独立启动并结束宿主。单个流程内复用进程，重建页面及模型，并按场景重置隔离数据、提示队列和迟到任务；冷启动专项保留账号数据，核对新进程和磁盘恢复结果。场景回复与界面快照共同核对进程、页面版本及初始状态。连续编辑、短信重试、媒体预览和多层弹窗场景采用系统动画，其余场景按对应运行配置执行。
 
-开发回归将受影响的类名或方法关键词合并为一次调用，完整验收运行整个 UI 组。运行期间保持 BIT101 前台并暂停手动操作。失败现场保留 App 状态、原始结果包、截图和元素树；真机验收结束后统一恢复常规 Release App。
+开发复验将受影响的类名或方法关键词合并为一次调用，完整验收运行整个 UI 组。运行期间保持 BIT101 前台并暂停手动操作。失败现场保留 App 状态、原始结果包、截图和元素树；真机验收结束后统一恢复常规 Release App。
 
 ```sh
 Scripts/run-extended-tests.sh ui
@@ -249,7 +249,7 @@ Scripts/run-extended-tests.sh build ui
 Scripts/run-static-audit.sh
 ```
 
-完整验收核对源码库存中的全部用例、参数实例和交互合同。运行库存按场景、导航路径与稳定控件身份维护，挂载实例中的待访问项用于诊断；页面矩阵和业务断言维护页面及分支范围。性能用例采用独立的启动和测量流程。
+完整验收核对源码库存中的全部用例、参数实例和交互规范。运行库存按场景、导航路径与稳定控件身份维护，挂载实例中的待访问项用于诊断；页面矩阵和业务断言维护页面及分支范围。性能用例采用独立的启动和测量流程。
 
 报告记录构建、执行、恢复和工作流总耗时，以及用例耗时、最慢项、进程身份和交互统计。查询与快照的阶段耗时用于定位开销，原始日志保留各阶段的重叠采样。编译保存到 `ui-tests-build.log`，执行保存到 `ui-tests.log`；原始结果和指标使用固定的 `test-results.xcresult`、`test-metrics.txt`，诊断附件按需导出到 `diagnostics/`。
 
@@ -257,6 +257,6 @@ Scripts/run-static-audit.sh
 
 | 用例 | 验收内容 |
 | --- | --- |
-| `MaintenancePerformanceUITests/testStartupPerformance` | 重置夹具存储，结束 App 进程并启动至课表就绪，采集时钟及 App 物理内存 |
+| `MaintenancePerformanceUITests/testStartupPerformance` | 重置测试存储，结束 App 进程并启动至课表就绪，采集时钟及 App 物理内存 |
 | `CommunityInteractionUITests/testPosterSubscriptionsPersist` | 话题详情选择收藏、更新和评论订阅，收藏列表重开详情及取消插眼，查看插眼消息分类 |
 | `MaintenancePerformanceUITests/testScheduleWeekLayoutPerformance` | 启用动画，课表执行十组前后切周，核对周次及采集布局耗时与 App 物理内存 |

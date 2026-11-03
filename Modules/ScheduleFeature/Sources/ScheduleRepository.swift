@@ -263,44 +263,14 @@ public final class ScheduleRepository: ObservableObject {
                 guard self.accountGeneration == generation, account == self.session(),
                     !Task.isCancelled
                 else { return false }
-                if self.persistenceGeneration == operation,
-                    source == .local || source == .localWithoutCloudPush,
-                    case .loaded(let remote) = await self.load(account)
-                {
-                    guard self.accountGeneration == generation, account == self.session(),
-                        self.persistenceGeneration == operation, !Task.isCancelled
-                    else { return false }
-                    self.reloadAfterPersistence = false
-                    if remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
-                        || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
-                        || remote.syncData.cloudSyncBaselineUserState
-                            != snapshot.syncData.cloudSyncBaselineUserState
-                    {
-                        guard await self.reconcile(with: remote) else { return false }
-                        let rebased = self.cache
-                        let rebasedRevision = self.revision
-                        do {
-                            try await save(rebased, source, account)
-                            guard self.accountGeneration == generation, account == self.session()
-                            else { return false }
-                            self.loadedCache = rebased
-                            self.loadedRevision = rebasedRevision
-                            self.notice = nil
-                            if self.persistenceGeneration == operation, self.reloadAfterPersistence
-                            {
-                                self.reloadAfterPersistence = false
-                                self.persistenceTask = nil
-                                await self.reload()
-                            }
-                            return true
-                        } catch {
-                            if TaskCancellation.matches(error) { return false }
-                            guard self.accountGeneration == generation, account == self.session()
-                            else { return false }
-                            self.notice = ScheduleNotice(title: "日程保存失败", error: error)
-                            return false
-                        }
-                    }
+                if let resolved = await self.attemptConflictResolution(
+                    snapshot: snapshot,
+                    source: source,
+                    account: account,
+                    generation: generation,
+                    operation: operation
+                ) {
+                    return resolved
                 }
                 self.notice = ScheduleNotice(title: "日程保存失败", error: error)
                 return false
@@ -308,6 +278,51 @@ public final class ScheduleRepository: ObservableObject {
         }
         persistenceTask = task
         return task
+    }
+
+    private func attemptConflictResolution(
+        snapshot: ScheduleCache,
+        source: ScheduleSaveSource,
+        account: AppStorageSession,
+        generation: Int,
+        operation: Int
+    ) async -> Bool? {
+        guard persistenceGeneration == operation,
+            source == .local || source == .localWithoutCloudPush,
+            case .loaded(let remote) = await load(account)
+        else { return nil }
+        guard accountGeneration == generation, account == session(),
+            persistenceGeneration == operation, !Task.isCancelled
+        else { return false }
+        reloadAfterPersistence = false
+        guard remote.cloudSyncBaselineAt != snapshot.cloudSyncBaselineAt
+            || remote.cloudSyncBaselineRecordTag != snapshot.cloudSyncBaselineRecordTag
+            || remote.syncData.cloudSyncBaselineUserState
+                != snapshot.syncData.cloudSyncBaselineUserState
+        else { return nil }
+        guard await reconcile(with: remote) else { return false }
+        let rebased = cache
+        let rebasedRevision = revision
+        do {
+            try await save(rebased, source, account)
+            guard accountGeneration == generation, account == session()
+            else { return false }
+            loadedCache = rebased
+            loadedRevision = rebasedRevision
+            notice = nil
+            if persistenceGeneration == operation, reloadAfterPersistence {
+                reloadAfterPersistence = false
+                persistenceTask = nil
+                await reload()
+            }
+            return true
+        } catch {
+            if TaskCancellation.matches(error) { return false }
+            guard accountGeneration == generation, account == session()
+            else { return false }
+            notice = ScheduleNotice(title: "日程保存失败", error: error)
+            return false
+        }
     }
 
     /// 合并时沿用本机学校数据，同步版本提供用户状态及持久化基线。

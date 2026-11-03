@@ -117,38 +117,43 @@ public struct AppCommentActionBar: View {
             }
             .buttonStyle(.plain)
 
-            Button(action: onLike) {
-                Label {
-                    Text("\(likeCount)")
-                        .font(AppDesignSystem.Typography.caption)
-                } icon: {
-                    if isLiking {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
-                    }
-                }
-                .foregroundStyle(
-                    isLiked
-                        ? AppDesignSystem.Palette.Accent.primary
-                        : AppDesignSystem.Foreground.secondaryColor
-                )
-                .frame(
-                    minWidth: AppDesignSystem.Size.Control.touchTarget,
-                    minHeight: AppDesignSystem.Size.Control.touchTarget
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isLiking || !isLikeEnabled)
-            .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
-            .accessibilityValue("\(likeCount)")
-            .accessibilityIdentifier("ui.app-comment-action-bar.like")
+            likeButton
 
             Spacer(minLength: AppDesignSystem.Spacing.none)
         }
         .padding(.top, AppDesignSystem.Spacing.micro)
+    }
+
+    @ViewBuilder
+    private var likeButton: some View {
+        Button(action: onLike) {
+            Label {
+                Text("\(likeCount)")
+                    .font(AppDesignSystem.Typography.caption)
+            } icon: {
+                if isLiking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: isLiked ? "hand.thumbsup.fill" : "hand.thumbsup")
+                }
+            }
+            .foregroundStyle(
+                isLiked
+                    ? AppDesignSystem.Palette.Accent.primary
+                    : AppDesignSystem.Foreground.secondaryColor
+            )
+            .frame(
+                minWidth: AppDesignSystem.Size.Control.touchTarget,
+                minHeight: AppDesignSystem.Size.Control.touchTarget
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isLiking || !isLikeEnabled)
+        .accessibilityLabel(isLiked ? "取消评论点赞" : "点赞评论")
+        .accessibilityValue("\(likeCount)")
+        .accessibilityIdentifier("ui.app-comment-action-bar.like")
     }
 }
 
@@ -218,18 +223,23 @@ public struct AppCommentThread<Comment: Identifiable, Content: View>: View {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                     ForEach(Array(subcomments.enumerated()), id: \.element.id) {
                         index, subcomment in
-                        VStack(spacing: AppDesignSystem.Spacing.none) {
-                            content(subcomment, true)
-
-                            if index != subcomments.count - 1 {
-                                Divider()
-                                    .padding(.leading, AppDesignSystem.Comment.replyInset)
-                            }
-                        }
+                        subcommentRow(index: index, subcomment: subcomment)
                     }
                 }
                 .padding(.leading, AppDesignSystem.Comment.replyInset)
                 .padding(.top, AppDesignSystem.Spacing.tiny)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func subcommentRow(index: Int, subcomment: Comment) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            content(subcomment, true)
+
+            if index != subcomments.count - 1 {
+                Divider()
+                    .padding(.leading, AppDesignSystem.Comment.replyInset)
             }
         }
     }

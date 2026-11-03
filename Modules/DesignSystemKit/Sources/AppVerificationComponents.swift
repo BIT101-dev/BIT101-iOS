@@ -229,20 +229,42 @@ public struct AppVerificationSheet: View {
         self.captchaImage = captchaImage
     }
 
+    private var uiCaptchaImage: UIImage? {
+        captchaImage.flatMap { UIImage(data: $0) }
+    }
+
+    @ViewBuilder
+    private var captchaImageView: some View {
+        if let uiCaptchaImage {
+            Image(uiImage: uiCaptchaImage).resizable().scaledToFit()
+                .accessibilityLabel("学校图形验证码")
+                .accessibilityIdentifier("verification.captcha")
+        } else {
+            Text("验证码图片加载失败，请取消后重试。")
+                .foregroundStyle(AppDesignSystem.Palette.Status.danger)
+        }
+    }
+
+    private var submitButtonLabel: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Spacer()
+            if submissionInProgress {
+                ProgressView()
+                    .padding(.trailing, AppDesignSystem.Spacing.tiny)
+                Text("正在验证")
+            } else {
+                Text(submitTitle)
+            }
+            Spacer()
+        }
+    }
+
     public var body: some View {
-        let image = captchaImage.flatMap { UIImage(data: $0) }
         NavigationStack {
             Form {
                 Section {
                     if isCaptcha {
-                        if let image {
-                            Image(uiImage: image).resizable().scaledToFit()
-                                .accessibilityLabel("学校图形验证码")
-                                .accessibilityIdentifier("verification.captcha")
-                        } else {
-                            Text("验证码图片加载失败，请取消后重试。")
-                                .foregroundStyle(AppDesignSystem.Palette.Status.danger)
-                        }
+                        captchaImageView
                     }
                     if let maskedPhone, !maskedPhone.isEmpty {
                         LabeledContent("手机号", value: maskedPhone)
@@ -269,22 +291,12 @@ public struct AppVerificationSheet: View {
                     Button {
                         submitCode(code)
                     } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            Spacer()
-                            if submissionInProgress {
-                                ProgressView()
-                                    .padding(.trailing, AppDesignSystem.Spacing.tiny)
-                                Text("正在验证")
-                            } else {
-                                Text(submitTitle)
-                            }
-                            Spacer()
-                        }
+                        submitButtonLabel
                     }
                     .disabled(
                         submissionInProgress
                             || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha)
-                            || isCaptcha && image == nil
+                            || isCaptcha && uiCaptchaImage == nil
                     )
                     .appInteractiveListRow()
                 }

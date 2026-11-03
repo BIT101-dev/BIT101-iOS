@@ -365,6 +365,17 @@ def cancellation_findings(
     return findings
 
 
+def enclosing_functions(functions: list[dict], start: int) -> list[dict]:
+    result = []
+    for function in functions:
+        start_offset = function.get("bodyStart")
+        if start_offset is None:
+            start_offset = function["start"]
+        if start_offset <= start < function["end"]:
+            result.append(function)
+    return result
+
+
 def file_write_calls(index: dict) -> dict[str, set[int]]:
     from swift_type_index import (
         SwiftTypeIndex,
@@ -466,17 +477,7 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
                 and {"to", "contentsOf"}.intersection(call.get("argumentLabels", []))
             ):
                 writes[path].add(call["start"])
-            enclosing = [
-                function
-                for function in facts.get("functionRanges", [])
-                if (
-                    function.get("bodyStart")
-                    if function.get("bodyStart") is not None
-                    else function["start"]
-                )
-                <= call["start"]
-                < function["end"]
-            ]
+            enclosing = enclosing_functions(facts.get("functionRanges", []), call["start"])
             if enclosing:
                 owner = max(enclosing, key=lambda function: function["start"])
                 owners[key] = (path, owner["start"])
@@ -643,6 +644,26 @@ def asynchronous_test_wait_findings(path: Path, source: str, facts: dict) -> lis
     return findings
 
 
+def check_duplicate_swift_imports(name: str, masked_source: str, errors: list[str]) -> None:
+    import_branches = [set()]
+    for line, text in enumerate(masked_source.split("\n"), 1):
+        if re.match(r"\s*#if\b", text):
+            import_branches.append(set())
+            continue
+        if re.match(r"\s*#(?:else|elseif)\b", text):
+            import_branches[-1].clear()
+            continue
+        if re.match(r"\s*#endif\b", text):
+            if len(import_branches) > 1:
+                import_branches.pop()
+            continue
+        for match in re.finditer(r"(?:^|;)\s*import\s+([^;\n]+)", text):
+            module = " ".join(match.group(1).split())
+            if any(module in branch for branch in import_branches):
+                errors.append(f"{name}:{line}: 重复 import {module}")
+            import_branches[-1].add(module)
+
+
 def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[str], list[str]]:
     errors: list[str] = view_transport_findings(syntax_index or {})
     review: list[str] = []
@@ -686,21 +707,7 @@ def source_findings(syntax_index: dict[str, dict] | None = None) -> tuple[list[s
             errors.append(f"{name}: Swift 源码请使用空格缩进")
         if any(line.rstrip() != line for line in source.splitlines()):
             errors.append(f"{name}: 存在行尾空白")
-        import_branches = [set()]
-        for line, text in enumerate(masked_source.split("\n"), 1):
-            if re.match(r"\s*#if\b", text):
-                import_branches.append(set())
-            elif re.match(r"\s*#(?:else|elseif)\b", text):
-                import_branches[-1].clear()
-            elif re.match(r"\s*#endif\b", text):
-                if len(import_branches) > 1:
-                    import_branches.pop()
-            else:
-                for match in re.finditer(r"(?:^|;)\s*import\s+([^;\n]+)", text):
-                    module = " ".join(match.group(1).split())
-                    if any(module in branch for branch in import_branches):
-                        errors.append(f"{name}:{line}: 重复 import {module}")
-                    import_branches[-1].add(module)
+        check_duplicate_swift_imports(name, masked_source, errors)
 
         if re.search(r"^\s*#if\s+false\b", masked_source, re.MULTILINE):
             errors.append(f"{name}: 请删除 #if false 死代码块")

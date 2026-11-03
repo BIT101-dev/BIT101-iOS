@@ -153,27 +153,7 @@ private struct LoginFormView: View {
             Section {
                 // 登录按钮和键盘回车共用 `submitLogin()`，统一调用 `viewModel.login()`；
                 // 校验、错误提示和提交态保持一致。
-                Button {
-                    focusedField = nil
-                    submitLogin()
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Spacer()
-                        if viewModel.isSubmitting {
-                            ProgressView()
-                                .accessibilityHidden(true)
-                        } else {
-                            Text("登录")
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
-                        }
-                        Spacer()
-                    }
-                }
-                .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
-                .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "使用 BIT101 账号密码登录")
-                .accessibilityIdentifier("login.submit")
-                .disabled(!viewModel.canSubmit)
-                .appInteractiveListRow()
+                loginSubmitButton
             }
 
             Section {
@@ -200,6 +180,30 @@ private struct LoginFormView: View {
 
     private func submitLogin() {
         loginRequested = true
+    }
+
+    private var loginSubmitButton: some View {
+        Button {
+            focusedField = nil
+            submitLogin()
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Spacer()
+                if viewModel.isSubmitting {
+                    ProgressView()
+                        .accessibilityHidden(true)
+                } else {
+                    Text("登录")
+                        .font(AppDesignSystem.Typography.bodyEmphasis)
+                }
+                Spacer()
+            }
+        }
+        .accessibilityLabel(viewModel.isSubmitting ? "正在登录" : "登录")
+        .accessibilityHint(viewModel.isSubmitting ? "请稍候" : "使用 BIT101 账号密码登录")
+        .accessibilityIdentifier("login.submit")
+        .disabled(!viewModel.canSubmit)
+        .appInteractiveListRow()
     }
 }
 
@@ -242,66 +246,9 @@ private struct AccountRegistrationView: View {
                     .accessibilityIdentifier("registration.confirmation")
                 }
 
-                Section {
-                    Picker("验证方式", selection: $viewModel.method) {
-                        ForEach(RegistrationVerificationMethod.allCases, id: \.self) {
-                            Text($0.rawValue).tag($0)
-                        }
-                    }
-                    .accessibilityIdentifier("registration.method")
-                    .appSelectionFeedback(trigger: viewModel.method)
-                    .appInteractiveListRow()
-                    if viewModel.method == .school {
-                        SecureField(
-                            "", text: $viewModel.schoolPassword,
-                            prompt: AppInputPrompt.text("学校统一身份认证密码")
-                        )
-                        .textContentType(loginContentType(.password))
-                        .focused($focusedField, equals: .schoolPassword)
-                        .accessibilityLabel("学校统一身份认证密码")
-                        .accessibilityIdentifier("registration.school-password")
-                        if viewModel.verified {
-                            Label("身份验证成功", systemImage: "checkmark.circle")
-                                .foregroundStyle(AppDesignSystem.Palette.Status.success)
-                        }
-                        Button("验证身份") { verify() }
-                            .disabled(!viewModel.canVerify || viewModel.verified)
-                            .accessibilityIdentifier("registration.verify")
-                            .appInteractiveListRow()
-                    } else {
-                        TextField("", text: $viewModel.code, prompt: AppInputPrompt.text("6 位验证码"))
-                            .keyboardType(.numberPad)
-                            .textContentType(.oneTimeCode)
-                            .focused($focusedField, equals: .code)
-                            .accessibilityLabel("6 位验证码")
-                            .accessibilityIdentifier("registration.code")
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            let remaining = max(
-                                0, Int(ceil(viewModel.resendAt.timeIntervalSince(context.date))))
-                            Button(remaining > 0 ? "\(remaining) 秒后重新发送" : "发送验证码") { verify() }
-                                .disabled(!viewModel.canVerify || remaining > 0)
-                                .accessibilityIdentifier("registration.send-code")
-                                .appInteractiveListRow()
-                        }
-                    }
-                    if viewModel.isVerifying { AppInlineLoadingState("正在验证") }
-                }
+                verificationSection
 
-                Section {
-                    Button {
-                        focusedField = nil
-                        requestedOperation = .submit
-                    } label: {
-                        if viewModel.isSubmitting {
-                            AppInlineLoadingState("正在提交")
-                        } else {
-                            Text("注册或重置并登录")
-                        }
-                    }
-                    .disabled(!viewModel.canSubmit)
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("registration.submit")
-                }
+                registrationSubmitSection
             }
             .disabled(viewModel.isBusy || requestedOperation != nil)
         }
@@ -318,6 +265,95 @@ private struct AccountRegistrationView: View {
             }
         }
         .onDisappear { requestedOperation = nil }
+    }
+
+    @ViewBuilder
+    private var verificationSection: some View {
+        Section {
+            methodPicker
+            if viewModel.method == .school {
+                schoolVerificationFields
+            } else {
+                codeVerificationFields
+            }
+            if viewModel.isVerifying { AppInlineLoadingState("正在验证") }
+        }
+    }
+
+    private var methodPicker: some View {
+        Picker("验证方式", selection: $viewModel.method) {
+            ForEach(RegistrationVerificationMethod.allCases, id: \.self) {
+                Text($0.rawValue).tag($0)
+            }
+        }
+        .accessibilityIdentifier("registration.method")
+        .appSelectionFeedback(trigger: viewModel.method)
+        .appInteractiveListRow()
+    }
+
+    @ViewBuilder
+    private var schoolVerificationFields: some View {
+        SecureField(
+            "", text: $viewModel.schoolPassword,
+            prompt: AppInputPrompt.text("学校统一身份认证密码")
+        )
+        .textContentType(loginContentType(.password))
+        .focused($focusedField, equals: .schoolPassword)
+        .accessibilityLabel("学校统一身份认证密码")
+        .accessibilityIdentifier("registration.school-password")
+        if viewModel.verified {
+            Label("身份验证成功", systemImage: "checkmark.circle")
+                .foregroundStyle(AppDesignSystem.Palette.Status.success)
+        }
+        Button("验证身份") { verify() }
+            .disabled(!viewModel.canVerify || viewModel.verified)
+            .accessibilityIdentifier("registration.verify")
+            .appInteractiveListRow()
+    }
+
+    @ViewBuilder
+    private var codeVerificationFields: some View {
+        TextField("", text: $viewModel.code, prompt: AppInputPrompt.text("6 位验证码"))
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .focused($focusedField, equals: .code)
+            .accessibilityLabel("6 位验证码")
+            .accessibilityIdentifier("registration.code")
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            sendCodeButton(at: context.date)
+        }
+    }
+
+    private func sendCodeButton(at date: Date) -> some View {
+        let remaining = max(0, Int(ceil(viewModel.resendAt.timeIntervalSince(date))))
+        let title = remaining > 0 ? "\(remaining) 秒后重新发送" : "发送验证码"
+        return Button(title) { verify() }
+            .disabled(!viewModel.canVerify || remaining > 0)
+            .accessibilityIdentifier("registration.send-code")
+            .appInteractiveListRow()
+    }
+
+    private var registrationSubmitSection: some View {
+        Section {
+            Button {
+                focusedField = nil
+                requestedOperation = .submit
+            } label: {
+                registrationSubmitButtonLabel
+            }
+            .disabled(!viewModel.canSubmit)
+            .appInteractiveListRow()
+            .accessibilityIdentifier("registration.submit")
+        }
+    }
+
+    @ViewBuilder
+    private var registrationSubmitButtonLabel: some View {
+        if viewModel.isSubmitting {
+            AppInlineLoadingState("正在提交")
+        } else {
+            Text("注册或重置并登录")
+        }
     }
 
     private func verify() {

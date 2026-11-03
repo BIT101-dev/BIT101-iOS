@@ -131,11 +131,7 @@ final class ReleaseNetworkSmokeRunner {
 
         if scope != .communityCleanup && scope != .communityWrites {
             do { try dependencies.clearRawCourseResponse() } catch {
-                let area: NetworkSmokeArea =
-                    scope.includes(.authentication)
-                    ? .authentication
-                    : scope.includes(.schedule)
-                        ? .schedule : scope.includes(.ddl) ? .ddl : .transcript
+                let area = Self.failureArea(for: scope)
                 recordFailure("原始课表采样清理", error.localizedDescription, area: area, scope: scope)
                 return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
             }
@@ -187,9 +183,7 @@ final class ReleaseNetworkSmokeRunner {
                                 expectedParameters: NetworkSmokePaging.imageResourceParameters(
                                     urls)
                             ) {
-                                for value in urls {
-                                    _ = try await self.fetchImageCount(urlString: value)
-                                }
+                                try await self.fetchAllImages(urls: urls)
                             }
                         })
                 } ?? []
@@ -288,10 +282,7 @@ final class ReleaseNetworkSmokeRunner {
                             expectedParameters: NetworkSmokePaging.imageResourceParameters(
                                 images)
                         ) {
-                            guard !images.isEmpty else { throw URLError(.resourceUnavailable) }
-                            for url in images {
-                                _ = try await self.fetchImageCount(urlString: url)
-                            }
+                            try await self.verifyGalleryImages(images)
                         }
                     } else {
                         self.recordSkip(
@@ -304,15 +295,7 @@ final class ReleaseNetworkSmokeRunner {
                         .galleryComments, area: .bit101, scope: scope,
                         expectedParameters: ["obj": objectID]
                     ) {
-                        for order in CommunityCommentOrder.allCases {
-                            _ = try await NetworkSmokePaging.commentBatch(
-                                for: objectID, order: order,
-                                currentIdentity: self.dependencies.communityIdentity
-                            ) {
-                                try await gallery.fetchComments(
-                                    objectID: objectID, order: order, page: $0 == 0 ? nil : $0)
-                            }
-                        }
+                        try await self.fetchAllComments(gallery: gallery, objectID: objectID)
                     }
                 },
             ])
@@ -474,13 +457,9 @@ final class ReleaseNetworkSmokeRunner {
                         .courseComments, area: .bit101, scope: scope,
                         expectedParameters: ["obj": objectID]
                     ) {
-                        try await NetworkSmokePaging.commentPage(
-                            for: objectID, order: .newest,
-                            currentIdentity: self.dependencies.communityIdentity
-                        ) {
-                            try await courses.fetchComments(
-                                courseID: fixture.courseID, page: $0 == 0 ? nil : $0)
-                        }
+                        try await self.fetchCourseComments(
+                            courses: courses, courseID: fixture.courseID, objectID: objectID
+                        )
                     }
                 },
                 {
@@ -549,25 +528,16 @@ final class ReleaseNetworkSmokeRunner {
                                 "excludedSearch": NetworkSmokePaging.excludedSearchText,
                             ]
                         ) {
-                            guard !keyword.isEmpty else { throw URLError(.cannotParseResponse) }
-                            return try await NetworkSmokePaging.searchPage(
-                                matching: fixture.paperID, keyword: keyword,
-                                currentIdentity: self.dependencies.communityIdentity
-                            ) { text, page in
-                                let result = try await papers.fetchPapers(
-                                    search: text, order: .newest, page: page)
-                                try NetworkSmokePaging.checkPapers(result, order: .newest)
-                                return result
-                            }
+                            try await self.searchPaperPage(
+                                papers: papers, paperID: fixture.paperID, keyword: keyword
+                            )
                         }
                         _ = await self.probe(
                             .paperImage, area: .bit101, scope: scope,
                             expectedParameters: NetworkSmokePaging.imageResourceParameters(
                                 detail.images)
                         ) {
-                            for url in detail.images {
-                                _ = try await self.fetchImageCount(urlString: url)
-                            }
+                            try await self.fetchAllImages(urls: detail.images)
                         }
                     } else {
                         self.recordSkip(
@@ -582,16 +552,9 @@ final class ReleaseNetworkSmokeRunner {
                         .paperComments, area: .bit101, scope: scope,
                         expectedParameters: ["obj": objectID]
                     ) {
-                        for order in CommunityCommentOrder.allCases {
-                            _ = try await NetworkSmokePaging.commentPage(
-                                for: objectID, order: order,
-                                currentIdentity: self.dependencies.communityIdentity
-                            ) {
-                                try await papers.fetchComments(
-                                    paperID: fixture.paperID, order: order,
-                                    page: $0 == 0 ? nil : $0)
-                            }
-                        }
+                        try await self.fetchAllPaperComments(
+                            papers: papers, paperID: fixture.paperID, objectID: objectID
+                        )
                     }
                 },
                 {
@@ -798,15 +761,10 @@ final class ReleaseNetworkSmokeRunner {
                         .classroomOccupancy, area: .schedule, scope: scope,
                         expectedParameters: selection
                     ) {
-                        let classrooms = try await schedule.fetchClassrooms(
-                            buildingID: building.id, term: term, date: queryDate)
-                        guard
-                            let prefetched = try await schedule.prefetchClassrooms(
-                                buildingID: building.id, term: term, date: queryDate),
-                            classrooms.allSatisfy(\.hasValidOccupancy),
-                            prefetched.allSatisfy(\.hasValidOccupancy)
-                        else { throw URLError(.cannotParseResponse) }
-                        return classrooms
+                        try await self.fetchAndVerifyClassrooms(
+                            schedule: schedule, buildingID: building.id,
+                            term: term, queryDate: queryDate
+                        )
                     }
                     if classrooms?.isEmpty == true {
                         coverageGaps.append("classroom.occupancy（所选教学楼返回空集合，空教室样本覆盖待补齐）")
@@ -1378,6 +1336,108 @@ final class ReleaseNetworkSmokeRunner {
             request, accepting: 200..<300, maximumBytes: maximumBytes)
         guard !response.data.isEmpty else { throw URLError(.zeroByteResource) }
         return response
+    }
+
+    private static func failureArea(for scope: NetworkSmokeScope) -> NetworkSmokeArea {
+        if scope.includes(.authentication) { return .authentication }
+        if scope.includes(.schedule) { return .schedule }
+        if scope.includes(.ddl) { return .ddl }
+        return .transcript
+    }
+
+    private func fetchAllImages(urls: [String]) async throws {
+        for value in urls {
+            _ = try await self.fetchImageCount(urlString: value)
+        }
+    }
+
+    private func verifyGalleryImages(_ images: [String]) async throws {
+        guard !images.isEmpty else { throw URLError(.resourceUnavailable) }
+        for url in images {
+            _ = try await self.fetchImageCount(urlString: url)
+        }
+    }
+
+    private func fetchAllComments(
+        gallery: any NetworkSmokeGalleryServicing, objectID: String
+    ) async throws {
+        for order in CommunityCommentOrder.allCases {
+            _ = try await NetworkSmokePaging.commentBatch(
+                for: objectID, order: order,
+                currentIdentity: self.dependencies.communityIdentity
+            ) {
+                let page = $0 == 0 ? nil : $0
+                return try await gallery.fetchComments(
+                    objectID: objectID, order: order, page: page
+                )
+            }
+        }
+    }
+
+    private func fetchCourseComments(
+        courses: any NetworkSmokeCourseServicing, courseID: Int, objectID: String
+    ) async throws {
+        _ = try await NetworkSmokePaging.commentPage(
+            for: objectID, order: .newest,
+            currentIdentity: self.dependencies.communityIdentity
+        ) {
+            let page = $0 == 0 ? nil : $0
+            return try await courses.fetchComments(
+                courseID: courseID, page: page
+            )
+        }
+    }
+
+    private func searchPaperPage(
+        papers: any NetworkSmokePaperServicing, paperID: Int, keyword: String
+    ) async throws -> [PaperSummary] {
+        guard !keyword.isEmpty else { throw URLError(.cannotParseResponse) }
+        return try await NetworkSmokePaging.searchPage(
+            matching: paperID, keyword: keyword,
+            currentIdentity: self.dependencies.communityIdentity
+        ) { text, page in
+            let result = try await papers.fetchPapers(
+                search: text, order: .newest, page: page
+            )
+            try NetworkSmokePaging.checkPapers(result, order: .newest)
+            return result
+        }
+    }
+
+    private func fetchAllPaperComments(
+        papers: any NetworkSmokePaperServicing, paperID: Int, objectID: String
+    ) async throws {
+        for order in CommunityCommentOrder.allCases {
+            _ = try await NetworkSmokePaging.commentPage(
+                for: objectID, order: order,
+                currentIdentity: self.dependencies.communityIdentity
+            ) {
+                let page = $0 == 0 ? nil : $0
+                return try await papers.fetchComments(
+                    paperID: paperID, order: order,
+                    page: page
+                )
+            }
+        }
+    }
+
+    private func fetchAndVerifyClassrooms(
+        schedule: any NetworkSmokeScheduleServicing,
+        buildingID: String,
+        term: String,
+        queryDate: Date
+    ) async throws -> [Classroom] {
+        let classrooms = try await schedule.fetchClassrooms(
+            buildingID: buildingID, term: term, date: queryDate
+        )
+        guard
+            let prefetched = try await schedule.prefetchClassrooms(
+                buildingID: buildingID, term: term, date: queryDate
+            ),
+            classrooms.allSatisfy(\.hasValidOccupancy),
+            prefetched.allSatisfy(\.hasValidOccupancy)
+        else { throw URLError(.cannotParseResponse) }
+        return classrooms
     }
 
     private nonisolated static func duration(_ interval: TimeInterval) -> String {

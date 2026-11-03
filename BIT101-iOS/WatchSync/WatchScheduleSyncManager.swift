@@ -351,65 +351,105 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             guard self.requestQueue.generation == generation else { return }
             let session = WCSession.default
             if session.isReachable {
-                session.sendMessage(
-                    WatchScheduleTransferProtocol.requestContext(
-                        knownRevision: knownRevision),
-                    replyHandler: { @Sendable context in
-                        let data =
-                            WatchScheduleTransferProtocol.snapshotData(from: context)
-                            ?? Data()
-                        let receivedAt = ContinuousClock.now
-                        Task { @MainActor in
-                            guard self.requestQueue.generation == generation else { return }
-                            let result = await self.persistSnapshotData(
-                                data, receivedAt: receivedAt)
-                            guard self.requestQueue.generation == generation else { return }
-                            completion(result)
-                        }
-                    },
-                    errorHandler: { @Sendable error in
-                        Task { @MainActor in
-                            guard self.requestQueue.generation == generation else { return }
-                            Self.logger.notice(
-                                """
-                                Immediate watch sync failed; queueing a context request\
-                                : \(String(describing: error), privacy: .public)
-                                """
-                            )
-                            do {
-                                try WCSession.default.updateApplicationContext(
-                                    WatchScheduleTransferProtocol.requestContext(
-                                        knownRevision: knownRevision))
-                                completion(.success(.requested))
-                            } catch {
-                                Self.logger.error(
-                                    """
-                                    Failed to queue the watch schedule request: \
-                                    \(String(describing: error), privacy: .public)
-                                    """
-                                )
-                                completion(.failure(.transferFailed))
-                            }
-                        }
-                    }
+                self.sendReachableMessage(
+                    session: session,
+                    knownRevision: knownRevision,
+                    generation: generation,
+                    completion: completion
                 )
                 return
             }
 
-            do {
-                try session.updateApplicationContext(
-                    WatchScheduleTransferProtocol.requestContext(
-                        knownRevision: knownRevision))
-                completion(.success(.requested))
-            } catch {
-                Self.logger.error(
-                    """
-                    Failed to queue the watch schedule request: \
-                    \(String(describing: error), privacy: .public)
-                    """
-                )
-                completion(.failure(.transferFailed))
+            self.queueFallbackContext(
+                session: session,
+                knownRevision: knownRevision,
+                completion: completion
+            )
+        }
+    }
+
+    private func sendReachableMessage(
+        session: WCSession,
+        knownRevision: Int?,
+        generation: UInt64,
+        completion: @escaping WatchScheduleRequestQueue.Completion
+    ) {
+        session.sendMessage(
+            WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision),
+            replyHandler: { @Sendable [weak self] context in
+                let data = WatchScheduleTransferProtocol.snapshotData(from: context) ?? Data()
+                let receivedAt = ContinuousClock.now
+                Task { @MainActor in
+                    await self?.handleReachableReply(
+                        data: data,
+                        receivedAt: receivedAt,
+                        generation: generation,
+                        completion: completion
+                    )
+                }
+            },
+            errorHandler: { @Sendable [weak self] error in
+                Task { @MainActor in
+                    self?.handleReachableError(
+                        error: error,
+                        knownRevision: knownRevision,
+                        generation: generation,
+                        completion: completion
+                    )
+                }
             }
+        )
+    }
+
+    private func handleReachableReply(
+        data: Data,
+        receivedAt: ContinuousClock.Instant,
+        generation: UInt64,
+        completion: @escaping WatchScheduleRequestQueue.Completion
+    ) async {
+        guard self.requestQueue.generation == generation else { return }
+        let result = await self.persistSnapshotData(data, receivedAt: receivedAt)
+        guard self.requestQueue.generation == generation else { return }
+        completion(result)
+    }
+
+    private func handleReachableError(
+        error: Error,
+        knownRevision: Int?,
+        generation: UInt64,
+        completion: @escaping WatchScheduleRequestQueue.Completion
+    ) {
+        guard self.requestQueue.generation == generation else { return }
+        Self.logger.notice(
+            """
+            Immediate watch sync failed; queueing a context request\
+            : \(String(describing: error), privacy: .public)
+            """
+        )
+        queueFallbackContext(
+            session: WCSession.default,
+            knownRevision: knownRevision,
+            completion: completion
+        )
+    }
+
+    private func queueFallbackContext(
+        session: WCSession,
+        knownRevision: Int?,
+        completion: @escaping WatchScheduleRequestQueue.Completion
+    ) {
+        do {
+            try session.updateApplicationContext(
+                WatchScheduleTransferProtocol.requestContext(knownRevision: knownRevision))
+            completion(.success(.requested))
+        } catch {
+            Self.logger.error(
+                """
+                Failed to queue the watch schedule request: \
+                \(String(describing: error), privacy: .public)
+                """
+            )
+            completion(.failure(.transferFailed))
         }
     }
 

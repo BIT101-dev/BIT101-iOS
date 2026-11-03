@@ -512,18 +512,36 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
                         recordLayoutScreenshot("空教室")
                     }
                     if tab == "话廊" || tab == "文章" {
-                        assertBottom(app.buttons[tab == "话廊" ? "搜索话廊" : "搜索文章"])
-                        if isPhone {
-                            let header = app.native.segmentedControls.firstMatch
-                            assertUI(
-                                header.exists && header.frame.minY >= safeArea.minY + 16 - 0.5,
-                                "Duo 顶部控件应保留标准安全间距：\(header.frame)，安全区 \(safeArea)。")
-                        }
-                        recordLayoutScreenshot(tab == "话廊" ? "话题列表" : "文章列表")
+                        assertCommunityTab(
+                            tab,
+                            isPhone: isPhone,
+                            safeArea: safeArea,
+                            assertBottom: assertBottom,
+                            recordScreenshot: recordLayoutScreenshot)
                     }
                 }
             }
         }
+    }
+
+    @MainActor
+    private func assertCommunityTab(
+        _ tab: String,
+        isPhone: Bool,
+        safeArea: CGRect,
+        assertBottom: (UIElement) -> Void,
+        recordScreenshot: (String) -> Void
+    ) {
+        let buttonTitle = tab == "话廊" ? "搜索话廊" : "搜索文章"
+        assertBottom(app.buttons[buttonTitle])
+        if isPhone {
+            let header = app.native.segmentedControls.firstMatch
+            assertUI(
+                header.exists && header.frame.minY >= safeArea.minY + 16 - 0.5,
+                "Duo 顶部控件应保留标准安全间距：\(header.frame)，安全区 \(safeArea)。")
+        }
+        let screenshotTitle = tab == "话廊" ? "话题列表" : "文章列表"
+        recordScreenshot(screenshotTitle)
     }
     @MainActor private func assertPaneContentWidth(
         _ identifier: String, left: CGFloat, right: CGFloat

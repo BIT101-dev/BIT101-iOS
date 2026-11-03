@@ -289,15 +289,21 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 || stage == "paper-newest-date-failure" && order == .newest
                 || stage == "paper-default-date-failure"
             {
-                return page == 0
-                    ? (0..<2).map { index in
-                        PaperSummary(
-                            id: index + 1, title: "fixture", intro: "", likeNum: index,
-                            commentNum: index,
-                            updateTime: stage.contains("-date-")
-                                ? "invalid"
-                                : index == 0 ? "2026-01-01T00:00:00Z" : "2026-01-02T00:00:00Z")
-                    } : []
+                guard page == 0 else { return [] }
+                return (0..<2).map { index in
+                    let updateTime: String
+                    if stage.contains("-date-") {
+                        updateTime = "invalid"
+                    } else if index == 0 {
+                        updateTime = "2026-01-01T00:00:00Z"
+                    } else {
+                        updateTime = "2026-01-02T00:00:00Z"
+                    }
+                    return PaperSummary(
+                        id: index + 1, title: "fixture", intro: "", likeNum: index,
+                        commentNum: index,
+                        updateTime: updateTime)
+                }
             }
             guard page == 0 else { return [] }
             return [

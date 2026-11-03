@@ -236,6 +236,13 @@ def path_is_in_source_root(path: str, source_root: Path) -> bool:
     return Path(path).is_relative_to(source_root)
 
 
+def inherits_view(declaration: dict) -> bool:
+    for inherited in declaration.get("inheritedTypes", []):
+        if inherited.rsplit(".", 1)[-1] == "View":
+            return True
+    return False
+
+
 def view_entries(
     syntax: dict[str, dict], view_name: str, source_root: Path = ROOT
 ) -> list[tuple[Path, dict, list[str]]]:
@@ -244,10 +251,7 @@ def view_entries(
         for path, facts in syntax.items()
         if path_is_in_source_root(path, source_root)
         for declaration in facts["declarations"]
-        if declaration["name"] == view_name
-        and any(
-            inherited.rsplit(".", 1)[-1] == "View" for inherited in declaration["inheritedTypes"]
-        )
+        if declaration["name"] == view_name and inherits_view(declaration)
     ]
 
 
@@ -508,6 +512,34 @@ class UIAuditContext(dict):
         self.execution = execution_index(self)
 
 
+def has_matching_function_scope(facts: dict, scope: list[str]) -> bool:
+    for item in facts.get("functionRanges", []):
+        if item["scope"] == scope:
+            return True
+    return False
+
+
+def branch_hidden_ranges(part: dict, can_render) -> list[tuple[int, int]]:
+    result = []
+    keys = ("thenRange", "elseRange", "deadRange", "followingRange")
+    for branch in part.get("controlFlow", []) + part.get("expressionFlow", []):
+        bounds_list = [branch.get(k) for k in keys if branch.get(k)]
+        bounds_list.extend(branch.get("branchRanges", []))
+        for bounds in bounds_list:
+            if bounds and not can_render(part, bounds[0]):
+                result.append(bounds)
+    return result
+
+
+def resolve_called_function(
+    functions: list[tuple[dict, dict]], called_name: str
+) -> tuple[dict, dict] | None:
+    matched = [entry for entry in functions if entry[1]["name"] == called_name]
+    if len(matched) == 1 and matched[0][1].get("returnsView", False):
+        return matched[0]
+    return None
+
+
 def rendered_scope_facts(
     facts: dict, scope: list[str], syntax: dict[str, dict] | None = None
 ) -> dict:
@@ -522,8 +554,7 @@ def rendered_scope_facts(
             (other_facts, False)
             for path, other_facts in syntax.items()
             if path_is_in_source_root(path, ROOT)
-            if other_facts is not facts
-            and any(item["scope"] == scope for item in other_facts.get("functionRanges", []))
+            if other_facts is not facts and has_matching_function_scope(other_facts, scope)
         )
     functions = [
         (part, item)
@@ -544,18 +575,7 @@ def rendered_scope_facts(
     def can_render(part: dict, start: int) -> bool:
         return call_can_execute(executable_parts[id(part)], {"start": start})
 
-    hidden_ranges = {
-        id(part): [
-            bounds
-            for branch in part.get("controlFlow", []) + part.get("expressionFlow", [])
-            for bounds in [
-                branch.get(key) for key in ("thenRange", "elseRange", "deadRange", "followingRange")
-            ]
-            + branch.get("branchRanges", [])
-            if bounds and not can_render(part, bounds[0])
-        ]
-        for part, _ in parts
-    }
+    hidden_ranges = {id(part): branch_hidden_ranges(part, can_render) for part, _ in parts}
 
     def rendered_node(part: dict, item: dict) -> dict:
         start, value = item.get("start", -1), item.get("value")
@@ -596,18 +616,18 @@ def rendered_scope_facts(
                 ):
                     continue
                 owner = containing_function(part, call_start)
-                if owner:
-                    owner_key = (id(part), owner["name"], owner["start"], owner["end"])
-                    if owner_key not in reachable:
-                        continue
-                elif not is_root:
+                if (
+                    owner
+                    and (id(part), owner["name"], owner["start"], owner["end"]) not in reachable
+                ):
+                    continue
+                if not owner and not is_root:
                     continue
                 called_name = call["value"].rsplit(".", 1)[-1].split("<", 1)[0]
-                candidates = [item for _, item in functions if item["name"] == called_name]
-                if len(candidates) != 1 or not candidates[0].get("returnsView", False):
+                called = resolve_called_function(functions, called_name)
+                if not called:
                     continue
-                function = candidates[0]
-                function_part = next(part for part, item in functions if item is function)
+                function_part, function = called
                 key = (id(function_part), function["name"], function["start"], function["end"])
                 if key not in reachable:
                     reachable.add(key)

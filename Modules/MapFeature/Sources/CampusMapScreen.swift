@@ -273,25 +273,29 @@ private struct FloatingMapLabelButton: View {
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
                 .accessibilityIdentifier("ui.floating-map-label-button.toolbar-action")
             } else {
-                Button(action: performAction) {
-                    AppFloatingActionButtonSurface(
-                        fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil
-                    ) {
-                        Text(label)
-                            .font(AppDesignSystem.Typography.floatingLabel)
-                            .foregroundStyle(
-                                isSelected
-                                    ? AppDesignSystem.Palette.Highlight.foreground
-                                    : AppDesignSystem.Foreground.primaryColor)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityIdentifier("ui.floating-map-label-button.action")
+                customButton
             }
         }
         .appImpactFeedback(trigger: feedbackToken)
+    }
+
+    private var customButton: some View {
+        Button(action: performAction) {
+            AppFloatingActionButtonSurface(
+                fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil
+            ) {
+                Text(label)
+                    .font(AppDesignSystem.Typography.floatingLabel)
+                    .foregroundStyle(
+                        isSelected
+                            ? AppDesignSystem.Palette.Highlight.foreground
+                            : AppDesignSystem.Foreground.primaryColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("ui.floating-map-label-button.action")
     }
     private func performAction() {
         feedbackToken &+= 1

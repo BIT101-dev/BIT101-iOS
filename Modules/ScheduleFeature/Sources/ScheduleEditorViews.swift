@@ -28,64 +28,8 @@ struct AddCourseSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("内容") {
-                    TextField("", text: $draft.title, prompt: AppInputPrompt.text("课程名称"))
-                    TextField("", text: $draft.teacher, prompt: AppInputPrompt.text("教师"))
-                    TextField("", text: $draft.classroom, prompt: AppInputPrompt.text("教室"))
-                    NavigationLink {
-                        ScheduleWeekSelectionSheet(
-                            weeks: ScheduleCourseConstraints.validWeeks,
-                            selectedWeeks: Binding(
-                                get: {
-                                    (try? ScheduleCourseEditor.parseWeeks(draft.weeksText))
-                                        ?? []
-                                },
-                                set: { draft.weeksText = ScheduleWeekCodec.formatWeeks($0) }
-                            ))
-                    } label: {
-                        LabeledContent(
-                            "周次", value: draft.weeksText.isEmpty ? "请选择" : "\(draft.weeksText)周"
-                        )
-                    }
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("schedule.course.weeks")
-                }
-
-                Section("时间") {
-                    Picker("星期", selection: $draft.weekday) {
-                        ForEach(weekdays, id: \.self) { weekday in
-                            Text("周\(weekday)").tag(weekday)
-                        }
-                    }
-                    .appSelectionFeedback(trigger: draft.weekday)
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.add-course-sheet.星期")
-
-                    Picker(
-                        "开始节次",
-                        selection: Binding(
-                            get: { draft.startSection },
-                            set: { value in
-                                draft.startSection = value
-                                draft.endSection = max(draft.endSection, value)
-                            })
-                    ) {
-                        ForEach(timeTable) { slot in
-                            Text("第\(slot.id)节  \(slot.start)").tag(slot.id)
-                        }
-                    }
-                    .appSelectionFeedback(trigger: draft.startSection)
-                    .appInteractiveListRow()
-
-                    Picker("结束节次", selection: $draft.endSection) {
-                        ForEach(timeTable.filter { $0.id >= draft.startSection }) { slot in
-                            Text("第\(slot.id)节  \(slot.end)").tag(slot.id)
-                        }
-                    }
-                    .appSelectionFeedback(trigger: draft.endSection)
-                    .appInteractiveListRow()
-                }
-
+                contentSection
+                timeSection
             }
             .appGroupedListStyle()
             .tint(AppDesignSystem.Palette.Accent.primary)
@@ -105,6 +49,76 @@ struct AddCourseSheet: View {
         .onAppear { if initialValue == nil { initialValue = draft } }
         .interactiveDismissDisabled(hasChanges)
     }
+
+    private var selectedWeeksBinding: Binding<Set<Int>> {
+        Binding(
+            get: {
+                (try? ScheduleCourseEditor.parseWeeks(draft.weeksText)) ?? []
+            },
+            set: { draft.weeksText = ScheduleWeekCodec.formatWeeks($0) }
+        )
+    }
+
+    private var startSectionBinding: Binding<Int> {
+        Binding(
+            get: { draft.startSection },
+            set: { value in
+                draft.startSection = value
+                draft.endSection = max(draft.endSection, value)
+            }
+        )
+    }
+
+    private var weeksTextDisplay: String {
+        draft.weeksText.isEmpty ? "请选择" : "\(draft.weeksText)周"
+    }
+
+    private var contentSection: some View {
+        Section("内容") {
+            TextField("", text: $draft.title, prompt: AppInputPrompt.text("课程名称"))
+            TextField("", text: $draft.teacher, prompt: AppInputPrompt.text("教师"))
+            TextField("", text: $draft.classroom, prompt: AppInputPrompt.text("教室"))
+            NavigationLink {
+                ScheduleWeekSelectionSheet(
+                    weeks: ScheduleCourseConstraints.validWeeks,
+                    selectedWeeks: selectedWeeksBinding
+                )
+            } label: {
+                LabeledContent("周次", value: weeksTextDisplay)
+            }
+            .appInteractiveListRow()
+            .accessibilityIdentifier("schedule.course.weeks")
+        }
+    }
+
+    private var timeSection: some View {
+        Section("时间") {
+            Picker("星期", selection: $draft.weekday) {
+                ForEach(weekdays, id: \.self) { weekday in
+                    Text("周\(weekday)").tag(weekday)
+                }
+            }
+            .appSelectionFeedback(trigger: draft.weekday)
+            .appInteractiveListRow()
+            .accessibilityIdentifier("ui.add-course-sheet.星期")
+
+            Picker("开始节次", selection: startSectionBinding) {
+                ForEach(timeTable) { slot in
+                    Text("第\(slot.id)节  \(slot.start)").tag(slot.id)
+                }
+            }
+            .appSelectionFeedback(trigger: draft.startSection)
+            .appInteractiveListRow()
+
+            Picker("结束节次", selection: $draft.endSection) {
+                ForEach(timeTable.filter { $0.id >= draft.startSection }) { slot in
+                    Text("第\(slot.id)节  \(slot.end)").tag(slot.id)
+                }
+            }
+            .appSelectionFeedback(trigger: draft.endSection)
+            .appInteractiveListRow()
+        }
+    }
 }
 
 /// 一门课程的多项时间安排编辑页。
@@ -123,88 +137,8 @@ struct CourseArrangementEditorSheet: View {
         NavigationStack {
             Form {
                 ForEach($arrangements) { $arrangement in
-                    Section(arrangement.title) {
-                        LabeledContent("名称", value: arrangement.original.title)
-                        LabeledContent("地点", value: arrangement.original.classroom)
-                        LabeledContent("周次", value: "\(arrangement.original.weeksText)周")
-                        LabeledContent("星期", value: weekdayText(arrangement.original.weekday))
-                        LabeledContent(
-                            "节次",
-                            value:
-                                """
-                                第\(arrangement.original.startSection)-\
-                                \(arrangement.original.endSection)节
-                                """
-                        )
-                    }
-
-                    Section {
-                        Picker("楼宇", selection: $arrangement.draft.buildingName) {
-                            Text("自定地点").tag("")
-                            if !arrangement.original.buildingName.isEmpty,
-                                !buildings.contains(where: {
-                                    $0.name == arrangement.original.buildingName
-                                })
-                            {
-                                Text(arrangement.original.buildingName).tag(
-                                    arrangement.original.buildingName)
-                            }
-                            ForEach(buildings.map(\.name), id: \.self) { name in
-                                Text(name).tag(name)
-                            }
-                        }
-                        .appSelectionFeedback(trigger: arrangement.draft.buildingName)
-                        .appInteractiveListRow()
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            Text(arrangement.draft.buildingName.isEmpty ? "地点" : "房间号")
-                            Spacer()
-                            TextField(
-                                "", text: $arrangement.draft.roomNumber,
-                                prompt: AppInputPrompt.text(
-                                    arrangement.draft.buildingName.isEmpty ? "地点" : "房间号")
-                            )
-                            .accessibilityIdentifier(
-                                "schedule.course-arrangement.location.\(arrangement.id)"
-                            )
-                            .multilineTextAlignment(.trailing)
-                            .textFieldStyle(.plain)
-                            .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
-                            .tint(AppDesignSystem.Palette.Accent.primary)
-                        }
-
-                        NavigationLink {
-                            ScheduleWeekSelectionSheet(
-                                weeks: arrangement.availableWeeks,
-                                selectedWeeks: weekSelectionBinding(for: $arrangement)
-                            )
-                        } label: {
-                            LabeledContent("周次", value: weeksText(for: arrangement.draft))
-                        }
-                        .appInteractiveListRow()
-
-                        NavigationLink {
-                            ScheduleWeekdaySelectionSheet(
-                                selectedWeekday: Binding(
-                                    get: { $arrangement.wrappedValue.draft.weekday },
-                                    set: { $arrangement.wrappedValue.draft.weekday = $0 }
-                                )
-                            )
-                        } label: {
-                            LabeledContent("星期", value: weekdayText(arrangement.draft.weekday))
-                        }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.course-arrangement-editor-sheet.星期")
-
-                        NavigationLink {
-                            ScheduleSectionSelectionPage(
-                                timeTable: timeTable,
-                                selectedSections: sectionSelectionBinding(for: $arrangement)
-                            )
-                        } label: {
-                            LabeledContent("节次", value: sectionsText(for: arrangement.draft))
-                        }
-                        .appInteractiveListRow()
-                    }
+                    arrangementOriginalSection(arrangement)
+                    arrangementEditSection(for: $arrangement)
                 }
             }
             .appGroupedListStyle()
@@ -224,6 +158,118 @@ struct CourseArrangementEditorSheet: View {
         }
         .onAppear { if initialValue == nil { initialValue = arrangements } }
         .interactiveDismissDisabled(hasChanges)
+    }
+
+    private func arrangementOriginalSection(_ arrangement: CourseArrangementDraft) -> some View {
+        Section(arrangement.title) {
+            LabeledContent("名称", value: arrangement.original.title)
+            LabeledContent("地点", value: arrangement.original.classroom)
+            LabeledContent("周次", value: "\(arrangement.original.weeksText)周")
+            LabeledContent("星期", value: weekdayText(arrangement.original.weekday))
+            LabeledContent(
+                "节次",
+                value: "第\(arrangement.original.startSection)-\(arrangement.original.endSection)节"
+            )
+        }
+    }
+
+    private func arrangementEditSection(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        Section {
+            buildingPicker(for: arrangement)
+            locationField(for: arrangement)
+            weekNavigationLink(for: arrangement)
+            weekdayNavigationLink(for: arrangement)
+            sectionNavigationLink(for: arrangement)
+        }
+    }
+
+    private func buildingPicker(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        let originalBuilding = arrangement.wrappedValue.original.buildingName
+        let isCustomBuilding = !originalBuilding.isEmpty
+            && !buildings.contains(where: { $0.name == originalBuilding })
+
+        return Picker("楼宇", selection: arrangement.draft.buildingName) {
+            Text("自定地点").tag("")
+            if isCustomBuilding {
+                Text(originalBuilding).tag(originalBuilding)
+            }
+            ForEach(buildings.map(\.name), id: \.self) { name in
+                Text(name).tag(name)
+            }
+        }
+        .appSelectionFeedback(trigger: arrangement.wrappedValue.draft.buildingName)
+        .appInteractiveListRow()
+    }
+
+    private func locationField(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        let isBuildingEmpty = arrangement.wrappedValue.draft.buildingName.isEmpty
+        let labelText = isBuildingEmpty ? "地点" : "房间号"
+        return HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Text(labelText)
+            Spacer()
+            TextField(
+                "", text: arrangement.draft.roomNumber,
+                prompt: AppInputPrompt.text(labelText)
+            )
+            .accessibilityIdentifier(
+                "schedule.course-arrangement.location.\(arrangement.wrappedValue.id)"
+            )
+            .multilineTextAlignment(.trailing)
+            .textFieldStyle(.plain)
+            .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
+            .tint(AppDesignSystem.Palette.Accent.primary)
+        }
+    }
+
+    private func weekNavigationLink(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        NavigationLink {
+            ScheduleWeekSelectionSheet(
+                weeks: arrangement.wrappedValue.availableWeeks,
+                selectedWeeks: weekSelectionBinding(for: arrangement)
+            )
+        } label: {
+            LabeledContent("周次", value: weeksText(for: arrangement.wrappedValue.draft))
+        }
+        .appInteractiveListRow()
+    }
+
+    private func weekdayNavigationLink(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        NavigationLink {
+            ScheduleWeekdaySelectionSheet(
+                selectedWeekday: arrangement.draft.weekday
+            )
+        } label: {
+            LabeledContent(
+                "星期",
+                value: weekdayText(arrangement.wrappedValue.draft.weekday)
+            )
+        }
+        .appInteractiveListRow()
+        .accessibilityIdentifier("ui.course-arrangement-editor-sheet.星期")
+    }
+
+    private func sectionNavigationLink(
+        for arrangement: Binding<CourseArrangementDraft>
+    ) -> some View {
+        NavigationLink {
+            ScheduleSectionSelectionPage(
+                timeTable: timeTable,
+                selectedSections: sectionSelectionBinding(for: arrangement)
+            )
+        } label: {
+            LabeledContent("节次", value: sectionsText(for: arrangement.wrappedValue.draft))
+        }
+        .appInteractiveListRow()
     }
 
     private func weekSelectionBinding(
@@ -303,28 +349,32 @@ struct ScheduleWeekdaySelectionSheet: View {
     var body: some View {
         NavigationStack {
             List(1...7, id: \.self) { weekday in
-                Button {
-                    selectedWeekday = weekday
-                    dismiss()
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text(weekdayText(weekday))
-                        Spacer()
-                        if selectedWeekday == weekday {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .appInteractiveListRow()
-                .accessibilityIdentifier("ui.schedule-weekday-selection-sheet.weekday")
+                weekdayRow(weekday)
             }
             .accessibilityIdentifier("interaction.ScheduleWeekdaySelectionSheet.list")
             .appGroupedListStyle()
             .navigationTitle("星期")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private func weekdayRow(_ weekday: Int) -> some View {
+        Button {
+            selectedWeekday = weekday
+            dismiss()
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text(weekdayText(weekday))
+                Spacer()
+                if selectedWeekday == weekday {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .appInteractiveListRow()
+        .accessibilityIdentifier("ui.schedule-weekday-selection-sheet.weekday")
     }
 
     private func weekdayText(_ weekday: Int) -> String {
@@ -383,61 +433,8 @@ struct AddEditCustomScheduleSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("内容") {
-                    TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
-                        .accessibilityIdentifier("schedule.custom.title")
-                    TextField(
-                        "", text: $draft.subtitle, prompt: AppInputPrompt.text("副标题（通常为地点）")
-                    )
-                    .accessibilityIdentifier("schedule.custom.subtitle")
-                    TextField(
-                        "", text: $draft.description, prompt: AppInputPrompt.text("描述（详情页显示）"),
-                        axis: .vertical
-                    )
-                    .accessibilityIdentifier("schedule.custom.details")
-                    .lineLimit(3, reservesSpace: true)
-                }
-
-                Section("时间") {
-                    DatePicker("日期", selection: $draft.date, displayedComponents: .date)
-                        .environment(\.calendar, ScheduleDateCodec.calendar)
-                        .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
-                        .accessibilityIdentifier("schedule.custom.date")
-                        .appInteractiveListRow()
-                    if let firstDay,
-                        let week = scheduleWeek(for: draft.date, firstDay: firstDay),
-                        ScheduleCourseConstraints.validWeeks.contains(week)
-                    {
-                        NavigationLink {
-                            ScheduleWeekSelectionSheet(
-                                weeks: ScheduleCourseConstraints.validWeeks,
-                                selectedWeeks: $draft.selectedWeeks)
-                        } label: {
-                            LabeledContent(
-                                "周次",
-                                value: draft.selectedWeeks.isEmpty
-                                    ? "请选择"
-                                    : "\(ScheduleWeekCodec.formatWeeks(draft.selectedWeeks))周")
-                        }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("schedule.custom.weeks")
-                    }
-                    DatePicker(
-                        "开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute
-                    )
-                    .environment(\.calendar, ScheduleDateCodec.calendar)
-                    .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
-                    .accessibilityIdentifier("schedule.custom.begin")
-                    .appInteractiveListRow()
-                    DatePicker(
-                        "结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute
-                    )
-                    .environment(\.calendar, ScheduleDateCodec.calendar)
-                    .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
-                    .accessibilityIdentifier("schedule.custom.end")
-                    .appInteractiveListRow()
-                }
-
+                contentSection
+                timeSection
             }
             .appGroupedListStyle()
             .tint(AppDesignSystem.Palette.Accent.primary)
@@ -472,6 +469,67 @@ struct AddEditCustomScheduleSheet: View {
         }
         .onAppear { if initialValue == nil { initialValue = draft } }
         .interactiveDismissDisabled(hasChanges)
+    }
+
+    private var contentSection: some View {
+        Section("内容") {
+            TextField("", text: $draft.title, prompt: AppInputPrompt.text("标题"))
+                .accessibilityIdentifier("schedule.custom.title")
+            TextField(
+                "", text: $draft.subtitle, prompt: AppInputPrompt.text("副标题（通常为地点）")
+            )
+            .accessibilityIdentifier("schedule.custom.subtitle")
+            TextField(
+                "", text: $draft.description, prompt: AppInputPrompt.text("描述（详情页显示）"),
+                axis: .vertical
+            )
+            .accessibilityIdentifier("schedule.custom.details")
+            .lineLimit(3, reservesSpace: true)
+        }
+    }
+
+    private var weeksSelectionText: String {
+        draft.selectedWeeks.isEmpty
+            ? "请选择"
+            : "\(ScheduleWeekCodec.formatWeeks(draft.selectedWeeks))周"
+    }
+
+    private var timeSection: some View {
+        Section("时间") {
+            DatePicker("日期", selection: $draft.date, displayedComponents: .date)
+                .environment(\.calendar, ScheduleDateCodec.calendar)
+                .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+                .accessibilityIdentifier("schedule.custom.date")
+                .appInteractiveListRow()
+            if let firstDay,
+                let week = scheduleWeek(for: draft.date, firstDay: firstDay),
+                ScheduleCourseConstraints.validWeeks.contains(week)
+            {
+                NavigationLink {
+                    ScheduleWeekSelectionSheet(
+                        weeks: ScheduleCourseConstraints.validWeeks,
+                        selectedWeeks: $draft.selectedWeeks)
+                } label: {
+                    LabeledContent("周次", value: weeksSelectionText)
+                }
+                .appInteractiveListRow()
+                .accessibilityIdentifier("schedule.custom.weeks")
+            }
+            DatePicker(
+                "开始时间", selection: $draft.beginTime, displayedComponents: .hourAndMinute
+            )
+            .environment(\.calendar, ScheduleDateCodec.calendar)
+            .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+            .accessibilityIdentifier("schedule.custom.begin")
+            .appInteractiveListRow()
+            DatePicker(
+                "结束时间", selection: $draft.endTime, displayedComponents: .hourAndMinute
+            )
+            .environment(\.calendar, ScheduleDateCodec.calendar)
+            .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
+            .accessibilityIdentifier("schedule.custom.end")
+            .appInteractiveListRow()
+        }
     }
 
     private func scheduleWeek(for date: Date, firstDay: Date) -> Int? {

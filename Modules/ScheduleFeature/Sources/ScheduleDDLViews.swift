@@ -44,41 +44,7 @@ struct DDLScheduleTabView: View {
             .disabled(!viewModel.isCacheWritable)
         }
         .sheet(isPresented: $isShowingSheet) {
-            if let event = selectedEvent {
-                DDLEventDetailSheet(
-                    event: event, isEditable: viewModel.isCacheWritable,
-                    remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
-                    onEdit: {
-                        editingEventID = event.id
-                        draft = viewModel.ddlDraft(for: event)
-                        selectedEvent = nil
-                    },
-                    onDelete: {
-                        do {
-                            try viewModel.deleteDDL(id: event.id)
-                            isShowingSheet = false
-                        } catch {
-                            viewModel.notice = ScheduleNotice.userInput(
-                                title: "删除失败", message: error.localizedDescription)
-                        }
-                    })
-            } else {
-                DDLEditSheet(
-                    draft: $draft, isEditing: editingEventID != nil,
-                    onSubmit: {
-                        do {
-                            if let editingEventID {
-                                try viewModel.updateDDL(id: editingEventID, draft: draft)
-                            } else {
-                                try viewModel.addDDL(draft)
-                            }
-                            isShowingSheet = false
-                        } catch {
-                            viewModel.notice = ScheduleNotice.userInput(
-                                title: "保存失败", message: error.localizedDescription)
-                        }
-                    }, onDismiss: { isShowingSheet = false })
-            }
+            sheetContent
         }
         .onChange(of: isShowingSheet) { _, visible in
             if !visible {
@@ -87,6 +53,57 @@ struct DDLScheduleTabView: View {
             }
         }
         .systemImagePreview(item: $imageViewer)
+    }
+
+    @ViewBuilder
+    private var sheetContent: some View {
+        if let event = selectedEvent {
+            eventDetailSheet(for: event)
+        } else {
+            editSheet
+        }
+    }
+
+    private func eventDetailSheet(for event: DDLEventRecord) -> some View {
+        DDLEventDetailSheet(
+            event: event, isEditable: viewModel.isCacheWritable,
+            remainText: { viewModel.ddlRemainingText(for: event, now: $0) },
+            onEdit: {
+                editingEventID = event.id
+                draft = viewModel.ddlDraft(for: event)
+                selectedEvent = nil
+            },
+            onDelete: {
+                do {
+                    try viewModel.deleteDDL(id: event.id)
+                    isShowingSheet = false
+                } catch {
+                    viewModel.notice = ScheduleNotice.userInput(
+                        title: "删除失败", message: error.localizedDescription)
+                }
+            })
+    }
+
+    private var editSheet: some View {
+        DDLEditSheet(
+            draft: $draft, isEditing: editingEventID != nil,
+            onSubmit: submitDraft,
+            onDismiss: { isShowingSheet = false }
+        )
+    }
+
+    private func submitDraft() {
+        do {
+            if let editingEventID {
+                try viewModel.updateDDL(id: editingEventID, draft: draft)
+            } else {
+                try viewModel.addDDL(draft)
+            }
+            isShowingSheet = false
+        } catch {
+            viewModel.notice = ScheduleNotice.userInput(
+                title: "保存失败", message: error.localizedDescription)
+        }
     }
 
     private var eventList: some View {
@@ -286,26 +303,9 @@ private struct DDLEventDetailSheet: View {
                     Text(detailText.isEmpty ? "无详情" : detailText)
                 }
 
-                if let images = event.images, !images.isEmpty {
-                    Section("图片") {
-                        DDLImageStrip(images: images, onPreview: { imageViewer = $0 })
-                    }
-                }
+                imageSection
 
-                if !event.isSchoolSynced && isEditable {
-                    Section {
-                        Button("编辑") {
-                            onEdit()
-                        }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.ddl-event-detail-sheet.edit")
-                        Button("删除", role: .destructive) {
-                            onDelete()
-                        }
-                        .appInteractiveListRow(isDestructive: true)
-                        .accessibilityIdentifier("ui.ddl-event-detail-sheet.delete")
-                    }
-                }
+                actionSection
             }
             .accessibilityIdentifier("interaction.DDLEventDetailSheet.list")
             .appGroupedListStyle()
@@ -323,6 +323,29 @@ private struct DDLEventDetailSheet: View {
 
     private var detailText: String {
         event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    @ViewBuilder
+    private var imageSection: some View {
+        if let images = event.images, !images.isEmpty {
+            Section("图片") {
+                DDLImageStrip(images: images) { imageViewer = $0 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionSection: some View {
+        if !event.isSchoolSynced && isEditable {
+            Section {
+                Button("编辑", action: onEdit)
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.ddl-event-detail-sheet.edit")
+                Button("删除", role: .destructive, action: onDelete)
+                    .appInteractiveListRow(isDestructive: true)
+                    .accessibilityIdentifier("ui.ddl-event-detail-sheet.delete")
+            }
+        }
     }
 }
 
@@ -364,30 +387,7 @@ private struct DDLEditSheet: View {
                     .accessibilityIdentifier("ddl.editor.details")
                     .lineLimit(4, reservesSpace: true)
                 }
-                Section("图片") {
-                    if !draft.images.isEmpty {
-                        DDLImageStrip(
-                            images: draft.images,
-                            onRemove: { id in draft.images.removeAll { $0.id == id } },
-                            onPreview: { imageViewer = $0 })
-                    }
-                    if draft.images.count < DDLImagePolicy.maximumImageCount {
-                        PhotosPicker(
-                            selection: $selectedPhotos,
-                            maxSelectionCount: DDLImagePolicy.maximumImageCount
-                                - draft.images.count, matching: .images
-                        ) {
-                            Text("添加图片")
-                        }
-                        .disabled(isImporting)
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ddl.editor.photos")
-                    }
-                    if isImporting { AppInlineLoadingState("正在处理图片") }
-                    if let importError {
-                        Text(importError).foregroundStyle(AppDesignSystem.Palette.Status.danger)
-                    }
-                }
+                imageSection
             }
             .navigationTitle(isEditing ? "编辑 DDL" : "添加 DDL")
             .navigationBarTitleDisplayMode(.inline)
@@ -434,6 +434,38 @@ private struct DDLEditSheet: View {
         guard !Task.isCancelled else { return }
         selectedPhotos = []
     }
+
+    private var imageSection: some View {
+        Section("图片") {
+            if !draft.images.isEmpty {
+                DDLImageStrip(
+                    images: draft.images,
+                    onRemove: removeImage,
+                    onPreview: { imageViewer = $0 }
+                )
+            }
+            if draft.images.count < DDLImagePolicy.maximumImageCount {
+                PhotosPicker(
+                    selection: $selectedPhotos,
+                    maxSelectionCount: DDLImagePolicy.maximumImageCount
+                        - draft.images.count, matching: .images
+                ) {
+                    Text("添加图片")
+                }
+                .disabled(isImporting)
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ddl.editor.photos")
+            }
+            if isImporting { AppInlineLoadingState("正在处理图片") }
+            if let importError {
+                Text(importError).foregroundStyle(AppDesignSystem.Palette.Status.danger)
+            }
+        }
+    }
+
+    private func removeImage(id: UUID) {
+        draft.images.removeAll { $0.id == id }
+    }
 }
 
 private struct DDLImageStrip: View {
@@ -445,23 +477,28 @@ private struct DDLImageStrip: View {
         ScrollView(.horizontal) {
             LazyHStack(spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
-                    LocalImageTile(
-                        data: image.data, identifier: "ddl.image.\(image.id)",
-                        pointSize: onRemove == nil
-                            ? AppDesignSystem.Size.Media.attachment
-                            : AppDesignSystem.Size.Media.draft,
-                        onOpen: {
-                            onPreview(
-                                ImagePreviewRequest(
-                                    localImageData: images.map(\.data), initialIndex: index))
-                        },
-                        onRemove: onRemove.map { remove in { remove(image.id) } },
-                        previewLabel: "预览 DDL 图片")
+                    tile(for: image, at: index)
                 }
             }
         }
         .scrollIndicators(.hidden)
         .accessibilityIdentifier("interaction.DDLImageStrip.scroll")
+    }
+
+    private func tile(for image: DDLImageAttachment, at index: Int) -> some View {
+        let pointSize = onRemove == nil
+            ? AppDesignSystem.Size.Media.attachment
+            : AppDesignSystem.Size.Media.draft
+        return LocalImageTile(
+            data: image.data, identifier: "ddl.image.\(image.id)",
+            pointSize: pointSize,
+            onOpen: {
+                onPreview(
+                    ImagePreviewRequest(
+                        localImageData: images.map(\.data), initialIndex: index))
+            },
+            onRemove: onRemove.map { remove in { remove(image.id) } },
+            previewLabel: "预览 DDL 图片")
     }
 }
 

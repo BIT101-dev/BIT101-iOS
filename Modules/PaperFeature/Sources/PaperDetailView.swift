@@ -71,115 +71,11 @@ private struct PaperDetailViewScene: View {
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                    Text(viewModel.paper?.title ?? initialPaper.title)
-                        .font(AppDesignSystem.Typography.titleEmphasis)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityAddTraits(.isHeader)
-
-                    if !paperIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(paperIntro)
-                            .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    HStack(spacing: AppDesignSystem.Spacing.content) {
-                        PaperHeaderSummary(paper: viewModel.paper, fallback: initialPaper)
-
-                        Spacer()
-
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            AppDetailCircleButton(accessibilityLabel: "评论文章") {
-                                composerTarget = .paper(paperID: initialPaper.id)
-                            } label: {
-                                Image(systemName: "bubble.right")
-                                    .font(AppDesignSystem.Typography.title)
-                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            }
-
-                            AppDetailCircleButton(
-                                accessibilityLabel: viewModel.hasKnownLikeState
-                                    ? (viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章")
-                                    : viewModel.likeStateMessage
-                            ) {
-                                likePaper()
-                            } label: {
-                                Group {
-                                    if viewModel.isLikingPaper
-                                        || (!viewModel.hasKnownLikeState
-                                            && (viewModel.paperStatus == .idle
-                                                || viewModel.paperStatus == .loading))
-                                    {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                    } else {
-                                        Image(
-                                            systemName: viewModel.isPaperLiked
-                                                ? "hand.thumbsup.fill" : "hand.thumbsup"
-                                        )
-                                        .font(AppDesignSystem.Typography.title)
-                                    }
-                                }
-                                .foregroundStyle(
-                                    viewModel.isPaperLiked
-                                        ? AppDesignSystem.Palette.Accent.primary
-                                        : AppDesignSystem.Foreground.primaryColor)
-                            }
-                            .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
-                            .accessibilityIdentifier("paper.detail.header-like")
-                        }
-                    }
-                }
+                headerSection
 
                 articleContent
 
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    Spacer()
-                    Button {
-                        likePaper()
-                    } label: {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            if viewModel.isLikingPaper {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(
-                                    systemName: isPaperLiked
-                                        ? "hand.thumbsup.fill" : "hand.thumbsup")
-                            }
-
-                            Text(
-                                viewModel.hasKnownLikeState
-                                    ? (isPaperLiked ? "已点赞" : "看完了，点个赞")
-                                    : viewModel.likeStateMessage
-                            )
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                        }
-                        .foregroundStyle(
-                            isPaperLiked
-                                ? AppDesignSystem.Palette.Highlight.foreground
-                                : AppDesignSystem.Palette.Accent.primary
-                        )
-                        .padding(.horizontal, AppDesignSystem.Spacing.section)
-                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
-                        .background(
-                            isPaperLiked
-                                ? AppDesignSystem.Palette.Accent.primary
-                                : AppDesignSystem.Palette.Accent.surface,
-                            in: Capsule()
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
-                    .accessibilityLabel(
-                        viewModel.hasKnownLikeState
-                            ? (isPaperLiked ? "取消点赞" : "点赞文章") : viewModel.likeStateMessage
-                    )
-                    .accessibilityIdentifier("paper.detail.footer-like")
-                    Spacer()
-                }
-                .padding(.top, AppDesignSystem.Spacing.tiny)
+                bottomLikeSection
 
                 HStack(spacing: AppDesignSystem.Spacing.section) {
                     Text("\(paperLikeCount)赞")
@@ -241,32 +137,7 @@ private struct PaperDetailViewScene: View {
         .navigationTitle("文章详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    AppDetailShareLink(
-                        item: paperShareURL,
-                        subject: viewModel.paper?.title ?? initialPaper.title,
-                        accessibilityLabel: "分享文章"
-                    )
-                    if viewModel.paper?.own == true {
-                        Button {
-                            editingPaper = viewModel.paper
-                        } label: {
-                            Label("编辑文章", systemImage: "pencil")
-                        }
-                        .accessibilityLabel("编辑文章")
-                        .accessibilityIdentifier("paper.detail.edit")
-                        Button("删除文章", systemImage: "trash", role: .destructive) {
-                            isShowingDeleteConfirmation = true
-                        }
-                        .accessibilityIdentifier("paper.detail.delete")
-                        .disabled(viewModel.isDeletingPaper)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .accessibilityLabel("更多操作")
-            }
+            detailToolbar
         }
         .sheet(item: $composerTarget) { target in
             NavigationStack {
@@ -341,8 +212,227 @@ private struct PaperDetailViewScene: View {
         return blocks
     }
 
+    private var headerLikeAccessibilityLabel: String {
+        if viewModel.hasKnownLikeState {
+            return viewModel.isPaperLiked ? "取消文章点赞" : "点赞文章"
+        }
+        return viewModel.likeStateMessage
+    }
+
+    private var headerLikeIconName: String {
+        viewModel.isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup"
+    }
+
+    private var isHeaderLikeLoading: Bool {
+        viewModel.isLikingPaper
+            || (!viewModel.hasKnownLikeState
+                && (viewModel.paperStatus == .idle || viewModel.paperStatus == .loading))
+    }
+
+    @ViewBuilder
+    private var headerLikeButton: some View {
+        AppDetailCircleButton(accessibilityLabel: headerLikeAccessibilityLabel) {
+            likePaper()
+        } label: {
+            Group {
+                if isHeaderLikeLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: headerLikeIconName)
+                        .font(AppDesignSystem.Typography.title)
+                }
+            }
+            .foregroundStyle(
+                viewModel.isPaperLiked
+                    ? AppDesignSystem.Palette.Accent.primary
+                    : AppDesignSystem.Foreground.primaryColor)
+        }
+        .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
+        .accessibilityIdentifier("paper.detail.header-like")
+    }
+
+    @ViewBuilder
+    private var headerActionButtons: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            AppDetailCircleButton(accessibilityLabel: "评论文章") {
+                composerTarget = .paper(paperID: initialPaper.id)
+            } label: {
+                Image(systemName: "bubble.right")
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+            }
+
+            headerLikeButton
+        }
+    }
+
+    @ViewBuilder
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+            Text(viewModel.paper?.title ?? initialPaper.title)
+                .font(AppDesignSystem.Typography.titleEmphasis)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+
+            if !paperIntro.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(paperIntro)
+                    .font(AppDesignSystem.Typography.body)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: AppDesignSystem.Spacing.content) {
+                PaperHeaderSummary(paper: viewModel.paper, fallback: initialPaper)
+
+                Spacer()
+
+                headerActionButtons
+            }
+        }
+    }
+
+    private var bottomLikeAccessibilityLabel: String {
+        if viewModel.hasKnownLikeState {
+            return isPaperLiked ? "取消点赞" : "点赞文章"
+        }
+        return viewModel.likeStateMessage
+    }
+
+    private var bottomLikeText: String {
+        if viewModel.hasKnownLikeState {
+            return isPaperLiked ? "已点赞" : "看完了，点个赞"
+        }
+        return viewModel.likeStateMessage
+    }
+
+    private var bottomLikeIconName: String {
+        isPaperLiked ? "hand.thumbsup.fill" : "hand.thumbsup"
+    }
+
+    @ViewBuilder
+    private var bottomLikeButton: some View {
+        Button {
+            likePaper()
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                if viewModel.isLikingPaper {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: bottomLikeIconName)
+                }
+
+                Text(bottomLikeText)
+                    .font(AppDesignSystem.Typography.bodyEmphasis)
+            }
+            .foregroundStyle(
+                isPaperLiked
+                    ? AppDesignSystem.Palette.Highlight.foreground
+                    : AppDesignSystem.Palette.Accent.primary
+            )
+            .padding(.horizontal, AppDesignSystem.Spacing.section)
+            .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+            .background(
+                isPaperLiked
+                    ? AppDesignSystem.Palette.Accent.primary
+                    : AppDesignSystem.Palette.Accent.surface,
+                in: Capsule()
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLikingPaper || !viewModel.hasKnownLikeState)
+        .accessibilityLabel(bottomLikeAccessibilityLabel)
+        .accessibilityIdentifier("paper.detail.footer-like")
+    }
+
+    @ViewBuilder
+    private var bottomLikeSection: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Spacer()
+            bottomLikeButton
+            Spacer()
+        }
+        .padding(.top, AppDesignSystem.Spacing.tiny)
+    }
+
+    @ToolbarContentBuilder
+    private var detailToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            detailMenu
+        }
+    }
+
+    @ViewBuilder
+    private var detailMenu: some View {
+        Menu {
+            AppDetailShareLink(
+                item: paperShareURL,
+                subject: viewModel.paper?.title ?? initialPaper.title,
+                accessibilityLabel: "分享文章"
+            )
+            if viewModel.paper?.own == true {
+                Button {
+                    editingPaper = viewModel.paper
+                } label: {
+                    Label("编辑文章", systemImage: "pencil")
+                }
+                .accessibilityLabel("编辑文章")
+                .accessibilityIdentifier("paper.detail.edit")
+                Button("删除文章", systemImage: "trash", role: .destructive) {
+                    isShowingDeleteConfirmation = true
+                }
+                .accessibilityIdentifier("paper.detail.delete")
+                .disabled(viewModel.isDeletingPaper)
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .accessibilityLabel("更多操作")
+    }
+
     private var paperIntro: String {
         viewModel.paper?.intro ?? initialPaper.intro
+    }
+
+    private var hasOriginalLink: Bool {
+        contentBlocks.contains {
+            if case .requiresOriginal = $0 { return true }
+            return false
+        }
+    }
+
+    private func openImage(_ image: PaperContentInlineImage) {
+        guard let initialIndex = inlineImages.firstIndex(of: image) else {
+            return
+        }
+        imageViewer = ImagePreviewRequest(
+            remoteImages: inlineImages.map {
+                $0.asCommunityImage.previewImage
+            }, initialIndex: initialIndex
+        )
+    }
+
+    @ViewBuilder
+    private var contentBlockList: some View {
+        LazyVStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
+            ForEach(contentBlocks) { block in
+                PaperContentBlockView(
+                    block: block,
+                    onOpenImage: openImage
+                )
+            }
+            if hasOriginalLink {
+                Link(
+                    "阅读完整原文",
+                    destination: AppURL.required(
+                        "https://bit101.cn/paper/\(initialPaper.id)")
+                )
+                .font(AppDesignSystem.Typography.body)
+                .accessibilityIdentifier("ui.paper-content.original")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -368,36 +458,7 @@ private struct PaperDetailViewScene: View {
                 AppInlineLoadingState("正在加载文章")
             }
         } else {
-            LazyVStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
-                ForEach(contentBlocks) { block in
-                    PaperContentBlockView(
-                        block: block,
-                        onOpenImage: { image in
-                            guard let initialIndex = inlineImages.firstIndex(of: image) else {
-                                return
-                            }
-                            imageViewer = ImagePreviewRequest(
-                                remoteImages: inlineImages.map {
-                                    $0.asCommunityImage.previewImage
-                                }, initialIndex: initialIndex
-                            )
-                        }
-                    )
-                }
-                if contentBlocks.contains(where: {
-                    if case .requiresOriginal = $0 { return true }
-                    return false
-                }) {
-                    Link(
-                        "阅读完整原文",
-                        destination: AppURL.required(
-                            "https://bit101.cn/paper/\(initialPaper.id)")
-                    )
-                    .font(AppDesignSystem.Typography.body)
-                    .accessibilityIdentifier("ui.paper-content.original")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            contentBlockList
         }
     }
 
@@ -511,18 +572,7 @@ private struct PaperContentBlockView: View {
                     .frame(width: AppDesignSystem.Spacing.tiny)
             }
         case .list(_, let items, let ordered):
-            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
-                        Text(ordered ? "\(index + 1)." : "•")
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        PaperRichTextView(
-                            text: item, textStyle: AppDesignSystem.Typography.uiBody,
-                            textColor: .label)
-                    }
-                }
-            }
+            listView(items: items, ordered: ordered)
         case .image(_, let image):
             let resource = image.asCommunityImage
             Button {
@@ -546,6 +596,23 @@ private struct PaperContentBlockView: View {
             .accessibilityLabel(imageAccessibilityLabel(for: image))
             .accessibilityHint("打开图片预览")
             .accessibilityIdentifier("ui.paper-content-block-view.image")
+        }
+    }
+
+    @ViewBuilder
+    private func listView(items: [String], ordered: Bool) -> some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                let prefix = ordered ? "\(index + 1)." : "•"
+                HStack(alignment: .top, spacing: AppDesignSystem.Spacing.regular) {
+                    Text(prefix)
+                        .font(AppDesignSystem.Typography.bodyEmphasis)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    PaperRichTextView(
+                        text: item, textStyle: AppDesignSystem.Typography.uiBody,
+                        textColor: .label)
+                }
+            }
         }
     }
 

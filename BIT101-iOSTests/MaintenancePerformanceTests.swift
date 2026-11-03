@@ -245,16 +245,25 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                             revision: UInt64(batch * 64 + offset), isLoggedIn: true,
                             studentID: "watch-owner", firstDayString: "2026-01-01",
                             timeTable: [], courses: [])
-                        do {
-                            _ = try store.writeIfNewer(snapshot)
-                        } catch ScheduleExternalSnapshotStoreError.staleSnapshot {
-                            XCTAssertGreaterThanOrEqual(
-                                store.load()?.revision ?? 0, snapshot.revision)
-                        } catch { XCTFail(error.localizedDescription) }
+                        self.writeSnapshotCatchingStale(snapshot, to: store)
                     }
                 }
             }
             XCTAssertEqual(store.load()?.revision, UInt64((batch + 1) * 64))
+        }
+    }
+
+    private func writeSnapshotCatchingStale(
+        _ snapshot: ScheduleExternalSnapshot,
+        to store: ScheduleExternalSnapshotStore
+    ) {
+        do {
+            _ = try store.writeIfNewer(snapshot)
+        } catch ScheduleExternalSnapshotStoreError.staleSnapshot {
+            XCTAssertGreaterThanOrEqual(
+                store.load()?.revision ?? 0, snapshot.revision)
+        } catch {
+            XCTFail(error.localizedDescription)
         }
     }
 
@@ -343,13 +352,8 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 XCTAssertEqual(store.unreadCount(for: .comment), count / 2)
                 let saved = await store.setPendingUnreadAfterID(count, for: .comment)
                 XCTAssertTrue(saved)
-                var unread = 0
-                for _ in 0..<passes {
-                    for type in GalleryMessageType.allCases {
-                        for id in (count - renderedCount + 1)...count
-                        where store.isUnread(id: id, for: type) { unread += 1 }
-                    }
-                }
+                let unread = countUnreadMessages(
+                    in: store, count: count, renderedCount: renderedCount, passes: passes)
                 XCTAssertEqual(
                     unread, passes * GalleryMessageType.allCases.count * renderedCount)
                 completed.fulfill()
@@ -359,6 +363,24 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         await MainActor.run {
             UserDefaults(suiteName: domain)?.removePersistentDomain(forName: domain)
         }
+    }
+
+    private func countUnreadMessages(
+        in store: GalleryMessageReadStore,
+        count: Int,
+        renderedCount: Int,
+        passes: Int
+    ) -> Int {
+        var unread = 0
+        for _ in 0..<passes {
+            for type in GalleryMessageType.allCases {
+                for id in (count - renderedCount + 1)...count
+                where store.isUnread(id: id, for: type) {
+                    unread += 1
+                }
+            }
+        }
+        return unread
     }
 
     func testImageQuotaEnumerationKeepsResponsive() async throws {
@@ -396,58 +418,62 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
 
     func testPreviewSessionsRemainOperations() async throws {
         for writing in [false, true] {
-            let files = PreferenceMemoryFiles()
-            let ownership = PreviewFileOwnership()
-            let owner = UUID()
-            let directory = files.temporaryDirectoryURL.appending(
-                path: "preview-disk-operations")
-            let file = directory.appending(path: "image.png")
-            try files.createDirectory(at: directory)
-            try files.writeData(Data("preview".utf8), to: file, options: [.atomic])
-            ownership.begin(owner)
-            XCTAssertTrue(ownership.pin(file, using: files, owner: owner))
-            let busy = expectation(description: "disk operation")
-            let responsive = expectation(description: "preview state")
-            let release = DispatchSemaphore(value: 0)
-            defer { release.signal() }
-            if !writing {
-                files.beforeNextEnumeration {
-                    busy.fulfill()
-                    _ = release.wait(timeout: .now() + 10)
-                }
-            }
-            let operation = Task.detached {
-                if writing {
-                    do {
-                        try ownership.materializeAndPin(file, using: files, owner: owner) {
-                            busy.fulfill()
-                            _ = release.wait(timeout: .now() + 10)
-                            try files.writeData(
-                                Data("updated".utf8), to: file, options: [.atomic])
-                        }
-                        XCTFail("Closed preview completed a pending write")
-                    } catch { XCTAssertTrue(error is CancellationError) }
-                } else {
-                    XCTAssertTrue(ownership.clearDirectory(directory, using: files))
-                }
-            }
-            await fulfillment(of: [busy], timeout: 5)
-            let preview = Task { @MainActor in
-                let anotherOwner = UUID()
-                ownership.begin(anotherOwner)
-                let cleanup = ownership.end(owner)
-                ownership.end(anotherOwner)
-                XCTAssertFalse(ownership.contains(owner))
-                responsive.fulfill()
-                return cleanup
-            }
-            await fulfillment(of: [responsive], timeout: 1)
-            release.signal()
-            await operation.value
-            let cleanup = await preview.value
-            await cleanup.value
-            XCTAssertFalse(files.fileExists(at: file))
+            try await exercisePreviewOperation(writing: writing)
         }
+    }
+
+    private func exercisePreviewOperation(writing: Bool) async throws {
+        let files = PreferenceMemoryFiles()
+        let ownership = PreviewFileOwnership()
+        let owner = UUID()
+        let directory = files.temporaryDirectoryURL.appending(
+            path: "preview-disk-operations")
+        let file = directory.appending(path: "image.png")
+        try files.createDirectory(at: directory)
+        try files.writeData(Data("preview".utf8), to: file, options: [.atomic])
+        ownership.begin(owner)
+        XCTAssertTrue(ownership.pin(file, using: files, owner: owner))
+        let busy = expectation(description: "disk operation")
+        let responsive = expectation(description: "preview state")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        if !writing {
+            files.beforeNextEnumeration {
+                busy.fulfill()
+                _ = release.wait(timeout: .now() + 10)
+            }
+        }
+        let operation = Task.detached {
+            if writing {
+                do {
+                    try ownership.materializeAndPin(file, using: files, owner: owner) {
+                        busy.fulfill()
+                        _ = release.wait(timeout: .now() + 10)
+                        try files.writeData(
+                            Data("updated".utf8), to: file, options: [.atomic])
+                    }
+                    XCTFail("Closed preview completed a pending write")
+                } catch { XCTAssertTrue(error is CancellationError) }
+            } else {
+                XCTAssertTrue(ownership.clearDirectory(directory, using: files))
+            }
+        }
+        await fulfillment(of: [busy], timeout: 5)
+        let preview = Task { @MainActor in
+            let anotherOwner = UUID()
+            ownership.begin(anotherOwner)
+            let cleanup = ownership.end(owner)
+            ownership.end(anotherOwner)
+            XCTAssertFalse(ownership.contains(owner))
+            responsive.fulfill()
+            return cleanup
+        }
+        await fulfillment(of: [responsive], timeout: 1)
+        release.signal()
+        await operation.value
+        let cleanup = await preview.value
+        await cleanup.value
+        XCTAssertFalse(files.fileExists(at: file))
     }
 
     func testDeferredPreviewCleanupFinishes() async throws {
@@ -665,19 +691,23 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             }
             let items = state.items
             window.rootViewController = UIHostingController(
-                rootView: ScrollView {
-                    LazyVStack {
-                        ForEach(items) { comment in
-                            AppCommentThread(
-                                comment: comment, subcomments: comment.flattenedReplies
-                            ) { reply, _ in
-                                Text(reply.text)
-                            }
-                        }
-                    }
-                })
+                rootView: commentListView(items: items))
             window.makeKeyAndVisible()
             window.layoutIfNeeded()
+        }
+    }
+
+    private func commentListView(items: [CommunityComment]) -> some View {
+        ScrollView {
+            LazyVStack {
+                ForEach(items) { comment in
+                    AppCommentThread(
+                        comment: comment, subcomments: comment.flattenedReplies
+                    ) { reply, _ in
+                        Text(reply.text)
+                    }
+                }
+            }
         }
     }
 
@@ -732,62 +762,83 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             Task { @MainActor in
                 defer { completed.fulfill() }
                 do {
-                    let files = PreferenceMemoryFiles()
-                    let media = AppMedia.makeEnvironment(
-                        files: files, previewStorage: MediaPreviewStorage(files: files),
-                        defaults: AppFileDirectories.defaults, imageHTTPClient: client,
-                        avatarHTTPClient: client)
-                    var displays: [MediaDisplayedImage] = []
-                    for index in 0..<displayedCount {
-                        let file = files.temporaryDirectoryURL.appending(
-                            path: "media-\(index).png")
-                        try files.writeData(png, to: file, options: [.atomic])
-                        let decoded = await media.stillDecoder.image(at: file)
-                        let image = try XCTUnwrap(decoded)
-                        let display = MediaDisplayedImage()
-                        XCTAssertTrue(display.set(image, budget: media.displayBudget))
-                        displays.append(display)
-                        let avatarURL = try XCTUnwrap(
-                            URL(string: "https://performance.invalid/avatar/\(index)"))
-                        await media.images.store(png, for: avatarURL)
-                        let avatar = await media.avatars.image(
-                            for: avatarURL, maximumPixelSize: avatarSide)
-                        XCTAssertNotNil(avatar)
-                        if index < animatedCount {
-                            let animation = files.temporaryDirectoryURL.appending(
-                                path: "media-\(index).gif")
-                            try files.writeData(gif as Data, to: animation, options: [.atomic])
-                            let animated = await media.animatedDecoder.image(
-                                at: animation, reduceMotion: false)
-                            XCTAssertNotNil(animated)
-                        }
-                    }
-                    XCTAssertEqual(
-                        media.displayBudget.usedBytes, media.displayBudget.maximumBytes)
-                    let downloads = (0..<downloadCount).map { index in
-                        Task { @MainActor in
-                            try await media.downloads.response(
-                                for: XCTUnwrap(
-                                    URL(string: "https://performance.invalid/image/\(index)")),
-                                source: index.isMultiple(of: 2) ? .avatar : .gallery)
-                        }
-                    }
-                    defer { for task in downloads { task.cancel() } }
-                    var responses: [HTTPResponse] = []
-                    for task in downloads { responses.append(try await task.value) }
-                    XCTAssertEqual(responses.count, downloadCount)
-                    XCTAssertTrue(
-                        responses.allSatisfy {
-                            $0.data.count == RemoteImageResourceLimits.maximumEncodedBytes
-                        })
-                    await media.releaseCachedImages()
-                    XCTAssertTrue(displays.allSatisfy { $0.image != nil })
-                    for display in displays { display.clear() }
-                    XCTAssertEqual(media.displayBudget.usedBytes, 0)
+                    try await self.runCombinedMediaPipeline(
+                        client: client,
+                        displayedCount: displayedCount,
+                        animatedCount: animatedCount,
+                        downloadCount: downloadCount,
+                        avatarSide: avatarSide,
+                        png: png,
+                        gif: gif as Data)
                 } catch { XCTFail("Combined media pipeline error: \(error)") }
             }
             wait(for: [completed], timeout: 60)
         }
+    }
+
+    @MainActor
+    private func runCombinedMediaPipeline(
+        client: HTTPClient,
+        displayedCount: Int,
+        animatedCount: Int,
+        downloadCount: Int,
+        avatarSide: Int,
+        png: Data,
+        gif: Data
+    ) async throws {
+        let files = PreferenceMemoryFiles()
+        let media = AppMedia.makeEnvironment(
+            files: files, previewStorage: MediaPreviewStorage(files: files),
+            defaults: AppFileDirectories.defaults, imageHTTPClient: client,
+            avatarHTTPClient: client)
+        var displays: [MediaDisplayedImage] = []
+        for index in 0..<displayedCount {
+            let file = files.temporaryDirectoryURL.appending(
+                path: "media-\(index).png")
+            try files.writeData(png, to: file, options: [.atomic])
+            let decoded = await media.stillDecoder.image(at: file)
+            let image = try XCTUnwrap(decoded)
+            let display = MediaDisplayedImage()
+            XCTAssertTrue(display.set(image, budget: media.displayBudget))
+            displays.append(display)
+            let avatarURL = try XCTUnwrap(
+                URL(string: "https://performance.invalid/avatar/\(index)"))
+            await media.images.store(png, for: avatarURL)
+            let avatar = await media.avatars.image(
+                for: avatarURL, maximumPixelSize: avatarSide)
+            XCTAssertNotNil(avatar)
+            if index < animatedCount {
+                let animation = files.temporaryDirectoryURL.appending(
+                    path: "media-\(index).gif")
+                try files.writeData(gif as Data, to: animation, options: [.atomic])
+                let animated = await media.animatedDecoder.image(
+                    at: animation, reduceMotion: false)
+                XCTAssertNotNil(animated)
+            }
+        }
+        XCTAssertEqual(
+            media.displayBudget.usedBytes, media.displayBudget.maximumBytes)
+        let downloads = (0..<downloadCount).map { index in
+            Task { @MainActor in
+                let source: RemoteImageDownloadSource =
+                    index.isMultiple(of: 2) ? .avatar : .gallery
+                let url = try XCTUnwrap(
+                    URL(string: "https://performance.invalid/image/\(index)"))
+                return try await media.downloads.response(for: url, source: source)
+            }
+        }
+        defer { for task in downloads { task.cancel() } }
+        var responses: [HTTPResponse] = []
+        for task in downloads { responses.append(try await task.value) }
+        XCTAssertEqual(responses.count, downloadCount)
+        XCTAssertTrue(
+            responses.allSatisfy {
+                $0.data.count == RemoteImageResourceLimits.maximumEncodedBytes
+            })
+        await media.releaseCachedImages()
+        XCTAssertTrue(displays.allSatisfy { $0.image != nil })
+        for display in displays { display.clear() }
+        XCTAssertEqual(media.displayBudget.usedBytes, 0)
     }
 
     func testStillImageDecodingPerformance() throws {

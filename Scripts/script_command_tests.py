@@ -150,6 +150,14 @@ child() {{ print executed; }}
     return findings
 
 
+def run_install_program(program: str, expect_failure: bool) -> None:
+    try:
+        exec(compile(program, "<mac-app-install>", "exec"), {})
+    except OSError:
+        if not expect_failure:
+            raise
+
+
 def restore_installation_boundary_findings() -> list[str]:
     "安装前清理旧恢复证据，清理失败沿真实安装分支传播。"
     import shlex
@@ -299,11 +307,7 @@ def restore_installation_boundary_findings() -> list[str]:
                 patch.object(subprocess, "run", side_effect=copy),
                 patch("ctypes.CDLL", return_value=library),
             ):
-                try:
-                    exec(compile(program, "<mac-app-install>", "exec"), {})
-                except OSError:
-                    if not stage.endswith("failure"):
-                        raise
+                run_install_program(program, stage.endswith("failure"))
             expected = "old" if stage.endswith("failure") else "new"
             assert (installed / "binary").read_text() == expected and not (
                 fixture / ".BIT101-iOS.install.app"
@@ -483,6 +487,14 @@ def audit_lock_boundary_findings() -> list[str]:
     return findings
 
 
+def kill_worker_group(worker: int, worker_group: int) -> None:
+    try:
+        if os.getpgid(worker) == worker_group:
+            os.killpg(worker_group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def audit_cancellation_findings() -> list[str]:
     import os
     import select
@@ -549,16 +561,39 @@ def audit_cancellation_findings() -> list[str]:
             findings.append(f"审计中断自测：{reason}")
         finally:
             if worker_group is not None:
-                try:
-                    if os.getpgid(worker) == worker_group:
-                        os.killpg(worker_group, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                kill_worker_group(worker, worker_group)
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
             process.communicate(timeout=5)
     shutil.rmtree(fixture)
     return findings
+
+
+def check_build_argument_mutations(
+    source: str, path: Path, arguments: list[str], environment: dict
+) -> list[str]:
+    mutations = []
+    options = (
+        ("--enable-code-coverage",)
+        if arguments == ["modules"]
+        else (
+            "-enableCodeCoverage YES",
+            "ENABLE_CODE_COVERAGE=YES",
+            "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
+            "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
+        )
+    )
+    for option in options:
+        changed = source.replace(option, "") + "\n# " + option + "\n"
+        mutated = subprocess.run(
+            ["zsh", "-c", changed, str(path), *arguments],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        if not test_build_argument_findings(mutated.stdout):
+            mutations.append(f"编译参数变异自测：注释中的 {option} 保留执行门禁")
+    return mutations
 
 
 def script_command_boundary_findings() -> list[str]:
@@ -1413,26 +1448,9 @@ bit101_run_logged() { print BUILD; return 79; }
                 )
             )
             if arguments in (["build"], ["modules"]):
-                options = (
-                    ("--enable-code-coverage",)
-                    if arguments == ["modules"]
-                    else (
-                        "-enableCodeCoverage YES",
-                        "ENABLE_CODE_COVERAGE=YES",
-                        "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
-                        "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
-                    )
+                findings.extend(
+                    check_build_argument_mutations(source, path, arguments, environment)
                 )
-                for option in options:
-                    changed = source.replace(option, "") + "\n# " + option + "\n"
-                    mutated = subprocess.run(
-                        ["zsh", "-c", changed, str(path), *arguments],
-                        env=environment,
-                        capture_output=True,
-                        text=True,
-                    )
-                    if not test_build_argument_findings(mutated.stdout):
-                        findings.append(f"编译参数变异自测：注释中的 {option} 保留执行门禁")
         if (
             filename == "build-install-device.sh"
             and not arguments

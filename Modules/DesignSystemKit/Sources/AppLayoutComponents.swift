@@ -193,6 +193,44 @@ public struct AppBrowserLayout<
         self.master = master()
         self.detail = detail
     }
+    private var detailPathBinding: Binding<[Selection]> {
+        Binding(
+            get: { selection.map { [$0] } ?? [] },
+            set: { selection = $0.last }
+        )
+    }
+
+    @ViewBuilder
+    private var landscapeDetailStack: some View {
+        NavigationStack(path: detailPathBinding) {
+            defaultDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppDesignSystem.Palette.Background.grouped)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(.visible, for: .navigationBar)
+                .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+                .navigationDestination(for: Selection.self) { selected in
+                    detailContent(selected).appPaneBackButton(isPresented: true) {
+                        selection = nil
+                    }
+                }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain).accessibilityIdentifier(
+            "browser.detail"
+        )
+        .environment(\.appContentColumn, .trailing)
+        .padding(
+            .top,
+            layout.usesTopTabBar
+                ? AppDesignSystem.Size.Control.touchTarget
+                : AppDesignSystem.Spacing.none
+        )
+        .padding(
+            .top,
+            header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
+    }
+
     public var body: some View {
         Group {
             if layout.isLandscape {
@@ -201,36 +239,7 @@ public struct AppBrowserLayout<
                         .environment(\.appContentColumn, .leading)
                         .frame(width: layout.sidebarWidth)
                     Divider()
-                    NavigationStack(
-                        path: Binding(
-                            get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })
-                    ) {
-                        defaultDetail
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(AppDesignSystem.Palette.Background.grouped)
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar(.visible, for: .navigationBar)
-                            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                            .navigationDestination(for: Selection.self) { selected in
-                                detailContent(selected).appPaneBackButton(isPresented: true) {
-                                    selection = nil
-                                }
-                            }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityElement(children: .contain).accessibilityIdentifier(
-                        "browser.detail"
-                    )
-                    .environment(\.appContentColumn, .trailing)
-                    .padding(
-                        .top,
-                        layout.usesTopTabBar
-                            ? AppDesignSystem.Size.Control.touchTarget
-                            : AppDesignSystem.Spacing.none
-                    )
-                    .padding(
-                        .top,
-                        header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
+                    landscapeDetailStack
                 }
             } else {
                 NavigationStack(
@@ -604,37 +613,43 @@ public struct AppFloatingActionButton: View {
                         accessibilityIdentifier
                             ?? "ui.app-floating-action-button.toolbar-action")
             } else {
-                Button(action: performAction) {
-                    ZStack(alignment: .topTrailing) {
-                        AppFloatingActionButtonLabel(systemImage: systemImage)
-
-                        if let badgeText {
-                            Text(badgeText)
-                                .font(AppDesignSystem.Typography.captionEmphasis)
-                                .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
-                                .padding(.horizontal, AppDesignSystem.Spacing.tiny)
-                                .frame(
-                                    minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
-                                    minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
-                                )
-                                .background(
-                                    AppDesignSystem.Palette.Status.danger, in: Capsule()
-                                )
-                                .offset(
-                                    x: AppDesignSystem.Spacing.tiny,
-                                    y: -AppDesignSystem.Spacing.tiny)
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                .accessibilityIdentifier(
-                    accessibilityIdentifier ?? "ui.app-floating-action-button.action")
+                floatingActionButton
             }
         }
         .appImpactFeedback(trigger: feedbackToken)
     }
+
+    @ViewBuilder
+    private var floatingActionButton: some View {
+        Button(action: performAction) {
+            ZStack(alignment: .topTrailing) {
+                AppFloatingActionButtonLabel(systemImage: systemImage)
+
+                if let badgeText {
+                    Text(badgeText)
+                        .font(AppDesignSystem.Typography.captionEmphasis)
+                        .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
+                        .padding(.horizontal, AppDesignSystem.Spacing.tiny)
+                        .frame(
+                            minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
+                            minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
+                        )
+                        .background(
+                            AppDesignSystem.Palette.Status.danger, in: Capsule()
+                        )
+                        .offset(
+                            x: AppDesignSystem.Spacing.tiny,
+                            y: -AppDesignSystem.Spacing.tiny)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
+        .accessibilityIdentifier(
+            accessibilityIdentifier ?? "ui.app-floating-action-button.action")
+    }
+
     private func performAction() {
         feedbackToken &+= 1
         action()

@@ -54,26 +54,12 @@ public nonisolated enum ScheduleICSParser {
                 let name = String(controlLine.dropFirst(4))
                 guard components.last == name else { throw ParseError.invalidCalendarData }
                 if name == "VEVENT" {
-                    guard let properties = currentEvent else {
-                        throw ParseError.invalidCalendarData
-                    }
-                    if properties["STATUS"]?.value.uppercased() == "CANCELLED" {
-                        guard
-                            let uid = properties["UID"]?.value.trimmingCharacters(
-                                in: .whitespacesAndNewlines),
-                            !uid.isEmpty
-                        else { throw ParseError.invalidCalendarData }
-                        cancelledIDs.insert(uid)
-                        eventsByID[uid] = nil
-                    } else {
-                        guard let event = makeEvent(from: properties, dates: &dates) else {
-                            throw ParseError.invalidCalendarData
-                        }
-                        guard eventsByID[event.id] == nil || eventsByID[event.id] == event else {
-                            throw ParseError.invalidCalendarData
-                        }
-                        if !cancelledIDs.contains(event.id) { eventsByID[event.id] = event }
-                    }
+                    try handleFinishedEvent(
+                        properties: currentEvent,
+                        dates: &dates,
+                        cancelledIDs: &cancelledIDs,
+                        eventsByID: &eventsByID
+                    )
                     currentEvent = nil
                 }
                 components.removeLast()
@@ -118,6 +104,34 @@ public nonisolated enum ScheduleICSParser {
         return eventsByID.values.sorted { lhs, rhs in
             if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
             return lhs.id < rhs.id
+        }
+    }
+
+    private static func handleFinishedEvent(
+        properties: [String: Property]?,
+        dates: inout DateParser,
+        cancelledIDs: inout Set<String>,
+        eventsByID: inout [String: DDLEventRecord]
+    ) throws {
+        guard let properties else {
+            throw ParseError.invalidCalendarData
+        }
+        if properties["STATUS"]?.value.uppercased() == "CANCELLED" {
+            guard
+                let uid = properties["UID"]?.value.trimmingCharacters(
+                    in: .whitespacesAndNewlines),
+                !uid.isEmpty
+            else { throw ParseError.invalidCalendarData }
+            cancelledIDs.insert(uid)
+            eventsByID[uid] = nil
+        } else {
+            guard let event = makeEvent(from: properties, dates: &dates) else {
+                throw ParseError.invalidCalendarData
+            }
+            guard eventsByID[event.id] == nil || eventsByID[event.id] == event else {
+                throw ParseError.invalidCalendarData
+            }
+            if !cancelledIDs.contains(event.id) { eventsByID[event.id] = event }
         }
     }
 

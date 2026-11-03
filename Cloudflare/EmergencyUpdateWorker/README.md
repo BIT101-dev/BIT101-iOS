@@ -2,7 +2,7 @@
 
 接口公开 `emergency-update` KV 的读取能力；写入操作通过已授权的本机 Wrangler 完成。
 
-## 域名与维护边界
+## 域名与维护职责范围
 
 - iOS 项目维护者负责域名 `aihelpme.dev` 的管理。
 - BIT101/101 相关域名（包括 `bit101.cn`）归属 BIT101 服务体系。

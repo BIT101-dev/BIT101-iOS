@@ -14,50 +14,7 @@ public struct ScheduleTermPickerPage: View {
     public var body: some View {
         List {
             Section("选择学期") {
-                if viewModel.isLoadingTerms {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
-                    }
-                } else if viewModel.availableTerms.isEmpty {
-                    if viewModel.verificationChallenge != nil {
-                        AppEmptyState(
-                            title: "等待短信验证", systemImage: "message", message: "完成短信验证后获取学期列表。")
-                    } else {
-                        AppEmptyState(
-                            title: viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载",
-                            systemImage: "calendar", actionTitle: "重新加载"
-                        ) {
-                            Task { await viewModel.loadAvailableTerms() }
-                        }
-                    }
-                } else {
-                    ForEach(viewModel.availableTerms, id: \.self) { term in
-                        Button {
-                            selectionFeedbackToken &+= 1
-                            Task { await viewModel.syncCourses(term: term) }
-                        } label: {
-                            HStack(spacing: AppDesignSystem.Spacing.regular) {
-                                Text(term)
-                                Spacer()
-                                if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
-                                    ProgressView()
-                                } else if viewModel.settingsSnapshot.currentTerm == term {
-                                    Image(systemName: "checkmark")
-                                        .font(AppDesignSystem.Typography.bodyEmphasis)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .disabled(
-                            viewModel.isSyncingCourses || viewModel.isLoadingTerms
-                                || viewModel.settingsSnapshot.currentTerm == term
-                        )
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.schedule-term-picker-page.term")
-                    }
-                }
+                termsSectionContent
             }
         }
         .accessibilityIdentifier("interaction.ScheduleTermPickerPage.list")
@@ -72,6 +29,81 @@ public struct ScheduleTermPickerPage: View {
             interactionEvidence?("interaction.ScheduleTermPickerPage.refreshable", "refresh")
 
             await viewModel.loadAvailableTerms()
+        }
+    }
+
+    @ViewBuilder
+    private var termsSectionContent: some View {
+        if viewModel.isLoadingTerms {
+            loadingTermsRow
+        } else if viewModel.availableTerms.isEmpty {
+            emptyTermsView
+        } else {
+            termsList
+        }
+    }
+
+    private var loadingTermsRow: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            Spacer()
+            ProgressView()
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var emptyTermsView: some View {
+        if viewModel.verificationChallenge != nil {
+            AppEmptyState(
+                title: "等待短信验证",
+                systemImage: "message",
+                message: "完成短信验证后获取学期列表。"
+            )
+        } else {
+            let title = viewModel.hasLoadedAvailableTerms ? "暂无可选学期" : "学期列表尚未加载"
+            AppEmptyState(
+                title: title,
+                systemImage: "calendar",
+                actionTitle: "重新加载"
+            ) {
+                Task { await viewModel.loadAvailableTerms() }
+            }
+        }
+    }
+
+    private var termsList: some View {
+        ForEach(viewModel.availableTerms, id: \.self) { term in
+            termRow(term)
+        }
+    }
+
+    private func termRow(_ term: String) -> some View {
+        Button {
+            selectionFeedbackToken &+= 1
+            Task { await viewModel.syncCourses(term: term) }
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text(term)
+                Spacer()
+                termTrailingIndicator(term)
+            }
+            .contentShape(Rectangle())
+        }
+        .disabled(
+            viewModel.isSyncingCourses || viewModel.isLoadingTerms
+                || viewModel.settingsSnapshot.currentTerm == term
+        )
+        .appInteractiveListRow()
+        .accessibilityIdentifier("ui.schedule-term-picker-page.term")
+    }
+
+    @ViewBuilder
+    private func termTrailingIndicator(_ term: String) -> some View {
+        if viewModel.isSyncingCourses, viewModel.syncingTerm == term {
+            ProgressView()
+        } else if viewModel.settingsSnapshot.currentTerm == term {
+            Image(systemName: "checkmark")
+                .font(AppDesignSystem.Typography.bodyEmphasis)
         }
     }
 }
@@ -287,48 +319,13 @@ public struct ScheduleImportCodeSheet: View {
                     .accessibilityIdentifier("schedule.import.code")
 
                 HStack(spacing: AppDesignSystem.Spacing.content) {
-                    Button {
-                        guard let clipboard = UIPasteboard.general.string,
-                            !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        else {
-                            localAlert = AppAlert.userInput(
-                                title: "粘贴失败",
-                                message: "剪贴板中没有可用的课表编码。"
-                            )
-                            return
-                        }
-                        text = clipboard
-                    } label: {
+                    Button(action: handlePasteClipboard) {
                         Label("粘贴剪贴板", systemImage: "doc.on.clipboard")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
 
-                    Button {
-                        guard importTask == nil else { return }
-                        isEditingCode = false
-                        let code = text
-                        importTask = Task { @MainActor in
-                            defer { importTask = nil }
-                            do {
-                                try await onImport(code)
-                                try Task.checkCancellation()
-                                dismiss()
-                            } catch  where TaskCancellation.matches(error) {
-                                return
-                            } catch let error as ScheduleShareCodeError {
-                                if case .unsupportedNewerFormat(let version) = error {
-                                    unsupportedFormatVersion = version
-                                } else {
-                                    localAlert = AppAlert.userInput(
-                                        title: "导入失败", message: error.localizedDescription)
-                                }
-                            } catch {
-                                localAlert = AppAlert.userInput(
-                                    title: "导入失败", message: error.localizedDescription)
-                            }
-                        }
-                    } label: {
+                    Button(action: startImport) {
                         Label("导入", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
                     }
@@ -369,6 +366,49 @@ public struct ScheduleImportCodeSheet: View {
         }
         .onDisappear { importTask?.cancel() }
     }
+
+    private func handlePasteClipboard() {
+        guard let clipboard = UIPasteboard.general.string,
+            !clipboard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            localAlert = AppAlert.userInput(
+                title: "粘贴失败",
+                message: "剪贴板中没有可用的课表编码。"
+            )
+            return
+        }
+        text = clipboard
+    }
+
+    private func startImport() {
+        guard importTask == nil else { return }
+        isEditingCode = false
+        let code = text
+        importTask = Task { @MainActor in
+            defer { importTask = nil }
+            await performImport(code: code)
+        }
+    }
+
+    private func performImport(code: String) async {
+        do {
+            try await onImport(code)
+            try Task.checkCancellation()
+            dismiss()
+        } catch where TaskCancellation.matches(error) {
+            return
+        } catch let error as ScheduleShareCodeError {
+            if case .unsupportedNewerFormat(let version) = error {
+                unsupportedFormatVersion = version
+            } else {
+                localAlert = AppAlert.userInput(
+                    title: "导入失败", message: error.localizedDescription)
+            }
+        } catch {
+            localAlert = AppAlert.userInput(
+                title: "导入失败", message: error.localizedDescription)
+        }
+    }
 }
 
 /// 课表重命名窗口。
@@ -407,19 +447,21 @@ public struct ScheduleRenameSheet: View {
                     .accessibilityIdentifier("ui.schedule-rename-sheet.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("确定") {
-                        do {
-                            try onSubmit(text)
-                            dismiss()
-                        } catch {
-                            localAlert = AppAlert.userInput(
-                                title: "保存失败", message: error.localizedDescription)
-                        }
-                    }
+                    Button("确定", action: handleConfirm)
                     .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
                 }
             }
             .diagnosticAlert(item: $localAlert)
+        }
+    }
+
+    private func handleConfirm() {
+        do {
+            try onSubmit(text)
+            dismiss()
+        } catch {
+            localAlert = AppAlert.userInput(
+                title: "保存失败", message: error.localizedDescription)
         }
     }
 }

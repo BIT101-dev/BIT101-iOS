@@ -1,7 +1,10 @@
 """Regression contracts for real XCTest performance extraction and capture identity."""
 
 from copy import deepcopy
+import json
 from pathlib import Path
+import shutil
+import subprocess
 from unittest.mock import patch
 import validation_performance as subject
 from validation_provenance import _local_source_identity
@@ -407,6 +410,16 @@ def developer_directory_self_test() -> None:
             patch.object(Path, "stat", return_value=SimpleNamespace(st_size=8, st_mtime_ns=1)),
             patch.object(Path, "open", side_effect=lambda *args, **kwargs: BytesIO(b"compiler")),
         ):
+            expected_runtimes = {
+                "python": sys.version,
+                "ruby": "ruby fixture-version",
+                "node": "node fixture-version",
+                "npm": "npm fixture-version",
+                "ruff": "ruff fixture-version",
+            }
+            incomplete_runtimes = {
+                name: val for name, val in expected_runtimes.items() if name != "ruff"
+            }
             contexts = []
             for selected in ("/chosen/Xcode.app", str(developer)):
                 with patch.dict(os.environ, DEVELOPER_DIR=selected):
@@ -414,23 +427,9 @@ def developer_directory_self_test() -> None:
                     environment.environment_context.cache_clear()
                     context = environment.environment_context("audit")
                     assert environment.complete_environment("audit", context), selected
-                    assert context["runtimes"] == {
-                        "python": sys.version,
-                        **{
-                            name: name + " fixture-version"
-                            for name in ("ruby", "node", "npm", "ruff")
-                        },
-                    }
+                    assert context["runtimes"] == expected_runtimes
                     assert not environment.complete_environment(
-                        "audit",
-                        context
-                        | {
-                            "runtimes": {
-                                name: value
-                                for name, value in context["runtimes"].items()
-                                if name != "ruff"
-                            }
-                        },
+                        "audit", context | {"runtimes": incomplete_runtimes}
                     )
                     contexts.append(context)
             assert contexts[0] == contexts[1]
@@ -817,6 +816,18 @@ def baseline_approval_self_test() -> None:
     )
 
 
+def assert_capture_rejects_altered_group(subject, rows, group, field, value):
+    changed = deepcopy(rows)
+    changed[group][field] = value
+    with patch.object(Path, "read_text", return_value=json.dumps({"groups": changed})):
+        try:
+            subject.capture_current()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("采样需要匹配完成时的生产运行")
+
+
 def producing_run_capture_self_test() -> None:
     import json
     from validation_manual import PERFORMANCE_WORKLOADS, performance_group
@@ -918,15 +929,148 @@ def producing_run_capture_self_test() -> None:
                 ("resultBundleIdentity", "c" * 64),
                 ("sourceCommit", "other"),
             ]:
-                changed = deepcopy(rows)
-                changed[group][field] = value
-                with patch.object(Path, "read_text", return_value=json.dumps({"groups": changed})):
-                    try:
-                        subject.capture_current()
-                    except ValueError:
-                        pass
-                    else:
-                        raise AssertionError("采样需要匹配完成时的生产运行")
+                assert_capture_rejects_altered_group(subject, rows, group, field, value)
+
+
+def batch_fault_expected_bytes(fault: str) -> bytes:
+    if fault == "current-only":
+        return b"previouscurrent"
+    merged_faults = {
+        "current",
+        "merged",
+        "current-merged",
+        "published-current",
+        "published-missing",
+    }
+    if fault in merged_faults:
+        return b"merged"
+    return b"previous"
+
+
+def setup_batch_fault_fixture(bundle, retained, incoming, fault, create):
+    for path in (bundle, retained, incoming):
+        shutil.rmtree(path, ignore_errors=True)
+    create(retained, b"previous")
+    create(incoming, b"merged")
+    if fault.startswith("current") or fault == "published-current":
+        create(bundle, b"current")
+        if fault in {"current-partial", "current-merged"}:
+            (bundle / "Staging").mkdir()
+        if fault == "current-missing":
+            (bundle / "database.sqlite3").unlink()
+    if fault in {"retained", "current-only"}:
+        shutil.rmtree(incoming)
+    if fault.startswith("published"):
+        shutil.rmtree(retained)
+    if fault in {"partial", "current-partial", "current-missing"}:
+        (incoming / "Staging").mkdir()
+
+
+def verify_retain_failure_recovery(
+    subject,
+    failure,
+    bundle,
+    retained,
+    incoming,
+    create,
+    report_path,
+    writer,
+    merge,
+    exported,
+):
+    for path in (bundle, retained, incoming):
+        shutil.rmtree(path, ignore_errors=True)
+    create(retained, b"previous")
+    create(bundle, b"failed")
+    writer.reset_mock()
+
+    def failing_merge(command, **kwargs):
+        if failure != "summary":
+            create(incoming, b"partial")
+            if failure == "interrupt":
+                raise KeyboardInterrupt()
+            raise subprocess.CalledProcessError(1, command)
+        merge(command, **kwargs)
+
+    def failing_export(command, **kwargs):
+        if failure == "summary" and str(incoming) in command:
+            raise subprocess.CalledProcessError(1, command)
+        return exported(command, **kwargs)
+
+    with (
+        patch.object(subject.subprocess, "run", side_effect=failing_merge),
+        patch.object(subject.subprocess, "check_output", side_effect=failing_export),
+    ):
+        try:
+            subject.retain_result_step(["all", "ui"])
+        except (subprocess.CalledProcessError, KeyboardInterrupt):
+            pass
+        else:
+            raise AssertionError("结果合并失败与中断需要传播")
+    assert json.loads(report_path.read_text())["resultMerge"]["groups"] == ["all", "ui"]
+    assert bundle.is_dir() and retained.is_dir() and not incoming.exists()
+    assert (bundle / "database.sqlite3").read_bytes() == b"failed"
+    assert (retained / "database.sqlite3").read_bytes() == b"previous"
+    subject.recover_result_step()
+    assert (bundle / "database.sqlite3").read_bytes() == b"previousfailed"
+    subject.recover_result_step()
+    assert (bundle / "database.sqlite3").read_bytes() == b"previousfailed"
+
+
+def verify_retain_interrupted_recovery(
+    subject,
+    interrupted,
+    bundle,
+    retained,
+    incoming,
+    create,
+    remove,
+    move,
+    report_path,
+    writer,
+):
+    for path in (bundle, retained, incoming):
+        remove(path, ignore_errors=True)
+    create(retained, b"previous")
+    create(bundle, b"current")
+    writer.reset_mock()
+
+    def interrupted_remove(path, **kwargs):
+        if path == (
+            retained if interrupted == "retained" else bundle
+        ) and interrupted in {"retained", "current"}:
+            (path / "database.sqlite3").unlink()
+            raise KeyboardInterrupt()
+        return remove(path, **kwargs)
+
+    def interrupted_move(source, destination, **kwargs):
+        if interrupted == "publish-before":
+            raise KeyboardInterrupt()
+        result = move(source, destination, **kwargs)
+        if interrupted == "publish-after":
+            raise KeyboardInterrupt()
+        return result
+
+    with (
+        patch.object(subject.shutil, "rmtree", side_effect=interrupted_remove),
+        patch.object(subject.shutil, "move", side_effect=interrupted_move),
+    ):
+        try:
+            subject.retain_result_step(["all", "ui"])
+        except KeyboardInterrupt:
+            pass
+        else:
+            raise AssertionError("结果包提交中断需要传播")
+    assert json.loads(report_path.read_text())["resultMerge"]["groups"] == ["all", "ui"]
+    with patch.object(subject.subprocess, "run") as repeated_merge:
+        subject.recover_result_step()
+        subject.recover_result_step()
+        repeated_merge.assert_not_called()
+    assert (bundle / "database.sqlite3").read_bytes() == b"previouscurrent"
+    assert not retained.exists() and not incoming.exists()
+    recovered = json.loads(report_path.read_text())
+    assert "resultMerge" not in recovered
+    assert recovered["groups"]["all"]["resultBundleIdentity"] == subject.bundle_identity(bundle)
 
 
 def batch_retention_self_test(raw: list, test: str) -> None:
@@ -1139,90 +1283,33 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             create(bundle, b"failed")
             report_path.write_text(json.dumps(report))
             for failure in ("merge", "summary", "interrupt"):
-                for path in (bundle, retained, incoming):
-                    shutil.rmtree(path, ignore_errors=True)
-                create(retained, b"previous")
-                create(bundle, b"failed")
-                writer.reset_mock()
-
-                def failing_merge(command, **kwargs):
-                    if failure != "summary":
-                        create(incoming, b"partial")
-                        if failure == "interrupt":
-                            raise KeyboardInterrupt()
-                        raise subprocess.CalledProcessError(1, command)
-                    merge(command, **kwargs)
-
-                def failing_export(command, **kwargs):
-                    if failure == "summary" and str(incoming) in command:
-                        raise subprocess.CalledProcessError(1, command)
-                    return exported(command, **kwargs)
-
-                with (
-                    patch.object(subject.subprocess, "run", side_effect=failing_merge),
-                    patch.object(subject.subprocess, "check_output", side_effect=failing_export),
-                ):
-                    try:
-                        subject.retain_result_step(["all", "ui"])
-                    except (subprocess.CalledProcessError, KeyboardInterrupt):
-                        pass
-                    else:
-                        raise AssertionError("结果合并失败与中断需要传播")
-                assert json.loads(report_path.read_text())["resultMerge"]["groups"] == ["all", "ui"]
-                assert bundle.is_dir() and retained.is_dir() and not incoming.exists()
-                assert (bundle / "database.sqlite3").read_bytes() == b"failed"
-                assert (retained / "database.sqlite3").read_bytes() == b"previous"
-                subject.recover_result_step()
-                assert (bundle / "database.sqlite3").read_bytes() == b"previousfailed"
-                subject.recover_result_step()
-                assert (bundle / "database.sqlite3").read_bytes() == b"previousfailed"
+                verify_retain_failure_recovery(
+                    subject,
+                    failure,
+                    bundle,
+                    retained,
+                    incoming,
+                    create,
+                    report_path,
+                    writer,
+                    merge,
+                    exported,
+                )
             remove = shutil.rmtree
             move = shutil.move
             for interrupted in ("retained", "current", "publish-before", "publish-after"):
-                for path in (bundle, retained, incoming):
-                    remove(path, ignore_errors=True)
-                create(retained, b"previous")
-                create(bundle, b"current")
-                writer.reset_mock()
-
-                def interrupted_remove(path, **kwargs):
-                    if path == (
-                        retained if interrupted == "retained" else bundle
-                    ) and interrupted in {"retained", "current"}:
-                        (path / "database.sqlite3").unlink()
-                        raise KeyboardInterrupt()
-                    return remove(path, **kwargs)
-
-                def interrupted_move(source, destination, **kwargs):
-                    if interrupted == "publish-before":
-                        raise KeyboardInterrupt()
-                    result = move(source, destination, **kwargs)
-                    if interrupted == "publish-after":
-                        raise KeyboardInterrupt()
-                    return result
-
-                with (
-                    patch.object(subject.shutil, "rmtree", side_effect=interrupted_remove),
-                    patch.object(subject.shutil, "move", side_effect=interrupted_move),
-                ):
-                    try:
-                        subject.retain_result_step(["all", "ui"])
-                    except KeyboardInterrupt:
-                        pass
-                    else:
-                        raise AssertionError("结果包提交中断需要传播")
-                assert json.loads(report_path.read_text())["resultMerge"]["groups"] == ["all", "ui"]
-                with patch.object(subject.subprocess, "run") as repeated_merge:
-                    subject.recover_result_step()
-                    subject.recover_result_step()
-                    repeated_merge.assert_not_called()
-                assert (bundle / "database.sqlite3").read_bytes() == b"previouscurrent"
-                assert not retained.exists() and not incoming.exists()
-                recovered = json.loads(report_path.read_text())
-                assert "resultMerge" not in recovered
-                assert recovered["groups"]["all"][
-                    "resultBundleIdentity"
-                ] == subject.bundle_identity(bundle)
+                verify_retain_interrupted_recovery(
+                    subject,
+                    interrupted,
+                    bundle,
+                    retained,
+                    incoming,
+                    create,
+                    remove,
+                    move,
+                    report_path,
+                    writer,
+                )
             for path in (bundle, retained, incoming):
                 remove(path, ignore_errors=True)
             create(retained, b"previous")
@@ -1299,22 +1386,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
                 "current-unreadable",
                 "current-merged",
             ):
-                for path in (bundle, retained, incoming):
-                    shutil.rmtree(path, ignore_errors=True)
-                create(retained, b"previous")
-                create(incoming, b"merged")
-                if fault.startswith("current") or fault == "published-current":
-                    create(bundle, b"current")
-                    if fault in {"current-partial", "current-merged"}:
-                        (bundle / "Staging").mkdir()
-                    if fault == "current-missing":
-                        (bundle / "database.sqlite3").unlink()
-                if fault in {"retained", "current-only"}:
-                    shutil.rmtree(incoming)
-                if fault.startswith("published"):
-                    shutil.rmtree(retained)
-                if fault in {"partial", "current-partial", "current-missing"}:
-                    (incoming / "Staging").mkdir()
+                setup_batch_fault_fixture(bundle, retained, incoming, fault, create)
                 assert artifact_status() == 1, fault
 
                 def recover_export(command, **kwargs):
@@ -1325,20 +1397,7 @@ def batch_retention_self_test(raw: list, test: str) -> None:
 
                 with patch.object(subject.subprocess, "check_output", side_effect=recover_export):
                     assert subject.main(["recover-batch"]) == 0
-                expected = (
-                    b"previouscurrent"
-                    if fault == "current-only"
-                    else b"merged"
-                    if fault
-                    in {
-                        "current",
-                        "merged",
-                        "current-merged",
-                        "published-current",
-                        "published-missing",
-                    }
-                    else b"previous"
-                )
+                expected = batch_fault_expected_bytes(fault)
                 assert (bundle / "database.sqlite3").read_bytes() == expected, fault
                 assert not retained.exists() and not incoming.exists(), fault
                 assert artifact_status() == 0, fault

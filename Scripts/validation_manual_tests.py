@@ -110,6 +110,19 @@ def captured_media_fixture() -> dict:
     }
 
 
+def platform_installed_bundles(
+    bundles: list[dict], contracts: dict, platform: str
+) -> list[dict]:
+    result = []
+    keys = ("identifier", "version", "build", "executableUUIDs")
+    for bundle in bundles:
+        if contracts[bundle["identifier"]]["platform"] == platform:
+            item = {key: bundle[key] for key in keys}
+            item["distributionChannel"] = "testflight"
+            result.append(item)
+    return result
+
+
 def evidence_fixture(check: str) -> bytes:
     from validation_manual import MANUAL_SCENARIOS
     from validation_test_areas import manual_capabilities
@@ -118,6 +131,12 @@ def evidence_fixture(check: str) -> bytes:
         return {
             name: {"operation": "实际调用", "result": "观察响应", "outcome": "passed"}
             for name in manual_capabilities(check, scenario)
+        }
+
+    def make_action_entry(actions):
+        return {
+            action: {"operation": "实际操作", "result": "观察结果", "outcome": "passed"}
+            for action in actions
         }
 
     if check in MANUAL_SCENARIOS:
@@ -146,11 +165,11 @@ def evidence_fixture(check: str) -> bytes:
             from validation_compilation import compilation_settings
             from validation_provenance import input_identity
 
+            expected_platform = "watchOS" if check == "watch" else "iOS"
             contract = next(
                 (identifier, row)
                 for identifier, row in distribution.distribution_contracts().items()
-                if row["platform"] == ("watchOS" if check == "watch" else "iOS")
-                and not row["extension"]
+                if row["platform"] == expected_platform and not row["extension"]
             )
             identifier, row = contract
             bundle = next(
@@ -162,10 +181,7 @@ def evidence_fixture(check: str) -> bytes:
                 from validation_manual import INSTALLATION_ACTIONS
 
                 for name, actions in INSTALLATION_ACTIONS.items():
-                    scenarios[name]["actions"] = {
-                        action: {"operation": "实际操作", "result": "观察结果", "outcome": "passed"}
-                        for action in actions
-                    }
+                    scenarios[name]["actions"] = make_action_entry(actions)
                 scenarios["app-store-upgrade"].update(
                     sourceApplication={
                         "identifier": identifier,
@@ -192,10 +208,7 @@ def evidence_fixture(check: str) -> bytes:
                     "keyboard-navigation": ("tab", "return", "escape"),
                     "permission-dialogs": ("photos", "calendar", "notifications"),
                 }.items():
-                    scenarios[name]["actions"] = {
-                        action: {"operation": "实际操作", "result": "观察结果", "outcome": "passed"}
-                        for action in actions
-                    }
+                    scenarios[name]["actions"] = make_action_entry(actions)
             return json.dumps(
                 {
                     "schemaVersion": 1,
@@ -345,15 +358,7 @@ def evidence_fixture(check: str) -> bytes:
                 "systemVersion": version,
                 "systemBuild": "fixture-build",
                 "capturedAt": utc_now().isoformat(),
-                "installedBundles": [
-                    {
-                        key: bundle[key]
-                        for key in ("identifier", "version", "build", "executableUUIDs")
-                    }
-                    | {"distributionChannel": "testflight"}
-                    for bundle in bundles
-                    if contracts[bundle["identifier"]]["platform"] == platform
-                ],
+                "installedBundles": platform_installed_bundles(bundles, contracts, platform),
                 "checks": {
                     name: {"operation": "实际操作", "result": "观察结果", "outcome": "passed"}
                     for name in checks
@@ -542,6 +547,71 @@ def manual_artifact_encoding_self_test() -> None:
         assert not artifact_complete(artifact, "photos", observed_at=observation["capturedAt"])
     with patch("validation_manual.MAXIMUM_REPORT_BYTES", 1):
         assert not complete({"photos": observation})
+
+
+def verify_privacy_manifest_validation(
+    root: Path,
+    bundle: Path,
+    by_path: dict,
+    privacy_bytes: bytes,
+    altered: dict,
+    read: object,
+) -> None:
+    manifest_path = bundle / "PrivacyInfo.xcprivacy"
+    for value in (
+        None,
+        b"invalid plist",
+        b'<?xml version="1.0"?><plist><dict>',
+        plistlib.dumps(altered),
+    ):
+        def corrupt(path):
+            if path != manifest_path:
+                return read(path)
+            if value is None:
+                raise FileNotFoundError(path)
+            return value
+
+        with patch.object(Path, "read_bytes", side_effect=corrupt, autospec=True):
+            for inspect in (
+                distribution.archive_build_summary,
+                distribution.inspect_application,
+            ):
+                try:
+                    inspect(root)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"归档及分发需要验收实际隐私清单：{bundle}")
+
+    binary_manifest = plistlib.dumps(plistlib.loads(privacy_bytes), fmt=plistlib.FMT_BINARY)
+
+    def binary_read(path):
+        if path == manifest_path:
+            return binary_manifest
+        return read(path)
+
+    with patch.object(Path, "read_bytes", side_effect=binary_read, autospec=True):
+        assert (
+            distribution.archive_build_summary(root)["privacyManifests"][
+                by_path[bundle]["identifier"]
+            ]
+            == by_path[bundle]["privacyManifest"]
+        )
+
+
+def verify_capability_faults(
+    check: str, proof: dict, name: str, capability: str, scenario_complete: object
+) -> None:
+    for fault in ("missing", "failed", "empty"):
+        changed = copy.deepcopy(proof)
+        observations = changed["scenarios"][name]["capabilities"]
+        if fault == "missing":
+            del observations[capability]
+        elif fault == "failed":
+            observations[capability]["outcome"] = "failed"
+        else:
+            observations[capability]["result"] = ""
+        assert not scenario_complete(check, changed)
 
 
 @patch(
@@ -842,48 +912,9 @@ def run_self_test(_source_identity) -> None:
         altered = plistlib.loads(privacy_bytes)
         altered["NSPrivacyAccessedAPITypes"][0]["NSPrivacyAccessedAPITypeReasons"] = []
         for bundle in by_path:
-            manifest_path = bundle / "PrivacyInfo.xcprivacy"
-            for value in (
-                None,
-                b"invalid plist",
-                b'<?xml version="1.0"?><plist><dict>',
-                plistlib.dumps(altered),
-            ):
-
-                def corrupt(path):
-                    if path != manifest_path:
-                        return read(path)
-                    if value is None:
-                        raise FileNotFoundError(path)
-                    return value
-
-                with patch.object(Path, "read_bytes", side_effect=corrupt, autospec=True):
-                    for inspect in (
-                        distribution.archive_build_summary,
-                        distribution.inspect_application,
-                    ):
-                        try:
-                            inspect(root)
-                        except ValueError:
-                            pass
-                        else:
-                            raise AssertionError(f"归档及分发需要验收实际隐私清单：{bundle}")
-            with patch.object(
-                Path,
-                "read_bytes",
-                side_effect=lambda path: (
-                    plistlib.dumps(plistlib.loads(privacy_bytes), fmt=plistlib.FMT_BINARY)
-                    if path == manifest_path
-                    else read(path)
-                ),
-                autospec=True,
-            ):
-                assert (
-                    distribution.archive_build_summary(root)["privacyManifests"][
-                        by_path[bundle]["identifier"]
-                    ]
-                    == by_path[bundle]["privacyManifest"]
-                )
+            verify_privacy_manifest_validation(
+                root, bundle, by_path, privacy_bytes, altered, read
+            )
         commands.side_effect = subprocess.CalledProcessError(1, "codesign")
         try:
             distribution.inspect_application(root)
@@ -1005,16 +1036,7 @@ def run_self_test(_source_identity) -> None:
                 changed["scenarios"][name][key] = value
                 assert not scenario_complete(check, changed)
             for capability in proof["scenarios"][name]["capabilities"]:
-                for fault in ("missing", "failed", "empty"):
-                    changed = copy.deepcopy(proof)
-                    observations = changed["scenarios"][name]["capabilities"]
-                    if fault == "missing":
-                        del observations[capability]
-                    elif fault == "failed":
-                        observations[capability]["outcome"] = "failed"
-                    else:
-                        observations[capability]["result"] = ""
-                    assert not scenario_complete(check, changed)
+                verify_capability_faults(check, proof, name, capability, scenario_complete)
     from validation_test_areas import NETWORK_CAPABILITIES, MANUAL_CAPABILITY_SCENARIOS
 
     installation = json.loads(evidence_fixture("installation-paths"))

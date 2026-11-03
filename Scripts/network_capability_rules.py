@@ -365,6 +365,40 @@ def execution_index(index: dict) -> dict:
     return autoclosure_index(scalar_execution_index(index))
 
 
+def _is_autoclosure_position(position: int, bindings: list) -> bool:
+    if not bindings:
+        return False
+    return all(
+        position < len(b) and "@autoclosure" in b[position]["type"]
+        for b in bindings
+    )
+
+
+def _resolve_autoclosure_lazy_ranges(ranges: list, bindings: list) -> list:
+    return [
+        (position, start, end)
+        for position, (start, end) in enumerate(ranges)
+        if _is_autoclosure_position(position, bindings)
+    ]
+
+
+def _record_autoclosure_nodes(lazy: list, call: dict, closures: list):
+    existing_spans = {(node["start"], node["end"]) for node in closures}
+    for position, start, end in lazy:
+        if (start, end) not in existing_spans:
+            existing_spans.add((start, end))
+            closures.append(
+                dict(
+                    call,
+                    start=start,
+                    end=end,
+                    bodyStart=start,
+                    name=f"autoclosure_{call['start']}_{position}",
+                    parameters=[],
+                )
+            )
+
+
 def autoclosure_index(index: dict) -> dict:
     """Represent known project autoclosure arguments with the existing callback graph."""
     from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
@@ -420,31 +454,24 @@ def autoclosure_index(index: dict) -> dict:
                 for binding in api_argument_bindings(function, call)
             ]
             ranges = call.get("argumentRanges", [])
-            lazy = [
-                (position, start, end)
-                for position, (start, end) in enumerate(ranges)
-                if bindings
-                and all(
-                    position < len(binding) and "@autoclosure" in binding[position]["type"]
-                    for binding in bindings
-                )
-            ]
+            lazy = _resolve_autoclosure_lazy_ranges(ranges, bindings)
             calls.append(dict(call, autoclosureArguments=lazy))
-            for position, start, end in lazy:
-                if any(node["start"] == start and node["end"] == end for node in closures):
-                    continue
-                closures.append(
-                    dict(
-                        call,
-                        start=start,
-                        end=end,
-                        bodyStart=start,
-                        name=f"autoclosure_{call['start']}_{position}",
-                        parameters=[],
-                    )
-                )
+            _record_autoclosure_nodes(lazy, call, closures)
         result[path] = dict(facts, invocations=calls, inlineClosureRanges=closures)
     return result
+
+
+def _outermost_closure_spans(closures: list) -> set[tuple[int, int]]:
+    spans = set()
+    for node in closures:
+        n_start, n_end = node["start"], node["end"]
+        is_nested = any(
+            parent["start"] < n_start and n_end <= parent["end"]
+            for parent in closures
+        )
+        if not is_nested:
+            spans.add((n_start, n_end))
+    return spans
 
 
 def callback_body_ranges(
@@ -521,14 +548,7 @@ def callback_body_ranges(
                     for node in facts.get("inlineClosureRanges", [])
                     if binding["start"] <= node["start"] < node["end"] <= end
                 ]
-                result.update(
-                    (node["start"], node["end"])
-                    for node in closures
-                    if not any(
-                        parent["start"] < node["start"] and node["end"] <= parent["end"]
-                        for parent in closures
-                    )
-                )
+                result.update(_outermost_closure_spans(closures))
                 for mutation in facts.get("invocations", []):
                     if (
                         mutation["calledExpression"] != name + ".append"
@@ -694,6 +714,59 @@ def platform_stream_request(types, path: str, call: dict, bindings=None) -> bool
     )
 
 
+def _binding_assigned_names(
+    parameter: str, expressions: list, fn_start: int, fn_end: int, allowed: set
+) -> set:
+    names = set()
+    pattern = r"self\.(\w+)\s*=\s*" + re.escape(parameter)
+    for assignment in expressions:
+        if fn_start <= assignment["start"] < fn_end:
+            match = re.fullmatch(pattern, assignment["value"])
+            if match and match[1] in allowed:
+                names.add(match[1])
+    return names
+
+
+def _resolve_initializer_property_names(
+    initializers: dict,
+    target: tuple,
+    call: dict,
+    position: int,
+    index: dict,
+    allowed_properties: set,
+) -> set:
+    names = set()
+    for source_path, function in initializers.get(target, []):
+        expressions = index[source_path].get("expressions", [])
+        fn_start, fn_end = function["start"], function["end"]
+        for binding in api_argument_bindings(function, call):
+            if position < len(binding):
+                parameter = binding[position].get("name", "")
+                if parameter:
+                    names |= _binding_assigned_names(
+                        parameter, expressions, fn_start, fn_end, allowed_properties
+                    )
+    return names
+
+
+def _record_stored_closure_results(
+    closures: list,
+    ranges: set,
+    names: set,
+    target: tuple,
+    path: str,
+    call: dict,
+    result: dict,
+):
+    if not names or not ranges:
+        return
+    target_key = ".".join([target[0], *target[1]])
+    for closure in closures:
+        if (closure["start"], closure["end"]) in ranges:
+            for name in names:
+                result.setdefault((target_key, name), []).append((path, closure, call))
+
+
 def stored_callback_bindings(index: dict, types) -> dict:
     """连接构造参数、闭包属性与所属源码中的可调用体。"""
     properties, initializers, result = {}, {}, {}
@@ -729,28 +802,151 @@ def stored_callback_bindings(index: dict, types) -> dict:
                     if position < len(labels) and target not in initializers
                     else set()
                 )
-                for source_path, function in initializers.get(target, []):
-                    for binding in api_argument_bindings(function, call):
-                        if position >= len(binding):
-                            continue
-                        parameter = binding[position].get("name", "")
-                        for assignment in index[source_path].get("expressions", []):
-                            if not (function["start"] <= assignment["start"] < function["end"]):
-                                continue
-                            if match := re.fullmatch(
-                                r"self\.(\w+)\s*=\s*" + re.escape(parameter),
-                                assignment["value"],
-                            ):
-                                names.update({match[1]} & properties[target])
+                names |= _resolve_initializer_property_names(
+                    initializers, target, call, position, index, properties[target]
+                )
                 ranges = callback_body_ranges(facts, call, {position})
-                for closure in closures:
-                    if not ((closure["start"], closure["end"]) in ranges):
-                        continue
-                    for name in names:
-                        result.setdefault((".".join([target[0], *target[1]]), name), []).append(
-                            (path, closure, call)
-                        )
+                _record_stored_closure_results(
+                    closures, ranges, names, target, path, call, result
+                )
     return result
+
+
+def _propagate_call_eager_parameters(
+    source_path: str,
+    function: dict,
+    call: dict,
+    names: set,
+    eager_parameters: set,
+    callback_targets_fn,
+    index: dict,
+):
+    fn_start = function["start"]
+    for target_path, target_function in callback_targets_fn(source_path, call):
+        target_start = target_function["start"]
+        for binding in api_argument_bindings(target_function, call):
+            positions = {
+                pos
+                for pos, param in enumerate(binding)
+                if (target_path, target_start, param.get("name")) in eager_parameters
+            }
+            if positions:
+                references = set()
+                callback_body_ranges(index[source_path], call, positions, references=references)
+                for name in references & names:
+                    eager_parameters.add((source_path, fn_start, name))
+
+
+def _call_in_executed_closure(call: dict, source_facts: dict, executed_starts: set) -> bool:
+    c_start = call["start"]
+    all_closures = (
+        source_facts.get("callableRanges", []) + source_facts.get("inlineClosureRanges", [])
+    )
+    for closure in all_closures:
+        if closure["start"] <= c_start < closure["end"]:
+            if closure["start"] not in executed_starts:
+                return False
+    return True
+
+
+def _record_direct_executed_bodies(
+    source_facts: dict,
+    source_path: str,
+    call: dict,
+    executed_bodies: dict,
+    standard_callbacks_fn,
+):
+    ranges = callback_body_ranges(source_facts, call, standard_callbacks_fn(source_path, call))
+    for start, _ in ranges:
+        executed_bodies[source_path].add(start)
+    for closure in visible_callable_ranges(source_facts, call["calledExpression"], call):
+        executed_bodies[source_path].add(closure["start"])
+
+
+def _propagate_executed_callback_bodies(
+    source_path: str,
+    source_facts: dict,
+    call: dict,
+    callback_targets_fn,
+    eager_parameters: set,
+    executed_bodies: dict,
+):
+    for target_path, function in callback_targets_fn(source_path, call):
+        fn_start = function["start"]
+        for binding in api_argument_bindings(function, call):
+            positions = {
+                pos
+                for pos, param in enumerate(binding)
+                if (target_path, fn_start, param.get("name")) in eager_parameters
+            }
+            if positions:
+                for start, _ in callback_body_ranges(source_facts, call, positions):
+                    executed_bodies[source_path].add(start)
+
+
+def _is_exported_async_closure_api(
+    declaration: dict, inline_closures: list, contains_request_fn
+) -> bool:
+    d_start, d_end = declaration["start"], declaration["end"]
+    for node in inline_closures:
+        if d_start <= node["start"] < node["end"] <= d_end:
+            sub = dict(node, start=node["start"] + 1, end=node["end"] - 1)
+            if contains_request_fn(sub):
+                return True
+    return False
+
+
+def _body_has_lexical_binding(body: dict, bindings: list) -> bool:
+    body_name = body["name"]
+    body_start = body["start"]
+    body_lexical = body.get("lexicalScope", [])
+    for binding in bindings:
+        b_lexical = binding.get("lexicalScope")
+        if (
+            binding.get("bindingName") == body_name
+            and b_lexical
+            and binding["start"] <= body_start
+            and body_lexical[: len(b_lexical)] == b_lexical
+        ):
+            return True
+    return False
+
+
+def _outermost_enclosed_closures(body: dict, inline_closures: list) -> list:
+    b_start, b_end = body["start"], body["end"]
+    closures = [
+        node for node in inline_closures
+        if b_start <= node["start"] < node["end"] <= b_end
+    ]
+    return [
+        node
+        for node in closures
+        if not any(p["start"] < node["start"] and node["end"] <= p["end"] for p in closures)
+    ]
+
+
+def _body_contains_request(body: dict, inline_closures: list, contains_request_fn) -> bool:
+    body_start = body.get("bodyStart")
+    if body_start and contains_request_fn(dict(body, start=body_start)):
+        return True
+    outer = _outermost_enclosed_closures(body, inline_closures)
+    for node in outer:
+        if contains_request_fn(dict(node, start=node["start"] + 1, end=node["end"] - 1)):
+            return True
+    return False
+
+
+def _is_exported_callable_async(declaration: dict, facts: dict, contains_request_fn) -> bool:
+    d_name, d_scope = declaration["name"], declaration["scope"]
+    inline_closures = facts.get("inlineClosureRanges", [])
+    bindings = facts.get("bindings", [])
+    for body in facts.get("callableRanges", []):
+        if body["name"] == d_name and body["scope"] == d_scope:
+            if body is not declaration and _body_has_lexical_binding(body, bindings):
+                continue
+            if _body_contains_request(body, inline_closures, contains_request_fn):
+                return True
+    return False
 
 
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
@@ -1225,71 +1421,35 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 eager_parameters.update(
                     (source_path, function["start"], name) for name in references & names
                 )
-                for target_path, target_function in callback_targets(source_path, call):
-                    for binding in api_argument_bindings(target_function, call):
-                        positions = {
-                            position
-                            for position, parameter in enumerate(binding)
-                            if (target_path, target_function["start"], parameter.get("name"))
-                            in eager_parameters
-                        }
-                        references = set()
-                        callback_body_ranges(
-                            index[source_path], call, positions, references=references
-                        )
-                        eager_parameters.update(
-                            (source_path, function["start"], name) for name in references & names
-                        )
+                _propagate_call_eager_parameters(
+                    source_path,
+                    function,
+                    call,
+                    names,
+                    eager_parameters,
+                    callback_targets,
+                    index,
+                )
         for source_path, source_facts in index.items():
+            executed_starts = executed_bodies[source_path]
             for call in source_facts.get("invocations", []):
-                if (
-                    active(source_path, call)
-                    and can_execute(source_facts, call)
-                    and all(
-                        closure["start"] in executed_bodies[source_path]
-                        for closure in source_facts.get("callableRanges", [])
-                        + source_facts.get("inlineClosureRanges", [])
-                        if closure["start"] <= call["start"] < closure["end"]
-                    )
-                ):
-                    executed_bodies[source_path].update(
-                        start
-                        for start, _ in callback_body_ranges(
-                            source_facts, call, standard_callbacks(source_path, call)
-                        )
-                    )
-                    executed_bodies[source_path].update(
-                        closure["start"]
-                        for closure in visible_callable_ranges(
-                            source_facts, call["calledExpression"], call
-                        )
-                    )
-                if (
-                    not active(source_path, call)
-                    or not can_execute(source_facts, call)
-                    or not all(
-                        closure["start"] in executed_bodies[source_path]
-                        for closure in source_facts.get("callableRanges", [])
-                        + source_facts.get("inlineClosureRanges", [])
-                        if closure["start"] <= call["start"] < closure["end"]
-                    )
-                ):
+                if not (active(source_path, call) and can_execute(source_facts, call)):
                     continue
-                if can_execute(source_facts, call):
-                    for target_path, closure in stored_targets(source_path, call):
-                        executed_bodies[target_path].add(closure["start"])
-                for target_path, function in callback_targets(source_path, call):
-                    for binding in api_argument_bindings(function, call):
-                        positions = {
-                            position
-                            for position, parameter in enumerate(binding)
-                            if (target_path, function["start"], parameter.get("name"))
-                            in eager_parameters
-                        }
-                        executed_bodies[source_path].update(
-                            start
-                            for start, _ in callback_body_ranges(source_facts, call, positions)
-                        )
+                if not _call_in_executed_closure(call, source_facts, executed_starts):
+                    continue
+                _record_direct_executed_bodies(
+                    source_facts, source_path, call, executed_bodies, standard_callbacks
+                )
+                for target_path, closure in stored_targets(source_path, call):
+                    executed_bodies[target_path].add(closure["start"])
+                _propagate_executed_callback_bodies(
+                    source_path,
+                    source_facts,
+                    call,
+                    callback_targets,
+                    eager_parameters,
+                    executed_bodies,
+                )
         if previous == (len(eager_parameters), sum(map(len, executed_bodies.values()))):
             break
     result, request_results = {}, {}
@@ -1502,58 +1662,19 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             and contains_request(node)
         ]
         callable_apis = []
+        inline_closures = facts.get("inlineClosureRanges", [])
         for declaration in facts.get("functionRanges", []) + facts.get("accessorRanges", []):
             if not declaration.get("isExported") or "->" not in (
                 declaration.get("returnType") or ""
             ):
                 continue
-            if any(
-                contains_request(dict(node, start=node["start"] + 1, end=node["end"] - 1))
-                for node in facts.get("inlineClosureRanges", [])
-                if declaration["start"] <= node["start"] < node["end"] <= declaration["end"]
-            ):
+            if _is_exported_async_closure_api(declaration, inline_closures, contains_request):
                 callable_apis.append(dict(declaration, isAsync=True))
         for declaration in facts.get("callableRanges", []):
             if declaration.get("lexicalScope") or not declaration.get("isExported"):
                 continue
-            bodies = [
-                node
-                for node in facts.get("callableRanges", [])
-                if node["name"] == declaration["name"] and node["scope"] == declaration["scope"]
-            ]
-            for body in bodies:
-                if body is not declaration and any(
-                    binding.get("bindingName") == body["name"]
-                    and binding.get("lexicalScope")
-                    and binding["start"] <= body["start"]
-                    and body.get("lexicalScope", [])[: len(binding["lexicalScope"])]
-                    == binding["lexicalScope"]
-                    for binding in facts.get("bindings", [])
-                ):
-                    continue
-                closures = [
-                    node
-                    for node in facts.get("inlineClosureRanges", [])
-                    if body["start"] <= node["start"] < node["end"] <= body["end"]
-                ]
-                outer = [
-                    node
-                    for node in closures
-                    if not any(
-                        parent["start"] < node["start"] and node["end"] <= parent["end"]
-                        for parent in closures
-                    )
-                ]
-                if (
-                    body.get("bodyStart")
-                    and contains_request(dict(body, start=body["bodyStart"]))
-                    or any(
-                        contains_request(dict(node, start=node["start"] + 1, end=node["end"] - 1))
-                        for node in outer
-                    )
-                ):
-                    callable_apis.append(dict(declaration, isAsync=True))
-                    break
+            if _is_exported_callable_async(declaration, facts, contains_request):
+                callable_apis.append(dict(declaration, isAsync=True))
         for function in facts.get("functionRanges", []) + accessors + constructors + callable_apis:
             scope = function["scope"]
             if function.get("lexicalScope") or not active(path, function):
@@ -1672,6 +1793,22 @@ def api_invocations(facts: dict) -> list[dict]:
     ]
 
 
+def _is_omitted_default(parameter: dict, binding: list) -> bool:
+    if not parameter.get("defaultExpressionRange"):
+        return False
+    return all(parameter is not supplied for supplied in binding)
+
+
+def _omitted_default_parameter_starts(function: dict, invocation: dict) -> set[int]:
+    omitted = set()
+    parameters = function.get("parameters", [])
+    for binding in api_argument_bindings(function, invocation):
+        for param in parameters:
+            if _is_omitted_default(param, binding):
+                omitted.add(param["defaultExpressionRange"][0])
+    return omitted
+
+
 def matching_execution_entries(index, entries, call, declarations, invocation, *, types):
     """Select declaration bodies and omitted defaults using the shared argument contract."""
     if invocation is None:
@@ -1717,17 +1854,66 @@ def matching_execution_entries(index, entries, call, declarations, invocation, *
         if "parameters" in function and id(function) not in matched:
             continue
         if key[3] != function["start"]:
-            omitted = {
-                parameter["defaultExpressionRange"][0]
-                for binding in api_argument_bindings(function, invocation)
-                for parameter in function.get("parameters", [])
-                if parameter.get("defaultExpressionRange")
-                and all(parameter is not supplied for supplied in binding)
-            }
+            omitted = _omitted_default_parameter_starts(function, invocation)
             if key[3] not in omitted:
                 continue
         selected.append(entry)
     return selected
+
+
+def _match_argument_position(
+    value: str,
+    kind,
+    parameter: dict,
+    function: dict,
+    path: str,
+    position: int,
+    call: dict,
+    canonical_fn,
+    literal_context_fn,
+    types,
+) -> tuple[int, int] | None:
+    expected, expected_optional = canonical_fn(path, parameter["type"], function["scope"])
+    context = literal_context_fn(path, function, parameter, expected, position)
+    if value == "nil":
+        if not expected_optional and context != "nil":
+            return None
+        return 0, 0
+    if value.startswith("."):
+        if context != "member":
+            return None
+        actual, actual_optional = expected, False
+    elif kind is None:
+        return 0, 0
+    else:
+        actual, actual_optional = canonical_fn(call["path"], kind, call["scope"])
+    if actual_optional and not expected_optional:
+        return None
+    distance = 0 if actual == expected else types.inheritance_distance(actual, expected)
+    if distance is None and context == "numeric":
+        distance = 1
+    if distance is None:
+        return None
+    promotions = int(expected_optional and not actual_optional)
+    return distance, promotions
+
+
+def _match_return_type(
+    expected_return: str,
+    path: str,
+    function: dict,
+    call: dict,
+    canonical_fn,
+    types,
+) -> int | None:
+    actual, optional = canonical_fn(
+        path, function.get("returnType") or "Void", function["scope"]
+    )
+    expected, lifted = canonical_fn(call["path"], expected_return, call["scope"])
+    distance = 0 if actual == expected else types.inheritance_distance(actual, expected)
+    if distance is None or (optional and not lifted):
+        return None
+    return distance + int(lifted and not optional)
 
 
 def matching_api_calls(
@@ -1891,51 +2077,44 @@ def matching_api_calls(
     for path, function in candidates:
         for binding in api_argument_bindings(function, call):
             promotions, conversions = 0, 0
+            mismatched = False
             for position, (kind, parameter) in enumerate(zip(arguments, binding)):
-                expected, expected_optional = canonical(path, parameter["type"], function["scope"])
                 value = call["arguments"][position].strip()
-                context = literal_context(path, function, parameter, expected, position)
-                if value == "nil":
-                    if not expected_optional and context != "nil":
-                        break
-                    continue
-                if value.startswith("."):
-                    if context != "member":
-                        break
-                    actual, actual_optional = expected, False
-                elif kind is None:
-                    continue
-                else:
-                    actual, actual_optional = canonical(call["path"], kind, call["scope"])
-                if actual_optional and not expected_optional:
-                    break
-                distance = 0 if actual == expected else types.inheritance_distance(actual, expected)
-                if distance is None and context == "numeric":
-                    distance = 1
-                if distance is None:
-                    break
-                conversions += distance
-                promotions += int(expected_optional and not actual_optional)
-            else:
-                return_score = 0
-                if expected_return:
-                    actual, optional = canonical(
-                        path, function.get("returnType") or "Void", function["scope"]
-                    )
-                    expected, lifted = canonical(call["path"], expected_return, call["scope"])
-                    distance = (
-                        0 if actual == expected else types.inheritance_distance(actual, expected)
-                    )
-                    if distance is None or optional and not lifted:
-                        continue
-                    return_score = distance + int(lifted and not optional)
-                score = (
-                    conversions,
-                    promotions,
-                    return_score,
-                    max(0, len(function["parameters"]) - len(binding)),
+                res = _match_argument_position(
+                    value,
+                    kind,
+                    parameter,
+                    function,
+                    path,
+                    position,
+                    call,
+                    canonical,
+                    literal_context,
+                    types,
                 )
-                matches.append((score, path, function))
+                if res is None:
+                    mismatched = True
+                    break
+                dist, promo = res
+                conversions += dist
+                promotions += promo
+            if mismatched:
+                continue
+            return_score = 0
+            if expected_return:
+                score_or_none = _match_return_type(
+                    expected_return, path, function, call, canonical, types
+                )
+                if score_or_none is None:
+                    continue
+                return_score = score_or_none
+            score = (
+                conversions,
+                promotions,
+                return_score,
+                max(0, len(function["parameters"]) - len(binding)),
+            )
+            matches.append((score, path, function))
     if not matches:
         return generic_candidates if conservative else []
     if conservative and (

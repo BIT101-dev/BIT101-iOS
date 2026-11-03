@@ -13,6 +13,238 @@ from source_fact_queries import ast_has_identifier, owner_has_call, relative
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _matches_callback_function(
+    function: dict,
+    method: str,
+    owner,
+    receiver,
+    receiver_owner,
+    var_scope,
+    function_paths: dict,
+    types,
+) -> bool:
+    fn_path = function_paths[id(function)]
+    fn_scope = types.function_scope(fn_path, function["scope"])
+    if method[:1].isupper():
+        return fn_scope == owner
+    if receiver:
+        return fn_scope == receiver_owner
+    return var_scope[: len(fn_scope)] == fn_scope
+
+
+def _matches_parameter(parameter: dict, param_index: int, label: str, index: int) -> bool:
+    if "@escaping" not in parameter["type"]:
+        return False
+    if label:
+        return parameter["label"] == label
+    return param_index == index
+
+
+def _matching_escaping_parameters(declarations: list, label: str, index: int) -> list:
+    result = []
+    for function in declarations:
+        for p_idx, parameter in enumerate(function["parameters"]):
+            if _matches_parameter(parameter, p_idx, label, index):
+                result.append((function, parameter))
+    return result
+
+
+def _stored_property_names(function, parameter, declaration_facts, variable_types, owner):
+    target = parameter.get("name", parameter["label"])
+    body_start = function.get("bodyStart", function["start"])
+    end = function["end"]
+    names = set()
+    for factory in declaration_facts.get("callableRanges", []):
+        if (
+            factory.get("isPropertyAssignment")
+            and factory.get("referenceTarget") == target
+            and body_start <= factory["start"] < end
+            and "->" in variable_types.get((owner, factory["name"]), "")
+        ):
+            names.add(factory["name"])
+    return names
+
+
+def _is_reference_in_ranges(ref_start: int, ranges: list) -> bool:
+    for start, end in ranges:
+        if start <= ref_start < end:
+            return True
+    return False
+
+
+def _find_parameter_references(
+    facts: dict, function: dict, name: str, executed_ranges: list
+) -> list:
+    result = []
+    scope = function["scope"]
+    for ref in facts.get("scopedIdentifiers", []):
+        if (
+            ref.get("isExpressionReference")
+            and ref["value"] == name
+            and ref["scope"] == scope
+            and _is_reference_in_ranges(ref["start"], executed_ranges)
+        ):
+            result.append(ref)
+    return result
+
+
+def _reference_can_run(
+    ref: dict, body_start: int, end: int, facts: dict, deferred: list, can_exec
+) -> bool:
+    start = ref["start"]
+    if not (body_start <= start < end and can_exec(facts, ref)):
+        return False
+    return not _is_reference_in_ranges(start, [(b["start"], b["end"]) for b in deferred])
+
+
+def _parameter_observed_eager(
+    function: dict,
+    parameter: dict,
+    facts: dict,
+    path: str,
+    callback_ranges: dict,
+    execution_calls: dict,
+    can_exec,
+) -> bool:
+    name = parameter.get("name", parameter["label"])
+    calls = execution_calls.get((path, tuple(function["scope"]), name), [])
+    deferred = facts.get("callableRanges", []) + callback_ranges[path][0]
+    executed = callback_ranges[path][2]
+    references = _find_parameter_references(facts, function, name, executed)
+    candidates = [call for _, call in calls] + references
+    body_start = function.get("bodyStart", function["start"])
+    end = function["end"]
+    return any(
+        _reference_can_run(ref, body_start, end, facts, deferred, can_exec)
+        for ref in candidates
+    )
+
+
+def _collect_function_bodies(function: dict) -> list[tuple[int, int, int]]:
+    bodies = [
+        (
+            function["start"],
+            function.get("bodyStart", function["start"]),
+            function["end"],
+        )
+    ]
+    for parameter in function.get("parameters", []):
+        bounds = parameter.get("defaultExpressionRange")
+        if bounds:
+            bodies.append((bounds[0], *bounds))
+    return bodies
+
+
+def _is_deferred_reference(ref_start: int, function: dict, deferred_ranges: list) -> bool:
+    fn_name = function["name"]
+    fn_span = (function["start"], function["end"])
+    for deferred in deferred_ranges:
+        if deferred["start"] <= ref_start < deferred["end"]:
+            if fn_name == "init" or (deferred["start"], deferred["end"]) != fn_span:
+                return True
+    return False
+
+
+def _collect_children_references(
+    references: list, start: int, end: int, function: dict, deferred_ranges: list
+) -> list:
+    return [
+        ref
+        for ref in references
+        if start <= ref["start"] < end
+        and not _is_deferred_reference(ref["start"], function, deferred_ranges)
+    ]
+
+
+def _index_function_record(
+    function: dict,
+    is_callable: bool,
+    path: str,
+    references: list,
+    deferred_ranges: list,
+    var_scope_fn,
+    declarations: dict,
+    functions: dict,
+    roots: list,
+):
+    if is_callable:
+        function = dict(function, isCallableValue=True)
+    bodies = _collect_function_bodies(function)
+    for identity_start, start, end in bodies:
+        key = (var_scope_fn(path, function), function["name"], path, identity_start)
+        declarations[key] = (path, function)
+        children = _collect_children_references(
+            references, start, end, function, deferred_ranges
+        )
+        functions.setdefault(function["name"], []).append((key, children))
+        if function.get("isDeinitializer"):
+            roots.extend(children)
+
+
+def _is_in_deferred(ref_start: int, deferred_ranges: list) -> bool:
+    for d in deferred_ranges:
+        if d["start"] <= ref_start < d["end"]:
+            return True
+    return False
+
+
+def _collect_declaration_roots(
+    declaration: dict, references: list, deferred_ranges: list
+) -> list:
+    inherited = {value.rsplit(".", 1)[-1] for value in declaration["inheritedTypes"]}
+    name = declaration["name"]
+    if not (
+        "App" in inherited
+        or name.endswith("Lifecycle")
+        or name == "ScheduleReminderBackgroundRefresh"
+    ):
+        return []
+    scope = declaration["scope"] + [name]
+    scope_len = len(scope)
+    return [
+        call
+        for call in references
+        if call["scope"][:scope_len] == scope
+        and not _is_in_deferred(call["start"], deferred_ranges)
+    ]
+
+
+def _collect_lifecycle_roots(
+    lifecycle_ranges: list, references: list, deferred_ranges: list
+) -> list:
+    result = []
+    for lifecycle in lifecycle_ranges:
+        start, end = lifecycle["start"], lifecycle["end"]
+        for ref in references:
+            if start <= ref["start"] < end and not _is_in_deferred(ref["start"], deferred_ranges):
+                result.append(ref)
+    return result
+
+
+def _collect_native_callback_roots(
+    function: dict,
+    path: str,
+    types,
+    native_callbacks: dict,
+    references: list,
+    deferred_ranges: list,
+) -> list:
+    name = function["name"]
+    if not any(name in names for names in native_callbacks.values()):
+        return []
+    owner = types.resolve(path, ".".join(function["scope"]), aliases=False)
+    bases = {base.rsplit(".", 1)[-1] for base in types.bases(owner)} if owner else set()
+    if not any(name in native_callbacks.get(base, set()) for base in bases):
+        return []
+    start = function.get("bodyStart", function["start"])
+    end = function["end"]
+    return [
+        ref
+        for ref in references
+        if start <= ref["start"] < end and not _is_in_deferred(ref["start"], deferred_ranges)
+    ]
+
+
 def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
     """核对生命周期调用链与学校业务请求入口。"""
     from network_capability_rules import (
@@ -192,21 +424,14 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             receiver_id = type_ids.get(receiver)
             receiver_owner = (receiver_id[0],) + receiver_id[1] if receiver_id else None
             method = value.rsplit(".", 1)[-1]
+            lookup_key = "init" if method[:1].isupper() else method
+            candidate_functions = callback_declarations_by_name.get(lookup_key, [])
+            var_scope = variable_scope(path, call)
             declarations = [
-                function
-                for function in callback_declarations_by_name.get(
-                    "init" if method[:1].isupper() else method, []
-                )
-                if (
-                    types.function_scope(function_paths[id(function)], function["scope"]) == owner
-                    if method[:1].isupper()
-                    else types.function_scope(function_paths[id(function)], function["scope"])
-                    == receiver_owner
-                    if receiver
-                    else variable_scope(path, call)[
-                        : len(types.function_scope(function_paths[id(function)], function["scope"]))
-                    ]
-                    == types.function_scope(function_paths[id(function)], function["scope"])
+                fn
+                for fn in candidate_functions
+                if _matches_callback_function(
+                    fn, method, owner, receiver, receiver_owner, var_scope, function_paths, types
                 )
             ]
             result.append((invocation, owner, escaping, declarations))
@@ -229,13 +454,7 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                 property_type = variable_types.get((owner, label), "")
                 memberwise = owner not in explicit_initializers and "->" in property_type
                 stored_names = {label} if memberwise else set()
-                parameters = [
-                    (function, parameter)
-                    for function in declarations
-                    for parameter_index, parameter in enumerate(function["parameters"])
-                    if (parameter["label"] == label if label else parameter_index == index)
-                    and "@escaping" in parameter["type"]
-                ]
+                parameters = _matching_escaping_parameters(declarations, label, index)
                 held = parameters and all(
                     function.get("bodyStart") is not None
                     and (id(function), parameter.get("name", parameter["label"]))
@@ -243,20 +462,13 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
                     for function, parameter in parameters
                 )
                 for function, parameter in parameters:
-                    if not function.get("isExplicitInitializer"):
-                        continue
-                    declaration_facts = syntax_index[function_paths[id(function)]]
-                    stored_names.update(
-                        factory["name"]
-                        for factory in declaration_facts.get("callableRanges", [])
-                        if factory.get("isPropertyAssignment")
-                        and factory.get("referenceTarget")
-                        == parameter.get("name", parameter["label"])
-                        and function.get("bodyStart", function["start"])
-                        <= factory["start"]
-                        < function["end"]
-                        and "->" in variable_types.get((owner, factory["name"]), "")
-                    )
+                    if function.get("isExplicitInitializer"):
+                        declaration_facts = syntax_index[function_paths[id(function)]]
+                        stored_names.update(
+                            _stored_property_names(
+                                function, parameter, declaration_facts, variable_types, owner
+                            )
+                        )
                 if parameters and not held:
                     executed.append((start, end))
                 if memberwise or index in escaping or held or stored_names:
@@ -280,30 +492,16 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         for function in callback_declarations:
             path = function_paths[id(function)]
             facts = syntax_index[path]
-            deferred = facts.get("callableRanges", []) + callback_ranges[path][0]
             for parameter in function["parameters"]:
                 name = parameter.get("name", parameter["label"])
-                calls = execution_calls.get((path, tuple(function["scope"]), name), [])
-                references = [
-                    reference
-                    for reference in facts.get("scopedIdentifiers", [])
-                    if reference.get("isExpressionReference")
-                    and reference["value"] == name
-                    and reference["scope"] == function["scope"]
-                    and any(
-                        start <= reference["start"] < end for start, end in callback_ranges[path][2]
-                    )
-                ]
-                if any(
-                    function.get("bodyStart", function["start"])
-                    <= reference["start"]
-                    < function["end"]
-                    and call_can_execute(facts, reference)
-                    and not any(
-                        boundary["start"] <= reference["start"] < boundary["end"]
-                        for boundary in deferred
-                    )
-                    for reference in [call for _, call in calls] + references
+                if _parameter_observed_eager(
+                    function,
+                    parameter,
+                    facts,
+                    path,
+                    callback_ranges,
+                    execution_calls,
+                    call_can_execute,
                 ):
                     observed.add((id(function), name))
         if observed == eager_parameters:
@@ -332,15 +530,14 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             for expression in facts.get("expressions", [])
             if re.fullmatch(r"_\s*=(?!=)\s*[\w?.]+", expression["value"])
         ]
+        scoped_refs = [
+            node
+            for node in facts.get("scopedIdentifiers", [])
+            if node.get("isExpressionReference")
+        ]
         references = [
             reference
-            for reference in facts["calls"]
-            + facts.get("members", [])
-            + [
-                node
-                for node in facts.get("scopedIdentifiers", [])
-                if node.get("isExpressionReference")
-            ]
+            for reference in facts["calls"] + facts.get("members", []) + scoped_refs
             if (
                 re.fullmatch(r"(?:[\w?$]+\.)*\w+", reference["value"])
                 or reference["value"] == ".init"
@@ -376,67 +573,24 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             for category in ("functionRanges", "callableRanges", "initializers", "accessorRanges")
         ] + [stored]
         for ranges in range_sets:
+            is_callable = ranges is stored or ranges is facts.get("callableRanges")
             for function in ranges:
-                if ranges is stored or ranges is facts.get("callableRanges"):
-                    function = dict(function, isCallableValue=True)
-                bodies = [
-                    (
-                        function["start"],
-                        function.get("bodyStart", function["start"]),
-                        function["end"],
-                    )
-                ]
-                bodies += [
-                    (bounds[0], *bounds)
-                    for parameter in function.get("parameters", [])
-                    if (bounds := parameter.get("defaultExpressionRange"))
-                ]
-                for identity_start, start, end in bodies:
-                    key = (variable_scope(path, function), function["name"], path, identity_start)
-                    declarations[key] = (path, function)
-                    children = [
-                        reference
-                        for reference in references
-                        if start <= reference["start"] < end
-                        and not any(
-                            deferred["start"] <= reference["start"] < deferred["end"]
-                            and (
-                                function["name"] == "init"
-                                or (deferred["start"], deferred["end"])
-                                != (function["start"], function["end"])
-                            )
-                            for deferred in deferred_ranges
-                        )
-                    ]
-                    functions.setdefault(function["name"], []).append((key, children))
-                    if function.get("isDeinitializer"):
-                        roots.extend(children)
+                _index_function_record(
+                    function,
+                    is_callable,
+                    path,
+                    references,
+                    deferred_ranges,
+                    variable_scope,
+                    declarations,
+                    functions,
+                    roots,
+                )
         for declaration in facts["declarations"]:
-            if (
-                "App" in {value.rsplit(".", 1)[-1] for value in declaration["inheritedTypes"]}
-                or declaration["name"].endswith("Lifecycle")
-                or declaration["name"] == "ScheduleReminderBackgroundRefresh"
-            ):
-                scope = declaration["scope"] + [declaration["name"]]
-                roots.extend(
-                    call
-                    for call in references
-                    if call["scope"][: len(scope)] == scope
-                    and not any(
-                        deferred["start"] <= call["start"] < deferred["end"]
-                        for deferred in deferred_ranges
-                    )
-                )
-        for lifecycle in facts.get("lifecycleRanges", []):
-            roots.extend(
-                reference
-                for reference in references
-                if lifecycle["start"] <= reference["start"] < lifecycle["end"]
-                and not any(
-                    deferred["start"] <= reference["start"] < deferred["end"]
-                    for deferred in deferred_ranges
-                )
-            )
+            roots.extend(_collect_declaration_roots(declaration, references, deferred_ranges))
+        roots.extend(
+            _collect_lifecycle_roots(facts.get("lifecycleRanges", []), references, deferred_ranges)
+        )
         native_callbacks = {
             "UIApplicationDelegate": {
                 "application",
@@ -487,22 +641,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             "UIViewRepresentable": {"makeUIView", "updateUIView", "dismantleUIView"},
         }
         for function in facts.get("functionRanges", []):
-            if not any(function["name"] in names for names in native_callbacks.values()):
-                continue
-            owner = types.resolve(path, ".".join(function["scope"]), aliases=False)
-            bases = {base.rsplit(".", 1)[-1] for base in types.bases(owner)} if owner else set()
-            if any(function["name"] in native_callbacks.get(base, set()) for base in bases):
-                roots.extend(
-                    reference
-                    for reference in references
-                    if function.get("bodyStart", function["start"])
-                    <= reference["start"]
-                    < function["end"]
-                    and not any(
-                        deferred["start"] <= reference["start"] < deferred["end"]
-                        for deferred in deferred_ranges
-                    )
+            roots.extend(
+                _collect_native_callback_roots(
+                    function, path, types, native_callbacks, references, deferred_ranges
                 )
+            )
 
     implementations_by_receiver = {}
     for identity in types.records:

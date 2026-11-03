@@ -70,71 +70,10 @@ struct GallerySettingsPage: View {
                 .appInteractiveListRow()
             }
 
-            Section {
-                Button {
-                    diagnosisTask = Task {
-                        defer { diagnosisTask = nil }
-                        let report = await networkDiagnosis.run()
-                        guard !Task.isCancelled else { return }
-                        guard let report else {
-                            diagnosisAlert = AppAlert.informational(
-                                title: "网络诊断未完成",
-                                message: "请稍后重试。"
-                            )
-                            return
-                        }
-                        diagnosisAlert = AppAlert(
-                            title: "网络诊断完成",
-                            message: report.summary,
-                            showsRecoveryLinks: false
-                        )
-                    }
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("测试网络并生成诊断报告")
-                        Spacer()
-                        if networkDiagnosis.isRunning {
-                            Text(
-                                "\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)"
-                            )
-                            .foregroundStyle(.tint)
-                        }
-                    }
-                }
-                .disabled(networkDiagnosis.isRunning)
-                .appInteractiveListRow()
-                if networkDiagnosis.isRunning {
-                    ProgressView(
-                        value: Double(networkDiagnosis.completedCount),
-                        total: Double(networkDiagnosis.totalCount)
-                    )
-                    .accessibilityLabel("网络诊断进度")
-                    .accessibilityValue(
-                        "\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
-                }
-            } header: {
-                AppListSectionHeader("网络诊断")
-            }
+            networkDiagnosisSection
 
             Section {
-                HStack(spacing: AppDesignSystem.Spacing.content) {
-                    TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
-                        .keyboardType(.numberPad)
-                        .focused($imageCacheLimitFocused)
-                        .onSubmit {
-                            interactionEvidence?(
-                                "interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
-                            applyCacheLimit()
-                        }
-                        .onChange(of: imageCacheLimitFocused) { _, focused in
-                            if !focused { applyCacheLimit() }
-                        }
-
-                    Text("已用缓存 \(imageCacheUsageText)")
-                        .font(AppDesignSystem.Typography.subheadline)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        .fixedSize()
-                }
+                cacheLimitRow
                 Text("0 MB 保留已缓存图片，由系统在空间紧张时回收；正数表示 App 主动维护的容量上限。")
                     .font(AppDesignSystem.Typography.subheadline)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
@@ -162,6 +101,78 @@ struct GallerySettingsPage: View {
             diagnosisTask?.cancel()
             diagnosisTask = nil
             diagnosisAlert = nil
+        }
+    }
+
+    @ViewBuilder
+    private var networkDiagnosisSection: some View {
+        Section {
+            Button {
+                runDiagnosis()
+            } label: {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    Text("测试网络并生成诊断报告")
+                    Spacer()
+                    if networkDiagnosis.isRunning {
+                        Text("\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
+                            .foregroundStyle(.tint)
+                    }
+                }
+            }
+            .disabled(networkDiagnosis.isRunning)
+            .appInteractiveListRow()
+            if networkDiagnosis.isRunning {
+                ProgressView(
+                    value: Double(networkDiagnosis.completedCount),
+                    total: Double(networkDiagnosis.totalCount)
+                )
+                .accessibilityLabel("网络诊断进度")
+                .accessibilityValue(
+                    "\(networkDiagnosis.completedCount)/\(networkDiagnosis.totalCount)")
+            }
+        } header: {
+            AppListSectionHeader("网络诊断")
+        }
+    }
+
+    private var cacheLimitRow: some View {
+        HStack(spacing: AppDesignSystem.Spacing.content) {
+            TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
+                .keyboardType(.numberPad)
+                .focused($imageCacheLimitFocused)
+                .onSubmit {
+                    interactionEvidence?(
+                        "interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
+                    applyCacheLimit()
+                }
+                .onChange(of: imageCacheLimitFocused) { _, focused in
+                    if !focused { applyCacheLimit() }
+                }
+
+            Text("已用缓存 \(imageCacheUsageText)")
+                .font(AppDesignSystem.Typography.subheadline)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                .fixedSize()
+        }
+    }
+
+    private func runDiagnosis() {
+        diagnosisTask = Task {
+            defer { diagnosisTask = nil }
+            let report = await networkDiagnosis.run()
+            guard !Task.isCancelled else { return }
+            guard let report else {
+                diagnosisAlert = AppAlert.informational(
+                    title: "网络诊断未完成",
+                    message: "请稍后重试。"
+                )
+                return
+            }
+            diagnosisAlert = AppAlert(
+                title: "网络诊断完成",
+                message: report.summary,
+                showsRecoveryLinks: false
+            )
         }
     }
 
@@ -280,54 +291,12 @@ struct AboutSettingsPage: View {
                 .appSelectionFeedback(trigger: settings.automaticUpdateChecksEnabled)
                 .appInteractiveListRow()
 
-                Button {
-                    Task { await checkForUpdates() }
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("检查更新")
-                        Spacer()
-                        if isCheckingForUpdates {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                }
-                .disabled(isCheckingForUpdates)
-                .appInteractiveListRow()
+                updateCheckButton
             }
 
             Section("调试") {
-                Button {
-                    Task { await clearCaches() }
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("清理缓存")
-                        Spacer()
-                        if isClearingCaches {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                }
-                .disabled(isClearingCaches || isResettingLocalData)
-                .appImpactFeedback(trigger: isClearingCaches)
-                .appInteractiveListRow()
-
-                Button(role: .destructive) {
-                    isShowingResetConfirmation = true
-                } label: {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Text("删除所有文稿与数据")
-                        Spacer()
-                        if isResettingLocalData {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
-                }
-                .disabled(isResettingLocalData || isClearingCaches)
-                .appImpactFeedback(trigger: isResettingLocalData)
-                .appInteractiveListRow(isDestructive: true)
+                clearCachesButton
+                resetDataButton
             }
         }
         .accessibilityIdentifier("interaction.AboutSettingsPage.list")
@@ -343,6 +312,59 @@ struct AboutSettingsPage: View {
         } message: {
             Text("应用将清空本机数据并返回登录页，本机自建日程、待办和草稿将一并删除。学校课表可在重新登录后同步获取；已同步到 iCloud 的数据继续保留。")
         }
+    }
+
+    private var updateCheckButton: some View {
+        Button {
+            Task { await checkForUpdates() }
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text("检查更新")
+                Spacer()
+                if isCheckingForUpdates {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .disabled(isCheckingForUpdates)
+        .appInteractiveListRow()
+    }
+
+    private var clearCachesButton: some View {
+        Button {
+            Task { await clearCaches() }
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text("清理缓存")
+                Spacer()
+                if isClearingCaches {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .disabled(isClearingCaches || isResettingLocalData)
+        .appImpactFeedback(trigger: isClearingCaches)
+        .appInteractiveListRow()
+    }
+
+    private var resetDataButton: some View {
+        Button(role: .destructive) {
+            isShowingResetConfirmation = true
+        } label: {
+            HStack(spacing: AppDesignSystem.Spacing.regular) {
+                Text("删除所有文稿与数据")
+                Spacer()
+                if isResettingLocalData {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .disabled(isResettingLocalData || isClearingCaches)
+        .appImpactFeedback(trigger: isResettingLocalData)
+        .appInteractiveListRow(isDestructive: true)
     }
 
     @MainActor

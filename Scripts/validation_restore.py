@@ -394,7 +394,9 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
                     pass_fds=(reader, writer),
                     timeout=5,
                 )
-                if result.returncode != (original or (prepared if operation == "app" else 0)) or (
+                expected_prepared = prepared if operation == "app" else 0
+                expected_code = original or expected_prepared
+                if result.returncode != expected_code or (
                     "PREPARED" in result.stdout
                 ) != (operation == "app"):
                     findings.append(
@@ -558,6 +560,51 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
     return findings
 
 
+def run_simulator_device_program(device_program: str) -> None:
+    try:
+        exec(compile(device_program, "<simulator-device>", "exec"), {})
+    except SystemExit as error:
+        if error.code not in (None, 0):
+            raise
+
+
+def verify_simulator_startup_case(
+    harness: str,
+    body: str,
+    hosted: str,
+    operation: str,
+    build_status: int,
+    ready_status: int,
+    findings: list[str],
+) -> None:
+    result = subprocess.run(
+        [
+            "zsh",
+            "-c",
+            harness + body + "\nbit101_prepare_simulator_test_host\nprint COMPLETE",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    prepares = hosted == "true" or operation == "ui"
+    expected_ready = ready_status if prepares else 0
+    expected = build_status or expected_ready
+    rows = result.stdout.splitlines()
+    complete = (
+        result.returncode == expected
+        and "BUILD" in rows
+        and ("PREPARE" in rows) == prepares
+        and ("COMPLETE" in rows) == (expected == 0)
+    )
+    app_ready = hosted == "true" and operation == "ui" and expected == 0
+    complete = complete and ("APPREADY" in rows) == app_ready
+    if complete and app_ready:
+        complete = rows.index("APPREADY") > max(rows.index("BUILD"), rows.index("PREPARE"))
+    if not complete:
+        findings.append("模拟器启动自测：两项完成后初始化 App，失败状态归集后结束")
+
+
 def simulator_startup_findings(source: str) -> list[str]:
     import os
     import sys
@@ -621,11 +668,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                 ),
                 redirect_stdout(StringIO()),
             ):
-                try:
-                    exec(compile(device_program, "<simulator-device>", "exec"), {})
-                except SystemExit as error:
-                    if error.code not in (None, 0):
-                        raise
+                run_simulator_device_program(device_program)
             expected = (
                 [["xcrun", "simctl", "boot", "device"]]
                 if hosted == "true" and operation == "prepare"
@@ -762,33 +805,9 @@ def simulator_startup_findings(source: str) -> list[str]:
                         f"{build_status}"
                         f"; fi; }}\n    python3() {{ cat >/dev/null; print -u3 APPREADY; }}\n    "
                     )
-                    result = subprocess.run(
-                        [
-                            "zsh",
-                            "-c",
-                            harness + body + "\nbit101_prepare_simulator_test_host\nprint COMPLETE",
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
+                    verify_simulator_startup_case(
+                        harness, body, hosted, operation, build_status, ready_status, findings
                     )
-                    prepares = hosted == "true" or operation == "ui"
-                    expected = build_status or (ready_status if prepares else 0)
-                    rows = result.stdout.splitlines()
-                    complete = (
-                        result.returncode == expected
-                        and "BUILD" in rows
-                        and ("PREPARE" in rows) == prepares
-                        and ("COMPLETE" in rows) == (expected == 0)
-                    )
-                    app_ready = hosted == "true" and operation == "ui" and expected == 0
-                    complete = complete and ("APPREADY" in rows) == app_ready
-                    if complete and app_ready:
-                        complete = rows.index("APPREADY") > max(
-                            rows.index("BUILD"), rows.index("PREPARE")
-                        )
-                    if not complete:
-                        findings.append("模拟器启动自测：两项完成后初始化 App，失败状态归集后结束")
         for hosted in ("true", "false"):
             for ready_status in (0, 9):
                 harness = (

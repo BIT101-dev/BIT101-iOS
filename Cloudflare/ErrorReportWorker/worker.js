@@ -35,6 +35,13 @@ async function readReportBody(request, maximumBytes = MAX_BODY_BYTES) {
   }
 }
 
+function canonicalReport(value) {
+  if (Array.isArray(value)) return value.map(canonicalReport);
+  if (!value || typeof value !== "object") return value;
+  const entries = Object.keys(value).sort().map((key) => [key, canonicalReport(value[key])]);
+  return Object.fromEntries(entries);
+}
+
 function validReport(report, request) {
   if (!report || typeof report !== "object" || Array.isArray(report)) return false;
   if (
@@ -824,19 +831,9 @@ export default {
         return json({ error: "notification_queue_not_configured" }, 503);
       let fingerprint;
       try {
-        const canonical = (value) =>
-          Array.isArray(value)
-            ? value.map(canonical)
-            : value && typeof value === "object"
-              ? Object.fromEntries(
-                  Object.keys(value)
-                    .sort()
-                    .map((key) => [key, canonical(value[key])]),
-                )
-              : value;
         const bytes = await crypto.subtle.digest(
           "SHA-256",
-          new TextEncoder().encode(JSON.stringify(canonical(report))),
+          new TextEncoder().encode(JSON.stringify(canonicalReport(report))),
         );
         fingerprint = Array.from(new Uint8Array(bytes), (byte) =>
           byte.toString(16).padStart(2, "0"),

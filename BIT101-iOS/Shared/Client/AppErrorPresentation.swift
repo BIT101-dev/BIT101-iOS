@@ -177,14 +177,7 @@ final class AppErrorPresenter {
             dismissalWaiters[presentationID] = nil
             queue.removeAll { $0.id == presentationID }
             if activePresentationID == presentationID {
-                if let controller = activeAlertController {
-                    controller.dismiss(animated: false) { [weak self] in
-                        guard self?.activePresentationID == presentationID else { return }
-                        self?.finishPresentedItem()
-                    }
-                } else {
-                    finishPresentedItem()
-                }
+                dismissActiveAlert(presentationID: presentationID)
             }
             if queue.isEmpty, !isPresenting {
                 retryTask?.cancel()
@@ -194,6 +187,17 @@ final class AppErrorPresenter {
             dismissalWaiters[presentationID] = waiters
         }
         waiter.continuation.resume()
+    }
+
+    private func dismissActiveAlert(presentationID: UUID) {
+        guard let controller = activeAlertController else {
+            finishPresentedItem()
+            return
+        }
+        controller.dismiss(animated: false) { [weak self] in
+            guard self?.activePresentationID == presentationID else { return }
+            self?.finishPresentedItem()
+        }
     }
 
     private func presentNextIfPossible() {
@@ -503,39 +507,8 @@ private struct AppErrorReportSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker("内容", selection: $viewModel.mode) {
-                        ForEach(ErrorReportViewModel.Mode.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                    .appSelectionFeedback(trigger: viewModel.mode)
-                    .appInteractiveListRow()
-                    modeExplanation
-                } header: {
-                    AppListSectionHeader("选择提交内容")
-                }
-                Section("本次错误") {
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                        Text(viewModel.alert.title)
-                            .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
-                        Text(viewModel.alert.message)
-                            .font(AppDesignSystem.Typography.body)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                            .textSelection(.enabled)
-                        Text("包含最近 \(viewModel.diagnostics.count) 条网络记录")
-                            .font(AppDesignSystem.Typography.footnote)
-                            .foregroundStyle(AppDesignSystem.Foreground.tertiary)
-
-                        if let message = viewModel.resultMessage {
-                            Text(message)
-                                .font(AppDesignSystem.Typography.footnote)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        }
-                    }
-                    .padding(.top, AppDesignSystem.Spacing.content)
-                }
+                modePickerSection
+                errorSummarySection
                 Section("留言（可选）") {
                     TextField(
                         "", text: $viewModel.comment, prompt: AppInputPrompt.text("可补充问题现象或复现步骤"),
@@ -599,6 +572,45 @@ private struct AppErrorReportSheet: View {
                     )
                 }
             }
+        }
+    }
+
+    private var modePickerSection: some View {
+        Section {
+            Picker("内容", selection: $viewModel.mode) {
+                ForEach(ErrorReportViewModel.Mode.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            .appSelectionFeedback(trigger: viewModel.mode)
+            .appInteractiveListRow()
+            modeExplanation
+        } header: {
+            AppListSectionHeader("选择提交内容")
+        }
+    }
+
+    private var errorSummarySection: some View {
+        Section("本次错误") {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                Text(viewModel.alert.title)
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                Text(viewModel.alert.message)
+                    .font(AppDesignSystem.Typography.body)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .textSelection(.enabled)
+                Text("包含最近 \(viewModel.diagnostics.count) 条网络记录")
+                    .font(AppDesignSystem.Typography.footnote)
+                    .foregroundStyle(AppDesignSystem.Foreground.tertiary)
+
+                if let message = viewModel.resultMessage {
+                    Text(message)
+                        .font(AppDesignSystem.Typography.footnote)
+                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                }
+            }
+            .padding(.top, AppDesignSystem.Spacing.content)
         }
     }
 

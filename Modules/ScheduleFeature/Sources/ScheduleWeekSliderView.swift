@@ -44,113 +44,11 @@ struct ScheduleInlineWeekSlider: View {
                 stepButton(by: -1)
 
                 ScrollViewReader { reader in
-                    ScrollView(.horizontal) {
-                        LazyHStack(spacing: AppDesignSystem.Schedule.WeekSlider.itemSpacing) {
-                            ForEach(weeks, id: \.self) { week in
-                                Button {
-                                    withAnimation(
-                                        AppDesignSystem.Motion.selection(
-                                            reduceMotion: reduceMotion)
-                                    ) {
-                                        selectedWeek = week
-                                    }
-                                } label: {
-                                    VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
-                                        Text(isMajorWeek(week) ? "\(week)" : "")
-                                            .font(AppDesignSystem.Typography.captionEmphasis)
-                                            .foregroundStyle(
-                                                week == highlightedWeek
-                                                    ? AppDesignSystem.Palette.Accent.primary
-                                                    : AppDesignSystem.Foreground.secondaryColor
-                                            )
-                                            .frame(height: captionLineHeight)
-                                        Capsule()
-                                            .fill(
-                                                week == highlightedWeek
-                                                    ? AppDesignSystem.Palette.Accent.primary
-                                                    : AppDesignSystem.Schedule.GridPalette
-                                                        .weekBar
-                                            )
-                                            .frame(
-                                                width: week == highlightedWeek
-                                                    ? AppDesignSystem.Schedule.WeekSlider
-                                                        .selectedBarWidth
-                                                    : AppDesignSystem.Schedule.WeekSlider
-                                                        .barWidth,
-                                                height: isMajorWeek(week)
-                                                    ? barHeight
-                                                    : AppDesignSystem.Schedule.WeekSlider
-                                                        .minorBarHeight
-                                            )
-                                    }
-                                    .frame(
-                                        width: itemWidth,
-                                        height: ScheduleCalendarHeaderMetrics(
-                                            captionLineHeight: captionLineHeight
-                                        ).weekItemHeight,
-                                        alignment: .top
-                                    )
-                                    .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
-                                }
-                                .buttonStyle(.plain)
-                                .contentShape(Rectangle())
-                                .accessibilityLabel("第\(week)周")
-                                .accessibilityValue(week == highlightedWeek ? "当前周" : "")
-                                .accessibilityAddTraits(week == currentWeek ? .isSelected : [])
-                                .id(week)
-                            }
-                        }
-                        .scrollTargetLayout()
-                        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
-                    }
-                    .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
-                    .scrollIndicators(.hidden)
-                    .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
-                    .scrollTargetBehavior(weekScrollTargetBehavior)
-                    .scrollPosition(id: $selectedWeek, anchor: .center)
-                    #if targetEnvironment(macCatalyst)
-                    .simultaneousGesture(
-                        DragGesture().onChanged { _ in
-                            if dragStartIndex == nil {
-                                dragStartIndex = weeks.firstIndex(
-                                    of: selectedWeek ?? currentWeek)
-                            }
-                        }.onEnded { value in
-                            defer { dragStartIndex = nil }
-                            let itemSpacing = AppDesignSystem.Schedule.WeekSlider
-                                .itemSpacing
-                            let steps = Int(
-                                (value.translation.width / (itemWidth + itemSpacing))
-                                    .rounded())
-                            guard
-                                abs(value.translation.width)
-                                    > abs(value.translation.height),
-                                let index = dragStartIndex, !weeks.isEmpty
-                            else { return }
-                            let target = weeks[min(max(index - steps, 0), weeks.count - 1)]
-                            withAnimation(
-                                AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)
-                            ) {
-                                selectedWeek = target
-                            }
-                        })
-                    #endif
-                    .frame(maxWidth: .infinity)
-                    .onGeometryChange(for: CGSize.self) {
-                        $0.size
-                    } action: {
-                        viewportSize = $0
-                    }
-                    .task(id: viewportSize) {
-                        guard viewportSize.width > 0 else { return }
-                        await Task.yield()
-                        guard !Task.isCancelled else { return }
-                        var transaction = Transaction()
-                        transaction.disablesAnimations = true
-                        withTransaction(transaction) {
-                            reader.scrollTo(currentWeek, anchor: .center)
-                        }
-                    }
+                    weekScrollView(
+                        reader: reader,
+                        horizontalPadding: horizontalPadding,
+                        barHeight: barHeight
+                    )
                 }
 
                 stepButton(by: 1)
@@ -177,6 +75,132 @@ struct ScheduleInlineWeekSlider: View {
                 guard selectedWeek != target else { return }
                 selectedWeek = target
             }
+        }
+    }
+
+    private func weekScrollView(
+        reader: ScrollViewProxy,
+        horizontalPadding: CGFloat,
+        barHeight: CGFloat
+    ) -> some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: AppDesignSystem.Schedule.WeekSlider.itemSpacing) {
+                ForEach(weeks, id: \.self) { week in
+                    weekItemButton(week: week, barHeight: barHeight)
+                }
+            }
+            .scrollTargetLayout()
+            .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+        }
+        .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
+        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
+        .scrollTargetBehavior(weekScrollTargetBehavior)
+        .scrollPosition(id: $selectedWeek, anchor: .center)
+        #if targetEnvironment(macCatalyst)
+        .simultaneousGesture(catalystDragGesture)
+        #endif
+        .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGSize.self) {
+            $0.size
+        } action: {
+            viewportSize = $0
+        }
+        .task(id: viewportSize) {
+            await scrollToCurrentWeek(reader: reader)
+        }
+    }
+
+    private func weekItemButton(week: Int, barHeight: CGFloat) -> some View {
+        Button {
+            selectWeek(week)
+        } label: {
+            weekItemLabel(week: week, barHeight: barHeight)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("第\(week)周")
+        .accessibilityValue(week == highlightedWeek ? "当前周" : "")
+        .accessibilityAddTraits(week == currentWeek ? .isSelected : [])
+        .id(week)
+    }
+
+    private func selectWeek(_ week: Int) {
+        withAnimation(
+            AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)
+        ) {
+            selectedWeek = week
+        }
+    }
+
+    private func weekItemLabel(week: Int, barHeight: CGFloat) -> some View {
+        let isHighlighted = week == highlightedWeek
+        let isMajor = isMajorWeek(week)
+        return VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
+            Text(isMajor ? "\(week)" : "")
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .foregroundStyle(
+                    isHighlighted
+                        ? AppDesignSystem.Palette.Accent.primary
+                        : AppDesignSystem.Foreground.secondaryColor
+                )
+                .frame(height: captionLineHeight)
+            Capsule()
+                .fill(
+                    isHighlighted
+                        ? AppDesignSystem.Palette.Accent.primary
+                        : AppDesignSystem.Schedule.GridPalette.weekBar
+                )
+                .frame(
+                    width: isHighlighted
+                        ? AppDesignSystem.Schedule.WeekSlider.selectedBarWidth
+                        : AppDesignSystem.Schedule.WeekSlider.barWidth,
+                    height: isMajor
+                        ? barHeight
+                        : AppDesignSystem.Schedule.WeekSlider.minorBarHeight
+                )
+        }
+        .frame(
+            width: itemWidth,
+            height: ScheduleCalendarHeaderMetrics(
+                captionLineHeight: captionLineHeight
+            ).weekItemHeight,
+            alignment: .top
+        )
+        .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
+    }
+
+    #if targetEnvironment(macCatalyst)
+    private var catalystDragGesture: some Gesture {
+        DragGesture()
+            .onChanged { _ in
+                if dragStartIndex == nil {
+                    dragStartIndex = weeks.firstIndex(of: selectedWeek ?? currentWeek)
+                }
+            }
+            .onEnded { value in
+                defer { dragStartIndex = nil }
+                let itemSpacing = AppDesignSystem.Schedule.WeekSlider.itemSpacing
+                let steps = Int((value.translation.width / (itemWidth + itemSpacing)).rounded())
+                guard abs(value.translation.width) > abs(value.translation.height),
+                    let index = dragStartIndex, !weeks.isEmpty
+                else { return }
+                let target = weeks[min(max(index - steps, 0), weeks.count - 1)]
+                withAnimation(AppDesignSystem.Motion.selection(reduceMotion: reduceMotion)) {
+                    selectedWeek = target
+                }
+            }
+    }
+    #endif
+
+    private func scrollToCurrentWeek(reader: ScrollViewProxy) async {
+        guard viewportSize.width > 0 else { return }
+        await Task.yield()
+        guard !Task.isCancelled else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            reader.scrollTo(currentWeek, anchor: .center)
         }
     }
 

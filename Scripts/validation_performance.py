@@ -308,6 +308,15 @@ def result_bundle_findings(
     return ["执行证据需要对应当前保留的原始 XCTest 结果包。"]
 
 
+def matching_raw_metrics(raw: list[dict], device: str) -> list[dict]:
+    return [
+        dict(value, testRuns=[run])
+        for value in raw
+        for run in value.get("testRuns", [])
+        if run.get("device", {}).get("deviceId") == device
+    ]
+
+
 def rebind_result_records(report: dict, groups: list[str]) -> dict:
     updated = deepcopy(report)
     rows = []
@@ -341,12 +350,7 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
             expected = normalize_metrics(
                 record["xcresultMetrics"], record["testIdentifier"], device
             )
-            matches = [
-                dict(value, testRuns=[run])
-                for value in raw
-                for run in value.get("testRuns", [])
-                if run.get("device", {}).get("deviceId") == device
-            ]
+            matches = matching_raw_metrics(raw, device)
             if not any(
                 normalize_metrics([value], record["testIdentifier"], device) == expected
                 for value in matches
@@ -664,6 +668,20 @@ def validate_capture(proof: dict) -> None:
             raise ValueError("性能验收需要实际结果包导出的当前采样与已批准基线。")
 
 
+def execution_fields_match(current: dict, row: dict) -> bool:
+    fields = (
+        ("runID", "runID"),
+        ("inputDigest", "inputDigest"),
+        ("sourceCommit", "sourceCommit"),
+        ("environment", "environment"),
+        ("bundleIdentity", "resultBundleIdentity"),
+    )
+    for key, field in fields:
+        if current["execution"][key] != row[field]:
+            return False
+    return True
+
+
 def merge_findings(report: dict) -> list[str]:
     from validation_inputs import performance_workloads, performance_group
 
@@ -688,16 +706,7 @@ def merge_findings(report: dict) -> list[str]:
                 if (
                     current["sourceCommit"] != row["sourceCommit"]
                     or current["capturedAt"] != row["recordedAt"]
-                    or any(
-                        current["execution"][key] != row[field]
-                        for key, field in (
-                            ("runID", "runID"),
-                            ("inputDigest", "inputDigest"),
-                            ("sourceCommit", "sourceCommit"),
-                            ("environment", "environment"),
-                            ("bundleIdentity", "resultBundleIdentity"),
-                        )
-                    )
+                    or not execution_fields_match(current, row)
                     or not performance_comparison_complete(
                         name, {"current": current, "baseline": approved["records"][name]}
                     )
@@ -710,6 +719,18 @@ def merge_findings(report: dict) -> list[str]:
         return [
             f"合并验收需要 {len(performance_workloads())} 个性能场景的完整采样和维护者批准基线。"
         ]
+
+
+def update_baseline_records(proof: dict, approver: str, limit: float | None) -> None:
+    for record in proof["records"].values():
+        record.update(approvedBy=approver, approvedAt=utc_now().isoformat())
+        raw = record["xcresultMetrics"][0]["testRuns"][0]["metrics"]
+        for name, metric in record["metrics"].items():
+            metric_id = METRICS[name][0]
+            default = next(
+                row["maxPercentRegression"] for row in raw if row["identifier"] == metric_id
+            )
+            metric["maximumRegressionPercent"] = default if limit is None else limit
 
 
 def main(arguments: list[str]) -> int:
@@ -755,16 +776,7 @@ def main(arguments: list[str]) -> int:
                 and (not math.isfinite(limit) or limit < 0)
             ):
                 raise ValueError("性能基线需要批准人和有效退化上限。")
-            for record in proof["records"].values():
-                record.update(approvedBy=approver, approvedAt=utc_now().isoformat())
-                raw = record["xcresultMetrics"][0]["testRuns"][0]["metrics"]
-                for name, metric in record["metrics"].items():
-                    default = next(
-                        row["maxPercentRegression"]
-                        for row in raw
-                        if row["identifier"] == METRICS[name][0]
-                    )
-                    metric["maximumRegressionPercent"] = default if limit is None else limit
+            update_baseline_records(proof, approver, limit)
         from validation_provenance import REPORT, report_lock, write_report
 
         with report_lock():
@@ -783,6 +795,18 @@ def main(arguments: list[str]) -> int:
         print(MEASUREMENTS)
         return 0
     raise ValueError("性能命令：current；baseline 批准人 [最大退化百分比]。")
+
+
+def valid_metric_samples(metric: dict) -> bool:
+    samples, mean = metric.get("samples"), metric.get("mean")
+    if not isinstance(samples, list) or not samples:
+        return False
+    if type(mean) not in (int, float) or not math.isfinite(mean) or mean <= 0:
+        return False
+    for sample in samples:
+        if type(sample) not in (int, float) or not math.isfinite(sample) or sample < 0:
+            return False
+    return math.isclose(mean, sum(samples) / len(samples))
 
 
 def performance_comparison_complete(name: str, measurement: dict) -> bool:
@@ -841,19 +865,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
             if set(record["metrics"]) != {"clockSeconds", "peakPhysicalMemoryBytes"}:
                 return False
             for metric in record["metrics"].values():
-                samples, mean = metric["samples"], metric["mean"]
-                if (
-                    not isinstance(samples, list)
-                    or not samples
-                    or not all(
-                        type(sample) in (int, float) and math.isfinite(sample) and sample >= 0
-                        for sample in samples
-                    )
-                    or type(mean) not in (int, float)
-                    or not math.isfinite(mean)
-                    or mean <= 0
-                    or not math.isclose(mean, sum(samples) / len(samples))
-                ):
+                if not valid_metric_samples(metric):
                     return False
         if (
             exchange_identity(current["environment"]) != exchange_identity(baseline["environment"])

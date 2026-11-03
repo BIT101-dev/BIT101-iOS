@@ -125,13 +125,16 @@ def prepare_simulator_ui(device: str, products: Path) -> None:
     try:
         request = json.dumps({"command": "observe"}).encode() + b"\n"
         deadline = time.monotonic() + 60
+
+        def query_simulator_response() -> str:
+            with socket.create_connection(("127.0.0.1", port), timeout=1) as connection:
+                connection.sendall(request)
+                with connection.makefile("rb") as stream:
+                    return stream.readline().decode().strip()
+
         while time.monotonic() < deadline:
             try:
-                with socket.create_connection(("127.0.0.1", port), timeout=1) as connection:
-                    connection.sendall(request)
-                    with connection.makefile("rb") as stream:
-                        response = stream.readline().decode().strip()
-                if response == "simulator-bootstrap / 登录":
+                if query_simulator_response() == "simulator-bootstrap / 登录":
                     break
             except OSError:
                 pass
@@ -525,6 +528,9 @@ def native_coverage_self_test(evidence) -> None:
     from types import SimpleNamespace
     from unittest.mock import patch
 
+    def mock_open_plist(*args, **kwargs):
+        return io.BytesIO(plistlib.dumps({"CFBundleExecutable": "Executable"}))
+
     root = Path("/fixture")
     for catalyst in (False, True):
         for debug in (False, True):
@@ -561,13 +567,7 @@ def native_coverage_self_test(evidence) -> None:
                 with (
                     patch.object(evidence, "ROOT", root),
                     patch.object(Path, "glob", artifacts),
-                    patch.object(
-                        Path,
-                        "open",
-                        side_effect=lambda *args, **kwargs: io.BytesIO(
-                            plistlib.dumps({"CFBundleExecutable": "Executable"})
-                        ),
-                    ),
+                    patch.object(Path, "open", side_effect=mock_open_plist),
                     patch(
                         "subprocess.run",
                         return_value=SimpleNamespace(stdout=json.dumps(raw), stderr=""),

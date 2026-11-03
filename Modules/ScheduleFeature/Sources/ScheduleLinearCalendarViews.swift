@@ -113,61 +113,73 @@ private struct LinearScheduleHeader: View {
                 .frame(height: weekSliderHeight)
                 .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
-                GeometryReader { proxy in
-                    let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
-                    HStack(spacing: AppDesignSystem.Spacing.none) {
-                        Text("第\(week)周")
-                            .font(AppDesignSystem.Typography.captionEmphasis)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(
-                                AppDesignSystem.Schedule.Grid.minimumScaleFactor
-                            )
-                            .frame(width: dayWidth, height: dateHeaderHeight)
-                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-                        ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
-                            let weekday = weekdayTitle(visibleWeekdays[index])
-                            let dateText = ScheduleDateCodec.formatCompactDate(date)
-                            Button {
-                                onSelectDay(date, visibleWeekdays[index])
-                            } label: {
-                                Text(ScheduleDateCodec.formatCompactDate(date))
-                                    .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                    .frame(width: dayWidth, height: dateHeaderHeight)
-                                    .background(
-                                        AppDesignSystem.Palette.Background.secondaryGrouped)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(
-                                "第\(week)周，\(weekday)，\(dateText)"
-                            )
-                        }
-                    }
-                }
-                .frame(height: dateHeaderHeight)
+                weeklyDateHeader(visibleWeekdays: visibleWeekdays, weekDates: weekDates)
             } else {
-                GeometryReader { proxy in
-                    let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
-                    HStack(spacing: AppDesignSystem.Spacing.none) {
-                        Color.clear
-                            .frame(width: dayWidth, height: compactHeaderHeight)
-                            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-                        ForEach(visibleWeekdays, id: \.self) { weekday in
-                            Text(weekdayTitle(weekday))
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .frame(width: dayWidth, height: compactHeaderHeight)
-                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-                                .accessibilityLabel(weekdayTitle(weekday))
-                        }
-                    }
-                }
-                .frame(height: compactHeaderHeight)
+                compactHeader(visibleWeekdays: visibleWeekdays)
             }
         }
+    }
+
+    private func weeklyDateHeader(
+        visibleWeekdays: [Int],
+        weekDates: [Date]
+    ) -> some View {
+        GeometryReader { proxy in
+            let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+            HStack(spacing: AppDesignSystem.Spacing.none) {
+                Text("第\(week)周")
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(
+                        AppDesignSystem.Schedule.Grid.minimumScaleFactor
+                    )
+                    .frame(width: dayWidth, height: dateHeaderHeight)
+                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+                ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                    dateHeaderCell(date: date, weekday: visibleWeekdays[index], dayWidth: dayWidth)
+                }
+            }
+        }
+        .frame(height: dateHeaderHeight)
+    }
+
+    private func dateHeaderCell(date: Date, weekday: Int, dayWidth: CGFloat) -> some View {
+        let weekdayName = weekdayTitle(weekday)
+        let dateText = ScheduleDateCodec.formatCompactDate(date)
+        return Button {
+            onSelectDay(date, weekday)
+        } label: {
+            Text(ScheduleDateCodec.formatCompactDate(date))
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .frame(width: dayWidth, height: dateHeaderHeight)
+                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("第\(week)周，\(weekdayName)，\(dateText)")
+    }
+
+    private func compactHeader(visibleWeekdays: [Int]) -> some View {
+        GeometryReader { proxy in
+            let dayWidth = max(proxy.size.width / CGFloat(visibleWeekdays.count + 1), 1)
+            HStack(spacing: AppDesignSystem.Spacing.none) {
+                Color.clear
+                    .frame(width: dayWidth, height: compactHeaderHeight)
+                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+                ForEach(visibleWeekdays, id: \.self) { weekday in
+                    Text(weekdayTitle(weekday))
+                        .font(AppDesignSystem.Typography.caption)
+                        .foregroundStyle(AppDesignSystem.Foreground.primary)
+                        .frame(width: dayWidth, height: compactHeaderHeight)
+                        .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                        .accessibilityLabel(weekdayTitle(weekday))
+                }
+            }
+        }
+        .frame(height: compactHeaderHeight)
     }
 
     private var visibleWeekdayValues: [Int] {

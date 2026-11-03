@@ -1506,6 +1506,41 @@ def adapter_call_roles(index: dict[str, dict]) -> dict:
             scope = canonical_type_scope(function["scope"])
             active[key] = {role for owner, role in roles.items() if scope[: len(owner)] == owner}
             active[key].update(owner for owner in function["scope"] if settings_owner(owner))
+
+    def resolve_call_candidates(call, path):
+        expression = call["calledExpression"]
+        receiver, _, name = expression.rpartition(".")
+        target_owner = resolve_receiver(dict(call, path=path)) if receiver else None
+        candidates = []
+        for target_path, function in by_name.get(name, []):
+            if compilation_unit(target_path) != compilation_unit(path):
+                continue
+            if function.get("isPrivate") and target_path != path:
+                continue
+            if receiver in {"", "self", "Self"}:
+                if call["scope"][: len(function["scope"])] != function["scope"]:
+                    continue
+                if function.get("lexicalScope") and (
+                    target_path != path
+                    or call.get("lexicalScope", [])[: len(function["lexicalScope"])]
+                    != function["lexicalScope"]
+                ):
+                    continue
+            elif target_owner != ".".join([compilation_unit(target_path), *function["scope"]]):
+                continue
+            candidates.append((target_path, function))
+        if candidates and receiver in {"", "self", "Self"}:
+            max_depth = max(
+                (len(function["scope"]), len(function.get("lexicalScope", [])))
+                for _, function in candidates
+            )
+            candidates = [
+                (target_path, function)
+                for target_path, function in candidates
+                if (len(function["scope"]), len(function.get("lexicalScope", []))) == max_depth
+            ]
+        return candidates
+
     edges = {key: set() for key in nodes}
     for path, facts in index.items():
         for call in api_invocations(facts):
@@ -1515,37 +1550,7 @@ def adapter_call_roles(index: dict[str, dict]) -> dict:
             if not parents:
                 continue
             caller = min(parents, key=lambda key: key[2] - key[1])
-            expression = call["calledExpression"]
-            receiver, _, name = expression.rpartition(".")
-            target_owner = resolve_receiver(dict(call, path=path)) if receiver else None
-            candidates = []
-            for target_path, function in by_name.get(name, []):
-                if compilation_unit(target_path) != compilation_unit(path):
-                    continue
-                if function.get("isPrivate") and target_path != path:
-                    continue
-                if receiver in {"", "self", "Self"}:
-                    if call["scope"][: len(function["scope"])] != function["scope"]:
-                        continue
-                    if function.get("lexicalScope") and (
-                        target_path != path
-                        or call.get("lexicalScope", [])[: len(function["lexicalScope"])]
-                        != function["lexicalScope"]
-                    ):
-                        continue
-                elif target_owner != ".".join([compilation_unit(target_path), *function["scope"]]):
-                    continue
-                candidates.append((target_path, function))
-            if candidates and receiver in {"", "self", "Self"}:
-                depth = max(
-                    (len(function["scope"]), len(function.get("lexicalScope", [])))
-                    for _, function in candidates
-                )
-                candidates = [
-                    (target_path, function)
-                    for target_path, function in candidates
-                    if (len(function["scope"]), len(function.get("lexicalScope", []))) == depth
-                ]
+            candidates = resolve_call_candidates(call, path)
             matches = matching_api_calls(
                 index, candidates, dict(call, path=path), types=types, conservative=True
             )

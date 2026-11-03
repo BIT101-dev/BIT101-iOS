@@ -28,6 +28,107 @@ struct GalleryMessagesView: View {
     @State private var showsReadRecoveryConfirmation = false
     @State private var readRecovery: (@MainActor () async -> Void)?
 
+    private func retryLoad() {
+        viewModel.pendingOperations.enqueue {
+            await viewModel.refreshSelectedType()
+        }
+    }
+
+    @ViewBuilder
+    private var messageRows: some View {
+        let type = viewModel.selectedType
+        ForEach(Array(currentState.items.enumerated()), id: \.element.id) { index, message in
+            VStack(spacing: AppDesignSystem.Spacing.none) {
+                GalleryMessageRow(
+                    type: type,
+                    message: message,
+                    isUnread: viewModel.isUnread(message, in: type),
+                    onOpenResource: {
+                        requestedMessage = message
+                    }
+                )
+
+                if index != currentState.items.count - 1 {
+                    Divider()
+                        .padding(
+                            .leading,
+                            AppDesignSystem.Gallery.messageDividerLeading)
+                }
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .task(id: viewModel.paginationTaskID(for: type)) {
+                await viewModel.loadMoreIfNeeded(
+                    for: type, currentMessage: message)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var messageListContent: some View {
+        if currentState.items.isEmpty {
+            AppEmptyState(
+                title: "暂无消息",
+                systemImage: "bell",
+                message: "当前分类还没有可展示的消息。"
+            )
+            .frame(maxWidth: .infinity)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        } else {
+            messageRows
+
+            CommunityPaginationFooter(
+                isLoading: currentState.isLoadingMore,
+                errorMessage: currentState.paginationError
+            ) {
+                await viewModel.loadMoreIfNeeded(
+                    for: viewModel.selectedType, currentMessage: currentState.items.last)
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    @ViewBuilder
+    private var messageListView: some View {
+        List {
+            messageListContent
+        }
+        .accessibilityIdentifier("interaction.GalleryMessagesView.list")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .refreshable {
+            interactionEvidence?(
+                "interaction.GalleryMessagesView.refreshable", "refresh")
+
+            await viewModel.refreshSelectedType()
+        }
+    }
+
+    @ViewBuilder
+    private var readRecoveryBanner: some View {
+        if viewModel.needsReadStateRecovery {
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+                Text("消息已读记录需要恢复").font(AppDesignSystem.Typography.title)
+                Text("当前消息继续展示。请重试读取，或确认恢复本机已读记录。")
+                Button("重试读取", action: retryLoad)
+                    .accessibilityIdentifier("messages.storage.retry")
+                Button("恢复已读状态") {
+                    readRecovery = viewModel.readStateRecoveryAction()
+                    showsReadRecoveryConfirmation = true
+                }
+                .accessibilityIdentifier("messages.storage.recover")
+            }
+            .buttonStyle(.borderless)
+            .disabled(viewModel.isRecoveringReadState)
+            .padding(AppDesignSystem.Spacing.content)
+            .background(AppDesignSystem.Palette.Background.grouped)
+        }
+    }
+
     var body: some View {
         let type = viewModel.selectedType
         let state = viewModel.state(for: type)
@@ -45,73 +146,10 @@ struct GalleryMessagesView: View {
                         title: "加载消息失败",
                         systemImage: "bell.badge",
                         message: message,
-                        onRetry: {
-                            viewModel.pendingOperations.enqueue {
-                                await viewModel.refreshSelectedType()
-                            }
-                        }
+                        onRetry: retryLoad
                     )
                 } else {
-                    List {
-                        if currentState.items.isEmpty {
-                            AppEmptyState(
-                                title: "暂无消息",
-                                systemImage: "bell",
-                                message: "当前分类还没有可展示的消息。"
-                            )
-                            .frame(maxWidth: .infinity)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                        } else {
-                            ForEach(Array(currentState.items.enumerated()), id: \.element.id) {
-                                index, message in
-                                VStack(spacing: AppDesignSystem.Spacing.none) {
-                                    GalleryMessageRow(
-                                        type: type,
-                                        message: message,
-                                        isUnread: viewModel.isUnread(message, in: type),
-                                        onOpenResource: {
-                                            requestedMessage = message
-                                        }
-                                    )
-
-                                    if index != currentState.items.count - 1 {
-                                        Divider()
-                                            .padding(
-                                                .leading,
-                                                AppDesignSystem.Gallery.messageDividerLeading)
-                                    }
-                                }
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
-                                .task(id: viewModel.paginationTaskID(for: type)) {
-                                    await viewModel.loadMoreIfNeeded(
-                                        for: type, currentMessage: message)
-                                }
-                            }
-
-                            CommunityPaginationFooter(
-                                isLoading: currentState.isLoadingMore,
-                                errorMessage: currentState.paginationError
-                            ) {
-                                await viewModel.loadMoreIfNeeded(
-                                    for: type, currentMessage: state.items.last)
-                            }
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                        }
-                    }
-                    .accessibilityIdentifier("interaction.GalleryMessagesView.list")
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .refreshable {
-                        interactionEvidence?(
-                            "interaction.GalleryMessagesView.refreshable", "refresh")
-
-                        await viewModel.refreshSelectedType()
-                    }
+                    messageListView
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -185,27 +223,7 @@ struct GalleryMessagesView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if viewModel.needsReadStateRecovery {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                    Text("消息已读记录需要恢复").font(AppDesignSystem.Typography.title)
-                    Text("当前消息继续展示。请重试读取，或确认恢复本机已读记录。")
-                    Button("重试读取") {
-                        viewModel.pendingOperations.enqueue {
-                            await viewModel.refreshSelectedType()
-                        }
-                    }
-                    .accessibilityIdentifier("messages.storage.retry")
-                    Button("恢复已读状态") {
-                        readRecovery = viewModel.readStateRecoveryAction()
-                        showsReadRecoveryConfirmation = true
-                    }
-                    .accessibilityIdentifier("messages.storage.recover")
-                }
-                .buttonStyle(.borderless)
-                .disabled(viewModel.isRecoveringReadState)
-                .padding(AppDesignSystem.Spacing.content)
-                .background(AppDesignSystem.Palette.Background.grouped)
-            }
+            readRecoveryBanner
         }
         .alert("恢复消息已读状态？", isPresented: $showsReadRecoveryConfirmation) {
             Button("恢复已读状态", role: .destructive) {
@@ -278,36 +296,39 @@ private struct GalleryMessageRow: View {
         message.linkedResource != nil
     }
 
+    @ViewBuilder
+    private var headerRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular) {
+            if isUnread {
+                Circle()
+                    .fill(AppDesignSystem.Palette.Accent.primary)
+                    .frame(
+                        width: AppDesignSystem.Gallery.unreadIndicator,
+                        height: AppDesignSystem.Gallery.unreadIndicator)
+            }
+
+            Text(message.fromUser.displayName)
+                .font(AppDesignSystem.Typography.bodyEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .lineLimit(1)
+
+            Spacer(minLength: AppDesignSystem.Spacing.none)
+
+            Text(
+                AppDateText.relativeText(from: message.updateTime, fallback: "未知时间")
+            )
+            .font(AppDesignSystem.Typography.caption)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+        }
+    }
+
     var body: some View {
         Button(action: onOpenResource) {
             HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
                 GalleryMessageAvatarView(user: message.fromUser, type: type)
 
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.tiny) {
-                    HStack(
-                        alignment: .firstTextBaseline, spacing: AppDesignSystem.Spacing.regular
-                    ) {
-                        if isUnread {
-                            Circle()
-                                .fill(AppDesignSystem.Palette.Accent.primary)
-                                .frame(
-                                    width: AppDesignSystem.Gallery.unreadIndicator,
-                                    height: AppDesignSystem.Gallery.unreadIndicator)
-                        }
-
-                        Text(message.fromUser.displayName)
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            .lineLimit(1)
-
-                        Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                        Text(
-                            AppDateText.relativeText(from: message.updateTime, fallback: "未知时间")
-                        )
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    }
+                    headerRow
 
                     Text(type.actionText(for: message))
                         .font(AppDesignSystem.Typography.body)

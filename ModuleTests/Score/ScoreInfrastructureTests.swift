@@ -429,16 +429,21 @@ struct ScoreInfrastructureBoundaryTests {
         }
         func data(for request: URLRequest) async throws -> (Data, URLResponse) {
             let url = try #require(request.url)
-            let stage =
-                url.path.hasSuffix("/sms")
-                ? "sms"
-                : url.path.hasSuffix("/start")
-                    ? "auth"
-                    : url.path.hasSuffix("/score")
-                        ? "score"
-                        : url.path.hasSuffix("/cookies")
-                            ? "cookie"
-                            : url.path.hasSuffix("/Index") ? "html" : "image"
+            let stage: String
+            let path = url.path
+            if path.hasSuffix("/sms") {
+                stage = "sms"
+            } else if path.hasSuffix("/start") {
+                stage = "auth"
+            } else if path.hasSuffix("/score") {
+                stage = "score"
+            } else if path.hasSuffix("/cookies") {
+                stage = "cookie"
+            } else if path.hasSuffix("/Index") {
+                stage = "html"
+            } else {
+                stage = "image"
+            }
             requests.append(stage)
             if repeatsAuthentication && ["score", "cookie"].contains(stage) {
                 guard requests.count <= 3 else { throw URLError(.badServerResponse) }

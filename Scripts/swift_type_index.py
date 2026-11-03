@@ -91,6 +91,14 @@ def visible_variables(
     )
 
 
+def matches_variadic_labels(parameter: dict, labels: list[str]) -> bool:
+    for index, label in enumerate(labels):
+        expected = parameter["label"] if index == 0 else ""
+        if label != expected:
+            return False
+    return True
+
+
 def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> list[list[dict]]:
     """Align supplied arguments with parameters, including defaults and variadic arguments."""
     if not parameters:
@@ -99,10 +107,7 @@ def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> li
     bindings = argument_parameter_bindings(remaining, labels) if parameter["hasDefault"] else []
     if parameter["variadic"]:
         for count in range(len(labels) + 1):
-            if all(
-                label == (parameter["label"] if index == 0 else "")
-                for index, label in enumerate(labels[:count])
-            ):
+            if matches_variadic_labels(parameter, labels[:count]):
                 bindings.extend(
                     [parameter] * count + tail
                     for tail in argument_parameter_bindings(remaining, labels[count:])
@@ -343,6 +348,14 @@ class SwiftTypeIndex:
             return self.terminal_name(self.paths[key], self.aliases[key], key[1][:-1], seen | {key})
         return ".".join([key[0], *key[1]]) if key else name
 
+    def _expand_generic_constraints(self, source_path, name, constraints, seen, pending):
+        size = min(item["end"] - item["start"] for item in constraints)
+        for item in constraints:
+            key = (source_path, name, item["start"], item["type"])
+            if item["end"] - item["start"] == size and item["type"] and key not in seen:
+                seen.add(key)
+                pending.append((source_path, item["type"], item["scope"]))
+
     def components(self, path, kind, scope, reference):
         pending, seen, result = [(path, kind, scope)], set(), []
         while pending:
@@ -354,19 +367,13 @@ class SwiftTypeIndex:
                     if item["name"] == name and item["start"] <= reference["start"] < item["end"]
                 ]
                 if constraints:
-                    size = min(item["end"] - item["start"] for item in constraints)
-                    for item in constraints:
-                        key = (source_path, name, item["start"], item["type"])
-                        if item["end"] - item["start"] == size and item["type"] and key not in seen:
-                            seen.add(key)
-                            pending.append((source_path, item["type"], item["scope"]))
+                    self._expand_generic_constraints(source_path, name, constraints, seen, pending)
                     continue
                 target = self.resolve(source_path, name, source_scope, aliases=False)
-                if target in self.aliases:
-                    if target not in seen:
-                        seen.add(target)
-                        pending.append((self.paths[target], self.aliases[target], target[1][:-1]))
-                else:
+                if target in self.aliases and target not in seen:
+                    seen.add(target)
+                    pending.append((self.paths[target], self.aliases[target], target[1][:-1]))
+                elif target not in self.aliases:
                     result.append((source_path, name, source_scope))
         return result
 
@@ -472,6 +479,26 @@ class SwiftBindingTypes:
             None,
         )
 
+    def _matches_parameter_types(
+        self, function, source, scope, path, invocation, argument_types
+    ):
+        var_scope = self.variable_scope(path, invocation)
+        for parameters in argument_parameter_bindings(
+            function["parameters"], invocation.get("argumentLabels", [])
+        ):
+            all_match = True
+            for actual, parameter in zip(argument_types, parameters):
+                if actual is None:
+                    continue
+                param_type = self.canonical_type(parameter["type"].rstrip("?!"), scope, source)
+                arg_type = self.canonical_type(actual, var_scope, path)
+                if param_type != arg_type:
+                    all_match = False
+                    break
+            if all_match:
+                return True
+        return False
+
     def method_return(self, path, owner, name, invocation=None):
         key = self.types.resolve(path, ".".join(owner)) if owner else None
         scope = (key[0],) + key[1] if key else self.types.function_scope(path, owner)
@@ -509,18 +536,8 @@ class SwiftBindingTypes:
                 candidates = [
                     (function, source)
                     for function, source in candidates
-                    if any(
-                        all(
-                            actual is None
-                            or self.canonical_type(parameter["type"].rstrip("?!"), scope, source)
-                            == self.canonical_type(
-                                actual, self.variable_scope(path, invocation), path
-                            )
-                            for actual, parameter in zip(argument_types, parameters)
-                        )
-                        for parameters in argument_parameter_bindings(
-                            function["parameters"], invocation.get("argumentLabels", [])
-                        )
+                    if self._matches_parameter_types(
+                        function, source, scope, path, invocation, argument_types
                     )
                 ]
         results = {
@@ -1142,21 +1159,17 @@ def constant_value(condition: str, resolve, *, floating=False):
         if isinstance(node, ast.BoolOp):
             values = [value(operand) for operand in node.values]
             if isinstance(node.op, ast.And):
-                return (
-                    False
-                    if any(item is False for item in values)
-                    else True
-                    if all(item is True for item in values)
-                    else None
-                )
+                if any(item is False for item in values):
+                    return False
+                if all(item is True for item in values):
+                    return True
+                return None
             if isinstance(node.op, ast.Or):
-                return (
-                    True
-                    if any(item is True for item in values)
-                    else False
-                    if all(item is False for item in values)
-                    else None
-                )
+                if any(item is True for item in values):
+                    return True
+                if all(item is False for item in values):
+                    return False
+                return None
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
             left, right = value(node.left), value(node.comparators[0])
             if type(left) is float or type(right) is float:
@@ -1328,6 +1341,20 @@ def branch_condition(facts: dict, branch: dict) -> bool | None:
     )
 
 
+def pattern_match_value(subject: object, value: object) -> bool | None:
+    if subject is None or value is None:
+        return None
+    numeric = type(subject) in {int, float} and type(value) in {int, float}
+    if numeric and (type(subject) is float or type(value) is float):
+        try:
+            return float(subject) == float(value)
+        except OverflowError:
+            return None
+    if numeric or type(subject) is type(value):
+        return subject == value
+    return None
+
+
 def switch_entries(facts: dict, branch: dict) -> set[int]:
     """Select possible entry cases from constant subjects, patterns and guards."""
     cases = branch.get("switchCases")
@@ -1345,17 +1372,8 @@ def switch_entries(facts: dict, branch: dict) -> set[int]:
                 guard = branch_value(facts, branch, pattern.get("condition") or "true")
                 matches.append(False if guard is False else None)
                 continue
-            elif subject is None:
-                match = None
             else:
-                numeric = type(subject) in {int, float} and type(value) in {int, float}
-                if numeric and (type(subject) is float or type(value) is float):
-                    try:
-                        match = float(subject) == float(value)
-                    except OverflowError:
-                        match = None
-                else:
-                    match = subject == value if numeric or type(subject) is type(value) else None
+                match = pattern_match_value(subject, value)
             guard = (
                 branch_value(facts, branch, pattern["condition"])
                 if pattern.get("condition")
@@ -1511,6 +1529,25 @@ def collection_count(facts: dict, location: dict, source=None, seen=frozenset())
     return collection_count(facts, node, node["constantInitializer"], seen | {node["start"]})
 
 
+def is_empty_iteration(facts: dict, branch: dict, folding: bool) -> bool:
+    sequence = re.sub(r"[\s()]", "", branch.get("iterationSource") or "")
+    bounds = branch.get("iterationBounds")
+    if not bounds:
+        literal = re.fullmatch(r"([+-]?\d[\d_]*)(\.\.<|\.\.\.)([+-]?\d[\d_]*)", sequence)
+        bounds = list(literal.groups()) if literal else None
+    empty = folding and (sequence == "[]" or collection_count(facts, branch) == 0)
+    if bounds and folding:
+        lower, upper = (
+            branch_value(facts, branch, bounds[position]) for position in (0, 2)
+        )
+        if type(lower) is int and type(upper) is int:
+            if bounds[1] == "..<":
+                empty = lower >= upper
+            else:
+                empty = lower > upper
+    return empty
+
+
 def call_can_execute(facts: dict, call: dict) -> bool:
     conditions = {}
     folding = constant_folding_allowed(facts)
@@ -1546,19 +1583,7 @@ def call_can_execute(facts: dict, call: dict) -> bool:
                 return False
         body = branch.get("thenRange")
         if body and body[0] <= call["start"] < body[1]:
-            sequence = re.sub(r"[\s()]", "", branch.get("iterationSource") or "")
-            bounds = branch.get("iterationBounds")
-            if not bounds:
-                literal = re.fullmatch(r"([+-]?\d[\d_]*)(\.\.<|\.\.\.)([+-]?\d[\d_]*)", sequence)
-                bounds = list(literal.groups()) if literal else None
-            empty = folding and (sequence == "[]" or collection_count(facts, branch) == 0)
-            if bounds and folding:
-                lower, upper = (
-                    branch_value(facts, branch, bounds[position]) for position in (0, 2)
-                )
-                if type(lower) is int and type(upper) is int:
-                    empty = lower >= upper if bounds[1] == "..<" else lower > upper
-            if empty:
+            if is_empty_iteration(facts, branch, folding):
                 return False
         if branch.get("switchSubject") is not None and any(
             bounds[0] <= call["start"] < bounds[1] for bounds in branch.get("branchRanges", [])

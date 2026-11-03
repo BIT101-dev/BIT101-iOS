@@ -352,6 +352,17 @@ def network_inventory(scope: str = "all") -> set[str]:
     return set().union(*(areas[area] for area in included))
 
 
+def record_test_case_event(kind: str, key: tuple, case_started, case_ended) -> None:
+    if kind == "testCaseStarted":
+        if case_started[key]:
+            raise ValueError("参数实例开始事件需要唯一身份。")
+        case_started[key] += 1
+    else:
+        if not case_started[key] or case_ended[key]:
+            raise ValueError("参数实例结束事件需要对应的唯一开始记录。")
+        case_ended[key] += 1
+
+
 def module_event_summary(text: str) -> dict:
     records = [json.loads(line) for line in text.splitlines() if line.lstrip().startswith("{")]
     functions = {
@@ -422,14 +433,7 @@ def module_event_summary(text: str) -> dict:
                 ):
                     raise ValueError("参数实例事件需要 Swift Testing 的实例身份。")
                 key = (identifier, case_id)
-                if kind == "testCaseStarted":
-                    if case_started[key]:
-                        raise ValueError("参数实例开始事件需要唯一身份。")
-                    case_started[key] += 1
-                else:
-                    if not case_started[key] or case_ended[key]:
-                        raise ValueError("参数实例结束事件需要对应的唯一开始记录。")
-                    case_ended[key] += 1
+                record_test_case_event(kind, key, case_started, case_ended)
     attempted = started | ended | skipped | failed
     if (
         not attempted
@@ -714,6 +718,13 @@ def school_authentication_complete(value: dict) -> bool:
     )
 
 
+def filter_projected_diagnostics(value: dict, external_diagnostic) -> dict[str, list]:
+    return {
+        name: [item for item in value.get(name, []) if not external_diagnostic(item)]
+        for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")
+    }
+
+
 def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
     if group in NETWORK_GROUPS:
         required = set(value.get("requiredProbes", []))
@@ -741,10 +752,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                     for name in external
                 )
 
-            diagnostics = {
-                name: [item for item in value.get(name, []) if not external_diagnostic(item)]
-                for name in ("failures", "coverageGaps", "authenticationBlockers", "skippedProbes")
-            }
+            diagnostics = filter_projected_diagnostics(value, external_diagnostic)
             removed = any(
                 len(diagnostics[name]) != len(value.get(name, [])) for name in diagnostics
             )
@@ -1047,11 +1055,11 @@ def complete_summary(group: str, summary: dict) -> bool:
             inventory = summary.get("uiInventory")
             complete = complete and has_action_evidence(inventory)
             if complete:
-                from ui_rules import documented_interactions, source_runtime_interaction_findings
+                from ui_rules import configured_interactions, source_runtime_interaction_findings
                 from ui_source_facts import syntax_index
 
                 complete = not source_runtime_interaction_findings(
-                    syntax_index(), documented_interactions(), inventory.get("visitedControls", [])
+                    syntax_index(), configured_interactions(), inventory.get("visitedControls", [])
                 )
         return complete
     if group in NETWORK_GROUPS:

@@ -32,18 +32,27 @@ public final class SessionRefreshCoordinator<Identity: Equatable & Sendable> {
                 } else {
                     let id = UUID()
                     pending = Pending(id: id, identity: identity, waiters: [waiter: continuation])
-                    pending?.task = Task {
-                        do {
-                            try await restore()
-                            self.finish(id, result: .success(()))
-                        } catch { self.finish(id, result: .failure(error)) }
-                    }
+                    pending?.task = startRestoreTask(id: id, restore: restore)
                 }
             }
         } onCancel: {
             Task { @MainActor in self.cancel(waiter) }
         }
         try Task.checkCancellation()
+    }
+
+    private func startRestoreTask(
+        id: UUID,
+        restore: @escaping () async throws -> Void
+    ) -> Task<Void, Never> {
+        Task {
+            do {
+                try await restore()
+                self.finish(id, result: .success(()))
+            } catch {
+                self.finish(id, result: .failure(error))
+            }
+        }
     }
 
     public func cancel() {

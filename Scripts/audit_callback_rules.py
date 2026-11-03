@@ -57,6 +57,14 @@ def audit_call_identity(call: str) -> tuple:
     return (command, tuple(positional), tuple(sorted(options)))
 
 
+def filtered_audit_calls(calls: list[str]) -> list[str]:
+    return [
+        call.removesuffix("|--self-test")
+        for call in calls
+        if call != "python3|/audit/Scripts/validation_evidence.py|self-test"
+    ]
+
+
 def audit_callback_findings(source: str, *, support_source: str | None = None) -> list[str]:
     if support_source is None:
         support_source = Path(__file__).with_name("script-support.sh").read_text()
@@ -149,15 +157,7 @@ xargs() {
             else ("1",)
         )
         for enabled in modes:
-            expected = (
-                complete
-                if enabled == "1"
-                else [
-                    call.removesuffix("|--self-test")
-                    for call in complete
-                    if call != "python3|/audit/Scripts/validation_evidence.py|self-test"
-                ]
-            )
+            expected = complete if enabled == "1" else filtered_audit_calls(complete)
             identities = tuple(sorted(audit_call_identity(call) for call in expected))
             if not valid_callback(definition[0], callback, identities, harness, enabled):
                 errors.append(f"Scripts/run-static-audit.sh: {callback} 需要执行所属命令并传播结果")

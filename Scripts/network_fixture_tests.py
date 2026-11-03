@@ -75,27 +75,116 @@ def community_recovery_contract_self_test() -> None:
         assert not complete("community.writes", writes + [altered[index]])
 
 
+def _pattern_example(pattern: str, identifier: int = 1) -> str:
+    pattern = re.sub(r"\(\?:([^()]*)\)", lambda match: match[1].split("|")[0], pattern)
+    return (
+        pattern.replace("[0-9a-f]+", "a")
+        .replace(r"[1-9]\d*", str(identifier))
+        .replace(r"\d+", str(identifier))
+        .replace(r"\.", ".")
+        .replace(r"\-", "-")
+        .replace(r"\+", "+")
+        .replace(r"\{", "{")
+        .replace(r"\}", "}")
+        .replace(".+", "fixture")
+        .replace("?", "")
+    )
+
+
+def _build_initial_query(contract, expected, name, visible_params):
+    query = {}
+    for key, pattern in contract.query.items():
+        if pattern is not None:
+            query[key] = _pattern_example(pattern) if key in visible_params else "[REDACTED]"
+    for key, item in expected.items():
+        if (
+            key not in {"path", "excludedSearch"}
+            and (key != "search" or "excludedSearch" not in expected)
+            and (name != "gallery.search" or contract.query.get(key) is not None)
+        ):
+            query[key] = item
+    return query
+
+
+def _adjust_community_writes(contract, index, query, request):
+    if contract.path == "/posters" and contract.method == "GET":
+        query["page"] = str(index)
+    if contract.path == "/reaction/like" and query["obj"].startswith("comment"):
+        query["obj"] = "comment" + str(index // 2 + 1)
+    if contract.method == "DELETE" and contract.path == r"/reaction/comments/\d+":
+        path = _pattern_example(contract.path, index + 1)
+        request["endpoint"] = "https://" + _pattern_example(contract.host) + path
+    if (
+        contract.method == "POST"
+        and contract.path == "/reaction/comments"
+        and query["obj"].startswith("comment")
+    ):
+        query["obj"] = "comment" + str(index // 2 + 1)
+        suffix = ["reply_obj", "reply_uid"] if index % 2 else []
+        request["bodyParameterNames"] += suffix
+        request["finalBodyParameterNames"] += suffix
+
+
+def _record_expected_selectors(name, expected, request, selectors_map):
+    from urllib.parse import unquote, urlsplit
+
+    for key in selectors_map.get(name, set()) - set(expected):
+        if key == "path":
+            expected[key] = unquote(urlsplit(request["endpoint"]).path)
+        else:
+            expected[key] = request["query"][key]
+
+
+def _build_fixture_request(name, contract, index, expected, visible_params, selectors_map):
+    query = _build_initial_query(contract, expected, name, visible_params)
+    if contract.paging == "page":
+        query["page"] = str(index)
+    elif contract.paging == "last_id":
+        query["last_id"] = str(sys.maxsize) if index == 0 else "9"
+    body_variants = (
+        contract.body_parameter_variants[0]
+        if contract.body_parameter_variants
+        else frozenset()
+    )
+    body_params = sorted(contract.required_body_parameters | body_variants)
+    host = _pattern_example(contract.host)
+    path = _pattern_example(contract.path)
+    request = {
+        "method": contract.method,
+        "endpoint": f"https://{host}{path}",
+        "statusCode": next(iter(contract.statuses)),
+        "query": query,
+        "bodyParameterNames": list(body_params),
+        "finalBodyParameterNames": list(body_params),
+    }
+    if contract.paging == "last_id":
+        request["responseMinimumID"] = "9" if index == 0 else "1"
+    if name in {"eclass.authentication", "eclass.ddl"}:
+        query["page"] = "1"
+        request.update(responseCourseIDs=[], responseCoursePage={"page": 1, "pages": 1})
+    if name == "update.emergency":
+        request["responseConfiguration"] = emergency_configuration_fixture()
+    if name == "community.writes":
+        _adjust_community_writes(contract, index, query, request)
+    final_endpoint = (
+        f"https://{_pattern_example(contract.final_host)}{_pattern_example(contract.final_path)}"
+        if contract.final_host
+        else request["endpoint"]
+    )
+    request.update(
+        finalEndpoint=final_endpoint,
+        finalMethod=request["method"],
+        finalQuery=dict(query),
+    )
+    assert contract.matches(request), (name, request)
+    _record_expected_selectors(name, expected, request, selectors_map)
+    return request
+
+
 def network_trace_fixture(value: dict) -> dict:
     from network_request_contracts import community, contracts_for, SELECTORS, VISIBLE_PARAMETERS
 
     value["workerDeployments"] = worker_deployment_fixture(value.get("scope"))
-
-    def example(pattern, identifier=1):
-        import re
-
-        pattern = re.sub(r"\(\?:([^()]*)\)", lambda match: match[1].split("|")[0], pattern)
-        return (
-            pattern.replace("[0-9a-f]+", "a")
-            .replace(r"[1-9]\d*", str(identifier))
-            .replace(r"\d+", str(identifier))
-            .replace(r"\.", ".")
-            .replace(r"\-", "-")
-            .replace(r"\+", "+")
-            .replace(r"\{", "{")
-            .replace(r"\}", "}")
-            .replace(".+", "fixture")
-            .replace("?", "")
-        )
 
     rows = []
     for name in value.get("requiredProbes", []):
@@ -117,90 +206,12 @@ def network_trace_fixture(value: dict) -> dict:
             year, _, semester = expected["XNXQDM"].rpartition("-")
             expected.update(JXLDM="fixture-building", RQ="2026-09-07", XQDM=semester, XNDM=year)
         for contract in contracts:
-            for index in range(max(contract.minimum, 2 if contract.paging else 1)):
-                query = {
-                    key: example(pattern) if key in VISIBLE_PARAMETERS else "[REDACTED]"
-                    for key, pattern in contract.query.items()
-                    if pattern is not None
-                }
-                query.update(
-                    {
-                        key: item
-                        for key, item in expected.items()
-                        if key not in {"path", "excludedSearch"}
-                        and (key != "search" or "excludedSearch" not in expected)
-                        and (name != "gallery.search" or contract.query.get(key) is not None)
-                    }
+            repeat = max(contract.minimum, 2 if contract.paging else 1)
+            for index in range(repeat):
+                req = _build_fixture_request(
+                    name, contract, index, expected, VISIBLE_PARAMETERS, SELECTORS
                 )
-                if contract.paging == "page":
-                    query["page"] = str(index)
-                if contract.paging == "last_id":
-                    query["last_id"] = str(sys.maxsize) if index == 0 else "9"
-                request = {
-                    "method": contract.method,
-                    "endpoint": "https://" + example(contract.host) + example(contract.path),
-                    "statusCode": next(iter(contract.statuses)),
-                    "query": query,
-                    "bodyParameterNames": sorted(
-                        contract.required_body_parameters
-                        | (
-                            contract.body_parameter_variants[0]
-                            if contract.body_parameter_variants
-                            else frozenset()
-                        )
-                    ),
-                    "finalBodyParameterNames": sorted(
-                        contract.required_body_parameters
-                        | (
-                            contract.body_parameter_variants[0]
-                            if contract.body_parameter_variants
-                            else frozenset()
-                        )
-                    ),
-                }
-                if contract.paging == "last_id":
-                    request["responseMinimumID"] = "9" if index == 0 else "1"
-                if name in {"eclass.authentication", "eclass.ddl"}:
-                    query["page"] = "1"
-                    request.update(responseCourseIDs=[], responseCoursePage={"page": 1, "pages": 1})
-                if name == "update.emergency":
-                    request["responseConfiguration"] = emergency_configuration_fixture()
-                if name == "community.writes":
-                    if contract.path == "/posters" and contract.method == "GET":
-                        query["page"] = str(index)
-                    if contract.path == "/reaction/like" and query["obj"].startswith("comment"):
-                        query["obj"] = "comment" + str(index // 2 + 1)
-                    if contract.method == "DELETE" and contract.path == r"/reaction/comments/\d+":
-                        request["endpoint"] = (
-                            "https://" + example(contract.host) + example(contract.path, index + 1)
-                        )
-                    if (
-                        contract.method == "POST"
-                        and contract.path == "/reaction/comments"
-                        and query["obj"].startswith("comment")
-                    ):
-                        query["obj"] = "comment" + str(index // 2 + 1)
-                        for field in ("bodyParameterNames", "finalBodyParameterNames"):
-                            request[field] += ["reply_obj", "reply_uid"] if index % 2 else []
-                request.update(
-                    finalEndpoint=(
-                        "https://" + example(contract.final_host) + example(contract.final_path)
-                    )
-                    if contract.final_host
-                    else request["endpoint"],
-                    finalMethod=request["method"],
-                    finalQuery=dict(query),
-                )
-                assert contract.matches(request), (name, request)
-                for key in SELECTORS.get(name, set()) - set(expected):
-                    from urllib.parse import unquote, urlsplit
-
-                    expected[key] = (
-                        unquote(urlsplit(request["endpoint"]).path)
-                        if key == "path"
-                        else request["query"][key]
-                    )
-                requests.append(request)
+                requests.append(req)
         if name == "community.session":
             requests.insert(1, requests.pop())
         if name in {"gallery.image", "paper.image"}:

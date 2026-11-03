@@ -983,6 +983,79 @@ def catalyst_signing_boundary_findings() -> list[str]:
     return findings
 
 
+def check_cache_setting_defaults(
+    build: list[str], settings: list[str], defaults: tuple[str, ...]
+) -> bool:
+    for setting in defaults:
+        prefix = setting.split("=")[0] + "="
+        actual = [value for value in build if value.startswith(prefix)]
+        expected = [value for value in settings if value.startswith(prefix)] or [setting]
+        if actual != expected:
+            return True
+    return False
+
+
+def verify_cache_build_action(
+    fixture: Path,
+    action: str,
+    settings: list[str],
+    expected: list[str] | None,
+    inspect_module: object,
+    builds: list[list[str]],
+    findings: list[str],
+) -> None:
+    from compiler_cache import run_cache
+
+    command = (
+        ["xcrun", "swift", action.removeprefix("swift-")]
+        if expected is None
+        else ["xcodebuild", action]
+    )
+    arguments = ["cache", str(fixture), "build.log", "build", *command, *settings]
+    with (
+        patch.object(sys, "argv", arguments),
+        patch.object(subprocess, "run", inspect_module),
+        patch.object(shutil, "disk_usage", return_value=Mock(free=4 * 1024**3)),
+    ):
+        try:
+            run_cache(sys.argv[1:])
+        except SystemExit as result:
+            if result.code != 0:
+                raise
+    assert builds[-1][3:5] == ["cache-build", str(fixture)]
+    if expected is None:
+        if not all(
+            flag in builds[-1]
+            for flag in ("-Xswiftc", "-warnings-as-errors", "-Xcc", "-Werror")
+        ):
+            findings.append("编译入口自测：SwiftPM 构建与测试的警告门禁")
+        return
+    debug_format = [
+        value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")
+    ]
+    if debug_format != expected:
+        findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
+    expected_mode = [
+        value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")
+    ]
+    compilation_mode = [
+        value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")
+    ]
+    if compilation_mode != expected_mode:
+        findings.append("缓存自测：构建、测试与归档沿工程配置及显式编译模式")
+    defaults = (
+        "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
+        "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
+        "COMPILATION_CACHE_ENABLE_CACHING=YES",
+        "SWIFT_ENABLE_PREFIX_MAPPING=YES",
+        "SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES",
+        "CLANG_ENABLE_PREFIX_MAPPING=YES",
+        "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES",
+    )
+    if check_cache_setting_defaults(builds[-1], settings, defaults):
+        findings.append("编译入口自测：构建、测试与正式归档的警告门禁及缓存路径映射")
+
+
 def build_cache_boundary_findings() -> list[str]:
     "验证缓存合并、热文件保留、链接复用和清理边界。"
 
@@ -1197,62 +1270,20 @@ def build_cache_boundary_findings() -> list[str]:
             ("swift-build", [], None),
             ("swift-test", [], None),
         ):
-            command = (
-                ["xcrun", "swift", action.removeprefix("swift-")]
-                if expected is None
-                else ["xcodebuild", action]
+            verify_cache_build_action(
+                fixture, action, settings, expected, inspect_module, builds, findings
             )
-            arguments = ["cache", str(fixture), "build.log", "build", *command, *settings]
-            with (
-                patch.object(sys, "argv", arguments),
-                patch.object(subprocess, "run", inspect_module),
-                patch.object(shutil, "disk_usage", return_value=Mock(free=4 * 1024**3)),
-            ):
-                try:
-                    run_cache(sys.argv[1:])
-                except SystemExit as result:
-                    if result.code != 0:
-                        raise
-            assert builds[-1][3:5] == ["cache-build", str(fixture)]
-            if expected is None:
-                if not all(
-                    flag in builds[-1]
-                    for flag in ("-Xswiftc", "-warnings-as-errors", "-Xcc", "-Werror")
-                ):
-                    findings.append("编译入口自测：SwiftPM 构建与测试的警告门禁")
-                continue
-            if [
-                value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")
-            ] != expected:
-                findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
-            expected_mode = [
-                value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")
-            ]
-            if [
-                value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")
-            ] != expected_mode:
-                findings.append("缓存自测：构建、测试与归档沿工程配置及显式编译模式")
-            defaults = (
-                "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
-                "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
-                "COMPILATION_CACHE_ENABLE_CACHING=YES",
-                "SWIFT_ENABLE_PREFIX_MAPPING=YES",
-                "SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES",
-                "CLANG_ENABLE_PREFIX_MAPPING=YES",
-                "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES",
-            )
-            if any(
-                [value for value in builds[-1] if value.startswith(setting.split("=")[0] + "=")]
-                != (
-                    [value for value in settings if value.startswith(setting.split("=")[0] + "=")]
-                    or [setting]
-                )
-                for setting in defaults
-            ):
-                findings.append("编译入口自测：构建、测试与正式归档的警告门禁及缓存路径映射")
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
+
+
+def run_recorded_stage(code: object) -> int:
+    try:
+        exec(code, {})
+        return 0
+    except SystemExit as error:
+        return error.code
 
 
 def smoke_script_boundary_findings() -> list[str]:
@@ -1674,11 +1705,9 @@ python3() {{ return 0; }}
                 ),
                 redirect_stdout(StringIO()),
             ):
-                try:
-                    exec(compile(match[1], "smoke-stage-record", "exec"), {})
-                except SystemExit as error:
-                    if error.code != expected:
-                        findings.append("Smoke 结果自测失败：阶段状态码传播")
+                code = run_recorded_stage(compile(match[1], "smoke-stage-record", "exec"))
+            if code != expected:
+                findings.append("Smoke 结果自测失败：阶段状态码传播")
         report = json.loads(state["/smoke/report.json"])
         if (
             report["stages"][0].get("testFailures") != summary["testFailures"]
@@ -1712,11 +1741,9 @@ python3() {{ return 0; }}
                 ),
                 redirect_stdout(StringIO()),
             ):
-                try:
-                    exec(compile(match[1], "smoke-cleanup-record", "exec"), {})
-                except SystemExit as error:
-                    if error.code != expected:
-                        findings.append(f"Smoke 清理验收自测失败：{log or '零用例'}")
+                code = run_recorded_stage(compile(match[1], "smoke-cleanup-record", "exec"))
+            if code != expected:
+                findings.append(f"Smoke 清理验收自测失败：{log or '零用例'}")
             cleanup = json.loads(state["/smoke/report.json"])["cleanup"]
             if expected and (
                 remove_bundle.called
@@ -1791,11 +1818,9 @@ python3() {{ return 0; }}
                 ),
                 redirect_stdout(StringIO()),
             ):
-                try:
-                    exec(compile(match[1], "mac-cleanup-record", "exec"), {})
-                except SystemExit as error:
-                    if error.code != exit_code:
-                        findings.append("Mac 恢复自测：清理状态码传播")
+                code = run_recorded_stage(compile(match[1], "mac-cleanup-record", "exec"))
+            if code != exit_code:
+                findings.append("Mac 恢复自测：清理状态码传播")
             cleanup = json.loads(state["/smoke/report.json"])["macCleanup"]
             merged = (
                 retain_bundle.call_args.args

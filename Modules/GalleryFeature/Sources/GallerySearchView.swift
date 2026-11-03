@@ -30,6 +30,34 @@ struct GallerySearchView: View {
         viewModel.enqueueSearch()
     }
 
+    @ViewBuilder
+    private var orderMenuItems: some View {
+        ForEach(GallerySearchOrder.allCases) { order in
+            Text(order.title).tag(order)
+        }
+    }
+
+    @ViewBuilder
+    private var searchHeader: some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            AppSearchBarContainer {
+                AppOrderedSearchBar(
+                    text: $viewModel.searchQuery.text,
+                    order: $viewModel.searchQuery.order,
+                    selectedOrderTitle: viewModel.searchQuery.order.title,
+                    onSubmit: triggerSearch,
+                    onClear: {
+                        viewModel.searchQuery.text = ""
+                        triggerSearch()
+                    }
+                ) {
+                    orderMenuItems
+                }
+            }
+            CommunityResultsContext(viewModel.displayedQueryDescription)
+        }
+    }
+
     var body: some View {
         GalleryFeedView(
             feedState: viewModel.searchState,
@@ -46,25 +74,7 @@ struct GallerySearchView: View {
             }
         )
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            VStack(spacing: AppDesignSystem.Spacing.none) {
-                AppSearchBarContainer {
-                    AppOrderedSearchBar(
-                        text: $viewModel.searchQuery.text,
-                        order: $viewModel.searchQuery.order,
-                        selectedOrderTitle: viewModel.searchQuery.order.title,
-                        onSubmit: triggerSearch,
-                        onClear: {
-                            viewModel.searchQuery.text = ""
-                            triggerSearch()
-                        }
-                    ) {
-                        ForEach(GallerySearchOrder.allCases) { order in
-                            Text(order.title).tag(order)
-                        }
-                    }
-                }
-                CommunityResultsContext(viewModel.displayedQueryDescription)
-            }
+            searchHeader
         }
         .task {
             await viewModel.bootstrapSearchIfNeeded()

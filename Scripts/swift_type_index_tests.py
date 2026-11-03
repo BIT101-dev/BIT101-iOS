@@ -360,6 +360,22 @@ def stored_network_callback_self_test():
     from network_capability_rules import business_methods
     from validation_test_areas import reachable_smoke_calls
 
+    def check_closure_case(sources, initializer, body, argument, supplied, expected, network):
+        index = swift_syntax_index_sources(sources)
+        assert all(not facts.get("parseErrors") for facts in index.values())
+        methods = business_methods(index)
+        found = {
+            function["name"]
+            for path, function in methods.get("CommunityTransport.ClosureClient", [])
+        }
+        assert ("fetch" in found) == (expected and network), (
+            initializer,
+            body,
+            argument,
+            supplied,
+            methods,
+        )
+
     service_path = "Modules/CommunityTransport/Sources/ClosureClient.swift"
     caller_path = "BIT101-iOS/ClosureClientUsage.swift"
     for initializer in (
@@ -397,19 +413,8 @@ def stored_network_callback_self_test():
                             f"                      }}"
                         ),
                     }
-                    index = swift_syntax_index_sources(sources)
-                    assert all(not facts.get("parseErrors") for facts in index.values())
-                    methods = business_methods(index)
-                    found = {
-                        function["name"]
-                        for path, function in methods.get("CommunityTransport.ClosureClient", [])
-                    }
-                    assert ("fetch" in found) == (expected and network), (
-                        initializer,
-                        body,
-                        argument,
-                        supplied,
-                        methods,
+                    check_closure_case(
+                        sources, initializer, body, argument, supplied, expected, network
                     )
     for construction, expected in [
         ("Operations(callback: callback)", True),

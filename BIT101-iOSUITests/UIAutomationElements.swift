@@ -583,14 +583,10 @@ final class UIElement: NSObject {
             if map.exists && mine.exists {
                 let reference = map.frame
                 let horizontal = abs(reference.midY - mine.frame.midY) <= 1
-                for button in query.allElementsBoundByIndex {
-                    let frame = button.frame
-                    if horizontal
-                        ? abs(frame.midY - reference.midY) <= 1
-                        : abs(frame.midX - reference.midX) <= 1
-                    {
-                        return UIElement(button)
-                    }
+                if let match = matchingMainTabButton(
+                    in: query, reference: reference, horizontal: horizontal)
+                {
+                    return match
                 }
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
@@ -598,6 +594,24 @@ final class UIElement: NSObject {
         } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
         return UIElement(query.firstMatch)
+    }
+
+    private func matchingMainTabButton(
+        in query: XCUIElementQuery,
+        reference: CGRect,
+        horizontal: Bool
+    ) -> UIElement? {
+        for button in query.allElementsBoundByIndex {
+            let frame = button.frame
+            let aligned =
+                horizontal
+                ? abs(frame.midY - reference.midY) <= 1
+                : abs(frame.midX - reference.midX) <= 1
+            if aligned {
+                return UIElement(button)
+            }
+        }
+        return nil
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title

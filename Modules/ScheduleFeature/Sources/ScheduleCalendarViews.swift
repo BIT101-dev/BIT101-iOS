@@ -290,92 +290,22 @@ struct CourseScheduleCalendarView: View {
                 }
 
                 VStack(spacing: AppDesignSystem.Spacing.none) {
-                    if displayMode == .weekly {
-                        ScheduleInlineWeekSlider(
-                            weeks: availableWeeks,
-                            currentWeek: week,
-                            highlightedWeek: currentWeek,
-                            onSelectWeek: onSelectWeekValue
-                        )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: weekSliderHeight)
-                        .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                    quantizedHeader(
+                        weekSliderHeight: weekSliderHeight,
+                        dateHeaderHeight: dateHeaderHeight,
+                        headerHeight: headerHeight,
+                        leftWidth: leftWidth,
+                        dayWidth: dayWidth,
+                        weekDates: weekDates,
+                        visibleWeekdays: visibleWeekdays
+                    )
 
-                        HStack(spacing: AppDesignSystem.Spacing.none) {
-                            Text("第\(week)周")
-                                .font(AppDesignSystem.Typography.captionEmphasis)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(
-                                    AppDesignSystem.Schedule.Grid.minimumScaleFactor
-                                )
-                                .frame(width: leftWidth, height: dateHeaderHeight)
-                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-                            ForEach(Array(weekDates.enumerated()), id: \.offset) {
-                                index, date in
-                                let weekday = weekdayText(for: visibleWeekdays[index])
-                                let dateText = mmddText(for: date)
-                                Button {
-                                    onSelectDay(date, visibleWeekdays[index])
-                                } label: {
-                                    Text(mmddText(for: date))
-                                        .font(AppDesignSystem.Typography.caption)
-                                        .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                        .frame(width: dayWidth, height: dateHeaderHeight)
-                                        .background(
-                                            AppDesignSystem.Palette.Background.secondaryGrouped)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(
-                                    "第\(week)周，周\(weekday)，\(dateText)"
-                                )
-                            }
-                        }
-                    } else {
-                        HStack(spacing: AppDesignSystem.Spacing.none) {
-                            Color.clear
-                                .frame(width: leftWidth, height: headerHeight)
-                                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
-
-                            ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
-                                Text(weekdayText(for: visibleWeekdays[index]))
-                                    .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(AppDesignSystem.Foreground.primary)
-                                    .frame(width: dayWidth, height: headerHeight)
-                                    .background(
-                                        AppDesignSystem.Palette.Background.secondaryGrouped
-                                    )
-                                    .accessibilityLabel(
-                                        "周\(weekdayText(for: visibleWeekdays[index]))")
-                            }
-                        }
-                    }
-
-                    ForEach(Array(timeTable.enumerated()), id: \.offset) { index, slot in
-                        HStack(spacing: AppDesignSystem.Spacing.none) {
-                            VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
-                                Text("\(index + 1)")
-                                    .font(AppDesignSystem.Typography.captionEmphasis)
-                                    .lineLimit(1)
-                                Text(slot.start)
-                                    .font(AppDesignSystem.Typography.caption)
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(
-                                        AppDesignSystem.Schedule.Grid.minimumScaleFactor)
-                            }
-                            .frame(width: leftWidth, height: rowHeight)
-                            .accessibilityElement(children: .combine)
-                            .accessibilityLabel("第\(index + 1)节，开始时间\(slot.start)")
-
-                            ForEach(visibleWeekdays, id: \.self) { _ in
-                                Rectangle()
-                                    .fill(Color.clear)
-                                    .frame(width: dayWidth, height: rowHeight)
-                            }
-                        }
-                    }
+                    quantizedTimeGrid(
+                        leftWidth: leftWidth,
+                        dayWidth: dayWidth,
+                        rowHeight: rowHeight,
+                        visibleWeekdays: visibleWeekdays
+                    )
                 }
 
                 ForEach(0...timeTable.count, id: \.self) { row in
@@ -460,67 +390,12 @@ struct CourseScheduleCalendarView: View {
                 ) { placement in
                     let entry = placement.entry
                     let laneWidth = dayWidth / CGFloat(placement.columnCount)
-                    let cardWidth = max(
-                        laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
-                    ZStack(alignment: .topLeading) {
-                        ForEach(entry.orderedBackgroundLayers) { layer in
-                            // 课程背景使用不透明系统色，网格线保持在卡片后方。
-                            CourseScheduleBackgroundView(
-                                entry: entry
-                            )
-                            .frame(
-                                width: cardWidth,
-                                height: max(
-                                    rowHeight * (layer.endSection - layer.startSection)
-                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                                    1
-                                )
-                            )
-                            .offset(
-                                y: rowHeight * (layer.startSection - entry.startSection)
-                                    + gridLineWidth
-                            )
-                            .zIndex(layer.displayZIndex)
-                        }
-
-                        CourseScheduleBlockView(entry: entry, contentMode: cardContentMode)
-                            .frame(
-                                width: cardWidth,
-                                height: max(
-                                    rowHeight * (entry.endSection - entry.startSection)
-                                        - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                                    1
-                                )
-                            )
-
-                        ScheduleEntryInteractionView(
-                            entry: entry,
-                            onTap: { onSelect(entry) },
-                            onMenuWillPresent: entry.kind == .course
-                                ? {
-                                    contextMenuFeedbackToken &+= 1
-                                    onPrepareCourseShare(entry)
-                                } : nil,
-                            onShare: entry.kind == .course ? { onLongPressCourse(entry) } : nil
-                        )
-                        .frame(
-                            width: cardWidth,
-                            height: max(
-                                rowHeight * (entry.endSection - entry.startSection)
-                                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                                1
-                            )
-                        )
-                    }
-                    .frame(
-                        width: cardWidth,
-                        height: max(
-                            rowHeight * (entry.endSection - entry.startSection)
-                                - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                            1
-                        )
+                    quantizedPlacementCell(
+                        placement: placement,
+                        dayWidth: dayWidth,
+                        rowHeight: rowHeight,
+                        gridLineWidth: gridLineWidth
                     )
-                    .contentShape(Rectangle())
                     .offset(
                         x: leftWidth + dayWidth
                             * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
@@ -532,38 +407,13 @@ struct CourseScheduleCalendarView: View {
                     .zIndex(1)
                 }
 
-                if !groups.outside.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            ForEach(groups.outside) { entry in
-                                ZStack {
-                                    Text(entry.title)
-                                        .font(AppDesignSystem.Typography.captionEmphasis)
-                                        .lineLimit(2)
-                                        .padding(.horizontal, AppDesignSystem.Spacing.regular)
-                                    ScheduleEntryInteractionView(
-                                        entry: entry, onTap: { onSelect(entry) })
-                                }
-                                .frame(width: dayWidth, height: outsideHeight)
-                                .background(AppDesignSystem.Palette.Accent.surface)
-                                .clipShape(
-                                    AppDesignSystem.roundedRectangle(
-                                        AppDesignSystem.Radius.card))
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("schedule.calendar.outside-events")
-                    .frame(height: outsideHeight)
-                    .background {
-                        GeometryReader { geometry in
-                            Color.clear.preference(
-                                key: AppHorizontalControlFramesKey.self,
-                                value: [geometry.frame(in: .global)])
-                        }
-                    }
-                    .offset(y: headerHeight + usableHeight)
-                    .zIndex(1)
-                }
+                outsideEventsSection(
+                    outside: groups.outside,
+                    dayWidth: dayWidth,
+                    outsideHeight: outsideHeight,
+                    headerHeight: headerHeight,
+                    usableHeight: usableHeight
+                )
 
             }
             .clipped()
@@ -572,6 +422,299 @@ struct CourseScheduleCalendarView: View {
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
             .appSelectionFeedback(trigger: week)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
+        }
+    }
+
+    @ViewBuilder
+    private func quantizedHeader(
+        weekSliderHeight: CGFloat,
+        dateHeaderHeight: CGFloat,
+        headerHeight: CGFloat,
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        weekDates: [Date],
+        visibleWeekdays: [Int]
+    ) -> some View {
+        if displayMode == .weekly {
+            quantizedWeeklyHeader(
+                weekSliderHeight: weekSliderHeight,
+                dateHeaderHeight: dateHeaderHeight,
+                leftWidth: leftWidth,
+                dayWidth: dayWidth,
+                weekDates: weekDates,
+                visibleWeekdays: visibleWeekdays
+            )
+        } else {
+            quantizedCompactHeader(
+                headerHeight: headerHeight,
+                leftWidth: leftWidth,
+                dayWidth: dayWidth,
+                weekDates: weekDates,
+                visibleWeekdays: visibleWeekdays
+            )
+        }
+    }
+
+    private func quantizedWeeklyHeader(
+        weekSliderHeight: CGFloat,
+        dateHeaderHeight: CGFloat,
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        weekDates: [Date],
+        visibleWeekdays: [Int]
+    ) -> some View {
+        VStack(spacing: AppDesignSystem.Spacing.none) {
+            ScheduleInlineWeekSlider(
+                weeks: availableWeeks,
+                currentWeek: week,
+                highlightedWeek: currentWeek,
+                onSelectWeek: onSelectWeekValue
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: weekSliderHeight)
+            .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+            HStack(spacing: AppDesignSystem.Spacing.none) {
+                Text("第\(week)周")
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+                    .frame(width: leftWidth, height: dateHeaderHeight)
+                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+                ForEach(Array(weekDates.enumerated()), id: \.offset) { index, date in
+                    quantizedDayHeaderButton(
+                        date: date,
+                        weekday: visibleWeekdays[index],
+                        dayWidth: dayWidth,
+                        height: dateHeaderHeight
+                    )
+                }
+            }
+        }
+    }
+
+    private func quantizedDayHeaderButton(
+        date: Date,
+        weekday: Int,
+        dayWidth: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        let weekdayName = weekdayText(for: weekday)
+        let dateText = mmddText(for: date)
+        return Button {
+            onSelectDay(date, weekday)
+        } label: {
+            Text(dateText)
+                .font(AppDesignSystem.Typography.caption)
+                .foregroundStyle(AppDesignSystem.Foreground.primary)
+                .frame(width: dayWidth, height: height)
+                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("第\(week)周，周\(weekdayName)，\(dateText)")
+    }
+
+    private func quantizedCompactHeader(
+        headerHeight: CGFloat,
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        weekDates: [Date],
+        visibleWeekdays: [Int]
+    ) -> some View {
+        HStack(spacing: AppDesignSystem.Spacing.none) {
+            Color.clear
+                .frame(width: leftWidth, height: headerHeight)
+                .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+
+            ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
+                Text(weekdayText(for: visibleWeekdays[index]))
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    .frame(width: dayWidth, height: headerHeight)
+                    .background(AppDesignSystem.Palette.Background.secondaryGrouped)
+                    .accessibilityLabel("周\(weekdayText(for: visibleWeekdays[index]))")
+            }
+        }
+    }
+
+    private func quantizedTimeGrid(
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        rowHeight: CGFloat,
+        visibleWeekdays: [Int]
+    ) -> some View {
+        ForEach(Array(timeTable.enumerated()), id: \.offset) { index, slot in
+            quantizedTimeRow(
+                index: index,
+                slot: slot,
+                leftWidth: leftWidth,
+                dayWidth: dayWidth,
+                rowHeight: rowHeight,
+                visibleWeekdays: visibleWeekdays
+            )
+        }
+    }
+
+    private func quantizedTimeRow(
+        index: Int,
+        slot: ScheduleTimeTableSlot,
+        leftWidth: CGFloat,
+        dayWidth: CGFloat,
+        rowHeight: CGFloat,
+        visibleWeekdays: [Int]
+    ) -> some View {
+        HStack(spacing: AppDesignSystem.Spacing.none) {
+            VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
+                Text("\(index + 1)")
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .lineLimit(1)
+                Text(slot.start)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+            }
+            .frame(width: leftWidth, height: rowHeight)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("第\(index + 1)节，开始时间\(slot.start)")
+
+            ForEach(visibleWeekdays, id: \.self) { _ in
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: dayWidth, height: rowHeight)
+            }
+        }
+    }
+
+    private func quantizedPlacementCell(
+        placement: ScheduleCalendarPlacement,
+        dayWidth: CGFloat,
+        rowHeight: CGFloat,
+        gridLineWidth: CGFloat
+    ) -> some View {
+        let entry = placement.entry
+        let laneWidth = dayWidth / CGFloat(placement.columnCount)
+        let cardWidth = max(
+            laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
+        return ZStack(alignment: .topLeading) {
+            ForEach(entry.orderedBackgroundLayers) { layer in
+                // 课程背景使用不透明系统色，网格线保持在卡片后方。
+                CourseScheduleBackgroundView(entry: entry)
+                    .frame(
+                        width: cardWidth,
+                        height: max(
+                            rowHeight * (layer.endSection - layer.startSection)
+                                - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                            1
+                        )
+                    )
+                    .offset(
+                        y: rowHeight * (layer.startSection - entry.startSection)
+                            + gridLineWidth
+                    )
+                    .zIndex(layer.displayZIndex)
+            }
+
+            CourseScheduleBlockView(entry: entry, contentMode: cardContentMode)
+                .frame(
+                    width: cardWidth,
+                    height: max(
+                        rowHeight * (entry.endSection - entry.startSection)
+                            - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                        1
+                    )
+                )
+
+            quantizedEntryInteractionView(entry: entry)
+                .frame(
+                    width: cardWidth,
+                    height: max(
+                        rowHeight * (entry.endSection - entry.startSection)
+                            - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                        1
+                    )
+                )
+        }
+        .frame(
+            width: cardWidth,
+            height: max(
+                rowHeight * (entry.endSection - entry.startSection)
+                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
+                1
+            )
+        )
+        .contentShape(Rectangle())
+    }
+
+    private func quantizedEntryInteractionView(
+        entry: ScheduleCalendarEntry
+    ) -> some View {
+        ScheduleEntryInteractionView(
+            entry: entry,
+            onTap: { onSelect(entry) },
+            onMenuWillPresent: entry.kind == .course
+                ? {
+                    contextMenuFeedbackToken &+= 1
+                    onPrepareCourseShare(entry)
+                } : nil,
+            onShare: entry.kind == .course ? { onLongPressCourse(entry) } : nil
+        )
+    }
+
+    @ViewBuilder
+    private func outsideEventsSection(
+        outside: [ScheduleCalendarEntry],
+        dayWidth: CGFloat,
+        outsideHeight: CGFloat,
+        headerHeight: CGFloat,
+        usableHeight: CGFloat
+    ) -> some View {
+        if !outside.isEmpty {
+            ScrollView(.horizontal) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    ForEach(outside) { entry in
+                        outsideEventCard(
+                            entry: entry,
+                            dayWidth: dayWidth,
+                            outsideHeight: outsideHeight
+                        )
+                    }
+                }
+            }
+            .accessibilityIdentifier("schedule.calendar.outside-events")
+            .frame(height: outsideHeight)
+            .background { horizontalControlFramePreference }
+            .offset(y: headerHeight + usableHeight)
+            .zIndex(1)
+        }
+    }
+
+    private func outsideEventCard(
+        entry: ScheduleCalendarEntry,
+        dayWidth: CGFloat,
+        outsideHeight: CGFloat
+    ) -> some View {
+        ZStack {
+            Text(entry.title)
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .lineLimit(2)
+                .padding(.horizontal, AppDesignSystem.Spacing.regular)
+            ScheduleEntryInteractionView(
+                entry: entry, onTap: { onSelect(entry) })
+        }
+        .frame(width: dayWidth, height: outsideHeight)
+        .background(AppDesignSystem.Palette.Accent.surface)
+        .clipShape(
+            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
+    }
+
+    private var horizontalControlFramePreference: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(
+                key: AppHorizontalControlFramesKey.self,
+                value: [geometry.frame(in: .global)])
         }
     }
 

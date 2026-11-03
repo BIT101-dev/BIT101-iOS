@@ -57,6 +57,9 @@ if args.staged:
             and (path.suffix in {".py", ".sh"} or path.parts[0] == ".githooks" and not path.suffix)
         )
 
+    def changed_syntax_targets(names: set[str]) -> set[str]:
+        return {name for name in names if included_script(name)}
+
     if args.changed:
         changed = set(
             filter(
@@ -87,7 +90,7 @@ if args.staged:
                 ".githooks/pre-commit",
             }
         ):
-            syntax_targets = {name for name in changed if included_script(name)}
+            syntax_targets = changed_syntax_targets(changed)
             if not syntax_targets and not args.self_test:
                 raise SystemExit(0)
     needs_import_graph = syntax_targets is None or bool(syntax_targets)

@@ -192,6 +192,27 @@ def failure_summary_self_test() -> None:
 def module_failure_report_self_test() -> None:
     from test_results import report_test_results, export_module_metrics
 
+    def check_failure_mode(bundle, mode, scripts, contents):
+        with (
+            redirect_stdout(output := StringIO()),
+            patch.object(subprocess, "check_output") as native,
+        ):
+            try:
+                report_test_results([str(bundle), mode, "report", str(scripts)])
+            except SystemExit as error:
+                assert (error.code == 0) == (mode == "json"), (mode, error)
+        native.assert_not_called()
+        if mode == "json":
+            value = json.loads(output.getvalue())
+            assert value["passed"] is False and value["exitCode"] == 7
+            if contents is not None:
+                assert value["failedTests"] == 1
+        elif not mode:
+            assert (
+                "Failed" in output.getvalue()
+                and "fixture module build failure" in output.getvalue()
+            )
+
     scripts = Path(__file__).resolve().parent
     fixture = scripts.parent / ".build/static-audit/test-results-self-test"
     shutil.rmtree(fixture, ignore_errors=True)
@@ -259,24 +280,6 @@ def module_failure_report_self_test() -> None:
                 with patch.dict(os.environ, environment):
                     export_module_metrics(["", str(metrics), str(scripts.parent), "7"])
             for mode in ("", "json", "coverage"):
-                with (
-                    redirect_stdout(output := StringIO()),
-                    patch.object(subprocess, "check_output") as native,
-                ):
-                    try:
-                        report_test_results([str(bundle), mode, "report", str(scripts)])
-                    except SystemExit as error:
-                        assert (error.code == 0) == (mode == "json"), (mode, error)
-                native.assert_not_called()
-                if mode == "json":
-                    value = json.loads(output.getvalue())
-                    assert value["passed"] is False and value["exitCode"] == 7
-                    if contents is not None:
-                        assert value["failedTests"] == 1
-                elif not mode:
-                    assert (
-                        "Failed" in output.getvalue()
-                        and "fixture module build failure" in output.getvalue()
-                    )
+                check_failure_mode(bundle, mode, scripts, contents)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)

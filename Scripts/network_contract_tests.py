@@ -22,6 +22,74 @@ from validation_provenance import LIVE_GROUPS, evidence_current, sampling_eviden
 from network_fixture_tests import community_recovery_contract_self_test, network_trace_fixture
 
 
+def verify_contract_body_parameters(contract, sample, field):
+    if contract.required_body_parameters:
+        assert not contract.matches(dict(sample, **{field: []}))
+    for name in contract.required_body_parameters:
+        assert not contract.matches(
+            dict(sample, **{field: sorted(set(sample[field]) - {name})})
+        )
+    if (
+        contract.body_parameter_variants
+        and {"challenge_id", "username", "password"} <= contract.body_parameters
+    ):
+        for names, valid in (
+            ({"challenge_id"}, True),
+            ({"username", "password"}, True),
+            (set(), False),
+            ({"username"}, False),
+            ({"password"}, False),
+            ({"challenge_id", "username"}, False),
+        ):
+            assert (
+                contract.matches(
+                    dict(
+                        sample,
+                        **{field: sorted(contract.required_body_parameters | names)},
+                    )
+                )
+                == valid
+            )
+
+
+def verify_parameter_mutation(probe, fixture, key, field, invalid):
+    from copy import deepcopy
+    from validation_provenance import network_requests_complete
+
+    changed = deepcopy(fixture)
+    target = next(
+        row for row in changed["requestEvidence"][0]["requests"] if key in row[field]
+    )
+    if invalid is None:
+        target[field].pop(key)
+    else:
+        target[field][key] = invalid
+    assert not network_requests_complete({probe}, changed), (probe, key, field, invalid)
+
+
+def mutate_selector_request(request: dict, key: str) -> None:
+    if key == "path":
+        request["endpoint"] = request["endpoint"].rsplit("/", 1)[0] + "/999"
+    elif key == "uid":
+        request["query"][key] = "999"
+    elif key == "obj":
+        request["query"][key] = re.sub(r"\d+$", "999", request["query"][key])
+    else:
+        request["query"][key] = "wrong"
+
+
+def update_search_field(row: dict, field: str, keyword: str | None) -> None:
+    if keyword is None:
+        row[field].pop("search", None)
+    else:
+        row[field]["search"] = keyword
+
+
+def gallery_search_queries(parameters: dict) -> list[dict]:
+    base = {key: value for key, value in parameters.items() if key != "search"}
+    return [dict(base, order=order) for order in ("new", "like")]
+
+
 def network_route_identity_self_test() -> None:
     native_school_request_contracts_self_test()
     community_recovery_contract_self_test()
@@ -81,33 +149,7 @@ def network_route_identity_self_test() -> None:
             if allowed:
                 assert not contract.matches(dict(sample, bodyParameterNames=allowed + allowed[:1]))
             for field in ("bodyParameterNames", "finalBodyParameterNames"):
-                if contract.required_body_parameters:
-                    assert not contract.matches(dict(sample, **{field: []}))
-                for name in contract.required_body_parameters:
-                    assert not contract.matches(
-                        dict(sample, **{field: sorted(set(sample[field]) - {name})})
-                    )
-                for names, valid in (
-                    ({"challenge_id"}, True),
-                    ({"username", "password"}, True),
-                    (set(), False),
-                    ({"username"}, False),
-                    ({"password"}, False),
-                    ({"challenge_id", "username"}, False),
-                ):
-                    if (
-                        contract.body_parameter_variants
-                        and {"challenge_id", "username", "password"} <= contract.body_parameters
-                    ):
-                        assert (
-                            contract.matches(
-                                dict(
-                                    sample,
-                                    **{field: sorted(contract.required_body_parameters | names)},
-                                )
-                            )
-                            == valid
-                        )
+                verify_contract_body_parameters(contract, sample, field)
     from network_request_contracts import complete as check_complete
 
     emergency = network_trace_fixture({"requiredProbes": ["update.emergency"]})["requestEvidence"][
@@ -143,22 +185,7 @@ def network_route_identity_self_test() -> None:
         for key, value in parameters.items():
             for field in ("query", "finalQuery"):
                 for invalid in (value, "[REDACTED]", None):
-                    changed = deepcopy(fixture)
-                    target = next(
-                        row
-                        for row in changed["requestEvidence"][0]["requests"]
-                        if key in row[field]
-                    )
-                    if invalid is None:
-                        target[field].pop(key)
-                    else:
-                        target[field][key] = invalid
-                    assert not network_requests_complete({probe}, changed), (
-                        probe,
-                        key,
-                        field,
-                        invalid,
-                    )
+                    verify_parameter_mutation(probe, fixture, key, field, invalid)
 
     def complete(probe, requests, expected=None):
         return check_complete(
@@ -222,16 +249,7 @@ def network_route_identity_self_test() -> None:
         for key in selectors:
             changed = deepcopy(selected)
             for request in changed["requestEvidence"][0]["requests"]:
-                if key == "path":
-                    request["endpoint"] = request["endpoint"].rsplit("/", 1)[0] + "/999"
-                else:
-                    request["query"][key] = (
-                        "999"
-                        if key == "uid"
-                        else re.sub(r"\d+$", "999", request["query"][key])
-                        if key == "obj"
-                        else "wrong"
-                    )
+                mutate_selector_request(request, key)
             assert not network_requests_complete({probe}, changed), (probe, key)
     for key, value in [
         ("endpoint", "https://example.invalid/unrelated"),
@@ -359,26 +377,12 @@ def network_route_identity_self_test() -> None:
         ]
         assert complete(probe, [page] + activities)
         for key, value in (("page_size", "1"), ("fields", "id"), ("conditions", "[REDACTED]")):
+            omitted = {name: val for name, val in page["query"].items() if name != key}
             for field in ("query", "finalQuery"):
                 assert not complete(
                     probe, [dict(page, **{field: {**page["query"], key: value}})] + activities
                 )
-                assert not complete(
-                    probe,
-                    [
-                        dict(
-                            page,
-                            **{
-                                field: {
-                                    name: value
-                                    for name, value in page["query"].items()
-                                    if name != key
-                                }
-                            },
-                        )
-                    ]
-                    + activities,
-                )
+                assert not complete(probe, [dict(page, **{field: omitted})] + activities)
         for rows in (
             [page],
             [page, activities[0]],
@@ -464,10 +468,7 @@ def network_route_identity_self_test() -> None:
             for keyword in ("", "wrong keyword", None):
                 changed = deepcopy(rows)
                 for row in changed:
-                    if keyword is None:
-                        row[field].pop("search", None)
-                    else:
-                        row[field]["search"] = keyword
+                    update_search_field(row, field, keyword)
                 assert not complete(probe, changed, selected), (probe, field, keyword)
     variants = {
         "gallery.newest": {"mode": "search", "order": "new", "uid": "-1"},
@@ -492,14 +493,7 @@ def network_route_identity_self_test() -> None:
         if probe == "gallery.search":
             queries += [dict(query, search="excludedfixture") for query in queries]
         if probe == "gallery.search":
-            queries += [
-                {
-                    key: value
-                    for key, value in dict(parameters, order=order).items()
-                    if key != "search"
-                }
-                for order in ("new", "like")
-            ]
+            queries += gallery_search_queries(parameters)
         requests = [
             {
                 "method": "GET",

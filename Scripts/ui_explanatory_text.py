@@ -4,6 +4,28 @@ from pathlib import Path
 from swift_source_index import swift_syntax_index
 
 
+def extract_candidate_expressions(call: dict, facts: dict, name: str, label: str) -> list[str]:
+    arguments = call.get("arguments", [])
+    labels = call.get("argumentLabels", [])
+    if name in {"AppEmptyState", "AppFailureState"}:
+        return [arguments[i] for i, item in enumerate(labels) if item == "message"]
+
+    all_labels = labels + call.get("trailingClosureLabels", [])
+    ranges = [call["argumentRanges"][i] for i, item in enumerate(labels) if item == label]
+    ranges.extend(
+        [start, end]
+        for i, start, end in call.get("closureArguments", [])
+        if all_labels[i] == label
+    )
+    return [
+        text["arguments"][0]
+        for text in facts["invocations"]
+        if text["calledExpression"] in {"Text", "SwiftUI.Text"}
+        and text.get("arguments")
+        and any(start <= text["start"] < end for start, end in ranges)
+    ]
+
+
 def write_report(root: Path) -> None:
     production_roots = tuple(
         root / name
@@ -56,27 +78,7 @@ def write_report(root: Path) -> None:
             label = "footer" if name == "Section" else "description"
             if label == "footer" and path.name == "ErrorReportSupport.swift":
                 continue
-            arguments, labels = call.get("arguments", []), call.get("argumentLabels", [])
-            expressions, ranges = [], []
-            if name in {"AppEmptyState", "AppFailureState"}:
-                expressions = [arguments[i] for i, item in enumerate(labels) if item == "message"]
-            else:
-                all_labels = labels + call.get("trailingClosureLabels", [])
-                ranges.extend(
-                    call["argumentRanges"][i] for i, item in enumerate(labels) if item == label
-                )
-                ranges.extend(
-                    [start, end]
-                    for i, start, end in call.get("closureArguments", [])
-                    if all_labels[i] == label
-                )
-                expressions = [
-                    text["arguments"][0]
-                    for text in facts["invocations"]
-                    if text["calledExpression"] in {"Text", "SwiftUI.Text"}
-                    and text.get("arguments")
-                    and any(start <= text["start"] < end for start, end in ranges)
-                ]
+            expressions = extract_candidate_expressions(call, facts, name, label)
             expressions = [expression for expression in expressions if not approved(expression)]
             if expressions:
                 items = footer_items if label == "footer" else description_items

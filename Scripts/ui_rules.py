@@ -184,6 +184,37 @@ def text_loading_state_findings(syntax: dict[str, dict]) -> list[str]:
     ]
 
 
+def check_scope_component_contracts(
+    path: Path, facts: dict, scope: list[str], syntax: dict[str, dict], errors: list[str]
+) -> None:
+    scoped_identifiers = {
+        item["value"] for item in facts["scopedIdentifiers"] if item["scope"] == scope
+    }
+    missing_state = (
+        scoped_identifiers & {"List", "Form", "Section"}
+        and "ContentUnavailableView" in scoped_identifiers
+        and not any(
+            view_or_child_has_marker(syntax, facts, scope, marker)
+            for marker in ("AppFailureState", "AppEmptyState")
+        )
+    )
+    if missing_state:
+        errors.append(
+            f"{path.relative_to(ROOT)}: {'.'.join(scope)} 页面状态必须使用公共空态/失败态组件"
+        )
+    if not (
+        re.search(r"\b(?:Gallery|Paper|Course|Mine|Settings)\b", str(path))
+        and any(identifier.lower() == "avatar" for identifier in scoped_identifiers)
+    ):
+        return
+    if not view_or_child_has_marker(
+        syntax, facts, scope, "AppAvatarView"
+    ) and "AppAvatarComponents.swift" not in str(path):
+        errors.append(
+            f"{path.relative_to(ROOT)}: {'.'.join(scope)} 头像页面必须使用 AppAvatarView"
+        )
+
+
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
     errors.extend(list_row_layout_findings(syntax))
     errors.extend(text_loading_state_findings(syntax))
@@ -208,31 +239,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     for path, source in code_sources.items():
         facts = syntax[str(path)]
         for scope in view_scopes(facts):
-            scoped_identifiers = {
-                item["value"] for item in facts["scopedIdentifiers"] if item["scope"] == scope
-            }
-            if (
-                scoped_identifiers & {"List", "Form", "Section"}
-                and "ContentUnavailableView" in scoped_identifiers
-            ):
-                if not any(
-                    view_or_child_has_marker(syntax, facts, scope, marker)
-                    for marker in ("AppFailureState", "AppEmptyState")
-                ):
-                    errors.append(
-                        f"{path.relative_to(ROOT)}: {'.'.join(scope)} 页面状态必须使用公共空态/失败态组件"
-                    )
-            if not (
-                re.search(("\\b(?:Gallery|Paper|Course|Mine|Settings)\\b"), str(path))
-                and any((identifier.lower() == ("avatar") for identifier in scoped_identifiers))
-            ):
-                continue
-            if not view_or_child_has_marker(
-                syntax, facts, scope, "AppAvatarView"
-            ) and "AppAvatarComponents.swift" not in str(path):
-                errors.append(
-                    f"{path.relative_to(ROOT)}: {'.'.join(scope)} 头像页面必须使用 AppAvatarView"
-                )
+            check_scope_component_contracts(path, facts, scope, syntax, errors)
 
     # 列表/表单内的图标按语法树调用关系审计，跨行参数与闭包仍保持归属。
     for path in swift_files():
@@ -440,6 +447,41 @@ def check_error_report_coverage(errors: list[str], syntax: dict[str, dict]) -> N
         errors.append(f"日程共享错误展示器数量异常：引用数 {schedule_notice_presenters}")
 
 
+def check_font_invocation(
+    invocation: dict,
+    relative: Path,
+    raw_source: str,
+    swift_pattern: re.Pattern,
+    ui_pattern: re.Pattern,
+    custom_pattern: re.Pattern,
+    errors: list[str],
+) -> None:
+    name = call_name(invocation["calledExpression"])
+    if name not in {"system", "systemFont", "custom"}:
+        return
+    source = mask_literals_and_comments(invocation["value"])
+    if name == "system":
+        for match in swift_pattern.finditer(source):
+            value = match.group("value").strip()
+            if "AppDesignSystem." not in value:
+                line = pattern_line_number(raw_source, invocation, match.start())
+                errors.append(
+                    f"{relative}:{line}: 字体字号必须使用设计系统令牌或系统语义字体：{value}"
+                )
+    elif name == "systemFont":
+        for match in ui_pattern.finditer(source):
+            value = match.group("value").strip()
+            if "AppDesignSystem." not in value:
+                line = pattern_line_number(raw_source, invocation, match.start())
+                errors.append(
+                    f"{relative}:{line}: UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
+                )
+    elif name == "custom" and custom_pattern.search(source):
+        errors.append(
+            f"{relative}:{pattern_line_number(raw_source, invocation, 0)}: 字体采用系统语义或公共令牌"
+        )
+
+
 def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
     swift_explicit_font_size = re.compile(
         r"(?:\bFont\.system|\.system)\s*\(\s*size\s*:\s*(?P<value>[^,\)\n]+)"
@@ -458,35 +500,15 @@ def check_fonts(errors: list[str], syntax: dict[str, dict]) -> None:
         if not (path not in DESIGN_SYSTEM_SOURCES):
             continue
         for invocation in facts.get("invocations", []):
-            name = call_name(invocation["calledExpression"])
-            if name not in {"system", "systemFont", "custom"}:
-                continue
-            source = mask_literals_and_comments(invocation["value"])
-            if name == "system":
-                for match in swift_explicit_font_size.finditer(source):
-                    value = match.group("value").strip()
-                    if "AppDesignSystem." not in value:
-                        line = pattern_line_number(raw_source, invocation, match.start())
-                        errors.append(
-                            f"{relative}:{line}: 字体字号必须使用设计系统令牌或系统语义字体：{value}"
-                        )
-            if name == "systemFont":
-                for match in ui_explicit_font_size.finditer(source):
-                    value = match.group("value").strip()
-                    if "AppDesignSystem." not in value:
-                        line = pattern_line_number(raw_source, invocation, match.start())
-                        errors.append(
-                            f"{relative}:{line}: UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
-                        )
-            if name == "custom" and custom_font.search(source):
-                errors.append(
-                    (
-                        f"{relative}"
-                        f":"
-                        f"{pattern_line_number(raw_source, invocation, 0)}"
-                        f": 字体采用系统语义或公共令牌"
-                    )
-                )
+            check_font_invocation(
+                invocation,
+                relative,
+                raw_source,
+                swift_explicit_font_size,
+                ui_explicit_font_size,
+                custom_font,
+                errors,
+            )
 
 
 def check_design_token_boundaries(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -509,6 +531,30 @@ def check_design_token_boundaries(errors: list[str], syntax: dict[str, dict]) ->
                     append_rule_finding(errors, emitted, relative, line_number, message, pattern)
 
 
+def check_page_theme_rule(
+    path: Path,
+    raw_source: str,
+    members: list[dict],
+    forbidden_tokens: tuple[str, ...],
+    expected_token: str,
+    errors: list[str],
+) -> None:
+    emitted: set[tuple[int, str]] = set()
+    for token in forbidden_tokens:
+        for node in members:
+            if token not in node["value"]:
+                continue
+            line_number = pattern_line_number(raw_source, node, 0)
+            marker = (line_number, token)
+            if marker in emitted:
+                continue
+            emitted.add(marker)
+            errors.append(
+                f"{path.relative_to(ROOT)}:{line_number}: 页面主题色应使用 "
+                f"{expected_token}，当前发现 {token}"
+            )
+
+
 def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> None:
     """页面强调色必须使用所属模块的主题令牌。"""
     for path in swift_files():
@@ -520,27 +566,14 @@ def check_page_theme_consistency(errors: list[str], syntax: dict[str, dict]) -> 
         for prefixes, forbidden_tokens, expected_token in PAGE_THEME_RULES:
             if not relative_source.startswith(prefixes):
                 continue
-            emitted: set[tuple[int, str]] = set()
-            for token in forbidden_tokens:
-                for node in facts.get("members", []):
-                    if token not in node["value"]:
-                        continue
-                    line_number = pattern_line_number(raw_source, node, 0)
-                    marker = (line_number, token)
-                    if marker in emitted:
-                        continue
-                    emitted.add(marker)
-                    errors.append(
-                        (
-                            f"{path.relative_to(ROOT)}"
-                            f":"
-                            f"{line_number}"
-                            f": 页面主题色应使用 "
-                            f"{expected_token}"
-                            f"，当前发现 "
-                            f"{token}"
-                        )
-                    )
+            check_page_theme_rule(
+                path,
+                raw_source,
+                facts.get("members", []),
+                forbidden_tokens,
+                expected_token,
+                errors,
+            )
 
 
 def check_contextual_component_colors(errors: list[str], syntax: dict[str, dict]) -> None:
@@ -858,6 +891,22 @@ def swift_contract_tokens(value: str) -> str:
     )
 
 
+def function_range_nodes(facts: dict, scope: tuple[str, ...], entry: str) -> list[dict]:
+    functions = [
+        function
+        for function in facts.get("functionRanges", [])
+        if tuple(function["scope"]) == scope and function["name"] == entry
+    ]
+    matching = []
+    for kind in ("invocations", "bindings"):
+        for node in facts.get(kind, []):
+            if any(
+                function["start"] <= node["start"] < function["end"] for function in functions
+            ):
+                matching.append(node)
+    return matching
+
+
 def visual_contract_present(
     relative_path: str, marker: str, sources: dict[Path, str], syntax: dict | None = None
 ) -> bool:
@@ -882,19 +931,7 @@ def visual_contract_present(
             ]
             expected = swift_contract_tokens(marker.removeprefix("public static let "))
         else:
-            functions = [
-                function
-                for function in facts.get("functionRanges", [])
-                if tuple(function["scope"]) == scope and function["name"] == entry
-            ]
-            nodes = [
-                node
-                for kind in ("invocations", "bindings")
-                for node in facts.get(kind, [])
-                if any(
-                    function["start"] <= node["start"] < function["end"] for function in functions
-                )
-            ]
+            nodes = function_range_nodes(facts, scope, entry)
         if any(
             tuple(node["scope"]) == scope and expected in swift_contract_tokens(node["value"])
             for node in nodes
@@ -993,21 +1030,28 @@ def resolved_interaction_name(types, path, call):
     return parts[-1] if parts else call_name(name)
 
 
+def inventory_component_names(syntax: dict[str, dict], types: object) -> set[str]:
+    target_modules = ("DesignSystemKit", "CommunityUI", "MediaKit")
+    components = set()
+    for path, facts in syntax.items():
+        if not any(f"/{module}/" in path for module in target_modules):
+            continue
+        for scope in view_scopes(facts):
+            matched = any(
+                resolved_interaction_name(types, path, call) in INTERACTION_KINDS
+                and call["scope"][: len(scope)] == scope
+                for call in facts["calls"]
+            )
+            if matched:
+                components.add(scope[0])
+    return components
+
+
 def interaction_source_inventory(syntax: dict[str, dict]) -> dict[str, dict[str, int]]:
     from swift_type_index import SwiftTypeIndex
 
     types = SwiftTypeIndex(syntax)
-    components = {
-        scope[0]
-        for path, facts in syntax.items()
-        if any(f"/{module}/" in path for module in ("DesignSystemKit", "CommunityUI", "MediaKit"))
-        for scope in view_scopes(facts)
-        if any(
-            resolved_interaction_name(types, path, call) in INTERACTION_KINDS
-            and call["scope"][: len(scope)] == scope
-            for call in facts["calls"]
-        )
-    }
+    components = inventory_component_names(syntax, types)
     inventory = {}
     for path, facts in syntax.items():
         if any(
@@ -1064,13 +1108,10 @@ def manual_source_matches(source: str, journey: str) -> bool:
     )
 
 
-def documented_interactions() -> dict[str, tuple[dict, set]]:
-    document = (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()
+def configured_interactions() -> dict[str, tuple[dict, set]]:
+    records = json.loads((ROOT / "Scripts/ui-interactions.json").read_text())
     return {
-        source: (json.loads(controls), set(journeys.split(",")))
-        for source, controls, journeys in re.findall(
-            r"^\| `([^`]+\.swift:[^`]+)` \| `(\{[^`]+\})` \| `([^`]+)` \|$", document, re.MULTILINE
-        )
+        source: (record["controls"], set(record["tests"])) for source, record in records.items()
     }
 
 
@@ -1152,6 +1193,22 @@ def gesture_actions(control: dict, facts: dict, types, path: str) -> set[str]:
     } or {"pan"}
 
 
+def resolve_control_action(
+    control: dict, gestures: set[str], actions: dict[str, str], native_actions: dict[str, str]
+) -> str:
+    native = control.get("nativeAction")
+    if native:
+        return native
+    name = control["name"]
+    if name == "onTapGesture":
+        return "tap"
+    if name == "onLongPressGesture":
+        return "press"
+    if name in gestures:
+        return "gesture"
+    return actions.get(name, native_actions.get(name, ""))
+
+
 def source_runtime_interaction_findings(
     syntax: dict[str, dict], documented: dict[str, tuple[dict, set]], evidence: list[dict]
 ) -> list[str]:
@@ -1217,15 +1274,7 @@ def source_runtime_interaction_findings(
                 )
                 continue
             kind, names = selector
-            action = control.get("nativeAction") or (
-                "tap"
-                if control["name"] == "onTapGesture"
-                else "press"
-                if control["name"] == "onLongPressGesture"
-                else "gesture"
-                if control["name"] in gestures
-                else actions.get(control["name"], native_actions.get(control["name"], ""))
-            )
+            action = resolve_control_action(control, gestures, actions, native_actions)
             required = (
                 gesture_actions(control, facts, types, path) if action == "gesture" else {action}
             )
@@ -1340,12 +1389,15 @@ def check_ui_test_inventory(errors: list[str], syntax: dict[str, dict]) -> None:
     actual = {normalized_test_id(test) for test in test_inventory("ui")}
     document = (ROOT / "docs/UI_INTERACTION_COVERAGE.md").read_text()
     documented = set(re.findall(r"\b(\w+UITests/test\w+)\b", document))
+    sources = configured_interactions()
+    documented.update(
+        test for _, tests in sources.values() for test in tests if not test.startswith("manual:")
+    )
     errors.extend(f"UI interaction map missing: {name}" for name in sorted(actual - documented))
     errors.extend(
         f"UI interaction map references an absent journey: {name}"
         for name in sorted(documented - actual)
     )
-    sources = documented_interactions()
     errors.extend(source_inventory_findings(syntax, sources, actual))
     errors.extend(
         error

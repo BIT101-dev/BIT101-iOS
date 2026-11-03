@@ -164,6 +164,16 @@ def prune_archive(folder, days):
     print(f"本地归档已按 {days} 天保留范围清理：{removed} 份。")
 
 
+def archive_report_files(
+    report_path: pathlib.Path, staging_dir: pathlib.Path, output_dir: pathlib.Path
+) -> None:
+    assets = report_path.parent / (report_path.stem + "_附件")
+    for path in [*assets.glob("*"), report_path]:
+        destination = output_dir / path.relative_to(staging_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, destination)
+
+
 def archive_reports(arguments):
     keys_path = pathlib.Path(arguments[0])
     staging_dir = pathlib.Path(arguments[1])
@@ -376,11 +386,7 @@ def archive_reports(arguments):
             try:
                 key, complete, report_path = future.result()
                 if report_path is not None:
-                    assets = report_path.parent / (report_path.stem + "_附件")
-                    for path in [*assets.glob("*"), report_path]:
-                        destination = output_dir / path.relative_to(staging_dir)
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        os.replace(path, destination)
+                    archive_report_files(report_path, staging_dir, output_dir)
                     downloaded_reports += 1
             except OSError as error:
                 complete = False

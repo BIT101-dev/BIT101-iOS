@@ -193,36 +193,7 @@ private struct CourseDetailViewScene: View {
                             .foregroundStyle(AppDesignSystem.Foreground.primary)
                     }
 
-                    AppDetailCircleButton(
-                        accessibilityLabel: viewModel.hasKnownLikeState
-                            ? (viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程") : "等待课程点赞状态"
-                    ) {
-                        viewModel.pendingOperations.enqueue {
-                            await viewModel.likeCourse()
-                        }
-                    } label: {
-                        Group {
-                            if viewModel.isLikingCourse
-                                || (!viewModel.hasKnownLikeState
-                                    && (viewModel.status == .idle
-                                        || viewModel.status == .loading))
-                            {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Image(
-                                    systemName: viewModel.isCourseLiked
-                                        ? "hand.thumbsup.fill" : "hand.thumbsup"
-                                )
-                                .font(AppDesignSystem.Typography.title)
-                            }
-                        }
-                        .foregroundStyle(
-                            viewModel.isCourseLiked
-                                ? AppDesignSystem.Course.accent
-                                : AppDesignSystem.Foreground.primaryColor)
-                    }
-                    .disabled(viewModel.isLikingCourse || !viewModel.hasKnownLikeState)
+                    headerLikeButton
                 }
             }
 
@@ -293,81 +264,131 @@ private struct CourseDetailViewScene: View {
         }
     }
 
-    private var courseResourceCards: some View {
-        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
-            Button {
-                if let url = viewModel.sharedMaterialsURL {
-                    openURL(url)
+    private var headerLikeAccessibilityLabel: String {
+        if viewModel.hasKnownLikeState {
+            return viewModel.isCourseLiked ? "取消课程点赞" : "点赞课程"
+        }
+        return "等待课程点赞状态"
+    }
+
+    private var headerLikeIconName: String {
+        viewModel.isCourseLiked ? "hand.thumbsup.fill" : "hand.thumbsup"
+    }
+
+    private var isHeaderLikeLoading: Bool {
+        viewModel.isLikingCourse
+            || (!viewModel.hasKnownLikeState
+                && (viewModel.status == .idle || viewModel.status == .loading))
+    }
+
+    @ViewBuilder
+    private var headerLikeButton: some View {
+        AppDetailCircleButton(accessibilityLabel: headerLikeAccessibilityLabel) {
+            viewModel.pendingOperations.enqueue {
+                await viewModel.likeCourse()
+            }
+        } label: {
+            Group {
+                if isHeaderLikeLoading {
+                    ProgressView()
+                        .controlSize(.small)
                 } else {
-                    viewModel.alert = AppAlert.userInput(
-                        title: "无法打开共享资料", message: "课程名称或课程号为空。")
-                }
-            } label: {
-                AppCard(variant: .secondaryGrouped) {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Image(systemName: "folder")
-                            .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(AppDesignSystem.Course.accent)
-                            .frame(
-                                width: AppDesignSystem.Size.Control.detailActionButton,
-                                height: AppDesignSystem.Size.Control.detailActionButton
-                            )
-                            .background(AppDesignSystem.Course.accentSurface, in: Circle())
-
-                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                            Text("共享资料")
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            Text("在浏览器打开")
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        }
-
-                        Spacer(minLength: AppDesignSystem.Spacing.none)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: headerLikeIconName)
+                        .font(AppDesignSystem.Typography.title)
                 }
             }
-            .buttonStyle(.plain)
+            .foregroundStyle(
+                viewModel.isCourseLiked
+                    ? AppDesignSystem.Course.accent
+                    : AppDesignSystem.Foreground.primaryColor)
+        }
+        .disabled(viewModel.isLikingCourse || !viewModel.hasKnownLikeState)
+    }
 
-            Button {
-                appSettings.setHideMakeupOutliers(
-                    !appSettings.hidesCourseHistoryMakeupOutliers
-                )
-            } label: {
-                AppCard(variant: .secondaryGrouped) {
-                    HStack(spacing: AppDesignSystem.Spacing.regular) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                            .font(AppDesignSystem.Typography.title)
-                            .foregroundStyle(AppDesignSystem.Course.accent)
-                            .frame(
-                                width: AppDesignSystem.Size.Control.detailActionButton,
-                                height: AppDesignSystem.Size.Control.detailActionButton
-                            )
-                            .background(AppDesignSystem.Course.accentSurface, in: Circle())
+    private var dataCleaningStatusText: String {
+        appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示"
+    }
 
-                        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                            Text("数据清洗")
-                                .font(AppDesignSystem.Typography.bodyEmphasis)
-                                .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            Text(
-                                appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示"
-                            )
+    @ViewBuilder
+    private var sharedMaterialsButton: some View {
+        Button {
+            if let url = viewModel.sharedMaterialsURL {
+                openURL(url)
+            } else {
+                viewModel.alert = AppAlert.userInput(
+                    title: "无法打开共享资料", message: "课程名称或课程号为空。")
+            }
+        } label: {
+            AppCard(variant: .secondaryGrouped) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    Image(systemName: "folder")
+                        .font(AppDesignSystem.Typography.title)
+                        .foregroundStyle(AppDesignSystem.Course.accent)
+                        .frame(
+                            width: AppDesignSystem.Size.Control.detailActionButton,
+                            height: AppDesignSystem.Size.Control.detailActionButton
+                        )
+                        .background(AppDesignSystem.Course.accentSurface, in: Circle())
+
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                        Text("共享资料")
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
+                        Text("在浏览器打开")
                             .font(AppDesignSystem.Typography.caption)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        }
-
-                        Spacer(minLength: AppDesignSystem.Spacing.none)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("数据清洗")
-            .accessibilityValue(
-                appSettings.hidesCourseHistoryMakeupOutliers ? "隐藏疑似补考" : "全部显示"
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var dataCleaningButton: some View {
+        Button {
+            appSettings.setHideMakeupOutliers(
+                !appSettings.hidesCourseHistoryMakeupOutliers
             )
-            .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
+        } label: {
+            AppCard(variant: .secondaryGrouped) {
+                HStack(spacing: AppDesignSystem.Spacing.regular) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                        .font(AppDesignSystem.Typography.title)
+                        .foregroundStyle(AppDesignSystem.Course.accent)
+                        .frame(
+                            width: AppDesignSystem.Size.Control.detailActionButton,
+                            height: AppDesignSystem.Size.Control.detailActionButton
+                        )
+                        .background(AppDesignSystem.Course.accentSurface, in: Circle())
+
+                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+                        Text("数据清洗")
+                            .font(AppDesignSystem.Typography.bodyEmphasis)
+                            .foregroundStyle(AppDesignSystem.Foreground.primary)
+                        Text(dataCleaningStatusText)
+                            .font(AppDesignSystem.Typography.caption)
+                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    }
+
+                    Spacer(minLength: AppDesignSystem.Spacing.none)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("数据清洗")
+        .accessibilityValue(dataCleaningStatusText)
+        .appSelectionFeedback(trigger: appSettings.hidesCourseHistoryMakeupOutliers)
+    }
+
+    private var courseResourceCards: some View {
+        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+            sharedMaterialsButton
+            dataCleaningButton
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

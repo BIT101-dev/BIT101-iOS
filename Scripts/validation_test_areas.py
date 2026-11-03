@@ -463,6 +463,19 @@ extension ExistingRegularTests { @Test func productionOnly() {} }
     } == {"addedContract"}
 
 
+def _collect_platform_calls(calls: list, route: str, seen: dict, result: dict):
+    for call in calls:
+        key = (
+            call["path"],
+            call.get("start"),
+            call.get("end"),
+            call["calledExpression"],
+        )
+        if key not in seen[route]:
+            seen[route].add(key)
+            result[route].append(call)
+
+
 def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     from validation_compilation import source_platforms
 
@@ -483,18 +496,360 @@ def reachable_smoke_calls(index: dict) -> dict[str, list[dict]]:
     for platform in sorted(platforms):
         for root_route in ("network", "community-writes"):
             for route, calls in platform_smoke_calls(index, platform, root_route).items():
-                for call in calls:
-                    key = (
-                        call["path"],
-                        call.get("start"),
-                        call.get("end"),
-                        call["calledExpression"],
-                    )
-                    if key in seen[route]:
-                        continue
-                    seen[route].add(key)
-                    result[route].append(call)
+                _collect_platform_calls(calls, route, seen, result)
     return result
+
+
+def _resolve_implementation_edges(
+    resolved: str,
+    expression: str,
+    implementations: dict,
+    by_name: dict,
+    index: dict,
+    fact: dict,
+    path: str,
+    key: tuple,
+    types,
+    nodes: dict,
+    implementation_edges: dict,
+):
+    from network_capability_rules import matching_api_calls
+
+    method = expression.rsplit(".", 1)[-1]
+    concrete = {
+        target
+        for target in implementations.get(resolved, set())
+        if ".".join([target[0], *target[1], method]) in by_name
+    }
+    fact_with_path = dict(fact, path=path)
+    for target in concrete:
+        name = ".".join([target[0], *target[1], method])
+        targets = [(node[0], nodes[node]) for node in by_name[name]]
+        matches = matching_api_calls(index, targets, fact_with_path, types=types)
+        for source_path, function in matches:
+            edge = ((source_path, function["start"], function["end"]), target)
+            implementation_edges.setdefault(key, set()).add(edge)
+
+
+def _filter_target_keys(target_keys: set, nodes: dict) -> set:
+    if not target_keys:
+        return set()
+    depth = max(len(nodes[tk].get("lexicalScope", [])) for tk in target_keys)
+    return {tk for tk in target_keys if len(nodes[tk].get("lexicalScope", [])) == depth}
+
+
+def _select_candidate_target_keys(
+    target: str,
+    by_name: dict,
+    compilation_unit,
+    path: str,
+    types,
+    stored_callables: set,
+    nodes: dict,
+    fact: dict,
+) -> set:
+    target_keys = set()
+    fact_lexical = fact.get("lexicalScope", [])
+    fact_called = fact.get("calledExpression", "")
+    for target_key in by_name.get(target, set()):
+        same_unit = (
+            compilation_unit(target_key[0]) == compilation_unit(path)
+            or target.split(".", 1)[0] in types.module_names
+        )
+        if not same_unit:
+            continue
+        tk_node = nodes[target_key]
+        tk_lexical = tk_node.get("lexicalScope")
+        in_stored = target_key in stored_callables or not tk_lexical
+        in_lexical = (
+            target_key[0] == path
+            and fact_lexical[: len(tk_lexical)] == tk_lexical
+            and not fact_called.startswith(("self.", "Self."))
+        )
+        if in_stored or in_lexical:
+            target_keys.add(target_key)
+    return _filter_target_keys(target_keys, nodes)
+
+
+def _process_candidate_target(
+    target: str,
+    by_name: dict,
+    compilation_unit,
+    path: str,
+    types,
+    stored_callables: set,
+    nodes: dict,
+    fact: dict,
+    key: tuple,
+    callables: set,
+    connect,
+    index: dict,
+    callback_calls: list,
+) -> bool:
+    from network_capability_rules import api_argument_bindings, matching_api_calls
+
+    target_keys = _select_candidate_target_keys(
+        target, by_name, compilation_unit, path, types, stored_callables, nodes, fact
+    )
+    if not fact.get("isMemberRead"):
+        connect(key, target_keys & callables, fact)
+    targets = [(tk[0], nodes[tk]) for tk in target_keys - callables]
+    matches = matching_api_calls(
+        index,
+        targets,
+        dict(
+            fact,
+            path=path,
+            calledExpression=target,
+            receiverExpression=fact["calledExpression"],
+        ),
+        types=types,
+    )
+    edges = ((tp, fn["start"], fn["end"]) for tp, fn in matches)
+    connect(key, edges, fact)
+    for target_path, function in matches:
+        bindings = api_argument_bindings(function, fact)
+        if len(bindings) == 1:
+            callback_calls.append(
+                (key, (target_path, function["start"], function["end"]), fact, bindings[0])
+            )
+    return bool(matches)
+
+
+def _key_parameter_names(key: tuple, nodes: dict, nodes_by_path: dict, callables: set) -> set:
+    parents = nodes_by_path[key[0]] if key in callables else (key,)
+    result = set()
+    is_callable = key in callables
+    for parent in parents:
+        matches = parent == key or (
+            is_callable and parent[0] == key[0] and parent[1] <= key[1] and key[2] <= parent[2]
+        )
+        if matches:
+            for parameter in nodes[parent].get("parameters", []):
+                result.add(parameter.get("name"))
+    return result
+
+
+def _propagate_callback_guards(
+    callback_calls: list,
+    executed_parameters: dict,
+    index: dict,
+    nodes: dict,
+    callback_guards: dict,
+    edges: dict,
+    connect,
+) -> bool:
+    from network_capability_rules import callback_body_ranges
+
+    changed = False
+    for caller, callee, call, bindings in callback_calls:
+        for position, parameter in enumerate(bindings):
+            param_name = parameter.get("name")
+            if param_name not in executed_parameters[callee]:
+                continue
+            ranges = callback_body_ranges(index[caller[0]], call, {position})
+            targets = {(caller[0], s, e) for s, e in ranges if (caller[0], s, e) in nodes}
+            for target in targets:
+                guard = (callee, parameter["name"], call)
+                guards = callback_guards.setdefault((caller, target), [])
+                if guard not in guards:
+                    guards.append(guard)
+            additions = targets - edges[caller]
+            if additions:
+                connect(caller, additions, call)
+                changed = True
+    return changed
+
+
+def _has_constructed_type_match(
+    nominal, route: str, constructed_types: dict, reached: set, ctx_facts, can_exec
+) -> bool:
+    for creator, call in constructed_types.get(nominal, []):
+        for reached_key, reached_route, reached_context in reached:
+            if creator == reached_key and route == reached_route:
+                if can_exec(ctx_facts(creator, reached_context), call):
+                    return True
+    return False
+
+
+def _resolve_implementation_targets(
+    key: tuple,
+    route: str,
+    implementation_edges: dict,
+    constructed_types: dict,
+    reached: set,
+    ctx_facts,
+    can_exec,
+) -> set:
+    targets = set()
+    for target, nominal in implementation_edges.get(key, set()):
+        if _has_constructed_type_match(
+            nominal, route, constructed_types, reached, ctx_facts, can_exec
+        ):
+            targets.add(target)
+    return targets
+
+
+def _stored_callable_reachable(
+    target: tuple, target_route: str, stored_callables: dict, reached: set, ctx_facts, can_exec
+) -> bool:
+    if target not in stored_callables:
+        return True
+    for creator, constructor in stored_callables[target]:
+        for parent, parent_route, parent_context in reached:
+            if parent == creator and parent_route == target_route:
+                if can_exec(ctx_facts(parent, parent_context), constructor):
+                    return True
+    return False
+
+
+def _find_edge_evidence(
+    key: tuple, target: tuple, edge_calls: dict, calls: dict, nodes: dict
+) -> list:
+    if (key, target) in edge_calls:
+        return edge_calls[(key, target)]
+    target_name = nodes[target]["name"]
+    return [
+        call
+        for call in calls[key]
+        if call.get("calledExpression", "").rsplit(".", 1)[-1] == target_name
+    ]
+
+
+def _guards_can_execute(
+    guards: list, key: tuple, context, call: dict, target_ctx_fn, param_exec_fn
+) -> bool:
+    if not guards:
+        return True
+    return any(
+        param_exec_fn(callee, target_ctx_fn(key, callee, context, call), name)
+        for callee, name, _ in guards
+    )
+
+
+def _process_evidence_call(
+    call: dict,
+    facts: dict,
+    key: tuple,
+    target: tuple,
+    context,
+    can_exec,
+    callback_guards: dict,
+    target_ctx_fn,
+    param_exec_fn,
+) -> bool:
+    if call is not None and not can_exec(facts, call):
+        return False
+    guards = [g for g in callback_guards.get((key, target), []) if g[2] == call]
+    return _guards_can_execute(guards, key, context, call, target_ctx_fn, param_exec_fn)
+
+
+def _collect_target_additions(
+    target: tuple,
+    route: str,
+    key: tuple,
+    context,
+    facts: dict,
+    nodes: dict,
+    stored_callables: dict,
+    reached: set,
+    edge_calls: dict,
+    calls: dict,
+    callback_guards: dict,
+    ctx_facts,
+    can_exec,
+    target_ctx_fn,
+    param_exec_fn,
+) -> set:
+    target_route = (
+        "community-writes"
+        if nodes[target]["scope"][:1] == ["CommunityWriteSmoke"]
+        else route
+    )
+    if not _stored_callable_reachable(
+        target, target_route, stored_callables, reached, ctx_facts, can_exec
+    ):
+        return set()
+    evidence = _find_edge_evidence(key, target, edge_calls, calls, nodes)
+    additions = set()
+    for call in evidence:
+        if _process_evidence_call(
+            call,
+            facts,
+            key,
+            target,
+            context,
+            can_exec,
+            callback_guards,
+            target_ctx_fn,
+            param_exec_fn,
+        ):
+            additions.add((target, target_route, target_ctx_fn(key, target, context, call)))
+    return additions
+
+
+def _is_owner_path(path: str, owner: str) -> bool:
+    parts = Path(path).parts
+    if "Modules" in parts:
+        return parts[parts.index("Modules") + 1] == owner.split(".")[0]
+    return owner.startswith("BIT101-iOS.")
+
+
+def _build_enum_syntax_index(index: dict, effective: str) -> dict:
+    from validation_inputs import repository_input_names, includes_input
+
+    names = {
+        argument.removesuffix(".allCases").rsplit(".", 1)[-1]
+        for source in index.values()
+        for entry in source["tests"]
+        for argument in entry.get("arguments", [])
+        if re.fullmatch(r"[\w.]+\.allCases", argument)
+    }
+    referenced_enum = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\b")
+    enum_sources = {}
+    for name in repository_input_names(ROOT):
+        if not (name.endswith(".swift") and includes_input(name, effective)):
+            continue
+        path = ROOT / name
+        try:
+            source = path.read_text()
+        except FileNotFoundError:
+            continue
+        if referenced_enum.search(source) and re.search(r"\benum\s+|\ballCases\b", source):
+            enum_sources[str(path)] = active_swift_source(source, effective, path=name)
+    return swift_syntax_index_sources(enum_sources)
+
+
+def _resolve_case_iterable_count(test: dict, scope: list[str], enum_index: dict) -> int:
+    candidates = []
+    for enum_facts in enum_index.values():
+        for node in enum_facts["declarations"]:
+            if (
+                node["kind"] == "enum"
+                and (node["scope"] + [node["name"]])[-len(scope) :] == scope
+                and any(
+                    base.rsplit(".", 1)[-1] == "CaseIterable" for base in node["inheritedTypes"]
+                )
+            ):
+                count = sum(
+                    case["scope"] == node["scope"] + [node["name"]]
+                    for case in enum_facts["enumCases"]
+                )
+                candidates.append((node, count))
+    if len(candidates) != 1:
+        raise ValueError(f"参数库存需要唯一枚举定义：{test['value']}")
+    node, count = candidates[0]
+    enum_scope = ".".join(node["scope"] + [node["name"]])
+    has_custom_all_cases = any(
+        binding.get("bindingName") == "allCases"
+        and binding.get("isStaticBinding") is True
+        and ".".join(binding["scope"]) == enum_scope
+        for enum_facts in enum_index.values()
+        for binding in enum_facts["bindings"]
+    )
+    if has_custom_all_cases:
+        raise ValueError(f"参数库存支持自动合成 allCases 和字面量数组：{test['value']}")
+    return count
 
 
 def platform_smoke_calls(
@@ -658,87 +1013,37 @@ def platform_smoke_calls(
                 candidates.add(fact["receiverCall"] + "." + expression.rsplit(".", 1)[-1])
             if resolved := resolve_receiver(dict(fact, path=path)):
                 candidates.add(resolved + "." + expression.rsplit(".", 1)[-1])
-                method = expression.rsplit(".", 1)[-1]
-                concrete = {
-                    target
-                    for target in implementations.get(resolved, set())
-                    if ".".join([target[0], *target[1], method]) in by_name
-                }
-                for target in concrete:
-                    name = ".".join([target[0], *target[1], method])
-                    matches = matching_api_calls(
-                        index,
-                        [(node[0], nodes[node]) for node in by_name[name]],
-                        dict(fact, path=path),
-                        types=types,
-                    )
-                    for source_path, function in matches:
-                        implementation_edges.setdefault(key, set()).add(
-                            ((source_path, function["start"], function["end"]), target)
-                        )
+                _resolve_implementation_edges(
+                    resolved,
+                    expression,
+                    implementations,
+                    by_name,
+                    index,
+                    fact,
+                    path,
+                    key,
+                    types,
+                    nodes,
+                    implementation_edges,
+                )
             project_call = False
             for target in candidates:
-                target_keys = {
-                    target_key
-                    for target_key in by_name.get(target, set())
-                    if (
-                        compilation_unit(target_key[0]) == compilation_unit(path)
-                        or target.split(".", 1)[0] in types.module_names
-                    )
-                    and (
-                        target_key in stored_callables
-                        or not nodes[target_key].get("lexicalScope")
-                        or target_key[0] == path
-                        and fact.get("lexicalScope", [])[: len(nodes[target_key]["lexicalScope"])]
-                        == nodes[target_key]["lexicalScope"]
-                        and not fact.get("calledExpression", "").startswith(("self.", "Self."))
-                    )
-                }
-                if target_keys:
-                    depth = max(
-                        len(nodes[target_key].get("lexicalScope", [])) for target_key in target_keys
-                    )
-                    target_keys = {
-                        target_key
-                        for target_key in target_keys
-                        if len(nodes[target_key].get("lexicalScope", [])) == depth
-                    }
-                if not fact.get("isMemberRead"):
-                    connect(key, target_keys & callables, fact)
-                targets = [
-                    (target_key[0], nodes[target_key]) for target_key in target_keys - callables
-                ]
-                matches = matching_api_calls(
-                    index,
-                    targets,
-                    dict(
-                        fact,
-                        path=path,
-                        calledExpression=target,
-                        receiverExpression=fact["calledExpression"],
-                    ),
-                    types=types,
-                )
-                project_call = project_call or bool(matches)
-                connect(
-                    key,
-                    (
-                        (target_path, function["start"], function["end"])
-                        for target_path, function in matches
-                    ),
+                matched = _process_candidate_target(
+                    target,
+                    by_name,
+                    compilation_unit,
+                    path,
+                    types,
+                    stored_callables,
+                    nodes,
                     fact,
+                    key,
+                    callables,
+                    connect,
+                    index,
+                    callback_calls,
                 )
-                for target_path, function in matches:
-                    bindings = api_argument_bindings(function, fact)
-                    if len(bindings) == 1:
-                        callback_calls.append(
-                            (
-                                key,
-                                (target_path, function["start"], function["end"]),
-                                fact,
-                                bindings[0],
-                            )
-                        )
+                project_call = project_call or matched
             callback_positions = executed_callback_positions(fact, project_call=project_call)
             if expression in {
                 "runInParallel",
@@ -771,17 +1076,7 @@ def platform_smoke_calls(
             if "calledExpression" in fact:
                 calls[key].append(dict(fact, path=path, executedCallbackReferences=references))
     parameter_names = {
-        key: {
-            parameter.get("name")
-            for parent in (nodes_by_path[key[0]] if key in callables else (key,))
-            if parent == key
-            or key in callables
-            and parent[0] == key[0]
-            and parent[1] <= key[1]
-            and key[2] <= parent[2]
-            for parameter in nodes[parent].get("parameters", [])
-        }
-        for key in nodes
+        key: _key_parameter_names(key, nodes, nodes_by_path, callables) for key in nodes
     }
     executed_parameters = {
         key: {
@@ -825,24 +1120,16 @@ def platform_smoke_calls(
             if additions:
                 executed_parameters[caller].update(additions)
                 changed = True
-        for caller, callee, call, bindings in callback_calls:
-            for position, parameter in enumerate(bindings):
-                if parameter.get("name") not in executed_parameters[callee]:
-                    continue
-                targets = {
-                    (caller[0], start, end)
-                    for start, end in callback_body_ranges(index[caller[0]], call, {position})
-                    if (caller[0], start, end) in nodes
-                }
-                for target in targets:
-                    guard = (callee, parameter["name"], call)
-                    guards = callback_guards.setdefault((caller, target), [])
-                    if guard not in guards:
-                        guards.append(guard)
-                additions = targets - edges[caller]
-                if additions:
-                    connect(caller, additions, call)
-                    changed = True
+        if _propagate_callback_guards(
+            callback_calls,
+            executed_parameters,
+            index,
+            nodes,
+            callback_guards,
+            edges,
+            connect,
+        ):
+            changed = True
 
     @cache
     def contextual_facts(key, context):
@@ -971,56 +1258,33 @@ def platform_smoke_calls(
         additions = set()
         for key, route, context in reached:
             facts = contextual_facts(key, context)
-            targets = edges[key] | {
-                target
-                for target, nominal in implementation_edges.get(key, set())
-                if any(
-                    creator == reached_key
-                    and route == reached_route
-                    and call_can_execute(contextual_facts(creator, reached_context), call)
-                    for creator, call in constructed_types.get(nominal, [])
-                    for reached_key, reached_route, reached_context in reached
-                )
-            }
+            targets = edges[key] | _resolve_implementation_targets(
+                key,
+                route,
+                implementation_edges,
+                constructed_types,
+                reached,
+                contextual_facts,
+                call_can_execute,
+            )
             for target in targets:
-                target_route = (
-                    "community-writes"
-                    if nodes[target]["scope"][:1] == ["CommunityWriteSmoke"]
-                    else route
+                additions |= _collect_target_additions(
+                    target,
+                    route,
+                    key,
+                    context,
+                    facts,
+                    nodes,
+                    stored_callables,
+                    reached,
+                    edge_calls,
+                    calls,
+                    callback_guards,
+                    contextual_facts,
+                    call_can_execute,
+                    target_context,
+                    parameter_executes,
                 )
-                if target in stored_callables and not any(
-                    parent == creator
-                    and parent_route == target_route
-                    and call_can_execute(contextual_facts(parent, parent_context), constructor)
-                    for creator, constructor in stored_callables[target]
-                    for parent, parent_route, parent_context in reached
-                ):
-                    continue
-                evidence = edge_calls.get(
-                    (key, target),
-                    [
-                        call
-                        for call in calls[key]
-                        if call.get("calledExpression", "").rsplit(".", 1)[-1]
-                        == nodes[target]["name"]
-                    ],
-                )
-                for call in evidence:
-                    if call is not None and not call_can_execute(facts, call):
-                        continue
-                    guards = [
-                        guard
-                        for guard in callback_guards.get((key, target), [])
-                        if guard[2] == call
-                    ]
-                    if guards and not any(
-                        parameter_executes(callee, target_context(key, callee, context, call), name)
-                        for callee, name, _ in guards
-                    ):
-                        continue
-                    additions.add(
-                        (target, target_route, target_context(key, target, context, call))
-                    )
         additions -= reached
         changed = bool(additions)
         reached.update(additions)
@@ -1067,12 +1331,7 @@ def network_capability_findings(index: dict) -> list[str]:
             for function in facts.get("functionRanges", [])
             + facts.get("accessorRanges", [])
             + facts.get("initializers", [])
-            if function["scope"] == scope
-            and (
-                Path(path).parts[Path(path).parts.index("Modules") + 1] == owner.split(".")[0]
-                if "Modules" in Path(path).parts
-                else owner.startswith("BIT101-iOS.")
-            )
+            if function["scope"] == scope and _is_owner_path(path, owner)
         ]
     for route, calls in reachable.items():
         for call in calls:
@@ -1661,66 +1920,17 @@ def test_case_inventory(group: str) -> dict[str, int]:
             count = test.get("testCaseCount")
             if count is None:
                 arguments = test.get("arguments", [])
-                if len(arguments) != 1 or not (
-                    match := re.fullmatch(r"([\w.]+)\.allCases", arguments[0])
-                ):
+                match = (
+                    re.fullmatch(r"([\w.]+)\.allCases", arguments[0])
+                    if len(arguments) == 1
+                    else None
+                )
+                if not match:
                     raise ValueError(f"参数库存需要字面量数组或 CaseIterable 枚举：{test['value']}")
                 if enum_index is None:
-                    names = {
-                        argument.removesuffix(".allCases").rsplit(".", 1)[-1]
-                        for source in index.values()
-                        for entry in source["tests"]
-                        for argument in entry.get("arguments", [])
-                        if re.fullmatch(r"[\w.]+\.allCases", argument)
-                    }
-                    referenced_enum = re.compile(
-                        r"\b(?:" + "|".join(map(re.escape, sorted(names))) + r")\b"
-                    )
-                    enum_sources = {}
-                    for name in repository_input_names(ROOT):
-                        if not name.endswith(".swift") or not includes_input(name, effective):
-                            continue
-                        path = ROOT / name
-                        try:
-                            source = path.read_text()
-                        except FileNotFoundError:
-                            continue
-                        if referenced_enum.search(source) and re.search(
-                            r"\benum\s+|\ballCases\b", source
-                        ):
-                            enum_sources[str(path)] = active_swift_source(
-                                source, effective, path=name
-                            )
-                    enum_index = swift_syntax_index_sources(enum_sources)
+                    enum_index = _build_enum_syntax_index(index, effective)
                 scope = match[1].split(".")
-                candidates = [
-                    (
-                        node,
-                        sum(
-                            case["scope"] == node["scope"] + [node["name"]]
-                            for case in enum_facts["enumCases"]
-                        ),
-                    )
-                    for enum_facts in enum_index.values()
-                    for node in enum_facts["declarations"]
-                    if node["kind"] == "enum"
-                    and (node["scope"] + [node["name"]])[-len(scope) :] == scope
-                    and any(
-                        base.rsplit(".", 1)[-1] == "CaseIterable" for base in node["inheritedTypes"]
-                    )
-                ]
-                if len(candidates) != 1:
-                    raise ValueError(f"参数库存需要唯一枚举定义：{test['value']}")
-                node, count = candidates[0]
-                enum_scope = ".".join(node["scope"] + [node["name"]])
-                if any(
-                    binding.get("bindingName") == "allCases"
-                    and binding.get("isStaticBinding") is True
-                    and ".".join(binding["scope"]) == enum_scope
-                    for enum_facts in enum_index.values()
-                    for binding in enum_facts["bindings"]
-                ):
-                    raise ValueError(f"参数库存支持自动合成 allCases 和字面量数组：{test['value']}")
+                count = _resolve_case_iterable_count(test, scope, enum_index)
             if type(count) is not int or count <= 0:
                 raise ValueError(f"参数库存需要有效测试实例：{test['value']}")
             expected[normalized_test_id(test["value"])] = count

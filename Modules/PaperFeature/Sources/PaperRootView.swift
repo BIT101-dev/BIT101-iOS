@@ -111,6 +111,106 @@ private struct PaperRootViewScene: View {
         .environment(dependencies).environment(media)
     }
 
+    @ViewBuilder
+    private func failureStateView(message: String) -> some View {
+        AppScrollStateContainer {
+            AppFailureState(
+                title: "加载文章失败",
+                systemImage: "doc.text.magnifyingglass",
+                message: message,
+                underlyingError: viewModel.state.failureCause,
+                onRetry: {
+                    viewModel.enqueueRefresh()
+                }
+            )
+        }
+    }
+
+    private func paperPaginationTaskId() -> Int? {
+        if viewModel.state.status == .loaded {
+            return viewModel.state.nextPage
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private func paperRow(index: Int, paper: PaperSummary) -> some View {
+        AppFeedRow(
+            isLast: index == viewModel.state.items.count - 1,
+            isSelected: selectedPaper?.id == paper.id
+        ) {
+            PaperSummaryCard(
+                paper: paper,
+                previewMetadata: viewModel.previewMetadata(for: paper.id),
+                previewFailed: viewModel.previewFailedIDs.contains(paper.id),
+                onOpen: {
+                    selectedPaper = paper
+                }
+            )
+        }
+        .id(paper.id)
+        .task(id: viewModel.previewGeneration) {
+            await viewModel.loadPreviewMetadata(for: paper)
+        }
+        .task(id: paperPaginationTaskId()) {
+            await viewModel.loadMoreIfNeeded(currentPaper: paper)
+        }
+    }
+
+    @ViewBuilder
+    private var feedGridView: some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible())],
+            spacing: AppDesignSystem.Spacing.none
+        ) {
+            ForEach(
+                Array(viewModel.state.items.enumerated()), id: \.element.id
+            ) { index, paper in
+                paperRow(index: index, paper: paper)
+            }
+        }
+        .scrollTargetLayout()
+    }
+
+    @ViewBuilder
+    private var feedPaginationFooter: some View {
+        CommunityPaginationFooter(
+            isLoading: viewModel.state.isLoadingMore,
+            errorMessage: viewModel.state.paginationError
+        ) {
+            await viewModel.loadMoreIfNeeded(currentPaper: viewModel.state.items.last)
+        }
+    }
+
+    @ViewBuilder
+    private var feedLoadedView: some View {
+        if viewModel.state.items.isEmpty {
+            AppScrollStateContainer {
+                AppEmptyState(
+                    title: "暂无文章",
+                    systemImage: "doc.text",
+                    message: "还没有可展示的文章。"
+                )
+            }
+        } else {
+            feedGridView
+            feedPaginationFooter
+        }
+    }
+
+    @ViewBuilder
+    private var paperFeedContent: some View {
+        switch viewModel.state.status {
+        case .idle where viewModel.state.items.isEmpty,
+            .loading where viewModel.state.items.isEmpty:
+            AppInlineLoadingState("正在加载文章")
+        case .failed(let message) where viewModel.state.items.isEmpty:
+            failureStateView(message: message)
+        default:
+            feedLoadedView
+        }
+    }
+
     private var content: some View {
         ZStack(alignment: .bottomTrailing) {
             AppDesignSystem.Palette.Background.grouped
@@ -119,77 +219,7 @@ private struct PaperRootViewScene: View {
             ScrollView {
                 LazyVStack(spacing: AppDesignSystem.Spacing.none) {
                     CommunityResultsContext(viewModel.displayedQueryDescription)
-                    switch viewModel.state.status {
-                    case .idle where viewModel.state.items.isEmpty,
-                        .loading where viewModel.state.items.isEmpty:
-                        AppInlineLoadingState("正在加载文章")
-                    case .failed(let message) where viewModel.state.items.isEmpty:
-                        AppScrollStateContainer {
-                            AppFailureState(
-                                title: "加载文章失败",
-                                systemImage: "doc.text.magnifyingglass",
-                                message: message,
-                                underlyingError: viewModel.state.failureCause,
-                                onRetry: {
-                                    viewModel.enqueueRefresh()
-                                }
-                            )
-                        }
-                    default:
-                        if viewModel.state.items.isEmpty {
-                            AppScrollStateContainer {
-                                AppEmptyState(
-                                    title: "暂无文章",
-                                    systemImage: "doc.text",
-                                    message: "还没有可展示的文章。"
-                                )
-                            }
-                        } else {
-                            LazyVGrid(
-                                columns: [GridItem(.flexible())],
-                                spacing: AppDesignSystem.Spacing.none
-                            ) {
-                                ForEach(
-                                    Array(viewModel.state.items.enumerated()), id: \.element.id
-                                ) { index, paper in
-                                    AppFeedRow(
-                                        isLast: index == viewModel.state.items.count - 1,
-                                        isSelected: selectedPaper?.id == paper.id
-                                    ) {
-                                        PaperSummaryCard(
-                                            paper: paper,
-                                            previewMetadata: viewModel.previewMetadata(
-                                                for: paper.id),
-                                            previewFailed: viewModel.previewFailedIDs.contains(
-                                                paper.id),
-                                            onOpen: {
-                                                selectedPaper = paper
-                                            }
-                                        )
-                                    }
-                                    .id(paper.id)
-                                    .task(id: viewModel.previewGeneration) {
-                                        await viewModel.loadPreviewMetadata(for: paper)
-                                    }
-                                    .task(
-                                        id: viewModel.state.status == .loaded
-                                            ? viewModel.state.nextPage : nil
-                                    ) {
-                                        await viewModel.loadMoreIfNeeded(currentPaper: paper)
-                                    }
-                                }
-                            }
-                            .scrollTargetLayout()
-
-                            CommunityPaginationFooter(
-                                isLoading: viewModel.state.isLoadingMore,
-                                errorMessage: viewModel.state.paginationError
-                            ) {
-                                await viewModel.loadMoreIfNeeded(
-                                    currentPaper: viewModel.state.items.last)
-                            }
-                        }
-                    }
+                    paperFeedContent
                 }
             }
             .scrollPosition(

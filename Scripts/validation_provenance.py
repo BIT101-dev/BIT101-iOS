@@ -261,6 +261,16 @@ def capture_worker_deployments(scope: str) -> dict:
     return proof
 
 
+def emergency_update_contents(summary: dict) -> set[str]:
+    return {
+        request["responseConfiguration"].get("content")
+        for probe in summary.get("requestEvidence", [])
+        if probe.get("probe") == "update.emergency"
+        for request in probe.get("requests", [])
+        if isinstance(request.get("responseConfiguration"), dict)
+    }
+
+
 def release_worker_findings(summary: dict) -> list[str]:
     from urllib.request import Request, urlopen
 
@@ -278,13 +288,7 @@ def release_worker_findings(summary: dict) -> list[str]:
             if len(body) > 1_048_576:
                 raise ValueError("紧急更新配置超过响应范围。")
         current = base64.b64encode(body).decode("ascii")
-        sampled = {
-            request["responseConfiguration"].get("content")
-            for probe in summary.get("requestEvidence", [])
-            if probe.get("probe") == "update.emergency"
-            for request in probe.get("requests", [])
-            if isinstance(request.get("responseConfiguration"), dict)
-        }
+        sampled = emergency_update_contents(summary)
         if sampled != {current}:
             errors.append("发布前紧急更新配置已变化，请重新执行网络验收。")
     except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError) as error:

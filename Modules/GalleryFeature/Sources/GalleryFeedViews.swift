@@ -31,71 +31,94 @@ struct GallerySubscriptionsView: View {
         self.onOpenResource = onOpenResource
     }
 
+    private func handleItemTap(item: GallerySubscriptionItem) {
+        guard let resource = item.resource else { return }
+        guard resource.kind == "poster" else {
+            onOpenResource(resource.kind, resource.id)
+            return
+        }
+        openingID = item.id
+        viewModel.pendingOperations.enqueue {
+            defer { openingID = nil }
+            do {
+                selectedPoster = try await dependencies.posterDetail.fetchPoster(id: resource.id)
+            } catch {
+                guard !TaskCancellation.matches(error) else { return }
+                viewModel.alert = AppAlert(title: "无法打开话题", error: error)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func itemLabel(item: GallerySubscriptionItem) -> some View {
+        let displayTitle = item.text.isEmpty ? item.resourceTitle : item.text
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            Text(displayTitle)
+                .font(AppDesignSystem.Typography.bodyEmphasis)
+                .lineLimit(3)
+            HStack(spacing: AppDesignSystem.Spacing.content) {
+                Text(item.resourceTitle)
+                Text(item.level.title)
+                Spacer()
+                if openingID == item.id { ProgressView() }
+            }
+            .font(AppDesignSystem.Typography.caption)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+        }
+        .padding(.vertical, AppDesignSystem.Spacing.content)
+    }
+
+    @ViewBuilder
+    private func subscriptionRow(item: GallerySubscriptionItem) -> some View {
+        Button {
+            handleItemTap(item: item)
+        } label: {
+            itemLabel(item: item)
+        }
+        .appInteractiveListRow()
+        .disabled(openingID != nil || item.resource == nil)
+        .accessibilityIdentifier("gallery.subscription.\(item.id)")
+    }
+
+    @ViewBuilder
+    private var emptyOrLoadingView: some View {
+        if case .failed(let message) = viewModel.status {
+            AppFailureState(title: "加载收藏失败", systemImage: "bookmark", message: message) {
+                viewModel.pendingOperations.enqueue { await viewModel.refresh() }
+            }
+        } else if viewModel.status == .loading || viewModel.status == .idle {
+            AppInlineLoadingState("正在加载收藏")
+        } else {
+            AppEmptyState(
+                title: "还没有收藏", systemImage: "bookmark",
+                message: "在话题详情中点按插眼收藏，方便日后继续阅读。")
+        }
+    }
+
+    @ViewBuilder
+    private var loadMoreSection: some View {
+        if !viewModel.items.isEmpty, viewModel.canLoadMore {
+            if viewModel.isLoadingMore {
+                AppInlineLoadingState()
+            } else {
+                Button("加载更多收藏") {
+                    viewModel.pendingOperations.enqueue { await viewModel.loadMore() }
+                }
+                .appInteractiveListRow()
+                .accessibilityIdentifier("gallery.subscriptions.more")
+            }
+        }
+    }
+
     var body: some View {
         List {
             if viewModel.items.isEmpty {
-                if case .failed(let message) = viewModel.status {
-                    AppFailureState(title: "加载收藏失败", systemImage: "bookmark", message: message) {
-                        viewModel.pendingOperations.enqueue { await viewModel.refresh() }
-                    }
-                } else if viewModel.status == .loading || viewModel.status == .idle {
-                    AppInlineLoadingState("正在加载收藏")
-                } else {
-                    AppEmptyState(
-                        title: "还没有收藏", systemImage: "bookmark",
-                        message: "在话题详情中点按插眼收藏，方便日后继续阅读。")
-                }
+                emptyOrLoadingView
             }
             ForEach(viewModel.items) { item in
-                Button {
-                    guard let resource = item.resource else { return }
-                    if resource.kind == "poster" {
-                        openingID = item.id
-                        viewModel.pendingOperations.enqueue {
-                            defer { openingID = nil }
-                            do {
-                                selectedPoster = try await dependencies.posterDetail
-                                    .fetchPoster(id: resource.id)
-                            } catch {
-                                if !TaskCancellation.matches(error) {
-                                    viewModel.alert = AppAlert(title: "无法打开话题", error: error)
-                                }
-                            }
-                        }
-                    } else {
-                        onOpenResource(resource.kind, resource.id)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                        Text(item.text.isEmpty ? item.resourceTitle : item.text)
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .lineLimit(3)
-                        HStack(spacing: AppDesignSystem.Spacing.content) {
-                            Text(item.resourceTitle)
-                            Text(item.level.title)
-                            Spacer()
-                            if openingID == item.id { ProgressView() }
-                        }
-                        .font(AppDesignSystem.Typography.caption)
-                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    }
-                    .padding(.vertical, AppDesignSystem.Spacing.content)
-                }
-                .appInteractiveListRow()
-                .disabled(openingID != nil || item.resource == nil)
-                .accessibilityIdentifier("gallery.subscription.\(item.id)")
+                subscriptionRow(item: item)
             }
-            if !viewModel.items.isEmpty, viewModel.canLoadMore {
-                if viewModel.isLoadingMore {
-                    AppInlineLoadingState()
-                } else {
-                    Button("加载更多收藏") {
-                        viewModel.pendingOperations.enqueue { await viewModel.loadMore() }
-                    }
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("gallery.subscriptions.more")
-                }
-            }
+            loadMoreSection
         }
         .accessibilityIdentifier("interaction.GallerySubscriptionsView.list")
         .appGroupedListStyle()
@@ -162,6 +185,97 @@ struct GalleryFeedView: View {
     @State private var lastPrefetchTriggerPosterID: Int?
     @State private var reportTarget: GalleryReportTarget?
 
+    private func handleOpenPoster(_ poster: CommunityPoster) {
+        if let onSelectPoster {
+            onSelectPoster(poster)
+        } else {
+            selectedPoster = poster
+        }
+    }
+
+    private func handleOpenImage(index: Int, images: [CommunityRemoteImage]) {
+        let request = ImagePreviewRequest(
+            remoteImages: images.map(\.previewImage),
+            initialIndex: index)
+        if let onPreview {
+            onPreview(request)
+        } else {
+            imageViewer = request
+        }
+    }
+
+    private func handlePrefetchAndLoadMore(
+        poster: CommunityPoster,
+        prefetchTriggerPosterID: Int?,
+        visiblePosters: [CommunityPoster]
+    ) {
+        if poster.id == prefetchTriggerPosterID,
+            lastPrefetchTriggerPosterID != poster.id
+        {
+            lastPrefetchTriggerPosterID = poster.id
+            onPrefetch(poster)
+        }
+        guard poster.id == visiblePosters.last?.id else { return }
+        onLoadMore(poster)
+    }
+
+    @ViewBuilder
+    private func posterCard(for poster: CommunityPoster) -> some View {
+        CommunityPosterCard(
+            poster: poster,
+            onOpenPoster: { handleOpenPoster(poster) },
+            onOpenImage: { index, images in handleOpenImage(index: index, images: images) },
+            onDelete: nil,
+            onReport: { reportTarget = .poster(poster.id) }
+        )
+    }
+
+    @ViewBuilder
+    private func feedRow(
+        index: Int,
+        poster: CommunityPoster,
+        visiblePosters: [CommunityPoster],
+        prefetchTriggerPosterID: Int?
+    ) -> some View {
+        AppFeedRow(
+            isLast: layout.isLandscape || index == visiblePosters.count - 1,
+            isSelected: selectedPosterID == poster.id
+        ) {
+            posterCard(for: poster)
+        }
+        .id(poster.id)
+        .task(id: feedState.status == .loaded ? feedState.nextPage : nil) {
+            handlePrefetchAndLoadMore(
+                poster: poster,
+                prefetchTriggerPosterID: prefetchTriggerPosterID,
+                visiblePosters: visiblePosters)
+        }
+    }
+
+    @ViewBuilder
+    private func feedGrid(
+        visiblePosters: [CommunityPoster],
+        prefetchTriggerPosterID: Int?
+    ) -> some View {
+        LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+            LazyVGrid(
+                columns: layout.gridColumns,
+                spacing: layout.isLandscape
+                    ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none
+            ) {
+                ForEach(Array(visiblePosters.enumerated()), id: \.element.id) { index, poster in
+                    feedRow(
+                        index: index,
+                        poster: poster,
+                        visiblePosters: visiblePosters,
+                        prefetchTriggerPosterID: prefetchTriggerPosterID)
+                }
+            }
+            .scrollTargetLayout()
+            if feedState.canLoadMore { pageContinuation }
+        }
+    }
+
     var body: some View {
         let visiblePosters = self.visiblePosters
         let prefetchTriggerPosterID =
@@ -191,57 +305,9 @@ struct GalleryFeedView: View {
                     if feedState.canLoadMore { pageContinuation }
                 }
             } else {
-                LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                    LazyVGrid(
-                        columns: layout.gridColumns,
-                        spacing: layout.isLandscape
-                            ? AppDesignSystem.Spacing.content : AppDesignSystem.Spacing.none
-                    ) {
-                        ForEach(Array(visiblePosters.enumerated()), id: \.element.id) {
-                            index, poster in
-                            AppFeedRow(
-                                isLast: layout.isLandscape || index == visiblePosters.count - 1,
-                                isSelected: selectedPosterID == poster.id
-                            ) {
-                                CommunityPosterCard(
-                                    poster: poster,
-                                    onOpenPoster: {
-                                        if let onSelectPoster {
-                                            onSelectPoster(poster)
-                                        } else {
-                                            selectedPoster = poster
-                                        }
-                                    },
-                                    onOpenImage: { index, images in
-                                        let request = ImagePreviewRequest(
-                                            remoteImages: images.map(\.previewImage),
-                                            initialIndex: index)
-                                        if let onPreview {
-                                            onPreview(request)
-                                        } else {
-                                            imageViewer = request
-                                        }
-                                    },
-                                    onDelete: nil,
-                                    onReport: { reportTarget = .poster(poster.id) }
-                                )
-                            }
-                            .id(poster.id)
-                            .task(id: feedState.status == .loaded ? feedState.nextPage : nil) {
-                                if poster.id == prefetchTriggerPosterID,
-                                    lastPrefetchTriggerPosterID != poster.id
-                                {
-                                    lastPrefetchTriggerPosterID = poster.id
-                                    onPrefetch(poster)
-                                }
-                                guard poster.id == visiblePosters.last?.id else { return }
-                                onLoadMore(poster)
-                            }
-                        }
-                    }
-                    .scrollTargetLayout()
-                    if feedState.canLoadMore { pageContinuation }
-                }
+                feedGrid(
+                    visiblePosters: visiblePosters,
+                    prefetchTriggerPosterID: prefetchTriggerPosterID)
             }
         }
         .accessibilityIdentifier("interaction.GalleryFeedView.scroll")

@@ -63,6 +63,102 @@ public struct ScoreListPage: View {
         }
     }
 
+    @ViewBuilder
+    private func failureContent(message: String) -> some View {
+        VStack {
+            AppFailureState(
+                title: "成绩查询失败",
+                systemImage: "exclamationmark.triangle",
+                message: message,
+                retryTitle: "重新查询",
+                allowsDiagnostics: viewModel.allowsDiagnostics,
+                underlyingError: viewModel.failureCause,
+                onRetry: {
+                    Task { await viewModel.refresh() }
+                }
+            )
+            .disabled(viewModel.isRecoveringStorage)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if viewModel.needsStorageRecovery {
+                storageRecoveryButton.padding(AppDesignSystem.Spacing.section)
+            }
+        }
+        .background(AppDesignSystem.Palette.Background.grouped)
+    }
+
+    @ViewBuilder
+    private func scoreRowItem(row: ScoreRow, isSelected: Bool) -> some View {
+        AppBrowserListRow(
+            isSelected: isSelected,
+            action: { selectedPage = .course(.init(row: row)) }
+        ) {
+            ScoreListRowCard(row: row)
+        }
+        .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
+    }
+
+    @ViewBuilder
+    private func scoreListSection(
+        visibleRows: [ScoreRow], selectedRowID: ScoreRow.ID?
+    ) -> some View {
+        Section("成绩列表") {
+            if visibleRows.isEmpty {
+                AppEmptyState(
+                    title: "暂无成绩",
+                    systemImage: "chart.bar.doc.horizontal",
+                    message: "当前筛选条件下暂无成绩。"
+                )
+                .frame(maxWidth: .infinity)
+            } else {
+                ForEach(visibleRows) { row in
+                    scoreRowItem(row: row, isSelected: selectedRowID == row.id)
+                }
+            }
+        }
+        .appGroupedSectionStyle()
+    }
+
+    @ViewBuilder
+    private func pendingCourseItem(course: PendingCourse, isSelected: Bool) -> some View {
+        AppBrowserListRow(
+            isSelected: isSelected,
+            action: { selectedPage = .course(.init(course: course)) }
+        ) {
+            ScoreListRowCard(course: course)
+        }
+        .accessibilityIdentifier("ui.score-list-page.pending-course.\(course.id)")
+    }
+
+    @ViewBuilder
+    private func pendingCoursesSection(pendingCourses: [PendingCourse]) -> some View {
+        Section("未出分") {
+            ForEach(pendingCourses) { course in
+                pendingCourseItem(
+                    course: course,
+                    isSelected: selectedPage?.course?.pendingCourseID == course.id
+                )
+            }
+        }
+        .appGroupedSectionStyle()
+    }
+
+    @ViewBuilder
+    private func loadedScoreList(
+        visibleRows: [ScoreRow], selectedRowID: ScoreRow.ID?
+    ) -> some View {
+        List {
+            scoreControls
+            scoreListSection(visibleRows: visibleRows, selectedRowID: selectedRowID)
+
+            if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
+                pendingCoursesSection(pendingCourses: pendingCourses)
+            }
+        }
+        .accessibilityIdentifier("interaction.ScoreListPage.list")
+        .appGroupedListStyle()
+        .background(AppDesignSystem.Palette.Background.grouped)
+    }
+
     @ViewBuilder private var content: some View {
         let visibleRows = viewModel.visibleRows
         let selectedRowID = selectedPage?.course?.row(in: viewModel.rows)?.id
@@ -72,70 +168,9 @@ public struct ScoreListPage: View {
                 AppLoadingState(title: "正在查询成绩")
                     .background(AppDesignSystem.Palette.Background.grouped)
             case .failed(let message):
-                VStack {
-                    AppFailureState(
-                        title: "成绩查询失败",
-                        systemImage: "exclamationmark.triangle",
-                        message: message,
-                        retryTitle: "重新查询",
-                        allowsDiagnostics: viewModel.allowsDiagnostics,
-                        underlyingError: viewModel.failureCause,
-                        onRetry: {
-                            Task { await viewModel.refresh() }
-                        }
-                    )
-                    .disabled(viewModel.isRecoveringStorage)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if viewModel.needsStorageRecovery {
-                        storageRecoveryButton.padding(AppDesignSystem.Spacing.section)
-                    }
-                }
-                .background(AppDesignSystem.Palette.Background.grouped)
+                failureContent(message: message)
             case .loaded:
-                List {
-                    scoreControls
-                    Section("成绩列表") {
-                        if visibleRows.isEmpty {
-                            AppEmptyState(
-                                title: "暂无成绩",
-                                systemImage: "chart.bar.doc.horizontal",
-                                message: "当前筛选条件下暂无成绩。"
-                            )
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            ForEach(visibleRows) { row in
-                                AppBrowserListRow(
-                                    isSelected: selectedRowID == row.id,
-                                    action: { selectedPage = .course(.init(row: row)) }
-                                ) {
-                                    ScoreListRowCard(row: row)
-                                }
-                                .accessibilityIdentifier("ui.score-list-page.score.\(row.id)")
-                            }
-                        }
-                    }
-                    .appGroupedSectionStyle()
-
-                    if let pendingCourses = viewModel.pendingCourses, !pendingCourses.isEmpty {
-                        Section("未出分") {
-                            ForEach(pendingCourses) { course in
-                                AppBrowserListRow(
-                                    isSelected: selectedPage?.course?.pendingCourseID
-                                        == course.id,
-                                    action: { selectedPage = .course(.init(course: course)) }
-                                ) {
-                                    ScoreListRowCard(course: course)
-                                }
-                                .accessibilityIdentifier(
-                                    "ui.score-list-page.pending-course.\(course.id)")
-                            }
-                        }
-                        .appGroupedSectionStyle()
-                    }
-                }
-                .accessibilityIdentifier("interaction.ScoreListPage.list")
-                .appGroupedListStyle()
-                .background(AppDesignSystem.Palette.Background.grouped)
+                loadedScoreList(visibleRows: visibleRows, selectedRowID: selectedRowID)
             }
         }
         .task {
@@ -338,58 +373,7 @@ private struct TrustedTranscriptPage: View {
                     }
                 )
             case .loaded:
-                if viewModel.images.isEmpty {
-                    AppEmptyState(
-                        title: "暂无可信成绩单",
-                        systemImage: "doc.text",
-                        message: "学校暂未返回成绩单图片。"
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: AppDesignSystem.Spacing.content) {
-                            if let warning = viewModel.deliveryWarning {
-                                AppFailureState(
-                                    title: "部分成绩单待恢复", systemImage: "doc.text",
-                                    message: warning,
-                                    allowsDiagnostics: viewModel.allowsDiagnostics,
-                                    underlyingError: viewModel.failureCause,
-                                    onRetry: {
-                                        viewModel.prepareRetry()
-                                        retryGeneration &+= 1
-                                    }
-                                )
-                                .disabled(viewModel.isLoadingPages)
-                                Button("重新申请") {
-                                    viewModel.prepareReapplication()
-                                    retryGeneration &+= 1
-                                }
-                                .disabled(viewModel.isLoadingPages)
-                                .appInteractiveListRow()
-                                .accessibilityIdentifier("ui.trusted-transcript-page.reapply")
-                            }
-                            if viewModel.isLoadingPages { AppInlineLoadingState("正在补全成绩单") }
-                            ForEach(Array(viewModel.images.enumerated()), id: \.offset) {
-                                index, image in
-                                Button {
-                                    imageViewer = ImagePreviewRequest(
-                                        localImages: viewModel.images, initialIndex: index)
-                                } label: {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFit()
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("可信成绩单第\(viewModel.pageNumbers[index])页")
-                                .accessibilityValue("共\(viewModel.expectedPageCount)页")
-                                .accessibilityHint("双击查看大图")
-                            }
-                        }
-                        .padding(AppDesignSystem.Spacing.section)
-                    }
-                    .accessibilityIdentifier("interaction.TrustedTranscriptPage.scroll")
-                    .background(AppDesignSystem.Palette.Background.secondary)
-                }
+                transcriptLoadedContent
             }
         }
         .navigationTitle("可信成绩单")
@@ -425,9 +409,79 @@ private struct TrustedTranscriptPage: View {
             )
         }
     }
-}
 
-/// 成绩列表行卡片。
+    @ViewBuilder
+    private func deliveryWarningView(warning: String) -> some View {
+        AppFailureState(
+            title: "部分成绩单待恢复", systemImage: "doc.text",
+            message: warning,
+            allowsDiagnostics: viewModel.allowsDiagnostics,
+            underlyingError: viewModel.failureCause,
+            onRetry: {
+                viewModel.prepareRetry()
+                retryGeneration &+= 1
+            }
+        )
+        .disabled(viewModel.isLoadingPages)
+        Button("重新申请") {
+            viewModel.prepareReapplication()
+            retryGeneration &+= 1
+        }
+        .disabled(viewModel.isLoadingPages)
+        .appInteractiveListRow()
+        .accessibilityIdentifier("ui.trusted-transcript-page.reapply")
+    }
+
+    @ViewBuilder
+    private func transcriptImageButton(index: Int, image: UIImage) -> some View {
+        Button {
+            imageViewer = ImagePreviewRequest(
+                localImages: viewModel.images, initialIndex: index)
+        } label: {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("可信成绩单第\(viewModel.pageNumbers[index])页")
+        .accessibilityValue("共\(viewModel.expectedPageCount)页")
+        .accessibilityHint("双击查看大图")
+    }
+
+    @ViewBuilder
+    private var transcriptScrollView: some View {
+        ScrollView {
+            LazyVStack(spacing: AppDesignSystem.Spacing.content) {
+                if let warning = viewModel.deliveryWarning {
+                    deliveryWarningView(warning: warning)
+                }
+                if viewModel.isLoadingPages {
+                    AppInlineLoadingState("正在补全成绩单")
+                }
+                ForEach(Array(viewModel.images.enumerated()), id: \.offset) { index, image in
+                    transcriptImageButton(index: index, image: image)
+                }
+            }
+            .padding(AppDesignSystem.Spacing.section)
+        }
+        .accessibilityIdentifier("interaction.TrustedTranscriptPage.scroll")
+        .background(AppDesignSystem.Palette.Background.secondary)
+    }
+
+    @ViewBuilder
+    private var transcriptLoadedContent: some View {
+        if viewModel.images.isEmpty {
+            AppEmptyState(
+                title: "暂无可信成绩单",
+                systemImage: "doc.text",
+                message: "学校暂未返回成绩单图片。"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            transcriptScrollView
+        }
+    }
+}
 ///
 /// 已出分和未出分课程共用两行列布局，初始化器提供各自的显示字段。
 private struct ScoreListRowCard: View {
@@ -559,30 +613,43 @@ private struct ScoreListRowCard: View {
 private struct PendingScoreDetailView: View {
     let course: ScoreCourseSummary
 
+    private var creditSummaryText: String {
+        course.creditText != "-" ? "学分 \(course.creditText)" : "学分 -"
+    }
+
+    private var courseTitleText: String {
+        let name = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "未命名课程" : name
+    }
+
+    @ViewBuilder
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
+            Text(courseTitleText)
+                .font(AppDesignSystem.Typography.titleEmphasis)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: AppDesignSystem.Spacing.section) {
+                Text("成绩 -")
+                Text("均分 -")
+                Text(creditSummaryText)
+            }
+            .font(AppDesignSystem.Typography.body)
+            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+            VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
+                ScoreDetailMetaRow(title: "课程号", value: course.number)
+                ScoreDetailMetaRow(title: "学期", value: course.term)
+                ScoreDetailMetaRow(title: "课程性质", value: course.type)
+            }
+            .font(AppDesignSystem.Typography.body)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.section) {
-                VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.content) {
-                    let courseName = course.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    Text(courseName.isEmpty ? "未命名课程" : courseName)
-                        .font(AppDesignSystem.Typography.titleEmphasis)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    HStack(spacing: AppDesignSystem.Spacing.section) {
-                        Text("成绩 -")
-                        Text("均分 -")
-                        Text(course.creditText != "-" ? "学分 \(course.creditText)" : "学分 -")
-                    }
-                    .font(AppDesignSystem.Typography.body)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                        ScoreDetailMetaRow(title: "课程号", value: course.number)
-                        ScoreDetailMetaRow(title: "学期", value: course.term)
-                        ScoreDetailMetaRow(title: "课程性质", value: course.type)
-                    }
-                    .font(AppDesignSystem.Typography.body)
-                }
+                headerSection
 
                 Divider()
 

@@ -45,84 +45,8 @@ struct WatchScheduleRootView: View {
                     alignment: .leading,
                     spacing: AppDesignSystem.Spacing.regular
                 ) {
-                    VStack(
-                        alignment: .leading,
-                        spacing: AppDesignSystem.Spacing.regular
-                    ) {
-                        HStack(
-                            alignment: .firstTextBaseline,
-                            spacing: AppDesignSystem.Spacing.regular
-                        ) {
-                            Text(next.isCurrent(at: model.referenceDate) ? "正在进行" : "下一节")
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                            Spacer(minLength: AppDesignSystem.Spacing.none)
-
-                            Text(next.relativeDayText(referenceDate: model.referenceDate))
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        }
-
-                        Text(next.title)
-                            .font(AppDesignSystem.Typography.title)
-                            .lineLimit(2)
-
-                        Text(next.rangeText)
-                            .font(AppDesignSystem.Typography.title)
-
-                        if !next.classroom.isEmpty {
-                            Text(next.classroom)
-                                .font(AppDesignSystem.Typography.title)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    if model.upcomingOccurrences.count > 1 {
-                        Divider()
-                            .padding(.vertical, AppDesignSystem.Spacing.micro)
-
-                        Text("后续课节")
-                            .font(AppDesignSystem.Typography.captionEmphasis)
-                            .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                        ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
-                            VStack(
-                                alignment: .leading,
-                                spacing: AppDesignSystem.Spacing.micro
-                            ) {
-                                HStack(
-                                    alignment: .firstTextBaseline,
-                                    spacing: AppDesignSystem.Spacing.regular
-                                ) {
-                                    Text(
-                                        occurrence.relativeDayText(
-                                            referenceDate: model.referenceDate)
-                                    )
-                                    .font(AppDesignSystem.Typography.captionEmphasis)
-                                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-
-                                    Spacer(minLength: AppDesignSystem.Spacing.tiny)
-
-                                    Text(occurrence.rangeText)
-                                        .font(AppDesignSystem.Typography.captionEmphasis)
-                                        .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                }
-
-                                Text(occurrence.title)
-                                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                                    .lineLimit(2)
-
-                                if !occurrence.classroom.isEmpty {
-                                    Text(occurrence.classroom)
-                                        .font(AppDesignSystem.Typography.subheadlineEmphasis)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .padding(.vertical, AppDesignSystem.Spacing.micro)
-                        }
-                    }
+                    nextOccurrenceCard(next)
+                    upcomingOccurrencesSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if model.contentState == .loggedOut {
@@ -158,6 +82,96 @@ struct WatchScheduleRootView: View {
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
             }
         }
+    }
+
+    @ViewBuilder
+    private func nextOccurrenceCard(_ next: ScheduleOccurrence) -> some View {
+        VStack(
+            alignment: .leading,
+            spacing: AppDesignSystem.Spacing.regular
+        ) {
+            HStack(
+                alignment: .firstTextBaseline,
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
+                Text(next.isCurrent(at: model.referenceDate) ? "正在进行" : "下一节")
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+                Spacer(minLength: AppDesignSystem.Spacing.none)
+
+                Text(next.relativeDayText(referenceDate: model.referenceDate))
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+
+            Text(next.title)
+                .font(AppDesignSystem.Typography.title)
+                .lineLimit(2)
+
+            Text(next.rangeText)
+                .font(AppDesignSystem.Typography.title)
+
+            if !next.classroom.isEmpty {
+                Text(next.classroom)
+                    .font(AppDesignSystem.Typography.title)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var upcomingOccurrencesSection: some View {
+        if model.upcomingOccurrences.count > 1 {
+            Divider()
+                .padding(.vertical, AppDesignSystem.Spacing.micro)
+
+            Text("后续课节")
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+            ForEach(model.upcomingOccurrences.dropFirst()) { occurrence in
+                upcomingOccurrenceRow(occurrence)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func upcomingOccurrenceRow(_ occurrence: ScheduleOccurrence) -> some View {
+        VStack(
+            alignment: .leading,
+            spacing: AppDesignSystem.Spacing.micro
+        ) {
+            HStack(
+                alignment: .firstTextBaseline,
+                spacing: AppDesignSystem.Spacing.regular
+            ) {
+                Text(
+                    occurrence.relativeDayText(
+                        referenceDate: model.referenceDate)
+                )
+                .font(AppDesignSystem.Typography.captionEmphasis)
+                .foregroundStyle(AppDesignSystem.Foreground.secondary)
+
+                Spacer(minLength: AppDesignSystem.Spacing.tiny)
+
+                Text(occurrence.rangeText)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+
+            Text(occurrence.title)
+                .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                .lineLimit(2)
+
+            if !occurrence.classroom.isEmpty {
+                Text(occurrence.classroom)
+                    .font(AppDesignSystem.Typography.subheadlineEmphasis)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, AppDesignSystem.Spacing.micro)
     }
 
     private var actionsPage: some View {

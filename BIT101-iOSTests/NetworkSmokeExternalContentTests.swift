@@ -29,17 +29,7 @@ struct NetworkSmokeExternalContentTests {
     @MainActor func eclassSmokeRequiresCompleteCourseSequence(stage: String) async throws {
         let collector = NetworkSmokeRequestCollector()
         let operation = {
-            let selected =
-                stage == "missing"
-                ? [2]
-                : stage == "truncated"
-                    ? [1]
-                    : stage == "reversed"
-                        ? [2, 1]
-                        : stage == "duplicate"
-                            ? [1, 1]
-                            : ["fallback", "empty", "full-terminal"].contains(stage)
-                                ? [1] : [1, 2]
+            let selected = Self.selectedEclassPages(for: stage)
             var courses = Set<Int>()
             for page in selected {
                 let ids =
@@ -57,7 +47,15 @@ struct NetworkSmokeExternalContentTests {
                 var body: [String: Any] = ["courses": ids.map { ["id": $0] }]
                 if stage != "fallback" && stage != "full-terminal" {
                     body["page"] = stage == "wrong-response" ? 99 : page
-                    body["pages"] = stage == "empty" ? 0 : stage == "drift" && page == 2 ? 3 : 2
+                    let pages: Int
+                    if stage == "empty" {
+                        pages = 0
+                    } else if stage == "drift" && page == 2 {
+                        pages = 3
+                    } else {
+                        pages = 2
+                    }
+                    body["pages"] = pages
                 }
                 let url = try #require(request.url)
                 let response = try #require(
@@ -453,30 +451,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 return services
             },
             makeProductionSchedule: { productionServices }, makeEclassSchedule: { services })
-        let scope: NetworkSmokeScope =
-            stage.hasPrefix("gallery-search-") || stage == "message-empty-gap"
-                || stage == "course-history-statistics-failure"
-                || stage.hasPrefix("course-search-") || stage.hasPrefix("poster-")
-                || stage.hasPrefix("message-account-") || stage.hasPrefix("report-types-")
-            ? .bit101
-            : stage.hasPrefix("school-")
-                ? .school
-                : stage.hasPrefix("transcript-")
-                    ? .transcript
-                    : stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa")
-                        ? .all
-                        : stage == "community-failure" || stage == "image-budget-failure"
-                            || stage == "entity-identity-failure"
-                            || stage == "repeated-page-failure"
-                            || stage.contains("comment-page")
-                            || stage.contains("comment-ranking") || stage.hasPrefix("cors")
-                            || stage.hasPrefix("bot-") || stage.hasPrefix("paper-")
-                            || stage.contains("fixtures")
-                            || stage == "feed-images-missing-success"
-                            || stage == "fixture-image-missing-failure"
-                            || stage == "fixture-course-number-failure"
-                            || stage == "empty-list-failure"
-                            ? .bit101 : stage.hasPrefix("ddl") ? .ddl : .schedule
+        let scope = Self.smokeScope(for: stage, redirectHost: redirectHost)
         let runner = ReleaseNetworkSmokeRunner(dependencies: dependencies)
         let smsHandler: SchoolSMSCodeHandler = { request in
             #expect(!captchaBlocked || request.purpose == "school_sso_second_factor")
@@ -641,21 +616,25 @@ extension ReleaseNetworkSmokeLifecycleTests {
                         "paper.detail", "paper.image", "paper.comments", "paper.web",
                     ])
         } else {
-            let deferred: Set<String> =
-                stage.contains("community-login")
-                ? Set(
+            let deferred: Set<String>
+            if stage.contains("community-login") {
+                deferred = Set(
                     NetworkSmokeProbe.allCases.filter(\.requiresCommunitySession).map(
                         \.rawValue))
-                : captchaBlocked
-                    ? [
-                        "score.brief", "score.detail", "schedule.sync", "classroom.campuses",
-                        "classroom.buildings", "classroom.occupancy",
-                    ]
-                    : stage == "entity-identity-failure"
-                        ? ["paper.search", "paper.image", "gallery.image"]
-                        : stage == "paper-content-failure"
-                            ? ["paper.search", "paper.image"]
-                            : stage == "campus-selection-failure" ? ["classroom.occupancy"] : []
+            } else if captchaBlocked {
+                deferred = [
+                    "score.brief", "score.detail", "schedule.sync", "classroom.campuses",
+                    "classroom.buildings", "classroom.occupancy",
+                ]
+            } else if stage == "entity-identity-failure" {
+                deferred = ["paper.search", "paper.image", "gallery.image"]
+            } else if stage == "paper-content-failure" {
+                deferred = ["paper.search", "paper.image"]
+            } else if stage == "campus-selection-failure" {
+                deferred = ["classroom.occupancy"]
+            } else {
+                deferred = []
+            }
             #expect(
                 Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
         }
@@ -776,6 +755,57 @@ extension ReleaseNetworkSmokeLifecycleTests {
                 && next.authenticationBlockers.isEmpty == !captchaBlocked
                 && next.coverageComplete == !captchaBlocked, "\(stage): \(next.summaryLine)")
         #expect(reports.count == 2)
+    }
+
+    private static func selectedEclassPages(for stage: String) -> [Int] {
+        switch stage {
+        case "missing": [2]
+        case "truncated": [1]
+        case "reversed": [2, 1]
+        case "duplicate": [1, 1]
+        case "fallback", "empty", "full-terminal": [1]
+        default: [1, 2]
+        }
+    }
+
+    private static func smokeScope(
+        for stage: String,
+        redirectHost: String?
+    ) -> NetworkSmokeScope {
+        if stage.hasPrefix("gallery-search-") || stage == "message-empty-gap"
+            || stage == "course-history-statistics-failure"
+            || stage.hasPrefix("course-search-") || stage.hasPrefix("poster-")
+            || stage.hasPrefix("message-account-") || stage.hasPrefix("report-types-")
+        {
+            return .bit101
+        }
+        if stage.hasPrefix("school-") {
+            return .school
+        }
+        if stage.hasPrefix("transcript-") {
+            return .transcript
+        }
+        if stage.hasPrefix("all-") || redirectHost != nil || stage.hasPrefix("aasa") {
+            return .all
+        }
+        if stage == "community-failure" || stage == "image-budget-failure"
+            || stage == "entity-identity-failure"
+            || stage == "repeated-page-failure"
+            || stage.contains("comment-page")
+            || stage.contains("comment-ranking") || stage.hasPrefix("cors")
+            || stage.hasPrefix("bot-") || stage.hasPrefix("paper-")
+            || stage.contains("fixtures")
+            || stage == "feed-images-missing-success"
+            || stage == "fixture-image-missing-failure"
+            || stage == "fixture-course-number-failure"
+            || stage == "empty-list-failure"
+        {
+            return .bit101
+        }
+        if stage.hasPrefix("ddl") {
+            return .ddl
+        }
+        return .schedule
     }
 }
 #endif

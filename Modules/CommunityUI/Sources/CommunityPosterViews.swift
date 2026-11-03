@@ -38,6 +38,109 @@ public struct CommunityPosterCard: View {
         self.onReport = onReport
     }
 
+    private var authorNameText: String {
+        poster.anonymous ? AppUserPresentation.anonymousName : poster.user.nickname
+    }
+
+    @ViewBuilder
+    private var authorInfo: some View {
+        VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
+            HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                Text(authorNameText)
+                    .font(AppDesignSystem.Typography.bodyEmphasis)
+                    .foregroundStyle(AppDesignSystem.Foreground.primary)
+                    .lineLimit(1)
+
+                if !poster.anonymous {
+                    CommunityIdentityBadge(poster.user.identity)
+                }
+            }
+
+            if !poster.anonymous, !poster.user.motto.isEmpty {
+                Text(poster.user.motto)
+                    .font(AppDesignSystem.Typography.caption)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionMenu: some View {
+        if onDelete != nil || onReport != nil {
+            CommunityPosterActionMenu(
+                onDelete: onDelete,
+                onReport: onReport
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {}
+        }
+    }
+
+    @ViewBuilder
+    private var authorRow: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            AppAvatarView(
+                imageURL: poster.anonymous
+                    ? nil
+                    : poster.user.avatar.thumbnailURL,
+                fallbackImageURL: poster.anonymous
+                    ? nil : poster.user.avatar.originalURL,
+                anonymous: poster.anonymous
+            )
+
+            authorInfo
+
+            Spacer()
+
+            actionMenu
+        }
+    }
+
+    @ViewBuilder
+    private var tagsScrollView: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: AppDesignSystem.Spacing.tiny) {
+                ForEach(poster.tags, id: \.self) { tag in
+                    AppTagChip(title: tag, variant: .display)
+                }
+            }
+        }
+        .accessibilityIdentifier("interaction.CommunityPosterCard.scroll")
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: AppHorizontalControlFramesKey.self,
+                    value: [geometry.frame(in: .global)])
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var footerRow: some View {
+        HStack(spacing: AppDesignSystem.Spacing.content) {
+            Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
+            Label("\(poster.commentNum)", systemImage: "bubble.right")
+
+            if !poster.public {
+                Label("仅自己可见", systemImage: "eye.slash")
+            }
+
+            if !poster.tags.isEmpty {
+                tagsScrollView
+            } else {
+                Spacer(minLength: AppDesignSystem.Spacing.tiny)
+            }
+
+            Text(relativeTimeText(poster.editTime))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .font(AppDesignSystem.Typography.caption)
+        .foregroundStyle(AppDesignSystem.Foreground.secondary)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
@@ -47,50 +150,7 @@ public struct CommunityPosterCard: View {
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: AppDesignSystem.Spacing.regular) {
-                    AppAvatarView(
-                        imageURL: poster.anonymous
-                            ? nil
-                            : poster.user.avatar.thumbnailURL,
-                        fallbackImageURL: poster.anonymous
-                            ? nil : poster.user.avatar.originalURL,
-                        anonymous: poster.anonymous
-                    )
-
-                    VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.micro) {
-                        HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                            Text(
-                                poster.anonymous
-                                    ? AppUserPresentation.anonymousName : poster.user.nickname
-                            )
-                            .font(AppDesignSystem.Typography.bodyEmphasis)
-                            .foregroundStyle(AppDesignSystem.Foreground.primary)
-                            .lineLimit(1)
-
-                            if !poster.anonymous {
-                                CommunityIdentityBadge(poster.user.identity)
-                            }
-                        }
-
-                        if !poster.anonymous, !poster.user.motto.isEmpty {
-                            Text(poster.user.motto)
-                                .font(AppDesignSystem.Typography.caption)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    Spacer()
-
-                    if onDelete != nil || onReport != nil {
-                        CommunityPosterActionMenu(
-                            onDelete: onDelete,
-                            onReport: onReport
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {}
-                    }
-                }
+                authorRow
 
                 CommunityLinkedText(poster.text, preview: true)
                     .font(AppDesignSystem.Typography.body)
@@ -104,41 +164,7 @@ public struct CommunityPosterCard: View {
                 CommunityPosterImagesView(images: poster.images, onOpenImage: onOpenImage)
             }
 
-            HStack(spacing: AppDesignSystem.Spacing.content) {
-                Label("\(poster.likeNum)", systemImage: "hand.thumbsup")
-                Label("\(poster.commentNum)", systemImage: "bubble.right")
-
-                if !poster.public {
-                    Label("仅自己可见", systemImage: "eye.slash")
-                }
-
-                if !poster.tags.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AppDesignSystem.Spacing.tiny) {
-                            ForEach(poster.tags, id: \.self) { tag in
-                                AppTagChip(title: tag, variant: .display)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("interaction.CommunityPosterCard.scroll")
-                    .background {
-                        GeometryReader { geometry in
-                            Color.clear.preference(
-                                key: AppHorizontalControlFramesKey.self,
-                                value: [geometry.frame(in: .global)])
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Spacer(minLength: AppDesignSystem.Spacing.tiny)
-                }
-
-                Text(relativeTimeText(poster.editTime))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .font(AppDesignSystem.Typography.caption)
-            .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            footerRow
         }
         .appFeedCardStyle()
         .contentShape(Rectangle())
@@ -181,6 +207,61 @@ public struct CommunityPosterImagesView: View {
         self.onOpenImage = onOpenImage
     }
 
+    private func updateAspectRatio(index: Int, ratio: CGFloat) {
+        guard ratio > 0, imageAspectRatios[index] != ratio else { return }
+        imageAspectRatios[index] = ratio
+    }
+
+    @ViewBuilder
+    private func hiddenCountOverlay(
+        index: Int,
+        lastIndex: Int?,
+        hiddenCount: Int
+    ) -> some View {
+        if index == lastIndex, hiddenCount > 0 {
+            AppDesignSystem.Palette.Media.overlay
+            Text("+\(hiddenCount)")
+                .font(AppDesignSystem.Typography.title)
+                .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnailTile(
+        allocation: Allocation,
+        height: CGFloat,
+        lastIndex: Int?,
+        hiddenCount: Int
+    ) -> some View {
+        Button {
+            onOpenImage(allocation.index, images)
+        } label: {
+            ZStack {
+                CommunityImageThumbnail(
+                    image: images[allocation.index],
+                    contentMode: .fill,
+                    onAspectRatioResolved: { ratio in
+                        updateAspectRatio(index: allocation.index, ratio: ratio)
+                    }
+                )
+
+                hiddenCountOverlay(
+                    index: allocation.index,
+                    lastIndex: lastIndex,
+                    hiddenCount: hiddenCount)
+            }
+            .frame(width: allocation.width, height: height)
+            .clipped()
+            .clipShape(
+                AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityLabel("查看第\(allocation.index + 1)张图片")
+    }
+
     public var body: some View {
         GeometryReader { proxy in
             let spacing = AppDesignSystem.Spacing.tiny
@@ -188,40 +269,11 @@ public struct CommunityPosterImagesView: View {
 
             HStack(spacing: spacing) {
                 ForEach(plan.allocations) { allocation in
-                    Button {
-                        onOpenImage(allocation.index, images)
-                    } label: {
-                        ZStack {
-                            CommunityImageThumbnail(
-                                image: images[allocation.index],
-                                contentMode: .fill,
-                                onAspectRatioResolved: { ratio in
-                                    guard ratio > 0,
-                                        imageAspectRatios[allocation.index] != ratio
-                                    else { return }
-                                    imageAspectRatios[allocation.index] = ratio
-                                }
-                            )
-
-                            if allocation.index == plan.allocations.last?.index,
-                                plan.hiddenImageCount > 0
-                            {
-                                AppDesignSystem.Palette.Media.overlay
-                                Text("+\(plan.hiddenImageCount)")
-                                    .font(AppDesignSystem.Typography.title)
-                                    .foregroundStyle(AppDesignSystem.Palette.Media.foreground)
-                            }
-                        }
-                        .frame(width: allocation.width, height: proxy.size.height)
-                        .clipped()
-                        .clipShape(
-                            AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("查看第\(allocation.index + 1)张图片")
+                    thumbnailTile(
+                        allocation: allocation,
+                        height: proxy.size.height,
+                        lastIndex: plan.allocations.last?.index,
+                        hiddenCount: plan.hiddenImageCount)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)

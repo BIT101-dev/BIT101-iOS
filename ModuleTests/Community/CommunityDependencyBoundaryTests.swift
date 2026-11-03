@@ -694,13 +694,15 @@ struct CommunityDependencyBoundaryTests {
             #expect(
                 reopened.isUnread(id: 2, for: .comment) && reopened.isUnread(id: 7, for: .comment))
         } else {
-            #expect(
-                store.unreadCount(for: .comment)
-                    == (stage == "large-window"
-                        ? 2_000
-                        : stage == "large-recovery"
-                            ? 1_999 : stage == "before-first" ? 6 : stage == "after-first" ? 2 : 11)
-            )
+            let expectedUnread: Int
+            switch stage {
+            case "large-window": expectedUnread = 2_000
+            case "large-recovery": expectedUnread = 1_999
+            case "before-first": expectedUnread = 6
+            case "after-first": expectedUnread = 2
+            default: expectedUnread = 11
+            }
+            #expect(store.unreadCount(for: .comment) == expectedUnread)
             #expect(
                 store.isUnread(
                     id: stage == "large-window" ? 1 : stage == "after-first" ? 100 : 2,

@@ -174,6 +174,25 @@ def run(*arguments, check=True):
     )
 
 
+def send_delete_request(request, deadline):
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("删除授权达到有效期，请重新执行删除。")
+        try:
+            with urlopen(request, timeout=min(30, remaining)) as response:
+                payload = json.load(response)
+            if payload.get("deleted") is not True:
+                raise ValueError("报告删除需要队列与存储共同确认。")
+            break
+        except HTTPError as error:
+            remaining = deadline - time.monotonic()
+            error.close()
+            if error.code != 403 or remaining <= 0:
+                raise
+            time.sleep(min(30, remaining))
+
+
 try:
     path.write_text(json.dumps({"key": key}))
     deadline = time.monotonic() + 300
@@ -184,21 +203,7 @@ try:
         data=json.dumps({"key": key, "grant": grant}).encode(),
         headers={"Content-Type": "application/json"},
     )
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("删除授权达到有效期，请重新执行删除。")
-        try:
-            with urlopen(request, timeout=min(30, remaining)) as response:
-                if json.load(response).get("deleted") is not True:
-                    raise ValueError("报告删除需要队列与存储共同确认。")
-            break
-        except HTTPError as error:
-            remaining = deadline - time.monotonic()
-            error.close()
-            if error.code != 403 or remaining <= 0:
-                raise
-            time.sleep(min(30, remaining))
+    send_delete_request(request, deadline)
 finally:
     run("delete", grant_key, check=False)
     path.unlink(missing_ok=True)

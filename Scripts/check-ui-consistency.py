@@ -67,6 +67,27 @@ from swift_type_index import SwiftBindingTypes
 from ui_source_facts import UIAuditContext, is_semantic_color_member
 
 
+def check_spacing_literals(facts, raw_source, relative, errors, emitted_rule_findings):
+    for pattern, label in (
+        (PADDING_LITERAL, "padding"),
+        (STACK_SPACING_LITERAL, "stack spacing"),
+    ):
+        for node in pattern_nodes(facts, pattern):
+            pattern_source = mask_literals_and_comments(node["value"])
+            for match in pattern.finditer(pattern_source):
+                if float(match.group(1)) == 0:
+                    continue
+                line_number = pattern_line_number(raw_source, node, match.start())
+                append_rule_finding(
+                    errors,
+                    emitted_rule_findings,
+                    relative,
+                    line_number,
+                    f"{label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌",
+                    pattern,
+                )
+
+
 def main(
     shared_syntax: dict[str, dict] | None = None, boundary_findings: list[str] | None = None
 ) -> int:
@@ -186,39 +207,21 @@ def main(
                         pattern,
                     )
 
-        for pattern, label in (
-            (PADDING_LITERAL, "padding"),
-            (STACK_SPACING_LITERAL, "stack spacing"),
-        ):
+        check_spacing_literals(facts, raw_source, relative, errors, emitted_rule_findings)
+
+        for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
             for node in pattern_nodes(facts, pattern):
                 pattern_source = mask_literals_and_comments(node["value"])
                 for match in pattern.finditer(pattern_source):
-                    if float(match.group(1)) == 0:
-                        continue
                     line_number = pattern_line_number(raw_source, node, match.start())
                     append_rule_finding(
                         errors,
                         emitted_rule_findings,
                         relative,
                         line_number,
-                        f"{label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌",
+                        "请直接使用语义令牌，替换比例或重复加减运算",
                         pattern,
                     )
-
-        if path not in DESIGN_SYSTEM_SOURCES:
-            for pattern in (DERIVED_DESIGN_TOKEN, REPEATED_DESIGN_TOKEN):
-                for node in pattern_nodes(facts, pattern):
-                    pattern_source = mask_literals_and_comments(node["value"])
-                    for match in pattern.finditer(pattern_source):
-                        line_number = pattern_line_number(raw_source, node, match.start())
-                        append_rule_finding(
-                            errors,
-                            emitted_rule_findings,
-                            relative,
-                            line_number,
-                            "请直接使用语义令牌，替换比例或重复加减运算",
-                            pattern,
-                        )
 
         if not (relative_source not in PLAIN_LIST_EXCEPTIONS):
             continue

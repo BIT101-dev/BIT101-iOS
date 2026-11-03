@@ -614,28 +614,7 @@ extension UIAutomationTestCase {
             }
             let wheels = pickerState.snapshots(matching: .pickerWheel)
             if !wheels.isEmpty {
-                let exercisedWheels = coverage == .contract ? wheels : Array(wheels.prefix(1))
-                for (index, state) in exercisedWheels.enumerated() {
-                    let wheel = nativePicker.pickerWheels.element(boundBy: index)
-                    let original = state.value as? String ?? ""
-                    let downward =
-                        original.hasPrefix("59") || original.hasPrefix("23")
-                        || original.hasPrefix("下午")
-                    let start = origin.withOffset(
-                        CGVector(dx: state.frame.midX, dy: state.frame.midY))
-                    start.press(
-                        forDuration: 0.1,
-                        thenDragTo: start.withOffset(CGVector(dx: 0, dy: downward ? 44 : -44)),
-                        withVelocity: .slow, thenHoldForDuration: 0.1)
-                    assertUI(
-                        waitUntil(NSPredicate(format: "value != %@", original), on: wheel),
-                        "第\(index + 1)列时间滚轮应响应滑动。")
-                    let selection =
-                        original.first?.isNumber == true
-                        ? String(original.prefix(while: { $0.isNumber })) : original
-                    wheel.adjust(toPickerWheelValue: selection)
-                    waitForValue(original, of: wheel)
-                }
+                exerciseTimePickerWheels(nativePicker, wheels: wheels, origin: origin)
             } else if identifier == "ddl.editor.date" {
                 exerciseSystemCalendar(nativePicker)
             }
@@ -643,6 +622,36 @@ extension UIAutomationTestCase {
             assertUI(app.pickerWheels.firstMatch.disappears(timeout: 5), "关闭选择器应收起时间滚轮。")
             assertUI(field.exists && app.datePickers.count == pickerCount, "关闭选择器应恢复来源日期控件。")
             dismissKeyboard()
+        }
+    }
+
+    @MainActor
+    private func exerciseTimePickerWheels(
+        _ nativePicker: UIElement,
+        wheels: [UIElementSnapshot],
+        origin: XCUICoordinate
+    ) {
+        let exercisedWheels = coverage == .contract ? wheels : Array(wheels.prefix(1))
+        for (index, state) in exercisedWheels.enumerated() {
+            let wheel = nativePicker.pickerWheels.element(boundBy: index)
+            let original = state.value as? String ?? ""
+            let downward =
+                original.hasPrefix("59") || original.hasPrefix("23")
+                || original.hasPrefix("下午")
+            let start = origin.withOffset(
+                CGVector(dx: state.frame.midX, dy: state.frame.midY))
+            start.press(
+                forDuration: 0.1,
+                thenDragTo: start.withOffset(CGVector(dx: 0, dy: downward ? 44 : -44)),
+                withVelocity: .slow, thenHoldForDuration: 0.1)
+            assertUI(
+                waitUntil(NSPredicate(format: "value != %@", original), on: wheel),
+                "第\(index + 1)列时间滚轮应响应滑动。")
+            let selection =
+                original.first?.isNumber == true
+                ? String(original.prefix(while: { $0.isNumber })) : original
+            wheel.adjust(toPickerWheelValue: selection)
+            waitForValue(original, of: wheel)
         }
     }
 

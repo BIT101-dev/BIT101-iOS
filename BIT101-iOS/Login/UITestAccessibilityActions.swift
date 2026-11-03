@@ -688,34 +688,38 @@ enum UITestAccessibilityActions {
     }
 
     static func keyboardState(returnTitle: String? = nil) -> String {
-        if let returnTitle {
-            for window in UIApplication.shared.connectedScenes.compactMap({
-                $0 as? UIWindowScene
-            }).flatMap(\.windows) {
-                var controller = window.rootViewController
-                while let presented = controller?.presentedViewController {
-                    controller = presented
-                }
-                if let alert = controller as? UIAlertController {
-                    let commands = alert.keyCommands ?? []
-                    if alert.preferredAction?.title == returnTitle,
-                        alert.preferredAction?.isEnabled == true,
-                        commands.contains(where: {
-                            $0.input == "\r" && $0.modifierFlags.isEmpty
-                        })
-                    {
-                        return "ready"
-                    }
-                    let preferred = alert.preferredAction?.title ?? "none"
-                    let enabled = alert.preferredAction?.isEnabled == true
-                    let inputs = commands.map { String(reflecting: $0.input) }.joined(
-                        separator: ",")
-                    return "waiting: preferred=\(preferred), enabled=\(enabled), commands=\(inputs)"
-                }
-            }
-            return "waiting"
+        guard let returnTitle else {
+            return focusedInput() != nil || frameClock.keyboardVisible ? "active" : "hidden"
         }
-        return focusedInput() != nil || frameClock.keyboardVisible ? "active" : "hidden"
+        return alertKeyboardState(returnTitle: returnTitle)
+    }
+
+    private static func alertKeyboardState(returnTitle: String) -> String {
+        for window in UIApplication.shared.connectedScenes.compactMap({
+            $0 as? UIWindowScene
+        }).flatMap(\.windows) {
+            var controller = window.rootViewController
+            while let presented = controller?.presentedViewController {
+                controller = presented
+            }
+            guard let alert = controller as? UIAlertController else { continue }
+            let commands = alert.keyCommands ?? []
+            let hasReturnCommand = commands.contains {
+                $0.input == "\r" && $0.modifierFlags.isEmpty
+            }
+            if alert.preferredAction?.title == returnTitle,
+                alert.preferredAction?.isEnabled == true,
+                hasReturnCommand
+            {
+                return "ready"
+            }
+            let preferred = alert.preferredAction?.title ?? "none"
+            let enabled = alert.preferredAction?.isEnabled == true
+            let inputs = commands.map { String(reflecting: $0.input) }.joined(
+                separator: ",")
+            return "waiting: preferred=\(preferred), enabled=\(enabled), commands=\(inputs)"
+        }
+        return "waiting"
     }
 
     static func selectInput() -> String {
@@ -745,27 +749,36 @@ enum UITestAccessibilityActions {
             where !window.isHidden && window.windowLevel == .normal {
                 let point = window.convert(
                     CGPoint(x: x, y: y), from: scene.screen.coordinateSpace)
-                var view = window.hitTest(point, with: nil)
-                while let candidate = view {
-                    if candidate is UITextField || candidate is UITextView,
-                        let input = candidate as? (UIView & UITextInput)
-                    {
-                        guard input.isFirstResponder else { return "input focus missing" }
-                        guard
-                            let range = input.textRange(
-                                from: input.beginningOfDocument, to: input.endOfDocument)
-                        else {
-                            return "input range missing"
-                        }
-                        input.selectedTextRange = range
-                        input.insertText(text)
-                        return "entered"
-                    }
-                    view = candidate.superview
+                if let result = enterTextInWindow(window, at: point, text: text) {
+                    return result
                 }
             }
         }
         return "input target missing"
+    }
+
+    private static func enterTextInWindow(
+        _ window: UIWindow, at point: CGPoint, text: String
+    ) -> String? {
+        var view = window.hitTest(point, with: nil)
+        while let candidate = view {
+            if candidate is UITextField || candidate is UITextView,
+                let input = candidate as? (UIView & UITextInput)
+            {
+                guard input.isFirstResponder else { return "input focus missing" }
+                guard
+                    let range = input.textRange(
+                        from: input.beginningOfDocument, to: input.endOfDocument)
+                else {
+                    return "input range missing"
+                }
+                input.selectedTextRange = range
+                input.insertText(text)
+                return "entered"
+            }
+            view = candidate.superview
+        }
+        return nil
     }
 
     static func activate(_ parameters: [String: String]) -> String {

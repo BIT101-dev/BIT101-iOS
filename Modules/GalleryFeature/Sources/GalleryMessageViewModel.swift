@@ -307,12 +307,14 @@ final class GalleryMessageViewModel: ObservableObject {
                 diagnosticError = reason
             }
             let cancelled = TaskCancellation.matches(error)
+            let statusOnFailure: CommunityLoadStatus =
+                previousState.items.isEmpty
+                ? (cancelled ? .idle : .failed(error.localizedDescription))
+                : .loaded
             if state(for: type).status == .loading {
                 listStates[type] = previousState
                 setState(for: type) {
-                    $0.status =
-                        previousState.items.isEmpty
-                        ? (cancelled ? .idle : .failed(error.localizedDescription)) : .loaded
+                    $0.status = statusOnFailure
                     $0.isLoadingMore = false
                 }
             }

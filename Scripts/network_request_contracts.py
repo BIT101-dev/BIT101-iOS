@@ -597,6 +597,22 @@ NATIVE_CONTRACTS = {
 }
 
 
+def expand_search_contracts(
+    contracts: list[RequestContract], expected_parameters: dict
+) -> list[RequestContract]:
+    expanded = []
+    keywords = (expected_parameters["search"], expected_parameters["excludedSearch"])
+    for contract in contracts:
+        if contract.query.get("search") is None:
+            expanded.append(contract)
+        else:
+            for keyword in keywords:
+                expanded.append(
+                    replace(contract, query=dict(contract.query, search=re.escape(keyword)))
+                )
+    return expanded
+
+
 def contracts_for(probe: str, expected_parameters: dict | None = None) -> list[RequestContract]:
     if probe in CONTRACTS:
         contracts = CONTRACTS[probe]
@@ -604,19 +620,7 @@ def contracts_for(probe: str, expected_parameters: dict | None = None) -> list[R
             probe in {"gallery.search", "course.search", "paper.search"}
             and expected_parameters is not None
         ):
-            expanded = []
-            for contract in contracts:
-                if contract.query.get("search") is None:
-                    expanded.append(contract)
-                else:
-                    expanded.extend(
-                        replace(contract, query=dict(contract.query, search=re.escape(keyword)))
-                        for keyword in (
-                            expected_parameters["search"],
-                            expected_parameters["excludedSearch"],
-                        )
-                    )
-            return expanded
+            return expand_search_contracts(contracts, expected_parameters)
         return contracts
     if probe in {
         "message.comment",
@@ -888,6 +892,43 @@ def auxiliary_contracts(
     return rows
 
 
+def contract_recovers_request(
+    contract: RequestContract, row: dict, auxiliary: list[RequestContract]
+) -> bool:
+    statuses = (401,) if contract.host == re.escape(API) else (401, 403)
+    if contract in auxiliary and contract.host == r"login\.bit101\.flwfdd\.xyz":
+        statuses += (500, 502, 503, 504)
+    recovered = (
+        row.get("statusCode") in statuses and replace(contract, statuses=statuses).matches(row)
+    )
+    if row.get("statusCode") in range(200, 400):
+        final = dict(
+            row,
+            endpoint=row.get("finalEndpoint"),
+            method=row.get("finalMethod"),
+            query=row.get("finalQuery"),
+        )
+        if any(auth.matches(final) for auth in auxiliary if auth.host == r"sso\.bit\.edu\.cn"):
+            original = dict(
+                row,
+                finalEndpoint=row.get("endpoint"),
+                finalMethod=row.get("method"),
+                finalQuery=row.get("query"),
+            )
+            recovered = recovered or replace(contract, statuses=range(200, 400)).matches(original)
+    return bool(recovered)
+
+
+def followed_by_matching_request(
+    contract: RequestContract, row: dict, later_requests: list[dict]
+) -> bool:
+    keys = ("endpoint", "method", "query")
+    for later in later_requests:
+        if contract.matches(later) and all(row.get(k) == later.get(k) for k in keys):
+            return True
+    return False
+
+
 def requests_accounted_for(
     requests: list[dict],
     contracts: list[RequestContract],
@@ -936,37 +977,9 @@ def requests_accounted_for(
         ):
             continue
         for contract in allowed:
-            statuses = (401,) if contract.host == re.escape(API) else (401, 403)
-            if contract in auxiliary and contract.host == r"login\.bit101\.flwfdd\.xyz":
-                statuses += (500, 502, 503, 504)
-            recovered = row.get("statusCode") in statuses and replace(
-                contract, statuses=statuses
-            ).matches(row)
-            final = dict(
-                row,
-                endpoint=row.get("finalEndpoint"),
-                method=row.get("finalMethod"),
-                query=row.get("finalQuery"),
-            )
-            if row.get("statusCode") in range(200, 400) and any(
-                auth.matches(final) for auth in auxiliary if auth.host == r"sso\.bit\.edu\.cn"
-            ):
-                original = dict(
-                    row,
-                    finalEndpoint=row.get("endpoint"),
-                    finalMethod=row.get("method"),
-                    finalQuery=row.get("query"),
-                )
-                recovered = recovered or replace(contract, statuses=range(200, 400)).matches(
-                    original
-                )
-            if not recovered:
+            if not contract_recovers_request(contract, row, auxiliary):
                 continue
-            if any(
-                contract.matches(later)
-                and all(row.get(key) == later.get(key) for key in ("endpoint", "method", "query"))
-                for later in requests[index + 1 :]
-            ):
+            if followed_by_matching_request(contract, row, requests[index + 1 :]):
                 break
         else:
             return False
@@ -1014,6 +1027,39 @@ SELECTORS = {
 }
 
 
+def row_matches_expected_parameters(row: dict, expected_parameters: dict) -> bool:
+    for key, expected in expected_parameters.items():
+        for field, query_field in (("endpoint", "query"), ("finalEndpoint", "finalQuery")):
+            actual = (
+                unquote(urlsplit(row[field]).path)
+                if key == "path"
+                else row.get(query_field, {}).get(key)
+            )
+            if actual != expected:
+                return False
+    return True
+
+
+def row_matches_contract_selection(
+    row: dict, contracts: list[RequestContract], probe: str
+) -> bool:
+    for contract in contracts:
+        if contract.matches(row):
+            if probe != "gallery.search" or contract.query.get("search") is not None:
+                return True
+    return False
+
+
+def all_matching_requests_conform(
+    requests: list[dict], contracts: list[RequestContract], probe: str, expected_parameters: dict
+) -> bool:
+    for row in requests:
+        if row_matches_contract_selection(row, contracts, probe):
+            if not row_matches_expected_parameters(row, expected_parameters):
+                return False
+    return True
+
+
 def complete(
     probe: str,
     requests: list[dict],
@@ -1053,23 +1099,8 @@ def complete(
     )
     matched = bool(contracts)
     if matched and selectors and not search_probe:
-        matched = all(
-            all(
-                (
-                    unquote(urlsplit(row[field]).path)
-                    if key == "path"
-                    else row.get(query_field, {}).get(key)
-                )
-                == expected
-                for key, expected in expected_parameters.items()
-                for field, query_field in (("endpoint", "query"), ("finalEndpoint", "finalQuery"))
-            )
-            for row in requests
-            if any(
-                contract.matches(row)
-                and (probe != "gallery.search" or contract.query.get("search") is not None)
-                for contract in contracts
-            )
+        matched = all_matching_requests_conform(
+            requests, contracts, probe, expected_parameters
         )
     if matched and probe == "community.session":
         return (

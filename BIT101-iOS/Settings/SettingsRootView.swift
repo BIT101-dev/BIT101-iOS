@@ -163,25 +163,7 @@ private struct SettingsIndexPage: View {
         ScrollView {
             LazyVGrid(columns: layout.gridColumns, spacing: AppDesignSystem.Spacing.regular) {
                 ForEach(SettingsRoute.allCases) { route in
-                    if route == .suggestion {
-                        Button {
-                            isShowingSuggestion = true
-                        } label: {
-                            SettingsIndexCard(route: route)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("ui.settings-index-page.suggestion")
-                    } else {
-                        NavigationLink {
-                            SettingsRoutePage(
-                                route: route, studentID: studentID, onLogout: onLogout,
-                                dependencies: dependencies)
-                        } label: {
-                            SettingsIndexCard(route: route)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("ui.settings-index-page.destination")
-                    }
+                    routeItem(route)
                 }
             }
             .padding(AppDesignSystem.Spacing.section)
@@ -192,6 +174,29 @@ private struct SettingsIndexPage: View {
             NavigationStack {
                 DeveloperSuggestionPage(dependencies: dependencies.suggestion)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func routeItem(_ route: SettingsRoute) -> some View {
+        if route == .suggestion {
+            Button {
+                isShowingSuggestion = true
+            } label: {
+                SettingsIndexCard(route: route)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ui.settings-index-page.suggestion")
+        } else {
+            NavigationLink {
+                SettingsRoutePage(
+                    route: route, studentID: studentID, onLogout: onLogout,
+                    dependencies: dependencies)
+            } label: {
+                SettingsIndexCard(route: route)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("ui.settings-index-page.destination")
         }
     }
 }
@@ -428,22 +433,7 @@ struct DeveloperSuggestionPage: View {
                 .appInteractiveListRow()
                 .accessibilityIdentifier("ui.developer-suggestion-page.插入图片")
 
-                if !imageDrafts.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AppDesignSystem.Spacing.regular) {
-                            ForEach(imageDrafts) { draft in
-                                ComposerImageTile(
-                                    draft: draft,
-                                    onRetry: { retryImageDraft(id: draft.id) },
-                                    onRemove: { removeImageDraft(id: draft.id) },
-                                    showsPreparedSuccessIndicator: false
-                                )
-                            }
-                        }
-                        .padding(.vertical, AppDesignSystem.Spacing.tiny)
-                    }
-                    .accessibilityIdentifier("interaction.DeveloperSuggestionPage.scroll")
-                }
+                imageDraftsRow
             }
         }
         .disabled(isBusy)
@@ -472,78 +462,112 @@ struct DeveloperSuggestionPage: View {
         .onDisappear { imageTask?.cancel() }
         .task { await checkDraftOnAppear() }
         .alert(item: $confirmation) { item in
-            switch item {
-            case .rebuildSubmission:
-                Alert(
-                    title: Text("将恢复内容作为新建议？"),
-                    message: Text("上一份建议可能已经送达。确认后保留当前文字和图片，后续提交将建立另一份建议。"),
-                    primaryButton: .default(
-                        Text("继续编辑"),
-                        action: {
-                            submissionAttempt.restore(nil)
-                            submissionRecoveryFailed = false
-                        }),
-                    secondaryButton: .cancel(Text("返回核对"))
-                )
-            case .saveDraft:
-                Alert(
-                    title: Text("保存草稿？"),
-                    message: Text("保存后下次打开时可以加载草稿。"),
-                    primaryButton: .default(
-                        Text("保存草稿"),
-                        action: {
-                            Task {
-                                if await saveDraft() {
-                                    dismiss()
-                                } else {
-                                    alert = AppAlert.informational(
-                                        title: "草稿暂存遇到问题",
-                                        message: "当前页面内容已保留，请稍后重试保存。"
-                                    )
-                                }
-                            }
-                        }),
-                    secondaryButton: .cancel(
-                        Text("不保存"),
-                        action: {
-                            Task {
-                                if await discardDraft() { dismiss() }
-                            }
-                        })
-                )
-            case .restoreDraft:
-                Alert(
-                    title: Text("加载草稿？"),
-                    message: Text("发现上次保存的建议草稿。"),
-                    primaryButton: .default(
-                        Text("加载草稿"),
-                        action: {
-                            startImageTask { await loadSavedDraft() }
-                        }),
-                    secondaryButton: .cancel(
-                        Text("不加载"),
-                        action: {
-                            Task { _ = await discardDraft() }
-                        })
-                )
-            case .missingContact:
-                Alert(
-                    title: Text("你没有填写联系方式"),
-                    message: Text("开发者非常希望与你沟通，向你反馈。"),
-                    primaryButton: .default(
-                        Text("继续提交"),
-                        action: {
-                            Task { await submit() }
-                        }),
-                    secondaryButton: .cancel(
-                        Text("返回补充"),
-                        action: {
-                            isContactFocused = true
-                        })
+            suggestionConfirmationAlert(for: item)
+        }
+        .diagnosticAlert(item: $alert)
+    }
+
+    @ViewBuilder
+    private var imageDraftsRow: some View {
+        if !imageDrafts.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                imageDraftsList
+            }
+            .accessibilityIdentifier("interaction.DeveloperSuggestionPage.scroll")
+        }
+    }
+
+    private var imageDraftsList: some View {
+        HStack(spacing: AppDesignSystem.Spacing.regular) {
+            ForEach(imageDrafts) { draft in
+                ComposerImageTile(
+                    draft: draft,
+                    onRetry: { retryImageDraft(id: draft.id) },
+                    onRemove: { removeImageDraft(id: draft.id) },
+                    showsPreparedSuccessIndicator: false
                 )
             }
         }
-        .diagnosticAlert(item: $alert)
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
+    }
+
+    private func suggestionConfirmationAlert(for item: SuggestionConfirmationItem) -> Alert {
+        switch item {
+        case .rebuildSubmission:
+            return Alert(
+                title: Text("将恢复内容作为新建议？"),
+                message: Text("上一份建议可能已经送达。确认后保留当前文字和图片，后续提交将建立另一份建议。"),
+                primaryButton: .default(
+                    Text("继续编辑"),
+                    action: {
+                        submissionAttempt.restore(nil)
+                        submissionRecoveryFailed = false
+                    }),
+                secondaryButton: .cancel(Text("返回核对"))
+            )
+        case .saveDraft:
+            return Alert(
+                title: Text("保存草稿？"),
+                message: Text("保存后下次打开时可以加载草稿。"),
+                primaryButton: .default(
+                    Text("保存草稿"),
+                    action: {
+                        Task { await handleSaveDraftConfirm() }
+                    }),
+                secondaryButton: .cancel(
+                    Text("不保存"),
+                    action: {
+                        Task { await handleDiscardDraftConfirm() }
+                    })
+            )
+        case .restoreDraft:
+            return Alert(
+                title: Text("加载草稿？"),
+                message: Text("发现上次保存的建议草稿。"),
+                primaryButton: .default(
+                    Text("加载草稿"),
+                    action: {
+                        startImageTask { await loadSavedDraft() }
+                    }),
+                secondaryButton: .cancel(
+                    Text("不加载"),
+                    action: {
+                        Task { _ = await discardDraft() }
+                    })
+            )
+        case .missingContact:
+            return Alert(
+                title: Text("你没有填写联系方式"),
+                message: Text("开发者非常希望与你沟通，向你反馈。"),
+                primaryButton: .default(
+                    Text("继续提交"),
+                    action: {
+                        Task { await submit() }
+                    }),
+                secondaryButton: .cancel(
+                    Text("返回补充"),
+                    action: {
+                        isContactFocused = true
+                    })
+            )
+        }
+    }
+
+    private func handleSaveDraftConfirm() async {
+        if await saveDraft() {
+            dismiss()
+        } else {
+            alert = AppAlert.informational(
+                title: "草稿暂存遇到问题",
+                message: "当前页面内容已保留，请稍后重试保存。"
+            )
+        }
+    }
+
+    private func handleDiscardDraftConfirm() async {
+        if await discardDraft() {
+            dismiss()
+        }
     }
 
     private func requestSubmission() {

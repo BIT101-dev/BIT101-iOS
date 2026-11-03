@@ -70,6 +70,32 @@ def heading_anchors(source: str) -> set[str]:
     return anchors
 
 
+def parse_inline_target(source: str, end: int) -> tuple[int, str | None]:
+    depth, close, quote, angle = 1, end + 1, None, False
+    while close < len(source) and depth:
+        if source[close] == "\\":
+            close += 2
+            continue
+        if quote:
+            if source[close] == quote:
+                quote = None
+        elif angle:
+            if source[close] == ">":
+                angle = False
+        elif source[close] in ('"', "'") and depth == 1 and source[close - 1].isspace():
+            quote = source[close]
+        elif source[close] == "<" and not source[end + 1 : close].strip():
+            angle = True
+        elif source[close] == "(":
+            depth += 1
+        elif source[close] == ")":
+            depth -= 1
+        close += 1
+    if depth:
+        return end, None
+    return close, source[end + 1 : close - 1]
+
+
 def link_targets(source: str) -> tuple[list[str], list[str]]:
     source = markdown_link_prose(source)
     definitions = {}
@@ -111,29 +137,10 @@ def link_targets(source: str) -> tuple[list[str], list[str]]:
         label = source[start + 1 : end - 1]
         cursor = end
         if source[end : end + 1] == "(":
-            depth, close, quote, angle = 1, end + 1, None, False
-            while close < len(source) and depth:
-                if source[close] == "\\":
-                    close += 2
-                    continue
-                if quote:
-                    if source[close] == quote:
-                        quote = None
-                elif angle:
-                    if source[close] == ">":
-                        angle = False
-                elif source[close] in ('"', "'") and depth == 1 and source[close - 1].isspace():
-                    quote = source[close]
-                elif source[close] == "<" and not source[end + 1 : close].strip():
-                    angle = True
-                elif source[close] == "(":
-                    depth += 1
-                elif source[close] == ")":
-                    depth -= 1
-                close += 1
-            if depth:
+            close, raw_target = parse_inline_target(source, end)
+            if raw_target is None:
                 continue
-            targets.append(destination(source[end + 1 : close - 1]))
+            targets.append(destination(raw_target))
             cursor = close
         elif source[end : end + 1] == "[":
             close = source.find("]", end + 1)

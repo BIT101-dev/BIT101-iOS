@@ -55,65 +55,10 @@ struct ScheduleEntryDetailSheet: View {
                 if entry.kind == .course, !academicCourseGroups.isEmpty {
                     courseDetailSections
                 } else {
-                    Section {
-                        Text(entry.title)
-                            .font(AppDesignSystem.Typography.title)
-                        if !entry.subtitle.isEmpty {
-                            Text(entry.subtitle)
-                                .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                        }
-                    }
-
-                    if !entry.detailLines.isEmpty {
-                        Section("详情") {
-                            ForEach(entry.detailLines, id: \.self) { line in
-                                Text(line)
-                            }
-                        }
-                    }
-
-                    if entry.kind == .exam {
-                        Section {
-                            Button("导入考试到日历") {
-                                onImportExam(entry.sourceID)
-                            }
-                            .appInteractiveListRow()
-                            Button("移除考试日历事件", role: .destructive) {
-                                onDeleteCalendarEntry("exam-\(entry.sourceID)", currentTerm)
-                            }
-                            .appInteractiveListRow(isDestructive: true)
-                        }
-                    }
+                    nonCourseDetailSections
                 }
 
-                if entry.kind == .custom, allowsCustomScheduleMutation {
-                    Section {
-                        Button("编辑") {
-                            onEditCustomSchedule()
-                            dismiss()
-                        }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.edit")
-                        Button("删除", role: .destructive) {
-                            dismiss()
-                            onDeleteCustomSchedule()
-                        }
-                        .appInteractiveListRow(isDestructive: true)
-                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.delete")
-                    }
-
-                    Section {
-                        Button("导入到系统日历") {
-                            onImportCustomSchedule(entry.sourceID)
-                        }
-                        .appInteractiveListRow()
-                        .accessibilityIdentifier("ui.schedule-entry-detail-sheet.导入到系统日历")
-                        Button("移除日历事件", role: .destructive) {
-                            onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
-                        }
-                        .appInteractiveListRow(isDestructive: true)
-                    }
-                }
+                customScheduleActionsSections
             }
             .accessibilityIdentifier("interaction.ScheduleEntryDetailSheet.list")
             .appGroupedListStyle()
@@ -160,6 +105,79 @@ struct ScheduleEntryDetailSheet: View {
             }
             .diagnosticAlert(item: $academicCourseAlert)
         }
+    }
+
+    @ViewBuilder
+    private var nonCourseDetailSections: some View {
+        Section {
+            Text(entry.title)
+                .font(AppDesignSystem.Typography.title)
+            if !entry.subtitle.isEmpty {
+                Text(entry.subtitle)
+                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
+            }
+        }
+
+        if !entry.detailLines.isEmpty {
+            Section("详情") {
+                ForEach(entry.detailLines, id: \.self) { line in
+                    Text(line)
+                }
+            }
+        }
+
+        if entry.kind == .exam {
+            examActionSection
+        }
+    }
+
+    private var examActionSection: some View {
+        Section {
+            Button("导入考试到日历") {
+                onImportExam(entry.sourceID)
+            }
+            .appInteractiveListRow()
+            Button("移除考试日历事件", role: .destructive) {
+                onDeleteCalendarEntry("exam-\(entry.sourceID)", currentTerm)
+            }
+            .appInteractiveListRow(isDestructive: true)
+        }
+    }
+
+    @ViewBuilder
+    private var customScheduleActionsSections: some View {
+        if entry.kind == .custom, allowsCustomScheduleMutation {
+            Section {
+                Button("编辑", action: handleEditCustomSchedule)
+                    .appInteractiveListRow()
+                    .accessibilityIdentifier("ui.schedule-entry-detail-sheet.edit")
+                Button("删除", role: .destructive, action: handleDeleteCustomSchedule)
+                    .appInteractiveListRow(isDestructive: true)
+                    .accessibilityIdentifier("ui.schedule-entry-detail-sheet.delete")
+            }
+
+            Section {
+                Button("导入到系统日历") {
+                    onImportCustomSchedule(entry.sourceID)
+                }
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.schedule-entry-detail-sheet.导入到系统日历")
+                Button("移除日历事件", role: .destructive) {
+                    onDeleteCalendarEntry("custom-\(entry.sourceID)", currentTerm)
+                }
+                .appInteractiveListRow(isDestructive: true)
+            }
+        }
+    }
+
+    private func handleEditCustomSchedule() {
+        onEditCustomSchedule()
+        dismiss()
+    }
+
+    private func handleDeleteCustomSchedule() {
+        dismiss()
+        onDeleteCustomSchedule()
     }
 
     private var title: String {
@@ -215,14 +233,7 @@ struct ScheduleEntryDetailSheet: View {
                 academicCourseRow(for: allCourses)
 
                 Button {
-                    guard destinations.openCourseLocation(allCourses) else {
-                        academicCourseAlert = AppAlert.userInput(
-                            title: "没有找到上课地点",
-                            message: "这门课的教室暂时无法匹配到校园地图。"
-                        )
-                        return
-                    }
-                    dismiss()
+                    handleOpenCourseLocation(allCourses)
                 } label: {
                     Text("查看上课地点")
                 }
@@ -232,12 +243,7 @@ struct ScheduleEntryDetailSheet: View {
             if allowsCourseMutation, let target {
                 Section {
                     Button("调这节课") {
-                        guard
-                            let draft = courseArrangementDraftForOccurrence(
-                                target.course.id, target.week)
-                        else { return }
-                        courseArrangementDrafts = [draft]
-                        courseArrangementEditorMode = .occurrence(week: target.week)
+                        handleAdjustOccurrence(courseID: target.course.id, week: target.week)
                     }
                     .appInteractiveListRow()
                     Button("调这门课") {
@@ -368,6 +374,23 @@ struct ScheduleEntryDetailSheet: View {
     private func weekdayText(_ weekday: Int) -> String {
         let titles = ["", "一", "二", "三", "四", "五", "六", "日"]
         return titles.indices.contains(weekday) ? titles[weekday] : "?"
+    }
+
+    private func handleOpenCourseLocation(_ courses: [CourseRecord]) {
+        guard destinations.openCourseLocation(courses) else {
+            academicCourseAlert = AppAlert.userInput(
+                title: "没有找到上课地点",
+                message: "这门课的教室暂时无法匹配到校园地图。"
+            )
+            return
+        }
+        dismiss()
+    }
+
+    private func handleAdjustOccurrence(courseID: String, week: Int) {
+        guard let draft = courseArrangementDraftForOccurrence(courseID, week) else { return }
+        courseArrangementDrafts = [draft]
+        courseArrangementEditorMode = .occurrence(week: week)
     }
 
 }

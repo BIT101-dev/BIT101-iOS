@@ -152,36 +152,52 @@ struct ServiceContractTests {
             requests.append((request, response))
         }) {
             for page in 0...1 {
-                switch probe {
-                case "gallery.search":
-                    for keyword in [" BIT101 ", " excluded "] {
-                        for order in GallerySearchOrder.allCases {
-                            _ = try await service.searchPosters(
-                                query: .init(text: keyword, order: order),
-                                page: page == 0 ? nil : page)
-                        }
-                    }
-                    for order in [GallerySearchOrder.like, .newest] {
-                        _ = try await service.searchPosters(
-                            query: .init(text: "", order: order), page: page)
-                    }
-                case "gallery.recommend":
-                    _ = try await service.fetchRecommendPage(sourcePage: page)
-                case "gallery.subscriptions":
-                    _ = try await service.fetchSubscriptions(page: page)
-                case "gallery.bots": _ = try await service.fetchBotFeed(startPage: page)
-                default:
-                    let kind: GalleryFeedKind =
-                        probe == "gallery.following"
-                        ? .follow : (probe == "gallery.hot" ? .hot : .newest)
-                    _ = try await service.fetchFeed(kind: kind, page: page == 0 ? nil : page)
-                }
+                try await exerciseServiceProbe(probe: probe, service: service, page: page)
             }
         }
         try await assertSmokeContract(
             probe: probe, requests: requests,
             selectors: probe == "gallery.search"
                 ? ["search": "BIT101", "excludedSearch": "excluded"] : [:])
+    }
+
+    private func exerciseServiceProbe(
+        probe: String,
+        service: GalleryService,
+        page: Int
+    ) async throws {
+        switch probe {
+        case "gallery.search":
+            for keyword in [" BIT101 ", " excluded "] {
+                for order in GallerySearchOrder.allCases {
+                    let pageArg = page == 0 ? nil : page
+                    _ = try await service.searchPosters(
+                        query: .init(text: keyword, order: order),
+                        page: pageArg)
+                }
+            }
+            for order in [GallerySearchOrder.like, .newest] {
+                _ = try await service.searchPosters(
+                    query: .init(text: "", order: order), page: page)
+            }
+        case "gallery.recommend":
+            _ = try await service.fetchRecommendPage(sourcePage: page)
+        case "gallery.subscriptions":
+            _ = try await service.fetchSubscriptions(page: page)
+        case "gallery.bots":
+            _ = try await service.fetchBotFeed(startPage: page)
+        default:
+            let kind: GalleryFeedKind
+            if probe == "gallery.following" {
+                kind = .follow
+            } else if probe == "gallery.hot" {
+                kind = .hot
+            } else {
+                kind = .newest
+            }
+            let pageArg = page == 0 ? nil : page
+            _ = try await service.fetchFeed(kind: kind, page: pageArg)
+        }
     }
 
     @Test(

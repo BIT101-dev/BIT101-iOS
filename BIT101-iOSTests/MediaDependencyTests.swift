@@ -680,7 +680,7 @@ struct MediaDependencyTests {
                 ready.signal()
                 ownership.withPaths { retained in
                     if !retained.contains(files.canonicalFileURL(file).path) {
-                        do { try files.removeItem(at: file) } catch { Issue.record(error) }
+                        Self.removeFileCatchingError(at: file, using: files)
                     }
                 }
                 finished.signal()
@@ -690,6 +690,14 @@ struct MediaDependencyTests {
         }
         finished.wait()
         #expect(files.fileExists(at: file))
+    }
+
+    private static func removeFileCatchingError(at file: URL, using files: any AppFileService) {
+        do {
+            try files.removeItem(at: file)
+        } catch {
+            Issue.record(error)
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -719,7 +727,7 @@ struct MediaDependencyTests {
                         ?? []
                     for file in children
                     where !retained.contains(previewFiles.canonicalFileURL(file).path) {
-                        do { try previewFiles.removeItem(at: file) } catch { Issue.record(error) }
+                        Self.removeFileCatchingError(at: file, using: previewFiles)
                     }
                 }
                 finished.signal()
