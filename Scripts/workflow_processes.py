@@ -172,10 +172,14 @@ def supervise(
     }
     process = None
     finished = False
+    parent = os.getppid()
     try:
         process = subprocess.Popen(command, env=environment, start_new_session=owns_process_group)
         while True:
-            expired = owns_process_group and clock() >= deadline
+            if os.getppid() != parent and interrupted is None:
+                interrupted = signal.SIGTERM
+                print("[中断] 上级进程已退出，正在结束所属任务。", file=sys.stderr, flush=True)
+            expired = clock() >= deadline
             if interrupted is not None or expired:
                 if expired:
                     print("[超时] 工作流已达到执行预算，正在恢复与结束。", flush=True)
@@ -195,7 +199,7 @@ def supervise(
                 status = process.wait(timeout=0.1)
             except subprocess.TimeoutExpired:
                 continue
-            if interrupted is not None or owns_process_group and clock() >= deadline:
+            if interrupted is not None or os.getppid() != parent or clock() >= deadline:
                 continue
             status = status if status >= 0 else 128 - status
             if owns_process_group and not finish_process_group(

@@ -138,3 +138,36 @@ def export_module_metrics(arguments: list[str]) -> None:
         with Path(summary_path).open("a", encoding="utf-8") as summary:
             summary.write("\n".join(table) + "\n")
     print(f"[覆盖率] {len(modules)} 个模块 · {covered}/{count} 行")
+
+
+def ui_step_timings(text: str) -> list[tuple[float, str, str]]:
+    import re
+
+    rows = []
+    owner = "UI session"
+    previous = None
+    for line in text.splitlines():
+        case = re.search(r"Test Case '([^']+)' started", line)
+        if case:
+            owner = case[1]
+            previous = None
+        step = re.search(r"\bt =\s*([0-9.]+)s\s+(.+)", line)
+        if step is None:
+            continue
+        current = (float(step[1]), step[2].strip())
+        if previous is not None and current[0] >= previous[0]:
+            elapsed = current[0] - previous[0]
+            if elapsed >= 1:
+                rows.append((elapsed, owner, previous[1]))
+        previous = current
+    return sorted(rows, reverse=True)
+
+
+def report_ui_timings(arguments: list[str]) -> None:
+    log = (
+        Path(arguments[0])
+        if arguments
+        else (Path(__file__).resolve().parents[1] / ".build/extended-automation/ui.log")
+    )
+    for seconds, owner, step in ui_step_timings(log.read_text()):
+        print(f"{seconds:.2f}s | {owner} | {step}")

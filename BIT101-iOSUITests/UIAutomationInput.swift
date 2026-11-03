@@ -191,7 +191,7 @@ extension UIAutomationTestCase {
         let deadline = Date().addingTimeInterval(2)
         var result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
         while result == "input toolbar missing" && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
             result = UITestControlClient.request(["command": "finish-input"], timeout: 5)
         }
         assertUI(result == "finished", "键盘完成按钮应执行实际目标动作：\(result ?? "empty")。")

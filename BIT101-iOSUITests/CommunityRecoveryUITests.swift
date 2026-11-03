@@ -3,7 +3,7 @@ import XCTest
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testArticleCountersUpdateVisibleListDetail() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orient(to: .landscapeLeft)
         app = configureApp(
             resetStorage: true, content: true, animations: true, initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
@@ -35,7 +35,6 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testPosterDeepLinkKeepsTarget() throws {
-        XCUIDevice.shared.orientation = .portrait
         app = configureApp(
             resetStorage: true, content: true, animations: true,
             persistentFailurePaths: ["posters/1"], initialTab: "mine")
@@ -350,7 +349,6 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
 extension CommunityInteractionUITests {
     @MainActor
     @objc func testStableRowsPaginateAgain() {
-        XCUIDevice.shared.orientation = .portrait
         for (tab, section, title) in [("home", "课程", "分页课程"), ("gallery", "文章", "分页文章")] {
             app = configureApp(resetStorage: true, content: true, pagination: true, initialTab: tab)
             tapHeader(app.segmentedControls.buttons[section])

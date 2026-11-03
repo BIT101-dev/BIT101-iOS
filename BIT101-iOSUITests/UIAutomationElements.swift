@@ -1,7 +1,46 @@
 import CoreGraphics
+import Darwin
 import Network
+import UIKit
 import XCTest
 import os
+
+@MainActor
+enum UITestIdleBudget {
+    static func exchange(_ timeout: TimeInterval) -> TimeInterval? {
+        guard let library = dlopen(nil, RTLD_NOW) else {
+            XCTFail("测试运行时应提供动态符号查询。")
+            return nil
+        }
+        defer { dlclose(library) }
+        guard let read = dlsym(library, "_XCTApplicationStateTimeout"),
+            let write = dlsym(library, "_XCTSetApplicationStateTimeout")
+        else {
+            XCTFail("测试运行时应提供应用空闲等待设置。")
+            return nil
+        }
+        typealias Reader = @convention(c) () -> Double
+        typealias Writer = @convention(c) (Double) -> Void
+        let previous = unsafeBitCast(read, to: Reader.self)()
+        unsafeBitCast(write, to: Writer.self)(timeout)
+        return previous
+    }
+}
+
+@MainActor
+enum UITestSystemAlerts {
+    static func allowLocation(timeout: TimeInterval = 0) {
+        let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let permission = system.alerts.firstMatch
+        let allow = permission.buttons.matching(
+            NSPredicate(format: "label IN %@", ["允许一次", "Allow Once"])
+        ).firstMatch
+        let presented = timeout > 0 ? allow.waitForExistence(timeout: timeout) : allow.exists
+        guard presented else { return }
+        allow.tap()
+        XCTAssertTrue(UIElement(permission).disappears(timeout: 2), "定位授权后应关闭系统提示。")
+    }
+}
 
 nonisolated enum UITestMainNavigation {
     static func labels(_ title: String) -> [String] {
@@ -76,6 +115,11 @@ enum UITestControlClient {
     }
 
     static func request(_ parameters: [String: String], timeout: TimeInterval = 10) -> String? {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer {
+            UITestSnapshotReader.recordTiming(
+                "control." + (parameters["command"] ?? "scene"), since: started)
+        }
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             XCTFail("UI 通道端口需要有效。")
             return nil
@@ -129,8 +173,27 @@ enum UITestSnapshotReader {
 
     static func recordTiming(_ kind: String, since start: TimeInterval) {
         queryMetrics[kind, default: ["count": 0, "seconds": 0]]["count", default: 0] += 1
-        queryMetrics[kind, default: [:]]["seconds", default: 0] +=
-            ProcessInfo.processInfo.systemUptime - start
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        queryMetrics[kind, default: [:]]["seconds", default: 0] += elapsed
+        if elapsed >= 1 {
+            print("UI slow step: \(kind) seconds=\(String(format: "%.3f", elapsed))")
+        }
+    }
+
+    static func measure<T>(_ phase: String, operation: () throws -> T) rethrows -> T {
+        let started = ProcessInfo.processInfo.systemUptime
+        print("UI phase begin: \(phase)")
+        defer {
+            recordTiming(phase, since: started)
+            print("UI phase end: \(phase)")
+        }
+        return try operation()
+    }
+
+    static func poll() {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { recordTiming("poll.run-loop", since: started) }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
     }
 
     static func printTimingSummary() {
@@ -332,6 +395,25 @@ final class UIElement: NSObject {
         if path == nil, let state = currentNativeSnapshot() { return state }
         return try native.snapshot()
     }
+    func selectedButtonIdentities() throws -> [(String, String)] {
+        guard let path else {
+            return try snapshot().snapshots(matching: .button)
+                .filter(\.isSelected).map { ($0.identifier, $0.label) }
+        }
+        let query = path + [["type": "9"], ["predicate": "selected == true"]]
+        let data = try JSONSerialization.data(withJSONObject: query)
+        guard let response = UITestControlClient.request([
+            "command": "query", "query": String(decoding: data, as: UTF8.self),
+        ]), let values = try JSONSerialization.jsonObject(with: Data(response.utf8))
+            as? [[String: Any]]
+        else { throw CocoaError(.coderInvalidValue) }
+        return try values.map { value in
+            guard let identifier = value["identifier"] as? String,
+                let label = value["label"] as? String
+            else { throw CocoaError(.coderInvalidValue) }
+            return (identifier, label)
+        }
+    }
     func activate() {
         guard let application = native as? XCUIApplication else {
             XCTFail("前台激活应使用 App 元素。")
@@ -387,11 +469,14 @@ final class UIElement: NSObject {
     func swipeDown() { performGesture("swipe") { native.swipeDown() } }
     func dragScroll(vertical: Bool, towardEnd: Bool) {
         performGesture("swipe") {
-            if vertical {
-                if towardEnd { native.swipeUp() } else { native.swipeDown() }
-            } else {
-                if towardEnd { native.swipeLeft() } else { native.swipeRight() }
-            }
+            let begin: CGFloat = towardEnd ? 0.75 : 0.25
+            let end = 1 - begin
+            let start = CGVector(dx: vertical ? 0.5 : begin, dy: vertical ? begin : 0.5)
+            let finish = CGVector(dx: vertical ? 0.5 : end, dy: vertical ? end : 0.5)
+            native.coordinate(withNormalizedOffset: start).press(
+                forDuration: 0.01,
+                thenDragTo: native.coordinate(withNormalizedOffset: finish),
+                withVelocity: .slow, thenHoldForDuration: 0.1)
         }
     }
     func pinch(withScale scale: CGFloat, velocity: CGFloat) {
@@ -403,7 +488,7 @@ final class UIElement: NSObject {
     private func performGesture(_ action: String, _ operation: () -> Void) {
         Self.beforeNativeTap?()
         let identity = interactionIdentity
-        operation()
+        UITestSnapshotReader.measure("gesture.\(action)", operation: operation)
         UITestSnapshotReader.invalidate()
         recordInteraction(identity, action: action)
     }
@@ -467,7 +552,7 @@ final class UIElement: NSObject {
                 ?? "empty"
             ready = keyboardState == "ready"
             if ready { break }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
         } while Date() < deadline
         XCTAssertTrue(ready, "原生弹窗应提供已启用的默认动作与 Return 按键命令：\(keyboardState)。")
         native.typeKey("\n", modifierFlags: [])
@@ -589,7 +674,7 @@ final class UIElement: NSObject {
                     return match
                 }
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
             UITestSnapshotReader.invalidate()
         } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
@@ -639,7 +724,7 @@ final class UIElement: NSObject {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if exists == presence { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
             UITestSnapshotReader.invalidate()
         } while Date() < deadline
         return false
@@ -780,5 +865,13 @@ extension XCUIElementSnapshot {
             if let match = child.firstSnapshot(where: matches) { return match }
         }
         return nil
+    }
+}
+
+extension XCUIDevice {
+    @MainActor
+    func orient(to target: UIDeviceOrientation) {
+        guard orientation != target else { return }
+        orientation = target
     }
 }

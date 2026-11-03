@@ -20,20 +20,26 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     @MainActor private var checkingScrollContainers = false
     @MainActor private var preparingScene = false
     @MainActor private var preparingInteraction = false
-    @MainActor private var checkedScrollContainers = Set<String>()
+    @MainActor private static var checkedScrollContainers = Set<String>()
     @MainActor private var checkingRefreshRows = false
     @MainActor private var checkedRefreshRows = Set<String>()
     @MainActor var scheduleHeaderFrames: [String: CGRect] = [:]
     @MainActor private var capturedFailure = false
+    @MainActor private var needsPortraitSetup = true
+    @MainActor private var idleTimeout: TimeInterval?
     private let runIdentifier = "ui"
     @MainActor
     override func setUp() async throws {
         try await super.setUp()
-        XCUIDevice.shared.orientation = .portrait
+        idleTimeout = UITestIdleBudget.exchange(0.5)
+        print("UI test start: \(name)")
     }
     @MainActor
     override func tearDown() async throws {
-        if testRun?.totalFailureCount == 0 { checkScrollContainers() }
+        defer { if let idleTimeout { _ = UITestIdleBudget.exchange(idleTimeout) } }
+        if testRun?.totalFailureCount == 0 {
+            UITestSnapshotReader.measure("teardown.scroll") { checkScrollContainers() }
+        }
         if let testRun, testRun.totalFailureCount > 0, !capturedFailure {
             let foreground: XCUIElement =
                 app.state == .runningForeground ? app.native : Self.springboard
@@ -45,9 +51,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             add(screenshot)
             capturePreviewDiagnostics()
         }
-        if testRun?.totalFailureCount == 0 { Self.captureControlInventory() }
+        if testRun?.totalFailureCount == 0 {
+            UITestSnapshotReader.measure("teardown.inventory") { Self.captureControlInventory() }
+        }
         UITestSnapshotReader.printTimingSummary()
-        Self.endSharedSession(capturingInventory: false)
+        if let testRun, testRun.totalFailureCount > 0 {
+            Self.endSharedSession(capturingInventory: false)
+        }
         try await super.tearDown()
     }
     @MainActor
@@ -182,10 +192,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         assertUI(
             false,
             """
-                滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(nativeStatus)，窗口：\
-                \(app.windows.firstMatch.frame)，滚动区：\(frame)，容器：\
-                \(controlDiagnostic("scroll-inventory"))。
-                """
+            滚动后目标应可触达：\(description)。存在：\(element.exists)，原生：\(nativeStatus)，窗口：\
+            \(app.windows.firstMatch.frame)，滚动区：\(frame)，容器：\
+            \(controlDiagnostic("scroll-inventory"))。
+            """
         )
     }
     @MainActor
@@ -200,7 +210,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if predicate.evaluate(with: element) { return true }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
             UITestSnapshotReader.invalidate()
             if predicate.evaluate(with: element) { return true }
         } while Date() < deadline
@@ -359,17 +369,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func checkScrollContainers() {
+    func checkScrollContainers(force: Bool = false) {
         checkCurrentSurface()
         guard !preparingScene, !checkingScrollContainers, !checkingRefreshRows,
             app.state == .runningForeground,
             UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
         else { return }
-        checkScrollContainerGeometry(exerciseScrolling: true)
+        checkScrollContainerGeometry(scrolling: true, force: force)
     }
 
     @MainActor
-    private func checkScrollContainerGeometry(exerciseScrolling: Bool = false) {
+    private func checkScrollContainerGeometry(scrolling: Bool = false, force: Bool = false) {
         checkingScrollContainers = true
         defer { checkingScrollContainers = false }
         func isCurrentContainer(_ instance: String) -> Bool? {
@@ -390,17 +400,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             return
         }
         for container in containers {
-            guard let instance = container["instance"] as? String,
-                let scrollInstance = container["scrollInstance"] as? String,
+            guard let scrollInstance = container["scrollInstance"] as? String,
+                let frame = container["viewport"] as? [Double], frame.count == 4,
                 let identifier = container["identifier"] as? String,
                 let offset = container["offset"] as? [Double], offset.count == 2,
                 let range = container["range"] as? [Double], range.count == 2,
                 let remaining = container["remaining"] as? [Double], remaining.count == 2
             else { continue }
-            if range.contains(where: { $0 > 0 }) && !exerciseScrolling { continue }
-            let checkIdentity =
-                instance + ":" + range.map { String($0.rounded(.up)) }.joined(separator: ",")
-            guard !checkedScrollContainers.contains(checkIdentity) else { continue }
+            if range.contains(where: { $0 > 0 }) && !scrolling { continue }
+            let dimensions = (frame + range).map { String($0.rounded(.up)) }
+            let checkIdentity = ([identifier] + dimensions).joined(separator: ":")
+            guard force || !Self.checkedScrollContainers.contains(checkIdentity) else { continue }
             guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
             if !isCurrent { continue }
             let parameters = [
@@ -419,10 +429,10 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     XCTFail("当前滚动容器应提供原生元素：\(identifier)。")
                     return
                 }
-                let selectedButtons = element.buttons.matching(
-                    NSPredicate(format: "selected == true")
-                )
-                .allElementsBoundByIndex.map { ($0.identifier, $0.label) }
+                guard let selectedButtons = try? element.selectedButtonIdentities() else {
+                    XCTFail("滚动前应读取容器的选中状态。")
+                    return
+                }
                 let axis = range[1] > 0 ? 1 : 0
                 element.dragScroll(vertical: axis == 1, towardEnd: remaining[axis] > 0)
                 var outcome: String?
@@ -444,7 +454,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     waitUntil(restored, on: element, timeout: 5),
                     "容器验收应完成滚动并核对起始位置：\(identifier)。")
                 UITestSnapshotReader.invalidate()
+                guard let restoredButtons = try? element.selectedButtonIdentities() else {
+                    XCTFail("滚动恢复后应读取容器的选中状态。")
+                    return
+                }
                 for (identifier, label) in selectedButtons {
+                    let wasSelected = restoredButtons.contains { $0 == (identifier, label) }
+                    if wasSelected { continue }
                     let button = element.buttons.matching(
                         NSPredicate(format: "identifier == %@ AND label == %@", identifier, label)
                     ).firstMatch
@@ -454,7 +470,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                         "容器验收应恢复原选中项：\(label)。")
                 }
             }
-            checkedScrollContainers.insert(checkIdentity)
+            Self.checkedScrollContainers.insert(checkIdentity)
         }
     }
 
@@ -682,7 +698,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             checkScrollContainers()
         }
         preparingScene = true
-        checkedScrollContainers.removeAll()
         checkedRefreshRows.removeAll()
         defer { preparingScene = false }
         continueAfterFailure = false
@@ -703,7 +718,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 return app
             }
             Self.captureControlInventory()
-            previousApplication.terminate()
+            UITestSnapshotReader.measure("scene.terminate") { previousApplication.terminate() }
             assertUI(previousApplication.state == .notRunning, "冷启动前应结束所属 App 进程。")
             Self.sessionApplication = nil
             Self.sessionProcess = nil
@@ -819,7 +834,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         }
         var expectedScene: String?
         if Self.sessionApplication == nil {
-            application.launch()
+            UITestSnapshotReader.measure("scene.launch") { application.launch() }
             Self.sessionApplication = application
         } else {
             let state = application.state
@@ -834,6 +849,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 "配置响应应来自原 App 进程：\(response ?? "empty")。")
             assertUI(response != Self.sessionScene, "场景配置应推进页面版本。")
             expectedScene = response
+        }
+        UITestSystemAlerts.allowLocation()
+        if needsPortraitSetup {
+            XCUIDevice.shared.orient(to: .portrait)
+            needsPortraitSetup = false
         }
         let settingsTitles = [
             "calendar": "课程表设置", "ddl": "DDL设置", "gallery": "话廊设置", "account": "账号设置",
@@ -931,7 +951,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     break
                 }
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
         } while Date() < deadline
         guard let identity else {
             let scene = lastSnapshot?.firstSnapshot {
@@ -940,9 +960,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             assertUI(
                 false,
                 """
-                    同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\
-                    \(String(describing: scene))，窗口：\(lastSnapshot?.frame ?? .null)。
-                    """
+                同一界面快照中的场景身份与初始页面应完成加载：\(initialSettings ?? initialTab)。场景：\
+                \(String(describing: scene))，窗口：\(lastSnapshot?.frame ?? .null)。
+                """
             )
             return app
         }

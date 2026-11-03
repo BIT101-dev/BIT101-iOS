@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
-from test_module_metrics import export_module_metrics, module_result
+from test_module_metrics import export_module_metrics, module_result, report_ui_timings
 
 
 def workflow_start(arguments: list[str]) -> None:
@@ -970,6 +970,7 @@ if __name__ == "__main__":
         "module-metrics": export_module_metrics,
         "select": selected_inventory,
         "module-filter": module_filter,
+        "ui-timings": report_ui_timings,
     }
     if len(sys.argv) < 2 or sys.argv[1] not in commands:
         raise SystemExit(

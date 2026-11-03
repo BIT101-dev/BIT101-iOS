@@ -235,7 +235,7 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         assertUI(app.textFields["正文"].value as? String == "文章发布测试正文", "恢复后应保留文章正文。")
         tap("paper.drafts.manage")
         assertUI(app.navigationBars["文章草稿"].appears(timeout: 5), "草稿管理应展示当前账号的文章草稿。")
-        checkScrollContainers()
+        checkScrollContainers(force: true)
         tap("删除草稿")
         dismissSystemPopover(UIElement(app.native.sheets.firstMatch))
         assertUI(app.buttons["paper.drafts.delete"].exists, "取消删除应保留文章草稿。")

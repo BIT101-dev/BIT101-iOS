@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 
 def test_result_boundary_findings() -> list[str]:
+    ui_timing_self_test()
     failure_summary_self_test()
     from test_results import report_test_results
 
@@ -283,3 +284,23 @@ def module_failure_report_self_test() -> None:
                 check_failure_mode(bundle, mode, scripts, contents)
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
+
+
+def ui_timing_self_test() -> None:
+    from test_module_metrics import ui_step_timings
+
+    source = """
+Test Case 'Suite/first' started
+    t = 0.00s Set Up
+    t = 60.00s Open app
+    t = 62.00s Tap button
+Test Case 'Suite/second' started
+    t = 0.00s Set Up
+    t = 0.20s Tap button
+    t = 1.20s End Test
+"""
+    assert ui_step_timings(source) == [
+        (60.0, "Suite/first", "Set Up"),
+        (2.0, "Suite/first", "Open app"),
+        (1.0, "Suite/second", "Tap button"),
+    ]

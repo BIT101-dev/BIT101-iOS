@@ -4,8 +4,8 @@ import XCTest
 nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
     @MainActor
     @objc func testScoreDetailFollowsDetailedRefresh() throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orient(to: .landscapeLeft)
+        defer { XCUIDevice.shared.orient(to: .portrait) }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         guard
@@ -39,7 +39,6 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testScoreIndividualFiltersRefreshCancel() {
-        XCUIDevice.shared.orientation = .portrait
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         app.buttons["score.query"].tapBriefly()

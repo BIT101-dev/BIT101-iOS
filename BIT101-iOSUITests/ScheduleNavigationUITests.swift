@@ -66,7 +66,6 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
 
     @MainActor
     @objc func testCourseHistoryChartSelection() {
-        XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, content: true, initialTab: "home")
         app.descendants(matching: .any)["home.score-surface"].swipeLeft()
         assertUI(app.segmentedControls.buttons["课程"].isSelected, "成绩页横滑应切换课程分区。")
@@ -104,20 +103,17 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         )
         let location = app.buttons["定位到我的位置"]
         location.tapBriefly()
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let permission = springboard.alerts.firstMatch
-        if permission.appears(timeout: 2) {
-            let allow = permission.buttons.matching(
-                NSPredicate(format: "label IN %@", ["允许一次", "Allow Once"])
-            ).firstMatch
-            assertUI(allow.exists, "定位权限应提供单次授权。")
-            allow.tapBriefly()
-        }
+        UITestSystemAlerts.allowLocation(timeout: 2)
         closeAlertIfPresent()
         assertUI(app.maps.firstMatch.isHittable && location.isEnabled, "定位后地图及控件应继续响应。")
         revealBrowserAction("导航到下一节课").tapBriefly()
         let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
         assertUI(maps.wait(for: .runningForeground, timeout: 10), "下一节导航应交给系统地图。")
+        XCUIDevice.shared.press(.home)
+        assertUI(
+            waitUntil(NSPredicate { _, _ in
+                [.runningBackground, .runningBackgroundSuspended].contains(maps.state)
+            }, on: app), "返回 App 前系统地图应完成后台切换。")
         app.activate()
         assertUI(location.appears(timeout: 5), "从系统地图返回应恢复地图控件。")
     }

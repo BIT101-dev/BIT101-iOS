@@ -3,7 +3,6 @@ import XCTest
 nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
     @MainActor
     @objc func testDdlPhotosSurviveRelaunch() {
-        XCUIDevice.shared.orientation = .portrait
         app = configureApp(resetStorage: true, animations: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
         tap("添加待办")

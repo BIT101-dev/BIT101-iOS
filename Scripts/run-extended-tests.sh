@@ -432,7 +432,13 @@ run_tests() {
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then \
     inventory_label="$MODE · 定向回归 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
   echo "[$test_action] $inventory_label"
-  if bit101_run_logged "$log" "$inventory_label 输出" xcodebuild "$test_action" -quiet \
+  local verbosity_args=(-quiet)
+  if [[ "$MODE" == ui ]]; then
+    verbosity_args=()
+    export NSUnbufferedIO=YES
+  fi
+  if bit101_run_logged "$log" "$inventory_label 输出" xcodebuild "$test_action" \
+    "${verbosity_args[@]}" \
     "${project_args[@]}" \
     -destination "$TEST_DESTINATION" \
     -collect-test-diagnostics "$diagnostics" \

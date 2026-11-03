@@ -290,7 +290,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             "自己的课表小组件应从分享分身返回主课表。")
         openSettings("calendar")
         reveal(shared, description: "分享课表名称")
-        checkScrollContainers()
+        checkScrollContainers(force: true)
         shared.swipeLeft()
         let delete = app.buttons["删除"]
         assertUI(delete.native.waitForExistence(timeout: 5), "左滑应显示删除操作。")
@@ -605,7 +605,7 @@ extension XCUIElement {
         if exists == presence { return true }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            UITestSnapshotReader.poll()
             if exists == presence { return true }
         } while Date() < deadline
         return false

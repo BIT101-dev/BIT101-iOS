@@ -12,7 +12,7 @@ import sys
 import time
 from contextlib import redirect_stderr
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 ROOT = SCRIPT_ROOT.parent
@@ -21,6 +21,8 @@ ROOT = SCRIPT_ROOT.parent
 def workflow_lock_boundary_findings() -> list[str]:
     "验证竞争工作流排队及父子流程锁复用。"
     import workflow_processes as subject
+
+    supervisor_parent_self_test()
 
     def signal_release(path: Path) -> None:
         with path.open("w") as stream:
@@ -608,3 +610,37 @@ def process_group_boundary_findings(fixture: Path, read_line) -> list[str]:
         leader.wait(timeout=5)
         leader.stdout.close()
     return []
+
+
+def supervisor_parent_self_test() -> None:
+    from contextlib import redirect_stdout
+    import workflow_processes as subject
+
+    from itertools import product
+
+    for owns_group, reason in product((False, True), ("parent", "deadline")):
+        process = Mock(pid=123)
+        parents = [40, 1 if reason == "parent" else 40]
+        with (
+            patch.object(subject.os, "getppid", side_effect=parents),
+            patch.object(subject.os, "getpgrp", return_value=222),
+            patch.object(subject.signal, "signal"),
+            patch.object(subject.subprocess, "Popen", return_value=process),
+            patch.object(subject, "descendant_groups", return_value={456}),
+            patch.object(subject, "signal_groups"),
+            patch.object(subject, "stop_groups") as stopped,
+            redirect_stderr(StringIO()),
+            redirect_stdout(StringIO()),
+        ):
+            result = subject.supervise(
+                ["worker"],
+                {},
+                owns_process_group=owns_group,
+                deadline=1,
+                grace_seconds=0,
+                clock=lambda: 0 if reason == "parent" else 2,
+            )
+        assert result == (143 if reason == "parent" else 124)
+        assert stopped.call_args.args == ({123 if owns_group else 222, 456},)
+        assert stopped.call_args.kwargs["workers_only"] == (not owns_group)
+        process.wait.assert_called_once_with()

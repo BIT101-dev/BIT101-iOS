@@ -69,13 +69,6 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         defer {
-            let hierarchy = XCTAttachment(string: springboard.debugDescription)
-            hierarchy.name = "失败时的界面元素树：小组件系统元素树"
-            add(hierarchy)
-            let screenshot = XCTAttachment(screenshot: springboard.screenshot())
-            screenshot.name = "界面截图：小组件系统预览"
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
             XCUIDevice.shared.press(.home)
             app.activate()
         }
@@ -129,6 +122,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         XCTAssertEqual(actual["label"] as? String, expected.label)
         XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
         XCTAssertEqual(actual["enabled"] as? Bool, expected.isEnabled)
+        XCTAssertEqual(actual["selected"] as? Bool, expected.isSelected)
         XCTAssertEqual(element.isHittable, element.native.isHittable)
         let frame = try XCTUnwrap(actual["frame"] as? [Double])
         for (value, reference) in zip(
@@ -141,7 +135,6 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
 
     @MainActor
     func testRefreshStatusRowsUseConsistentGeometry() throws {
-        XCUIDevice.shared.orientation = .portrait
         for largeText in [false, true] {
             app = configureApp(
                 resetStorage: !largeText, restartProcess: largeText,
@@ -365,6 +358,12 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app.buttons["上一周"].tapBriefly()
         assertSelectedWeek(1)
         XCTAssertTrue(app.buttons["第1周"].native.isSelected)
+        let slider = app.descendants(matching: .any)["interaction.ScheduleInlineWeekSlider.scroll"]
+        let selected = try slider.selectedButtonIdentities().map { $0.0 + "\n" + $0.1 }.sorted()
+        let expectedSelected = try slider.native.snapshot().snapshots(matching: .button)
+            .filter(\.isSelected).map { $0.identifier + "\n" + $0.label }.sorted()
+        XCTAssertFalse(expectedSelected.isEmpty)
+        XCTAssertEqual(selected, expectedSelected)
         app.buttons["schedule.add-content"].native.press(forDuration: 0.01)
         UITestSnapshotReader.invalidate()
         app.native.buttons["添加日程"].firstMatch.press(forDuration: 0.01)
@@ -417,7 +416,6 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testScheduleKeepsWeek() {
         let device = XCUIDevice.shared
-        device.orientation = .portrait
         app = configureApp(resetStorage: true, school: true)
         let traits = windowTraits()
         let requiresPortrait =
@@ -425,7 +423,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
                 || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue)
         let isTablet = traits["idiom"] == UIUserInterfaceIdiom.pad.rawValue
-        defer { device.orientation = .portrait }
+        defer { device.orient(to: .portrait) }
         assertWeekCentered(1)
         app.buttons["第3周"].tapBriefly()
         assertSelectedWeek(3)
@@ -435,7 +433,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         replaceText("旋转保留课程草稿", in: draft)
         dismissKeyboard()
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
-            device.orientation = orientation
+            device.orient(to: orientation)
             UITestSnapshotReader.invalidate()
             assertUI(
                 draft.appears(timeout: 5) && draft.value as? String == "旋转保留课程草稿",
@@ -444,7 +442,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         tap("取消")
         tap("放弃输入")
         for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight, .portrait] {
-            device.orientation = orientation
+            device.orient(to: orientation)
             UITestSnapshotReader.invalidate()
             let add = app.buttons["schedule.add-content"]
             assertUI(

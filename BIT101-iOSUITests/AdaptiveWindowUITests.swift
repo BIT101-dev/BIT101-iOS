@@ -3,8 +3,8 @@ import XCTest
 extension LandscapeLayoutUITests {
     @MainActor @objc func testLandscapeEdgesAndColumnBoundaries() throws {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
-        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
-        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        if rotates { XCUIDevice.shared.orient(to: .landscapeLeft) }
+        defer { if rotates { XCUIDevice.shared.orient(to: .portrait) } }
         for style in ["Light", "Dark"] {
             app = configureApp(
                 resetStorage: true, userInterfaceStyle: style, ddlFixture: "sources", content: true,
@@ -14,7 +14,7 @@ extension LandscapeLayoutUITests {
             for orientation: UIDeviceOrientation in rotates
                 ? [.landscapeLeft, .landscapeRight] : [.unknown]
             {
-                if rotates { XCUIDevice.shared.orientation = orientation }
+                if rotates { XCUIDevice.shared.orient(to: orientation) }
                 assertUI(
                     waitUntil(
                         NSPredicate { _, _ in
@@ -225,8 +225,8 @@ extension LandscapeLayoutUITests {
     @MainActor
     @objc func testClassroomLoadingKeepsThePageBackground() {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
-        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
-        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        if rotates { XCUIDevice.shared.orient(to: .landscapeLeft) }
+        defer { if rotates { XCUIDevice.shared.orient(to: .portrait) } }
         app = configureApp(
             resetStorage: true, animations: true, school: true, classroomLoading: true)
         if app.native.windows.firstMatch.frame.height > app.native.windows.firstMatch.frame.width {
@@ -246,8 +246,8 @@ extension LandscapeLayoutUITests {
     @MainActor
     @objc func testMineSettingsFillAvailableDetailWidth() {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
-        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
-        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        if rotates { XCUIDevice.shared.orient(to: .landscapeLeft) }
+        defer { if rotates { XCUIDevice.shared.orient(to: .portrait) } }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true,
             initialTab: "mine", initialSettings: "account")
@@ -278,17 +278,17 @@ extension LandscapeLayoutUITests {
     @MainActor
     @objc func testScheduleChromeSurvivesRotations() {
         guard UIDevice.current.userInterfaceIdiom != .phone else { return }
-        defer { XCUIDevice.shared.orientation = .portrait }
+        defer { XCUIDevice.shared.orient(to: .portrait) }
         app = configureApp(
             resetStorage: true, ddlFixture: "sources", content: true, school: true,
             initialTab: "mine", initialSettings: "account")
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orient(to: .landscapeLeft)
         app.mainTab("日程").tapBriefly()
         for orientation: UIDeviceOrientation in [
             .portrait, .landscapeRight, .portraitUpsideDown,
             .landscapeLeft, .portrait, .landscapeRight,
         ] {
-            XCUIDevice.shared.orientation = orientation
+            XCUIDevice.shared.orient(to: orientation)
             assertUI(
                 waitUntil(
                     NSPredicate { _, _ in
@@ -338,9 +338,9 @@ extension LandscapeLayoutUITests {
             assertUI(app.mainTab("我的").isHittable, "竖向窗口保留主导航。")
             return
         }
-        defer { XCUIDevice.shared.orientation = .portrait }
+        defer { XCUIDevice.shared.orient(to: .portrait) }
         func showPortrait() {
-            XCUIDevice.shared.orientation = .portrait
+            XCUIDevice.shared.orient(to: .portrait)
             assertUI(
                 waitUntil(
                     NSPredicate { _, _ in
@@ -354,7 +354,7 @@ extension LandscapeLayoutUITests {
             func checkFirstRotation(firstID: String, title: String) {
                 let first = app.descendants(matching: .any)[firstID]
                 assertUI(first.appears(timeout: 5), "竖屏应显示浏览列表。")
-                XCUIDevice.shared.orientation = .landscapeLeft
+                XCUIDevice.shared.orient(to: .landscapeLeft)
                 let sort = app.native.segmentedControls.containing(.button, identifier: "最新")
                     .firstMatch
                 assertUI(
@@ -485,7 +485,6 @@ extension LandscapeLayoutUITests {
 
     @MainActor @objc func testAcademicBrowsersKeepTheSharedChrome() throws {
         let usesDeviceRotation = UIDevice.current.userInterfaceIdiom != .phone
-        if usesDeviceRotation { XCUIDevice.shared.orientation = .portrait }
         app = configureApp(resetStorage: true, content: true, animations: true, school: true)
         try requireLandscapeSupport()
         if usesDeviceRotation {
@@ -496,9 +495,9 @@ extension LandscapeLayoutUITests {
             app.mainTab("我的").native.press(forDuration: 0.01)
             assertCompactNavigation()
             app.mainTab("成绩").native.press(forDuration: 0.01)
-            XCUIDevice.shared.orientation = .landscapeLeft
+            XCUIDevice.shared.orient(to: .landscapeLeft)
         }
-        defer { if usesDeviceRotation { XCUIDevice.shared.orientation = .portrait } }
+        defer { if usesDeviceRotation { XCUIDevice.shared.orient(to: .portrait) } }
         assertUI(
             waitUntil(
                 NSPredicate { _, _ in

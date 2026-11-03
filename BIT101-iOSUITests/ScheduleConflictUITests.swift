@@ -142,7 +142,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @MainActor
     @objc func testGallerySurfaceChangesNavigation() {
         if UIDevice.current.userInterfaceIdiom != .phone {
-            XCUIDevice.shared.orientation = .portrait
+            XCUIDevice.shared.orient(to: .portrait)
         }
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         for surface in ["话题", "文章", "话题", "文章"] {
@@ -156,7 +156,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     @MainActor
     @objc func testCompactWindowKeepsSystemBars() {
         if UIDevice.current.userInterfaceIdiom != .phone {
-            XCUIDevice.shared.orientation = .portrait
+            XCUIDevice.shared.orient(to: .portrait)
         }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
@@ -180,8 +180,8 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
     }
     @MainActor
     @objc func testWindowChangesKeepInsets() throws {
-        XCUIDevice.shared.orientation = .landscapeLeft
-        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orient(to: .landscapeLeft)
+        defer { XCUIDevice.shared.orient(to: .portrait) }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         try XCTSkipIf((windowTraits()["divisionX"] ?? -1) < 0, "连续切换验收使用系统提供分隔区域的窗口。")
@@ -262,8 +262,8 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
 
     @MainActor @objc func testLandscapeDetailBackUseRightPanePane() throws {
         let rotates = UIDevice.current.userInterfaceIdiom != .phone
-        if rotates { XCUIDevice.shared.orientation = .landscapeLeft }
-        defer { if rotates { XCUIDevice.shared.orientation = .portrait } }
+        if rotates { XCUIDevice.shared.orient(to: .landscapeLeft) }
+        defer { if rotates { XCUIDevice.shared.orient(to: .portrait) } }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
         try requireLandscapeSupport()
@@ -344,14 +344,14 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
             "返回后应展示同一查询的空教室结果。")
         if UIDevice.current.userInterfaceIdiom != .phone {
             app.buttons["classroom.section-filter"].tapBriefly()
-            XCUIDevice.shared.orientation = .portrait
+            XCUIDevice.shared.orient(to: .portrait)
             assertUI(
                 filterNavigation.disappears(timeout: 5)
                     && app.buttons["classroom.section-filter"].exists,
                 "横屏筛选转入竖屏应恢复空教室查询页。")
             app.buttons["classroom.section-filter"].tapBriefly()
             assertUI(filterNavigation.waitForExistence(timeout: 5), "竖屏应打开同一节次筛选。")
-            XCUIDevice.shared.orientation = .landscapeLeft
+            XCUIDevice.shared.orient(to: .landscapeLeft)
             assertUI(
                 waitUntil(
                     NSPredicate { _, _ in
@@ -413,12 +413,12 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
 
     @MainActor func checkPortraitRoundTrip(detailTitle: String, reopen: () -> Void) {
         guard windowTraits()["idiom"] != UIUserInterfaceIdiom.phone.rawValue else { return }
-        XCUIDevice.shared.orientation = .portrait
+        XCUIDevice.shared.orient(to: .portrait)
         assertPortraitBrowser(detailTitle: detailTitle)
         reopen()
         assertUI(app.navigationBars[detailTitle].appears(timeout: 5), "竖屏浏览列表应继续打开所属详情。")
         assertPortraitDetailWidth()
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orient(to: .landscapeLeft)
     }
     @MainActor func assertPortraitBrowser(detailTitle: String) {
         let master = app.native.descendants(matching: .any)["browser.master"]
