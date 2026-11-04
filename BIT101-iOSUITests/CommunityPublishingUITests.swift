@@ -139,6 +139,13 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         swipeSheetHeader(app.navigationBars["发布帖子"])
         assertUI(app.textFields["标题"].value as? String == "测试草稿", "下拉关闭应保留草稿输入并等待明确关闭操作。")
         XCUIDevice.shared.press(.home)
+        let application = app.native as? XCUIApplication
+        assertUI(
+            waitUntil(
+                NSPredicate { _, _ in
+                    [.runningBackground, .runningBackgroundSuspended].contains(
+                        application?.state ?? .unknown)
+                }, on: app), "返回 App 前应完成后台切换。")
         app.activate()
         assertUI(app.textFields["标题"].value as? String == "测试草稿", "返回前台应保留编辑中的草稿。")
         tap("取消")
