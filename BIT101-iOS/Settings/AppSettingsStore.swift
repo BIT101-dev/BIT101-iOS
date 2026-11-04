@@ -122,13 +122,7 @@ final class AppSettingsStore: ObservableObject {
     nonisolated static let defaultAccountIdentifier = "__default__"
     /// 当前安装版本的更新内容版本号；每个版本展示一次。
     nonisolated static let currentStartupNoticeVersion: String = {
-        guard
-            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
-                as? String
-        else {
-            preconditionFailure("Startup notice requires the installed app version")
-        }
-        return version
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }()
     /// 更新内容公告已读状态保存在全局 key，账号切换后继续复用该状态。
     nonisolated static let startupNoticeSeenKey = "app.startup.notice.seen.version"

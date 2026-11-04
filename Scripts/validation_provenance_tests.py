@@ -30,7 +30,7 @@ def sampled_module_inputs_self_test() -> None:
     root = Path(__file__).resolve().parents[1]
     cloud = sampled_module_inputs("icloud")
     assert {"ScheduleSync", "StorageCore", "ScorePorts"} <= cloud and "CommunityUI" not in cloud
-    source = root / "BIT101-iOS/Schedule/ScheduleCloudSyncManager.swift"
+    source = root / "BIT101-iOS/Schedule/AppScheduleCloudSync.swift"
     original = Path.read_bytes
     try:
         with patch.object(

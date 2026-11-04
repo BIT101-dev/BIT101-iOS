@@ -55,6 +55,6 @@ public nonisolated enum AppEndpoints {
 
     /// 生成 `open.aihelpme.dev` 下的分享链接，例如 `course/12`。
     public static func openLink(_ path: String) -> URL {
-        AppURL.required("https://open.aihelpme.dev/\(path)")
+        openLinks.appendingPathComponent(path)
     }
 }
