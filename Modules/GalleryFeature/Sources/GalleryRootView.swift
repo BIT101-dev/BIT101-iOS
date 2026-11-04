@@ -223,7 +223,7 @@ private struct GalleryRootViewScene: View {
 
     private struct GalleryWebContentView: View {
         var body: some View {
-            GalleryWebView(url: AppURL.required("https://bit101.cn/gallery"))
+            GalleryWebView(url: AppEndpoints.bit101Web.appendingPathComponent("gallery"))
                 .ignoresSafeArea(.container, edges: .bottom)
         }
     }
@@ -512,7 +512,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
     private var credentialsUpdateInFlight = false
     private var failedCredentialCookie: String?
     private var hasLoadedDocument = false
-    private var retryURL = AppURL.required("https://bit101.cn/gallery")
+    private var retryURL = AppEndpoints.bit101Web.appendingPathComponent("gallery")
     private weak var recoveryAlert: UIAlertController?
 
     func start(in webView: WKWebView, url: URL) {
@@ -610,7 +610,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
         let encoded = String(decoding: try JSONEncoder().encode(cookie), as: UTF8.self)
         return """
             (() => {
-                if (location.origin !== 'https://bit101.cn') return false;
+                if (location.origin !== '\(AppEndpoints.bit101Web.absoluteString)') return false;
                 let store = {};
                 try {
                     const parsed = JSON.parse(localStorage.getItem('store') || '{}');

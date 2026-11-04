@@ -2,7 +2,7 @@
 
 ## 验收约定
 
-用户要求 UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作行为清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言验证。
+UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范围按控件与操作行为清点：点击、文本输入与键盘提交、选择与开关、列表滚动与下拉刷新、分区横滑、课表周次拖动、长按菜单、双指缩放、Sheet 下滑关闭，以及确认、取消、成功、失败和重试分支。日期、周次、评分等值域由控件类型与业务状态断言验证。
 
 - 用例分布在 [日程与社区流程](../BIT101-iOSUITests/LoginAndScheduleUITests.swift) 、[社区发布流程](../BIT101-iOSUITests/CommunityPublishingUITests.swift) 和 [综合交互流程](../BIT101-iOSUITests/InteractionCoverageUITests.swift)，共用 `UIAutomationTestCase`；[性能场景](../BIT101-iOSUITests/MaintenancePerformanceUITests.swift) 独立测量 App 启动与切周布局。
 - 完整批次顺序执行，各用例独立启动并结束 App 宿主，单个流程内复用进程并校验同一进程 ID；话廊偏好、学校 DDL 完成状态和自定义日程场景结束旧进程，以新进程恢复会话和磁盘数据。

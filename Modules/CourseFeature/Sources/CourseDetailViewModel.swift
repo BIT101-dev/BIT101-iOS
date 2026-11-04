@@ -490,7 +490,8 @@ final class CourseDetailViewModel: ObservableObject {
             return nil
         }
 
-        return URL(string: "https://onedrive.bit101.cn/zh-CN/course/\(pathComponent)")
+        let base = AppEndpoints.bit101OneDrive.absoluteString
+        return URL(string: "\(base)/zh-CN/course/\(pathComponent)")
     }
 
 }

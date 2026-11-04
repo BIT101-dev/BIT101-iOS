@@ -95,7 +95,7 @@
 | `Scripts/check-ui-consistency.py` | AST 作用域内的视觉令牌、主 App 布局、所有 Swift target 的字体使用、页面角色、公共组件、系统触感、错误报告入口和图片型操作控件的无障碍名称 |
 | `Scripts/check-code-quality.py` | 客户端工程规范：网络、日志、日期解析、取消处理、存储、源码与工程维护 |
 
-`Scripts/run-static-audit.sh` 汇总既有检查入口。每条规则及其派生检查由同一检查器维护，执行范围按用户要求选择。
+`Scripts/run-static-audit.sh` 汇总既有检查入口。每条规则及其派生检查由同一检查器维护，执行范围按当前改动选择。
 
 UI 检查器基于 SwiftSyntax 作用域解析渲染表达式和 View 调用树。页面角色表登记视图职责；新增、改名或拆分相关页面时，同步角色登记和对应自测。固定几何、图表预设颜色及模块例外通过所属源码契约维护。
 

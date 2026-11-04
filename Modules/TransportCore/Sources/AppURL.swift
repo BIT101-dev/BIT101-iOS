@@ -51,6 +51,8 @@ public nonisolated enum AppEndpoints {
     public static let bit101Login = AppURL.required("https://login.bit101.flwfdd.xyz")
     public static let feedbackReports = AppURL.required(
         "https://feedback.aihelpme.dev/api/error-reports")
+    public static let bit101Web = AppURL.required("https://bit101.cn")
+    public static let bit101OneDrive = AppURL.required("https://onedrive.bit101.cn")
     public static let openLinks = AppURL.required("https://open.aihelpme.dev")
 
     /// 生成 `open.aihelpme.dev` 下的分享链接，例如 `course/12`。

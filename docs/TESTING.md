@@ -50,7 +50,7 @@ Scripts/build-install-device.sh mac
 Scripts/build-install-device.sh install-archive /absolute/path/BIT101-iOS.xcarchive
 ```
 
-用户明确授权清洁安装时追加 `--clean`。覆盖安装保留应用容器，发布验收分别记录全新安装与从商店正式版覆盖升级的结果。截图覆盖 `.build/screenshot.png`。
+清洁安装时追加 `--clean`。覆盖安装保留应用容器，发布验收分别记录全新安装与从商店正式版覆盖升级的结果。截图覆盖 `.build/screenshot.png`。
 
 ## 包级与 App 行为测试
 
@@ -121,7 +121,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 
 `BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator runtime iOS 版本或构建号` 通过 Apple 官方组件服务安装指定 Apple silicon 运行时，并核对安装后的可用库存；平台参数同时支持 watchOS、tvOS、visionOS。下载记录覆盖 `.build/extended-automation/runtime.log`。`runtime upgrade [平台] 版本 设备UDID...` 原地迁移明确选择的设备并保留标识和数据，该平台旧运行时的全部设备完成迁移后回收对应旧镜像；`runtime prune [平台] 版本` 可独立执行迁移后的回收。省略平台时采用 iOS，各平台分别选定目标版本。`runtime info` 汇总设备和镜像库存。
 
-`simulator devices remove 目标设备UDID...` 移除明确选择且已关闭的设备，设备数据随移除清空。设备清理按用户授权的目标清单执行；运行时由 `runtime prune [平台] 版本` 单独维护。
+`simulator devices remove 目标设备UDID...` 移除明确选择且已关闭的设备，设备数据随移除清空。设备清理按目标清单执行；运行时由 `runtime prune [平台] 版本` 单独维护。
 
 `simulator devices clean 设备UDID...` 关闭指定设备并清理系统与 App 的 `Caches`、临时目录内容，保留目录权限、App、钥匙串、设置和持久文件；再次启动时系统按需生成缓存。
 

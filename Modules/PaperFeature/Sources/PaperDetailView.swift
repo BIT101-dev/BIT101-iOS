@@ -425,8 +425,8 @@ private struct PaperDetailViewScene: View {
             if hasOriginalLink {
                 Link(
                     "阅读完整原文",
-                    destination: AppURL.required(
-                        "https://bit101.cn/paper/\(initialPaper.id)")
+                    destination: AppEndpoints.bit101Web.appendingPathComponent(
+                        "paper/\(initialPaper.id)")
                 )
                 .font(AppDesignSystem.Typography.body)
                 .accessibilityIdentifier("ui.paper-content.original")

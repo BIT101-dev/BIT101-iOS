@@ -14,7 +14,8 @@ import TransportCore
 nonisolated enum GalleryWebRequestFactory {
     static func isTrustedPage(_ url: URL?) -> Bool {
         guard let url else { return false }
-        return url.scheme?.lowercased() == "https" && url.host?.lowercased() == "bit101.cn"
+        return url.scheme?.lowercased() == "https"
+            && url.host?.lowercased() == AppEndpoints.bit101Web.host
             && (url.port == nil || url.port == 443)
     }
 
