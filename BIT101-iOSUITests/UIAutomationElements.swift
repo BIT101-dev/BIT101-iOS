@@ -334,7 +334,7 @@ final class UIElement: NSObject {
 
     private func currentNativeSnapshot() -> (any XCUIElementSnapshot)? {
         if capturedGeneration == UITestSnapshotReader.generation { return capturedSnapshot }
-        capturedSnapshot = native.exists ? try? native.snapshot() : nil
+        capturedSnapshot = try? native.snapshot()
         capturedGeneration = UITestSnapshotReader.generation
         return capturedSnapshot
     }
@@ -658,45 +658,32 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        let query = native.buttons.matching(
-            NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
-        guard query.firstMatch.exists else { return UIElement(query.firstMatch) }
+        let labels = UITestMainNavigation.labels(title)
+        let query = native.buttons.matching(NSPredicate(format: "label IN %@", labels))
         let deadline = Date().addingTimeInterval(5)
         repeat {
-            let map = native.buttons["地图"].firstMatch
-            let mine = native.buttons["我的"].firstMatch
-            if map.exists && mine.exists {
+            guard let snapshot = try? native.snapshot() else { return UIElement(query.firstMatch) }
+            let buttons = snapshot.snapshots(matching: .button)
+            let candidates = buttons.filter { labels.contains($0.label) }
+            if candidates.isEmpty { return UIElement(query.firstMatch) }
+            func named(_ name: String) -> (any XCUIElementSnapshot)? {
+                buttons.first { $0.label == name || $0.identifier == name }
+            }
+            if let map = named("地图"), let mine = named("我的") {
                 let reference = map.frame
                 let horizontal = abs(reference.midY - mine.frame.midY) <= 1
-                if let match = matchingMainTabButton(
-                    in: query, reference: reference, horizontal: horizontal)
-                {
-                    return match
+                let index = candidates.firstIndex {
+                    horizontal
+                        ? abs($0.frame.midY - reference.midY) <= 1
+                        : abs($0.frame.midX - reference.midX) <= 1
                 }
+                if let index { return UIElement(query.element(boundBy: index)) }
             }
             UITestSnapshotReader.poll()
             UITestSnapshotReader.invalidate()
         } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
         return UIElement(query.firstMatch)
-    }
-
-    private func matchingMainTabButton(
-        in query: XCUIElementQuery,
-        reference: CGRect,
-        horizontal: Bool
-    ) -> UIElement? {
-        for button in query.allElementsBoundByIndex {
-            let frame = button.frame
-            let aligned =
-                horizontal
-                ? abs(frame.midY - reference.midY) <= 1
-                : abs(frame.midX - reference.midX) <= 1
-            if aligned {
-                return UIElement(button)
-            }
-        }
-        return nil
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
@@ -718,9 +705,19 @@ final class UIElement: NSObject {
     var maps: UIElementQuery { descendants(matching: .map) }
     var webViews: UIElementQuery { descendants(matching: .webView) }
 
-    func appears(timeout: TimeInterval) -> Bool { waitForPresence(true, timeout: timeout) }
-    func disappears(timeout: TimeInterval) -> Bool { waitForPresence(false, timeout: timeout) }
-    private func waitForPresence(_ presence: Bool, timeout: TimeInterval) -> Bool {
+    func appears(timeout: TimeInterval, line: UInt = #line, file: String = #fileID) -> Bool {
+        waitForPresence(true, timeout: timeout, line: line, file: file)
+    }
+    func disappears(timeout: TimeInterval, line: UInt = #line, file: String = #fileID) -> Bool {
+        waitForPresence(false, timeout: timeout, line: line, file: file)
+    }
+    private func waitForPresence(
+        _ presence: Bool, timeout: TimeInterval, line: UInt, file: String
+    ) -> Bool {
+        let started = ProcessInfo.processInfo.systemUptime
+        defer {
+            UITestSnapshotReader.recordTiming("wait.presence \(file):\(line)", since: started)
+        }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if exists == presence { return true }

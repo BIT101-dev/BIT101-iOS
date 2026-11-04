@@ -127,10 +127,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         return state
     }
     @MainActor
-    func tapHeader(_ element: UIElement) {
-        element.tapBriefly()
-    }
-    @MainActor
     func reveal(_ element: UIElement, description: String = "交互控件", searchFromTop: Bool = false) {
         let window = app.native.windows.firstMatch.frame
         func isVisible() -> Bool {
@@ -204,10 +200,13 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
 
     @MainActor
-    func waitUntil(_ predicate: NSPredicate, on element: UIElement, timeout: TimeInterval = 5)
-        -> Bool
-    {
+    func waitUntil(
+        _ predicate: NSPredicate, on element: UIElement, timeout: TimeInterval = 5,
+        line: UInt = #line, file: String = #fileID
+    ) -> Bool {
         if predicate.evaluate(with: element) { return true }
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { UITestSnapshotReader.recordTiming("wait.until \(file):\(line)", since: started) }
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             UITestSnapshotReader.poll()
@@ -215,12 +214,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if predicate.evaluate(with: element) { return true }
         } while Date() < deadline
         return false
-    }
-
-    @MainActor
-    func textElement(_ text: String) -> UIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
-            .firstMatch
     }
 
     @MainActor

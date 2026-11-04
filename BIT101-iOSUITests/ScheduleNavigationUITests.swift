@@ -733,7 +733,7 @@ extension UIAutomationTestCase {
             NSPredicate(format: "label IN %@", ["完成", "Done", "关闭", "Close"])
         ).firstMatch
         let ready = NSPredicate { _, _ in done.exists && !done.frame.isEmpty }
-        if !waitUntil(ready, on: done) {
+        if !waitUntil(ready, on: done, timeout: 1) {
             app.native.images.firstMatch.coordinate(
                 withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)
             ).tap()

@@ -335,6 +335,17 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
+    func tapHeader(_ element: UIElement) {
+        element.tapBriefly()
+    }
+
+    @MainActor
+    func textElement(_ text: String) -> UIElement {
+        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
+            .firstMatch
+    }
+
+    @MainActor
     func tap(_ title: String) {
         if title == "取消" { dismissKeyboard() }
         let response =
