@@ -671,7 +671,7 @@ extension NetworkClientTests {
         let store = NetworkDiagnosticStore(currentIdentity: { owner })
         let request = URLRequest(
             url: try #require(URL(string: "https://example.invalid/diagnostics")))
-        for character in ["中", "😀"] {
+        for character in ["中", "𐐀"] {
             for offset in 1..<character.utf8.count {
                 let prefix = String(repeating: "a", count: 256 * 1024 - offset)
                 await store.record(
@@ -681,7 +681,7 @@ extension NetworkClientTests {
             }
         }
         for (data, expected) in [
-            (Data("完整文本😀".utf8), "完整文本😀"), (Data([0xff, 0x00]), "[非文本响应，2 字节]"),
+            (Data("完整文本𐐀".utf8), "完整文本𐐀"), (Data([0xff, 0x00]), "[非文本响应，2 字节]"),
         ] {
             await store.record(
                 owner: owner, request: request, data: data, response: nil, error: nil, elapsed: 0)

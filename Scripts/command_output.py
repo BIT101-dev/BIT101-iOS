@@ -81,7 +81,7 @@ def useful_line(line):
         return False
     if line.startswith(("Test case ", "Test Case ")) and re.search(r"\bpassed(?: on | \(|$)", line):
         return False
-    if line.startswith(("◇ ", "✔ ")):
+    if line.startswith(("◇ ", "\u2714 ")):
         return False
     if (
         line.startswith(("Test case ", "Test suite ", "Test Case ", "Test Suite "))

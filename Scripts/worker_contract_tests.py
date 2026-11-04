@@ -188,7 +188,7 @@ def worker_boundary_findings() -> list[str]:
         'attachments[0].name.includes("attachment-secret"));\n    assert.equal((awai'
         't send({ mode: "sanitized", errorTitle: "fixture", errorMessage: "fixture",'
         ' build: { toString: null } })).status, 400);\n    for (const title of ["x".'
-        'repeat(1100), "\\u0000".repeat(1100), "🧪".repeat(1100)]) {\n      const res'
+        'repeat(1100), "\\u0000".repeat(1100), "𐐀".repeat(1100)]) {\n      const res'
         'ponse = await send({ mode: "sanitized", errorTitle: title, errorMessage: "f'
         'ixture",\n        appVersion: "\\u0000".repeat(1100), build: "1" });\n     '
         " assert.equal(response.status, 201);\n      const id = (await response.json"
@@ -687,11 +687,11 @@ def worker_boundary_findings() -> list[str]:
         's://feedback.invalid/api/error-reports", {\n    method: "DELETE", headers: '
         '{ "CF-Connecting-IP": "192.0.2.1" }, body: deletionStream, duplex: "half"\n'
         "  }), emailEnv)).status, 413);\n  assert(cancelled && chunks <= 4);\n  cons"
-        "t utf8 = new TextEncoder().encode('文章😀');\n  const split = new ReadableStre"
+        "t utf8 = new TextEncoder().encode('文章𐐀');\n  const split = new ReadableStre"
         "am({ start(controller) {\n    for (const byte of utf8) controller.enqueue(n"
         "ew Uint8Array([byte]));\n    controller.close();\n  }});\n  assert.equal(aw"
         'ait readReportBody(new Request("https://feedback.invalid", { method: "POST"'
-        ", body: split, duplex: \"half\" })), '文章😀');\n  let source = fs.readFileSyn"
+        ", body: split, duplex: \"half\" })), '文章𐐀');\n  let source = fs.readFileSyn"
         'c("../OpenWorker/worker.js", "utf8");\n  const iconImport = source.match(/^'
         'import shareIcon from "([^"]+)";/);\n  assert(iconImport, "Share icon must '
         'use the app asset");\n  const png = fs.readFileSync(require("node:path").re'

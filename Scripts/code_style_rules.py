@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import ast
 import re
+import regex
 from pathlib import Path
 
 LINE_LIMIT = 100
 NAME_LIMIT = 42
 DEPTH_LIMIT = 4
+EMOJI = regex.compile(
+    r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3"
+)
 CODE_SUFFIXES = {".swift", ".py", ".sh", ".js"}
 
 
@@ -38,6 +42,14 @@ def line_findings(name: str, source: str) -> list[str]:
         issue(name, line, f"行长 {len(text)} 字符，上限为 {LINE_LIMIT}")
         for line, text in enumerate(source.splitlines(), 1)
         if len(text) > LINE_LIMIT
+    ]
+
+
+def emoji_findings(name: str, source: str) -> list[str]:
+    return [
+        issue(name, number, "包含 Emoji；请使用文字或 SF Symbol")
+        for number, text in enumerate(source.splitlines(), 1)
+        if EMOJI.search(text)
     ]
 
 
@@ -219,7 +231,11 @@ def style_findings(contents: dict[str, str]) -> list[str]:
     sources = {name: text for name, text in contents.items() if is_code(name)}
     swift = {name: text for name, text in sources.items() if name.endswith(".swift")}
     facts = swift_syntax_index_sources(swift) if swift else {}
-    findings = []
+    findings = [
+        finding
+        for name, source in contents.items()
+        for finding in emoji_findings(name, source)
+    ]
     for name, source in sources.items():
         findings.extend(line_findings(name, source))
         suffix = Path(name).suffix

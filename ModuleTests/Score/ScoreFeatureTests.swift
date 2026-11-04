@@ -310,7 +310,7 @@ struct ScoreFeatureTests {
     @Test(arguments: [
         ("", false), ("1", false), ("123", false), ("1234", true),
         ("12345678", true), ("123456789", false), ("12a34", false), (" 1234\n", false),
-        ("１２３４", false), ("١٢٣٤", false), ("①②③④", false), ("1️⃣234", false),
+        ("１２３４", false), ("١٢٣٤", false), ("①②③④", false), ("1́234", false),
     ])
     func sharedVerificationCodeValidation(_ sample: (String, Bool)) {
         #expect(AppVerificationCode.isValid(sample.0) == sample.1)
@@ -319,7 +319,7 @@ struct ScoreFeatureTests {
     @Test(arguments: [
         ("", ""), ("1234", "1234"), ("12a 34\n", "1234"),
         ("1234567890", "12345678"), ("a1b2c3d4e5f6g7h8i9", "12345678"),
-        ("１２٣٤５６", "123456"), ("𝟙𝟚𝟛𝟜", "1234"), ("①②³Ⅳ½", ""), ("1️⃣234", "234"),
+        ("１２٣٤５６", "123456"), ("𝟙𝟚𝟛𝟜", "1234"), ("①②³Ⅳ½", ""), ("1́234", "234"),
     ])
     func sharedVerificationCodeNormalization(_ sample: (String, String)) {
         let normalized = AppVerificationCode.normalize(sample.0)

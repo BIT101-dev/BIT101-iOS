@@ -83,7 +83,7 @@ struct ExtendedSchedulePolicyTests {
                 courses: try ScheduleCourseEditor.adding(
                     CourseDraft(title: "课程", weeksText: "1"), to: [], term: "term", id: "course"),
                 exams: [], updatedAt: .distantPast))
-        let oversized = String(repeating: "👨‍👩‍👧‍👦报告", count: 1_000)
+        let oversized = String(repeating: "क्‍ष报告", count: 1_000)
         cache.ddlEvents = [
             .init(
                 id: "blank", group: "lexue", title: " \n", text: "", dueAt: .distantFuture,

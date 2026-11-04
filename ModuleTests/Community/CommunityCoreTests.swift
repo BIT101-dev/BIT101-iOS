@@ -117,7 +117,7 @@ struct CommunityCoreTests {
     @Test func displayBudgetsRetainValidMultibyteText() {
         for text in [
             String(repeating: "A", count: 100_000), String(repeating: "中", count: 100_000),
-            String(repeating: "👨‍👩‍👧‍👦é", count: 10_000),
+            String(repeating: "क्‍षé", count: 10_000),
         ] {
             let preview = CommunityTextLimits.displayText(text, preview: true)
             let full = CommunityTextLimits.displayText(text)
@@ -137,7 +137,7 @@ struct CommunityCoreTests {
                 String(repeating: "A", count: CommunityTextLimits.maximumDisplayBytes)))
     }
 
-    @Test(arguments: [("e\u{0301}", 1), ("🇨🇳", 4), ("👨‍👩‍👧‍👦", 4)])
+    @Test(arguments: [("e\u{0301}", 1), ("é̂", 4), ("क्‍ष", 4)])
     func displayBudgetsKeepBoundary(character: String, partialBytes: Int) {
         let prefix = String(
             repeating: "A", count: CommunityTextLimits.maximumPreviewBytes - 3 - partialBytes)

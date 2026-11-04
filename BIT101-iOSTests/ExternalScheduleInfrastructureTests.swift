@@ -386,7 +386,7 @@ struct ExternalScheduleInfrastructureTests {
                 CourseReminderActivityAttributes.ContentState.self,
                 from: encoder.encode(state)) == state)
     }
-    @Test(arguments: ["中文课程", "\"\\\n/", "👨‍👩‍👧‍👦é"])
+    @Test(arguments: ["中文课程", "\"\\\n/", "क्‍षé"])
     func liveActivityPayloadBudget(text: String) throws {
         let attributes = CourseReminderActivityAttributes(studentID: "activity-account")
         let long = String(repeating: text, count: 4_096)

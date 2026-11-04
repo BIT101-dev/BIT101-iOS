@@ -251,7 +251,7 @@ struct NativeSchoolScoreTests {
 
     @Test func schoolHtmlReferencesDecodeOnceTextForms() throws {
         for (encoded, expected) in [
-            ("&amp;lt;", "&lt;"), ("&amp;#65;", "&#65;"), ("&#65;&#x1F600;", "A😀"),
+            ("&amp;lt;", "&lt;"), ("&amp;#65;", "&#65;"), ("&#65;&#x10400;", "A𐐀"),
             ("&#X41;&unknown;", "A&unknown;"), ("&quot;&apos;&amp;", "\"'&"),
         ] {
             #expect(SchoolLoginHTMLParser.decodeHTML(encoded) == expected)

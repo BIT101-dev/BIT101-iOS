@@ -2,9 +2,11 @@
 
 from code_style_rules import (
     check_name,
+    emoji_findings,
     line_findings,
     python_findings,
     swift_findings,
+    style_findings,
     tree_findings,
 )
 
@@ -14,6 +16,16 @@ def self_test() -> None:
     from code_format_tests import self_test as format_self_test
 
     format_self_test()
+
+    assert emoji_findings("text.md", "中文 ABC 123 # * → ±") == []
+    assert style_findings({"README.md": chr(0x1F600)})
+    for text in (
+        "\U0001f600", "\U0001f44d\U0001f3fd", "\U0001f1e8\U0001f1f3",
+        "1\ufe0f\u20e3", "*\u20e3", "\u2764\ufe0f", "\U0001f469\u200d\U0001f4bb",
+    ):
+        assert emoji_findings("text.md", "title\n" + text) == [
+            "text.md:2: 包含 Emoji；请使用文字或 SF Symbol"
+        ]
 
     assert line_findings("file.py", "界" * 100) == []
     assert len(line_findings("file.py", "界" * 101)) == 1
