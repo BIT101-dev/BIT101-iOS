@@ -20,7 +20,7 @@ extension LandscapeLayoutUITests {
                         NSPredicate { _, _ in
                             let frame = self.app.windows.firstMatch.frame
                             return frame.width > frame.height
-                        }, on: app, timeout: 10), "边界验收应处于横屏窗口。")
+                        }, on: app, timeout: 10), "界限验收应处于横屏窗口。")
                 navigationWidth = nil
                 sidebarWidth = nil
                 navigationBackground = nil
@@ -37,7 +37,7 @@ extension LandscapeLayoutUITests {
                                     && abs(pane.frame.maxX + trailingInset - expectedDivider) <= 1
                             }, on: app, timeout: 5),
                         """
-                        分栏应沿当前设备的统一边界排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)，内缩\
+                        分栏应沿当前设备的统一界限排列：\(identifier)，实际 \(pane.frame)，目标 \(expectedDivider)，内缩\
                          \(trailingInset)。
                         """
                     )

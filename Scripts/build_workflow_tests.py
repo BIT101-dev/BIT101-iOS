@@ -306,7 +306,7 @@ def verify_cache_build_action(
         return
     debug_format = [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")]
     if debug_format != expected:
-        findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档边界")
+        findings.append("缓存自测：开发 DWARF、显式符号设置和发行归档界限")
     expected_mode = [value for value in settings if value.startswith("SWIFT_COMPILATION_MODE=")]
     compilation_mode = [
         value for value in builds[-1] if value.startswith("SWIFT_COMPILATION_MODE=")
@@ -327,7 +327,7 @@ def verify_cache_build_action(
 
 
 def build_cache_boundary_findings() -> list[str]:
-    "验证缓存合并、热文件保留、链接复用和清理边界。"
+    "验证缓存合并、热文件保留、链接复用和清理界限。"
 
     from compiler_cache import run_cache
 

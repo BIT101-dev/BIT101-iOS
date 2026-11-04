@@ -295,7 +295,7 @@ final class PaperListViewModel: PaperCollectionViewModel {
 }
 
 @MainActor
-/// 搜索页持有独立集合，空查询沿搜索语义清空结果。
+/// 搜索页持有独立集合，空查询沿搜索含义清空结果。
 final class PaperSearchViewModel: PaperCollectionViewModel {
 
     init(service: any PaperListServicing) {

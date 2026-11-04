@@ -4,7 +4,7 @@ import UIKit
 
 /// App 内部 UI 的唯一基础样式来源。
 ///
-/// 业务页面选择语义化的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
+/// 业务页面选择按用途命名的间距、圆角、颜色和卡片变体，公共值由本系统统一定义。
 extension AppDesignSystem {
     public enum Motion {
         public static func selection(reduceMotion: Bool) -> Animation? {

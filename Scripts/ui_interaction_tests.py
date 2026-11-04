@@ -366,7 +366,7 @@ def interaction_inventory_boundary_findings() -> list[str]:
     if not source_runtime_interaction_findings(
         original, manifest, [dict(evidence[0], label="另一个入口")]
     ):
-        findings.append("UI 清单自测：标题按完整语义匹配")
+        findings.append("UI 清单自测：标题按完整含义匹配")
     duplicate = swift_syntax_index_sources(
         {
             path: (
@@ -449,7 +449,7 @@ def interaction_inventory_boundary_findings() -> list[str]:
             for key, controls in interaction_source_inventory(hidden).items()
         }
         if not source_runtime_interaction_findings(hidden, hidden_manifest, []):
-            findings.append("UI 清单自测：输入、选择及动态标题需要实际身份合同")
+            findings.append("UI 清单自测：输入、选择及动态标题需要实际身份约定")
     for kind, invocation, expected in [
         ("TextField", 'TextField("输入", text: .constant(""))', "input"),
         ("SecureField", 'SecureField("输入", text: .constant(""))', "input"),
@@ -749,7 +749,7 @@ def native_runtime_boundary_findings(path: str) -> list[str]:
         if not source_runtime_interaction_findings(
             syntax, manifest, []
         ) or source_runtime_interaction_findings(syntax, manifest, [row]):
-            findings.append("UI 原生运行自测：隐式构造、别名、继承、只读正文和回调保留证据合同")
+            findings.append("UI 原生运行自测：隐式构造、别名、继承、只读正文和回调保留证据约定")
     source = (
         "class Timeline: UIScrollView { let pinch = UIPinchGestureRecognizer(); init() { accessibi"
         'lityIdentifier = "timeline"; addGestureRecognizer(pinch) } }; class Screen { func build()'

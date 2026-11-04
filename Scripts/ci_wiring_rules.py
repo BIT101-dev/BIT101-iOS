@@ -172,7 +172,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             source.replace("summary --recorded-environment", "summary", 1)
         )
     ):
-        return ["代码质量规则边界自检失败：CI 证据汇总的执行环境口径"]
+        return ["代码质量规则界限自检失败：CI 证据汇总的执行环境标准"]
     review_start = source.index("      - name: Verify maintainer review commit")
     review_end = source.index("      - name: Show toolchain", review_start)
     review = source[review_start:review_end]
@@ -180,7 +180,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     position = reordered.index("      - name: Load target branch coverage baseline")
     reordered = reordered[:position] + review + reordered[position:]
     if not any("先于依赖安装" in item for item in ci_wiring_findings(reordered)):
-        return ["代码质量规则边界自检失败：审查提交核对与依赖安装顺序"]
+        return ["代码质量规则界限自检失败：审查提交核对与依赖安装顺序"]
     if not any(
         "诊断" in item
         for item in ci_wiring_findings(
@@ -190,9 +190,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             )
         )
     ):
-        return ["代码质量规则边界自检失败：CI 原始附件留存门禁"]
+        return ["代码质量规则界限自检失败：CI 原始附件留存门禁"]
     if not ci_wiring_findings(source.replace("          clean: false", "          clean: true")):
-        return ["代码质量规则边界自检失败：CI 共享缓存保留门禁"]
+        return ["代码质量规则界限自检失败：CI 共享缓存保留门禁"]
     mutations = [
         re.sub(r"(?m)^  pull_request:.*\n", "", source),
         re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),
@@ -214,7 +214,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             source.replace("  pull_request:\n", f"  pull_request:\n    types: {types}\n")
         )
     findings = [
-        "代码质量规则边界自检失败：CI 自动触发与 shell 继承门禁"
+        "代码质量规则界限自检失败：CI 自动触发与 shell 继承门禁"
         for changed in mutations
         if not ci_wiring_findings(changed)
     ]
@@ -234,7 +234,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 count=1,
             )
             if not any("诊断上传" in item for item in ci_wiring_findings(omitted)):
-                findings.append(f"代码质量规则边界自检失败：{name} 的必要诊断文件")
+                findings.append(f"代码质量规则界限自检失败：{name} 的必要诊断文件")
         compressed = re.sub(
             (
                 f"(?s)(  "
@@ -247,7 +247,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             count=1,
         )
         if not any("始终保存原始文件" in item for item in ci_wiring_findings(compressed)):
-            findings.append(f"代码质量规则边界自检失败：{name} 的原始诊断上传")
+            findings.append(f"代码质量规则界限自检失败：{name} 的原始诊断上传")
         private_paths = {
             ".build/extended-automation/validation-evidence.json",
             ".build/extended-automation/**",
@@ -266,7 +266,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 count=1,
             )
             if not any("诊断上传" in item for item in ci_wiring_findings(exposed)):
-                findings.append(f"代码质量规则边界自检失败：{name} 的历史附件隔离")
+                findings.append(f"代码质量规则界限自检失败：{name} 的历史附件隔离")
     cache_start = source.index("      - name: Preserve native compilation cache")
     cache_end = source.index("      - name: ", cache_start + 8)
     cache_step = source[cache_start:cache_end]
@@ -346,7 +346,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 count=1,
             )
             if not any("隔离运行器" in item for item in ci_wiring_findings(unsafe)):
-                findings.append(f"代码质量规则边界自检失败：{name} 的运行器隔离")
+                findings.append(f"代码质量规则界限自检失败：{name} 的运行器隔离")
         discarded = re.sub(
             rf"(?s)(  {name}:.*?)          clean: false",
             r"\1          clean: true",
@@ -354,7 +354,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             count=1,
         )
         if not any("保留公共缓存" in item for item in ci_wiring_findings(discarded)):
-            findings.append(f"代码质量规则边界自检失败：{name} 的编译缓存保存")
+            findings.append(f"代码质量规则界限自检失败：{name} 的编译缓存保存")
     for name in (
         "static-audit",
         "release-build",
@@ -379,9 +379,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 count=1,
             )
             if not any("完整提交历史" in item for item in ci_wiring_findings(changed)):
-                findings.append(f"代码质量规则边界自检失败：{name} 的完整仓库检出")
+                findings.append(f"代码质量规则界限自检失败：{name} 的完整仓库检出")
     if not ci_wiring_findings(workflow_source.replace("run: npm ci", "run: echo skipped", 1)):
-        findings.append("代码质量规则边界自检失败：Worker 冷启动依赖准备")
+        findings.append("代码质量规则界限自检失败：Worker 冷启动依赖准备")
     for command in (
         "Scripts/run-extended-tests.sh verify audit modules",
         "Scripts/run-extended-tests.sh build network-smoke",
@@ -399,12 +399,12 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 f"        run: {command}", f"        {modifier}\n        run: {command}"
             )
             if not ci_wiring_findings(skipped):
-                findings.append("代码质量规则边界自检失败：CI 步骤条件与失败传播门禁")
+                findings.append("代码质量规则界限自检失败：CI 步骤条件与失败传播门禁")
     downgraded_release = workflow_source.replace(
         "  release-acceptance:\n", "  release-acceptance:\n    continue-on-error: true\n"
     )
     if not ci_wiring_findings(downgraded_release):
-        findings.append("代码质量规则边界自检失败：发布验收的失败传播")
+        findings.append("代码质量规则界限自检失败：发布验收的失败传播")
     for job in ("release-build", "ios-app-tests"):
         serialized = re.sub(
             r"(?m)(^  " + job + r":\n)(?:    needs:.*\n)?",
@@ -441,7 +441,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     )
     misplaced_audit += "\n# Scripts/run-extended-tests.sh verify audit modules\n"
     if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
-        findings.append("代码质量规则边界自检失败：CI 注释中的审计标记隔离")
+        findings.append("代码质量规则界限自检失败：CI 注释中的审计标记隔离")
     skipped_catalyst = workflow_source.replace(
         "run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
         "run: echo skipped",
@@ -450,7 +450,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not any(
         "Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)
     ):
-        findings.append("代码质量规则边界自检失败：并行 Catalyst 行为用例执行门禁")
+        findings.append("代码质量规则界限自检失败：并行 Catalyst 行为用例执行门禁")
     for before, after in (
         ("timeout-minutes: 105", "timeout-minutes: 20"),
         ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
@@ -471,7 +471,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         ),
     ):
         if not ci_wiring_findings(workflow_source.replace(before, after)):
-            findings.append("代码质量规则边界自检失败：完整模拟器合并验收与发布真机分支")
+            findings.append("代码质量规则界限自检失败：完整模拟器合并验收与发布真机分支")
     assert ci_wiring_findings(
         workflow_source.replace("run: Scripts/run-extended-tests.sh simulator merge", "run: true")
     )
@@ -484,7 +484,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         ("npm ci", "npm  ci"),
     ):
         if ci_wiring_findings(workflow_source.replace(before, after)):
-            findings.append("代码质量规则边界自检失败：CI 命令参数间距保持执行合同")
+            findings.append("代码质量规则界限自检失败：CI 命令参数间距保持执行约定")
     for replacement in (
         "\"'Scripts/build-install-device.sh toolchain'\"",
         "Scripts/build-install-device.sh toolchain extra",
@@ -494,7 +494,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 "run: Scripts/build-install-device.sh toolchain", "run: " + replacement
             )
         ):
-            findings.append("代码质量规则边界自检失败：CI 可执行文件与参数边界")
+            findings.append("代码质量规则界限自检失败：CI 可执行文件与参数界限")
     for job in ("static-audit", "release-build", "catalyst-tests", "ios-app-tests"):
         changed = re.sub(
             r"(?s)(  " + job + r":.*?timeout-minutes:) \d+", r"\1 20", workflow_source, count=1
@@ -502,7 +502,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
         if not any(
             job + " Job 需要覆盖所属执行及恢复预算" in item for item in ci_wiring_findings(changed)
         ):
-            findings.append(f"代码质量规则边界自检失败：{job} 执行预算")
+            findings.append(f"代码质量规则界限自检失败：{job} 执行预算")
     release_minimum = workflow_timeout_seconds(("build-archive", "network", "icloud")) // 60 + 10
     for timeout, expected in ((45, True), (release_minimum - 1, True), (release_minimum, False)):
         changed = re.sub(
@@ -516,7 +516,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             for item in ci_wiring_findings(changed)
         )
         if actual != expected:
-            findings.append("代码质量规则边界自检失败：Release 多构建流程预算边界")
+            findings.append("代码质量规则界限自检失败：Release 多构建流程预算界限")
     return findings
 
 

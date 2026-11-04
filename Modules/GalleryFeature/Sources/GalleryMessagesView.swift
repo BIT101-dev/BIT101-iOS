@@ -367,7 +367,7 @@ private struct GalleryMessageRow: View {
 
 /// 消息头像。
 ///
-/// 系统消息使用消息类型对应的语义图标作为头像回退。
+/// 系统消息使用消息类型对应的含义图标作为头像回退。
 private struct GalleryMessageAvatarView: View {
     let user: GalleryMessageUser
     let type: GalleryMessageType

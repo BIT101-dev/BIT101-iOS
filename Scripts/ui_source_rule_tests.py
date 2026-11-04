@@ -548,7 +548,7 @@ struct AppFixedColumnItem {}
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)
     if len(row_findings) != 11:
         findings.append(
-            f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串边界应报告 11 项，实际 {len(row_findings)} 项"
+            f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串界限应报告 11 项，实际 {len(row_findings)} 项"
         )
     return findings
 

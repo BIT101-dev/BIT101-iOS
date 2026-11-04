@@ -251,7 +251,7 @@ final class ScheduleLiveActivityManager {
             )
         }
 
-        // 先安排进程可执行时的提醒边界任务，再同步当前状态。
+        // 先安排进程可执行时的提醒界限任务，再同步当前状态。
         // 系统恢复执行或 App 回到前台时重新计算；本地通知承接挂起期间的提醒。
         scheduleNextRefresh(for: occurrences, leadMinutes: leadMinutes)
         displayedOccurrenceEnd(currentOccurrence)
@@ -388,7 +388,7 @@ final class ScheduleLiveActivityManager {
 
     /// 安排下一次刷新。
     ///
-    /// 刷新任务关注两个边界：
+    /// 刷新任务关注两个界限：
     /// - 某条课/日程进入提醒窗口
     /// - 某条课/日程正式开始，提醒结束
     private func scheduleNextRefresh(
@@ -518,10 +518,10 @@ final class ScheduleLiveActivityManager {
         }
     }
 
-    /// 根据下一次提醒边界，给 BGAppRefreshTask 提供一个建议的最早启动时间。
+    /// 根据下一次提醒界限，给 BGAppRefreshTask 提供一个建议的最早启动时间。
     ///
     /// 该值表示系统可开始安排后台时间的最早时刻，实际启动时间由系统后台调度策略决定。
-    /// 申请时间比真实边界提前 5 分钟。
+    /// 申请时间比真实界限提前 5 分钟。
     func backgroundRefreshDate() async throws -> Date? {
         let loaded = try await context.loadCurrentCache()
         guard loaded.session.signedIn else { return nil }

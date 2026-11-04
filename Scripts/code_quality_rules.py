@@ -857,7 +857,7 @@ def scheme_inventory_findings(schemes: dict[str, str]) -> list[str]:
             errors.append(f"{name}: 共享 Scheme 需要有效 XML")
             continue
         if key in owners:
-            errors.append(f"{name}: 共享 Scheme 与 {owners[key]} 的运行合同重复")
+            errors.append(f"{name}: 共享 Scheme 与 {owners[key]} 的运行约定重复")
         else:
             owners[key] = name
     return errors

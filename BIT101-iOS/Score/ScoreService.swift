@@ -11,16 +11,11 @@ extension ScoreService {
         nativeAuthenticator: any SchoolServiceAuthenticating = AppNativeSchoolAuthentication.shared,
         schoolHTTPClient: HTTPClient = HTTPClient(transport: NetworkSessionPool.schoolCAS)
     ) {
-        let configured = (Bundle.main.object(forInfoDictionaryKey: "BIT101BitLoginURL") as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let endpoint =
-            configured.flatMap(URL.init(string:))
-            ?? AppURL.required("https://login.bit101.flwfdd.xyz")
         self.init(
             credentials: AppAccountSession.storage,
             httpClient: authenticationHTTPClient,
             sensitiveHTTPClient: HTTPClient(transport: NetworkSessionPool.sensitiveDownloads),
-            endpointBaseURL: endpoint,
+            endpointBaseURL: AppEndpoints.bit101Login,
             nativeAuthenticator: nativeAuthenticator,
             nativeHTTPClient: schoolHTTPClient
         )

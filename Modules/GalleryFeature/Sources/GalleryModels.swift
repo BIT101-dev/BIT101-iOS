@@ -102,7 +102,7 @@ public enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
 
     /// 返回 feed 请求所需的 `uid` 参数。
     ///
-    /// 最新流复用搜索接口并使用 `-1`，保持公开帖子语义。
+    /// 最新流复用搜索接口并使用 `-1`，保持公开帖子含义。
     public var requestUID: Int? {
         switch self {
         case .newest:

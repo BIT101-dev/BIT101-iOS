@@ -471,7 +471,7 @@ private struct PaperDetailViewScene: View {
     }
 
     private var paperShareURL: URL {
-        AppURL.required("https://open.aihelpme.dev/paper/\(initialPaper.id)")
+        AppEndpoints.openLink("paper/\(initialPaper.id)")
     }
 
     private var inlineImages: [PaperInlineImage] {

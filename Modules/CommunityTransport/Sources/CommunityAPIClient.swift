@@ -121,7 +121,7 @@ public nonisolated struct CommunityAPIResponse<Value: Sendable>: Sendable {
     }
 }
 
-/// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 边界。
+/// `CommunityAPIClient` 统一处理 BIT101 社区后端的认证、URL、HTTP 状态码和 JSON 界限。
 public struct CommunityAPIClient<Failure: CommunityAPIServiceError> {
     private let baseURL: URL
     private let httpClient: HTTPClient

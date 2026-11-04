@@ -96,7 +96,7 @@ def asynchronous_wait_self_test(wait_path) -> None:
     source = support.read_text()
     facts = swift_syntax_index_sources({str(support): source})[str(support)]
     if asynchronous_test_wait_findings(support, source, facts):
-        findings.append("异步事件等待自测：共享等待实现沿行为回归验收")
+        findings.append("异步事件等待自测：共享等待实现沿行为复测验收")
     source += "\nfunc other() async { while pending == nil { await Task.yield() } }\n"
     facts = swift_syntax_index_sources({str(support): source})[str(support)]
     if len(asynchronous_test_wait_findings(support, source, facts)) != 1:
@@ -361,7 +361,7 @@ def literal_masking_self_test() -> None:
     source = 'let address = "https://literal-boundary.example/path"; /* /comment/ */\nlet value = 1'
     with patch(
         "swift_source_index._run_swift_syntax_index",
-        side_effect=AssertionError("文字与注释沿词法边界处理"),
+        side_effect=AssertionError("文字与注释沿词法界限处理"),
     ):
         masked = swift_code(source)
     assert "literal-boundary" not in masked and masked.endswith("let value = 1")

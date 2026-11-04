@@ -113,7 +113,7 @@ extension ScheduleViewModel {
 
     /// 在“我的课表”和导入课表之间循环切换。
     ///
-    /// 采用 loop 语义：向上或向下滑动到边界后回卷。
+    /// 采用 loop 含义：向上或向下滑动到界限后回卷。
     func cycleCourseSchedule(step: Int) {
         let variants = courseSchedules
         guard variants.count > 1 else { return }

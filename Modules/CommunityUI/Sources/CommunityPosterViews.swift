@@ -2,7 +2,7 @@ import CommunityCore
 import Foundation
 import MediaKit
 
-/// 社区图片在媒体边界投影为下载地址。
+/// 社区图片在媒体界限投影为下载地址。
 extension CommunityImage {
     public var previewImage: RemotePreviewImage {
         RemotePreviewImage(
@@ -401,7 +401,7 @@ public struct CommunityImageThumbnail: View {
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
-    /// 保留课程评论原有尺寸语义；话廊图片使用上面的自适应初始化器。
+    /// 保留课程评论原有尺寸含义；话廊图片使用上面的自适应初始化器。
     public init(
         image: CommunityImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat
     ) {

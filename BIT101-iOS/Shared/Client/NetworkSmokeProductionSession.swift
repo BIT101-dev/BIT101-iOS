@@ -115,7 +115,7 @@ enum NetworkSmokeProductionSession {
         var selected = original
         let client = HTTPClient(transport: NetworkSessionPool.productionCommunity)
         let session = CommunitySession(
-            httpClient: client, baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            httpClient: client, baseURL: AppEndpoints.bit101,
             credentials: { selected }, refresh: { _ in throw MineServiceError.notLoggedIn })
         let mine = MineService(
             session: session, preferences: { AppCommunityDependencies.preferenceSnapshot })

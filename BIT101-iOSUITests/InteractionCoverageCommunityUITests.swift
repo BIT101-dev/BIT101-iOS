@@ -365,7 +365,7 @@ nonisolated final class ServiceInteractionUITests: UIAutomationTestCase {
             "下滑应保留等待中的建议与结果上下文。")
         assertUI(
             UITestControlClient.request(["command": "release-request", "key": "feedback"])
-                == "released", "传输夹具应完成原请求。")
+                == "released", "传输测试数据应完成原请求。")
         assertUI(page.disappears(timeout: 5), "提交成功应完成建议流程。")
     }
 

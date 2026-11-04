@@ -128,7 +128,7 @@ public nonisolated struct DeveloperSuggestionDraftSnapshot: ComposerDraftSnapsho
     }
 }
 
-/// 清理操作捕获提交所属账号和草稿版本，异步执行语义由公共契约统一。
+/// 清理操作捕获提交所属账号和草稿版本，异步执行含义由公共契约统一。
 public typealias ComposerDraftCleanup = @Sendable () async -> Bool
 
 public nonisolated struct PaperComposerDraftSnapshot: Codable, Equatable, Sendable {

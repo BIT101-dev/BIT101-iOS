@@ -157,7 +157,7 @@ extension UIAutomationTestCase {
             let bottom = hasBottomBar ? bar.minY : window.maxY - CGFloat(traits["safeBottom"] ?? 0)
             assertUI(
                 action.exists && action.frame.maxY <= bottom + 0.5,
-                "课表操作应保持在系统可触达区域：按钮 \(action.frame)，底部边界 \(bottom)。")
+                "课表操作应保持在系统可触达区域：按钮 \(action.frame)，底部界限 \(bottom)。")
         }
         guard app.native.segmentedControls.buttons["空教室"].exists else { return }
         let header = app.native.segmentedControls.firstMatch.frame
@@ -166,7 +166,7 @@ extension UIAutomationTestCase {
         let minimumTop = window.minY + (top == 0 && side > 0 ? 16 : top)
         assertUI(
             header.minY >= minimumTop - 0.5,
-            "日程各分区应保留窗口安全距离：分区栏 \(header)，顶部边界 \(minimumTop)。")
+            "日程各分区应保留窗口安全距离：分区栏 \(header)，顶部界限 \(minimumTop)。")
         let key = "\(window):\(traits["safeTop"] ?? 0):\(side):\(header.height)"
         if let reference = scheduleHeaderFrames[key] {
             assertUI(
@@ -219,7 +219,7 @@ extension UIAutomationTestCase {
             traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
                 && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
                     || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue),
-            "当前手机窗口按 App 方向策略采用竖屏；横屏合同由支持横屏的窗口验收。")
+            "当前手机窗口按 App 方向策略采用竖屏；横屏约定由支持横屏的窗口验收。")
     }
 
     @MainActor

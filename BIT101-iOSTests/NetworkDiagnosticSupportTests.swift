@@ -72,7 +72,7 @@ struct NetworkDiagnosticSupportTests {
     ])
     @MainActor
     func feedbackSuccessRequiresItsCreationReceipt(caseName: String) throws {
-        let endpoint = AppURL.required("https://feedback.aihelpme.dev/api/error-reports")
+        let endpoint = AppEndpoints.feedbackReports
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         let finalURL =

@@ -1,4 +1,4 @@
-"""Read structured validation results."""
+"""Read network and school-SMS smoke results from the validation report."""
 
 from __future__ import annotations
 import json
@@ -283,7 +283,7 @@ def validate_community_write_test_output(bundle: Path, executed: set[str]) -> No
     except ValueError:
         evidence = None
     if not isinstance(evidence, list) or not community_writes_complete(evidence):
-        raise ValueError("Swift 社区写入实测输出需要通过 Python 创建、回复与清理合同。")
+        raise ValueError("Swift 社区写入实测输出需要通过 Python 创建、回复与清理约定。")
 
 
 def school_authentication_complete(value: dict) -> bool:

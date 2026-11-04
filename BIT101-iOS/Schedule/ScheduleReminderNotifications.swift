@@ -179,7 +179,7 @@ final class ScheduleReminderNotifications {
         return requests.count
     }
 
-    /// 构造与 Live Activity 同语义的本地通知内容。
+    /// 构造与 Live Activity 同含义的本地通知内容。
     private func fallbackNoticeContent(for occurrence: CourseReminderOccurrence)
         -> UNMutableNotificationContent
     {

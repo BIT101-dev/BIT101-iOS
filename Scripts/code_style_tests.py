@@ -1,6 +1,8 @@
 """Boundary checks for the repository's code style limits."""
 
 from code_style_rules import (
+    BANNED_WORDS,
+    banned_word_findings,
     check_name,
     emoji_findings,
     line_findings,
@@ -26,6 +28,10 @@ def self_test() -> None:
         assert emoji_findings("text.md", "title\n" + text) == [
             "text.md:2: 包含 Emoji；请使用文字或 SF Symbol"
         ]
+
+    word = BANNED_WORDS[0]
+    assert banned_word_findings("a.md", "说明\n" + word) == [f"a.md:2: 包含禁用词 {word}"]
+    assert banned_word_findings("AGENTS.md", word) == []
 
     assert line_findings("file.py", "界" * 100) == []
     assert len(line_findings("file.py", "界" * 101)) == 1

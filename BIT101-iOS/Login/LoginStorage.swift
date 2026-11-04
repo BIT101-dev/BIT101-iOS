@@ -298,7 +298,7 @@ final class LoginStorage: SchoolCredentialsProviding {
 
     /// 删除客户端本地保存的所有登录相关数据。
     ///
-    /// 这是清除全部本地登录数据的语义，同时删除 Keychain 中的学号和密码。
+    /// 这是清除全部本地登录数据的含义，同时删除 Keychain 中的学号和密码。
     @discardableResult
     func clearAllLocalData() -> Bool {
         sessionGeneration &+= 1

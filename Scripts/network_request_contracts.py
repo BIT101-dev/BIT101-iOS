@@ -719,5 +719,5 @@ if __name__ == "__main__":
     payload = json.load(sys.stdin)
     passed = complete(payload["probe"], payload["requests"], payload.get("expectedParameters"))
     if not passed:
-        print("生产请求与 Smoke 合同存在差异：" + payload["probe"], file=sys.stderr)
+        print("生产请求与 Smoke 约定存在差异：" + payload["probe"], file=sys.stderr)
     raise SystemExit(0 if passed else 1)

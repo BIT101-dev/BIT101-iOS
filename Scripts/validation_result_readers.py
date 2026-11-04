@@ -1,4 +1,4 @@
-"""Read structured validation results."""
+"""Read selected test inventories and native test-case summaries."""
 
 from __future__ import annotations
 import json

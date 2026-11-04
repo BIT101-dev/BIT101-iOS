@@ -494,7 +494,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
             invalidated = invalidate_failed_evidence(report, group, requested)
             if invalidated:
                 print(
-                    "定向回归失败，关联证据进入重新验收：" + "、".join(invalidated), file=sys.stderr
+                    "定向复测失败，关联证据进入重新验收：" + "、".join(invalidated), file=sys.stderr
                 )
         report["testedCommit"] = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True

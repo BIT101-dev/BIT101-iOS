@@ -526,7 +526,7 @@ private struct GalleryPosterDetailViewScene: View {
 
     /// 独立跳转域名使用稳定的 `/gallery/{id}` 路由；未安装 App 时由 Worker 转至网页。
     private var posterShareURL: URL {
-        AppURL.required("https://open.aihelpme.dev/gallery/\(viewModel.poster.id)")
+        AppEndpoints.openLink("gallery/\(viewModel.poster.id)")
     }
 
 }

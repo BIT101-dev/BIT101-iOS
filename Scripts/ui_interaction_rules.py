@@ -274,7 +274,7 @@ def source_runtime_interaction_findings(
             selector = interaction_selector(control, syntax)
             if selector is None:
                 errors.append(
-                    f"源码交互需要明确的标识或标签合同：{source} · {control['name']} · {control['start']}"
+                    f"源码交互需要明确的标识或标签约定：{source} · {control['name']} · {control['start']}"
                 )
                 continue
             kind, names = selector

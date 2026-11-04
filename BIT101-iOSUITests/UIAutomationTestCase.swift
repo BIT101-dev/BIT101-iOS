@@ -415,7 +415,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                     parameters.merging(["command": "scroll-check"]) { _, value in value })
                 XCTAssertEqual(
                     outcome, "fit",
-                    "完整显示的容器应核对内容边界：\(identifier)。")
+                    "完整显示的容器应核对内容界限：\(identifier)。")
             } else {
                 let element = app.descendants(matching: .any)[identifier]
                 guard element.exists else {

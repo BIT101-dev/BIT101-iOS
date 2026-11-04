@@ -395,7 +395,7 @@ private struct CourseDetailViewScene: View {
 
     /// 使用稳定的 `/course/{id}` 路由作为课程分享地址。
     private var courseShareURL: URL {
-        AppURL.required("https://open.aihelpme.dev/course/\(initialCourse.id)")
+        AppEndpoints.openLink("course/\(initialCourse.id)")
     }
 }
 

@@ -465,11 +465,11 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
             ]))
         await cookies.setCookie(cookie)
         let seededCookies = await cookies.allCookies()
-        XCTAssertTrue(seededCookies.contains { $0.name == cookie.name }, "网页 Cookie 夹具应完成写入。")
+        XCTAssertTrue(seededCookies.contains { $0.name == cookie.name }, "网页 Cookie 测试数据应完成写入。")
         try await waitForTestEvent { cache.cachedResponse(for: request)?.data == Data([1, 2, 3]) }
         if storagePolicy == .allowed { XCTAssertGreaterThan(cache.currentDiskUsage, 0) }
-        XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true, "共享日程夹具应已登录。")
-        XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty, "账号夹具应持有社区会话。")
+        XCTAssertTrue(snapshotStore.load()?.isLoggedIn == true, "共享日程测试数据应已登录。")
+        XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty, "账号测试数据应持有社区会话。")
         var loggedOut = false
         let reset = await service.resetAllLocalData { loggedOut = true }
         XCTAssertTrue(reset, service.resetFailureMessage ?? "Local data reset completed")

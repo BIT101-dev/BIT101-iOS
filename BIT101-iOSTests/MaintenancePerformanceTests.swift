@@ -319,7 +319,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         try files.removeItemIfPresent(at: storageRoot)
         defer {
             do { try files.removeItemIfPresent(at: storageRoot) } catch {
-                XCTFail("性能夹具清理失败：\(error)")
+                XCTFail("性能测试数据清理失败：\(error)")
             }
         }
         _ = try await Task { @MainActor in

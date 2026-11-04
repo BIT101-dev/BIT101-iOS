@@ -124,7 +124,7 @@ def export_module_metrics(arguments: list[str]) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         table = [
-            "## 模块回归",
+            "## 模块复测",
             f"{test_count} 项测试通过；统计范围为 macOS 可执行生产源码。",
             "",
             "| 模块 | 行覆盖率 | 覆盖行 / 可执行行 |",

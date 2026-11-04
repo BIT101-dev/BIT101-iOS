@@ -9,7 +9,7 @@ public enum AppInputPrompt {
     }
 }
 
-/// AppListSectionHeader 统一自定义列表分组标题的语义样式。
+/// AppListSectionHeader 统一自定义列表分组标题的含义样式。
 public struct AppListSectionHeader: View {
     let title: String
 

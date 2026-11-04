@@ -89,7 +89,7 @@ enum ScheduleReminderBackgroundRefresh {
         }
     }
 
-    /// 根据下一次课前提醒边界，提交一条后台刷新请求。
+    /// 根据下一次课前提醒界限，提交一条后台刷新请求。
     ///
     /// 同一 identifier 的新请求会替换先前提交的请求。
     @discardableResult

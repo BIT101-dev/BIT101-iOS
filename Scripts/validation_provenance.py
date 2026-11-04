@@ -66,7 +66,7 @@ def worker_input_name(folder: str, name: str) -> bool:
 
 def worker_source_inputs(folder: str) -> dict[str, bytes]:
     if folder not in WORKER_FOLDERS:
-        raise ValueError("Worker 需要登记到部署合同。")
+        raise ValueError("Worker 需要登记到部署约定。")
     try:
         return {
             name: (ROOT / name).read_bytes()
@@ -158,7 +158,7 @@ def _last_input_commit(revision: str, includes, paths=()) -> str | None:
 
 def worker_command(folder: str, *arguments: str) -> list[str]:
     if folder not in WORKER_FOLDERS:
-        raise ValueError("Worker 需要登记到部署合同。")
+        raise ValueError("Worker 需要登记到部署约定。")
     return [
         str(WRANGLER_ROOT / "node_modules/.bin/wrangler"),
         *arguments,

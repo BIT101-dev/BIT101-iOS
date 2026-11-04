@@ -1,4 +1,4 @@
-"""Analyze network api facts."""
+"""Collect the allowed network API surface and its call sites from Swift sources."""
 
 import re
 from swift_source_index import argument_parameter_bindings, visible_variables

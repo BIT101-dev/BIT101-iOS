@@ -1,4 +1,4 @@
-"""Analyze network callback rules."""
+"""Locate executed callback positions, including autoclosure and lazy ranges."""
 
 import re
 from swift_source_index import visible_variables

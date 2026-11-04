@@ -256,7 +256,7 @@ extension ScheduleSyncTests {
         if case .failed(let reason)? = local.statuses.last {
             #expect(reason.contains("保存失败"))
         } else {
-            Issue.record("基线落盘失败需要呈现失败状态")
+            Issue.record("基线写入磁盘失败需要呈现失败状态")
         }
         #expect(
             local.sources.isEmpty

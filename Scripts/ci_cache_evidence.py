@@ -370,7 +370,7 @@ def stream_cache_range(
                 output.write(block)
                 remaining -= len(block)
             if process.stdout.read(1):
-                raise ValueError("编译缓存分段需要遵循请求的字节边界。")
+                raise ValueError("编译缓存分段需要遵循请求的字节界限。")
             process.wait(timeout=max(0, deadline - time.monotonic()))
             if process.returncode:
                 raise subprocess.CalledProcessError(process.returncode, command)
@@ -492,7 +492,7 @@ def cache_download_self_test() -> None:
                 except ValueError:
                     pass
                 else:
-                    raise AssertionError("分段需要按字节边界结束恢复。")
+                    raise AssertionError("分段需要按字节界限结束恢复。")
             assert destination.stat().st_size == len(data)
         original = subprocess.Popen
         for initial in (probe, b""):

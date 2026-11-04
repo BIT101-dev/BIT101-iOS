@@ -223,7 +223,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         let available = app.windows.firstMatch.scrollGestureFrame(in: window) ?? window
         let master = app.native.descendants(matching: .any)["browser.master"]
         print("Window geometry: \(traits), available=\(available), master=\(master.frame)")
-        recordLayoutScreenshot("紧凑窗口边界")
+        recordLayoutScreenshot("紧凑窗口界限")
         guard traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue,
             min(window.width, window.height) < 640
         else { return }

@@ -777,4 +777,4 @@ final class CommunityWriteSmoke {
 ///
 /// 这份实现同时服务于：
 /// - 真机采样宿主：通过 `bit101://network-smoke/...` 在当前进程内复用会话执行；
-/// - XCTest：保留一个直接调用入口，方便回归和未来 CI 复用同一组探针。
+/// - XCTest：保留一个直接调用入口，方便复测和未来 CI 复用同一组探针。

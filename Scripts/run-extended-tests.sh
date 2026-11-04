@@ -16,8 +16,8 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
 运行时回收：simulator runtime prune [平台] 版本；平台默认 iOS"
   echo "Scripts/run-extended-tests.sh simulator devices remove 目标设备UDID...  移除已授权的指定设备"
   echo "Scripts/run-extended-tests.sh simulator devices clean 设备UDID...  保留登录与设置，清理缓存和临时文件"
-  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装合同"
-  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装合同"
+  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装约定"
+  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装约定"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
@@ -30,7 +30,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
     "宿主：release、release-runtime、ui、network-smoke、icloud-smoke
 宿主：modules、catalyst、catalyst-release-runtime。"
   echo "专项：verify [--sms] [--self-test] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"
-  echo "日常定向回归示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
+  echo "日常定向复测示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
   echo "诊断：diagnostics；report|screenshot|activities 测试类/方法。"
   echo "附件：activities '测试类/方法()' [json]；screenshot '测试类/方法()' [附件标识]。"
   exit 0
@@ -430,7 +430,7 @@ run_tests() {
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
   local inventory_label="$MODE · 完整库存"
   if (( ${#TEST_SELECTIONS[@]} > 0 )); then \
-    inventory_label="$MODE · 定向回归 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
+    inventory_label="$MODE · 定向复测 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
   echo "[$test_action] $inventory_label"
   local verbosity_args=(-quiet)
   if [[ "$MODE" == ui ]]; then

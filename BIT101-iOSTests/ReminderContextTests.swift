@@ -340,7 +340,7 @@ struct ReminderContextTests {
     @Test(arguments: [0.5, 1.0, 1.5])
     func refreshImmediatelyKeepsReminderTriggers(_ remaining: Double) {
         let course = CourseReminderOccurrence(
-            kindText: "上课", title: "边界", classroom: "", teacher: "",
+            kindText: "上课", title: "界限", classroom: "", teacher: "",
             startDate: Date(timeIntervalSince1970: 3900), endDate: Date(timeIntervalSince1970: 4500)
         )
         let now = Date(timeIntervalSince1970: 3300 - remaining)
@@ -461,7 +461,7 @@ struct ReminderPlannerTests {
     @Test(arguments: [Int.min, -1, 0, 1, 60, 61, Int.max])
     func reminderWindowsApplyTheLeadMinuteBounds(leadMinutes: Int) {
         let occurrence = CourseReminderOccurrence(
-            kindText: "上课", title: "提前量边界", classroom: "", teacher: "",
+            kindText: "上课", title: "提前量界限", classroom: "", teacher: "",
             startDate: Date(timeIntervalSince1970: 7200),
             endDate: Date(timeIntervalSince1970: 10800))
         let expectedStart = Date(

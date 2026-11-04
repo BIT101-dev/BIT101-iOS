@@ -346,7 +346,7 @@ public final class NativeSchoolAuthenticator: SchoolServiceAuthenticating {
             && (url.host == "bit.edu.cn" || url.host?.hasSuffix(".bit.edu.cn") == true)
     }
 
-    /// 交互、密码与账号边界错误交由页面处理，传输及协议错误允许尝试中转。
+    /// 交互、密码与账号界限错误交由页面处理，传输及协议错误允许尝试中转。
     public nonisolated static func permitsFallback(_ error: Error) -> Bool {
         if TaskCancellation.matches(error) { return false }
         if let error = error as? NativeSchoolAuthenticationError {

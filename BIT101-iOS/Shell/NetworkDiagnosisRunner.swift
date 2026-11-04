@@ -145,7 +145,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
                     ? "\(snapshot.summary)，可能经过虚拟网络或代理"
                     : snapshot.summary
             case .bit101Home:
-                _ = try await fetch(AppURL.required("https://open.aihelpme.dev"))
+                _ = try await fetch(AppEndpoints.openLinks)
                 detail = "通过"
             case .gallery:
                 _ = try await dependencies.gallery.fetchFeed(kind: .newest, page: nil)

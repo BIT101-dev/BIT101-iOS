@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""从教务导出的全校课程表生成地图地点回归测试数据。
+"""从教务导出的全校课程表生成地图地点复测测试数据。
 
 脚本读取“学校校区”和“已排时间地点”，按 (校区, 原始地点) 去重并合并历史案例。
 fixture 保存地点、人工确认的 expected 和审核状态。新地点沿显式参数写为 pending，
-审核后选择 mapped 或 excluded，回归测试核对审核完成及对应地点结果。
+审核后选择 mapped 或 excluded，复测测试核对审核完成及对应地点结果。
 """
 
 from __future__ import annotations

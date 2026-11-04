@@ -290,7 +290,7 @@ struct LoginService {
         } catch { throw RegistrationCompletionError(underlying: error, isConfirmed: true) }
     }
 
-    /// 认证恢复在保存前核对账号归属，网络和取消错误沿原语义返回。
+    /// 认证恢复在保存前核对账号归属，网络和取消错误沿原含义返回。
     func recoverCommunitySession(observed: CommunityCredentials) {
         storage.communityRefreshCoordinator.start(observed: observed) {
             try await renewCommunitySession(observed: observed)

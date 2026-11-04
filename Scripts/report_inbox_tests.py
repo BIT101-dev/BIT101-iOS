@@ -10,7 +10,7 @@ from script_test_support import heredoc_body
 
 
 def report_inbox_boundary_findings() -> list[str]:
-    "验证反馈正文、附件、旧键和重复拉取的保存合同。"
+    "验证反馈正文、附件、旧键和重复拉取的保存约定。"
 
     source = (SCRIPT_ROOT / "fetch-issues-and-reports.sh").read_text()
     from report_inbox import (

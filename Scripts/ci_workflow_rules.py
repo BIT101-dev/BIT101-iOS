@@ -432,7 +432,7 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
         "catalyst-tests": (
             (
                 "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
-                "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组装合同",
+                "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组装约定",
             ),
         ),
         "release-build": (
@@ -451,10 +451,10 @@ def ci_wiring_findings(workflow_source: str, *, ui_only: bool = False) -> list[s
         ),
         "ios-app-tests": (
             ("Scripts/run-extended-tests.sh simulator prepare", "正式组装需要准备完整模拟器"),
-            ("Scripts/run-extended-tests.sh simulator app", "App 行为需要执行完整合同库存"),
+            ("Scripts/run-extended-tests.sh simulator app", "App 行为需要执行完整约定库存"),
             (
                 "Scripts/run-extended-tests.sh simulator release-runtime",
-                "正式组装需要执行完整合同库存",
+                "正式组装需要执行完整约定库存",
             ),
         ),
     }

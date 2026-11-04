@@ -23,7 +23,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             waitUntil(NSPredicate { _, _ in countersAre(["2", "1"]) }, on: app), "文章卡片应接收详情确认的点赞数。")
         if !isWide { summary.tapBriefly() }
         tap("评论文章")
-        replaceText("计数更新回归", in: app.textFields.firstMatch)
+        replaceText("计数更新复测", in: app.textFields.firstMatch)
         dismissKeyboard()
         tap("发布")
         assertUI(app.buttons["paper.detail.header-like"].appears(timeout: 5), "评论成功后应回到文章详情。")
@@ -187,7 +187,7 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             } else {
                 tapHeader(app.segmentedControls.buttons[section])
             }
-            assertUI(textElement("\(title) 1").appears(timeout: 5), "首屏应展示分页夹具。")
+            assertUI(textElement("\(title) 1").appears(timeout: 5), "首屏应展示分页测试数据。")
             let next = textElement("\(title) 9")
             reveal(next, description: "重复页之后的内容")
             assertUI(next.isHittable, "跳过重复页后应继续加载新内容。")
@@ -354,7 +354,7 @@ extension CommunityInteractionUITests {
             tapHeader(app.segmentedControls.buttons[section])
             let first = app.staticTexts["\(title) 1"]
             let secondPage = app.staticTexts["\(title) 9"]
-            assertUI(first.appears(timeout: 5), "首屏应展示稳定身份的分页夹具。")
+            assertUI(first.appears(timeout: 5), "首屏应展示稳定身份的分页测试数据。")
             reveal(secondPage, description: "首轮第二页")
             assertUI(secondPage.isHittable, "首轮滚动应加载第二页。")
             if tab == "home" {

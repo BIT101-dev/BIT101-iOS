@@ -372,7 +372,7 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         return interval <= 0 ? "已过 \(body)" : "剩余 \(body)"
     }
 
-    /// DDL 颜色语义。
+    /// DDL 颜色含义。
     ///
     /// 返回颜色名称，由 View 映射为具体颜色。
     func ddlTint(for event: DDLEventRecord, now: Date = .now) -> String {

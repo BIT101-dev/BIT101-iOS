@@ -74,7 +74,7 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
             ? try values.decode([String: Int].self, forKey: .pendingUnreadAfterIDByType) : [:]
     }
 
-    /// 各分类保留最近的已读 ID；保留边界之前的消息归为历史已读。
+    /// 各分类保留最近的已读 ID；保留界限之前的消息归为历史已读。
     public func compacted() -> Self {
         var result = self
         for (type, ids) in seenIDsByType {
@@ -94,7 +94,7 @@ public nonisolated struct GalleryMessageReadSnapshot: Codable, Equatable, Sendab
         return result
     }
 
-    /// 已读记录按分类取并集，历史边界取较新值，候选消息由本机响应维护。
+    /// 已读记录按分类取并集，历史界限取较新值，候选消息由本机响应维护。
     public func mergingReadState(_ other: Self) -> Self {
         var merged = self
         merged.retainedFromIDByType.merge(other.retainedFromIDByType, uniquingKeysWith: max)

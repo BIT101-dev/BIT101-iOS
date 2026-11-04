@@ -208,7 +208,7 @@ final class ReleaseNetworkSmokeRunner {
             {
                 _ = await self.probe(.feedbackPreflight, area: .bit101, scope: scope) {
                     var request = URLRequest(
-                        url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
+                        url: AppEndpoints.feedbackReports)
                     request.httpMethod = "OPTIONS"
                     request.setValue("https://bit101.cn", forHTTPHeaderField: "Origin")
                     request.setValue(

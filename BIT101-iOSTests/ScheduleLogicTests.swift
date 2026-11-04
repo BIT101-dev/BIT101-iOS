@@ -29,7 +29,7 @@ struct ScheduleSystemCalendarEventBuilderTests {
         let original = try #require(
             ScheduleCourseEditor.adding(
                 CourseDraft(
-                    title: "周次边界", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
+                    title: "周次界限", weekday: 1, startSection: 1, endSection: 1, weeksText: "1"),
                 to: [], term: "2026-2027-1", id: "boundary"
             ).first)
         let course = original.replacingWeeks([Int.min, -54, -53, -1, 0, 1, 53, 54, Int.max])

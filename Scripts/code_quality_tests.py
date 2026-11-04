@@ -220,11 +220,11 @@ def checker_boundary_findings() -> list[str]:
         '<Scheme LastUpgradeVersion="2700"><BuildAction buildImplicitDependencies="YES" /></Scheme>'
     )
     if scheme_inventory_findings({"App": scheme}):
-        findings.append("Scheme 库存自测：单一共享合同进入验收")
+        findings.append("Scheme 库存自测：单一共享约定进入验收")
     if not scheme_inventory_findings({"App": scheme, "Copy": scheme.replace("2700", "2630")}):
-        findings.append("Scheme 库存自测：元数据差异保留重复合同判定")
+        findings.append("Scheme 库存自测：元数据差异保留重复约定判定")
     if scheme_inventory_findings({"App": scheme, "Independent": scheme.replace("YES", "NO")}):
-        findings.append("Scheme 库存自测：独立构建合同保持不同入口")
+        findings.append("Scheme 库存自测：独立构建约定保持不同入口")
     from validate_versions import app_store_request_self_test
 
     findings.extend(app_store_request_self_test())
@@ -253,7 +253,7 @@ def checker_boundary_findings() -> list[str]:
         '// TODO\n/* FIXME /* HACK */ */\nlet text = "TODO"', keep_comments=True
     )
     if len(re.findall(r"\b(?:TODO|FIXME|HACK)\b", markers)) != 3:
-        findings.append("代码质量规则边界自检失败：维护标记覆盖行注释及嵌套块注释")
+        findings.append("代码质量规则界限自检失败：维护标记覆盖行注释及嵌套块注释")
     cancellation_path = ROOT / "Modules/TransportCore/Sources/RelocatedCancellation.swift"
     cancellation_source = """
 enum TaskCancellation {
@@ -278,14 +278,14 @@ enum Consumer {
         != 4
     ):
         findings.append(
-            "代码质量规则边界自检失败：取消识别按声明归属处理文件迁移、变量改名和模块限定类型"
+            "代码质量规则界限自检失败：取消识别按声明归属处理文件迁移、变量改名和模块限定类型"
         )
     if cancellation_findings(
         ROOT / "ModuleTests/Transport/ExactErrorTests.swift",
         cancellation_source,
         cancellation_syntax[str(cancellation_path)],
     ):
-        findings.append("代码质量规则边界自检失败：测试可直接断言底层取消类型")
+        findings.append("代码质量规则界限自检失败：测试可直接断言底层取消类型")
     wait_path = ROOT / "ModuleTests/Transport/EventTests.swift"
     view_path = str(ROOT / "BIT101-iOS/Example.swift")
     transport_path = str(ROOT / "Modules/TransportCore/Sources/HTTPClient.swift")
@@ -490,7 +490,7 @@ enum Consumer {
     if discarded_file_write_findings(
         ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", write_source, write_facts
     ):
-        findings.append("代码质量自测：图片缓存沿已有可选写盘合同处理")
+        findings.append("代码质量自测：图片缓存沿已有可选写盘约定处理")
     for directory in ("ModuleTests/Support", "BIT101-iOSTests", "BIT101-iOSUITests"):
         if (
             len(
@@ -500,7 +500,7 @@ enum Consumer {
             )
             != 3
         ):
-            findings.append("代码质量自测：测试夹具的写入和清理需要错误处理")
+            findings.append("代码质量自测：测试测试数据的写入和清理需要错误处理")
     wrapper_sources = {
         str(write_path): """
         struct Store {
@@ -535,11 +535,11 @@ enum Consumer {
         or len(unwrap_facts["emptyCatchClauses"]) != 5
         or not any(path.is_relative_to(ROOT / "BIT101-iOSUITests") for path in swift_files())
     ):
-        findings.append("代码质量规则边界自检失败：全部测试目录的解包、强制 try 与类型转换识别")
+        findings.append("代码质量规则界限自检失败：全部测试目录的解包、强制 try 与类型转换识别")
     view_source = "struct SampleView: View { let request = URLRequest(url: url) }"
     model_source = "struct SampleModel { let request = URLRequest(url: url) }"
     if len(view_request_matches(view_source)) != 1 or view_request_matches(model_source):
-        findings.append("代码质量规则边界自检失败：View 请求构造范围识别")
+        findings.append("代码质量规则界限自检失败：View 请求构造范围识别")
     view_facts = {
         "declarations": [{"name": "SampleView", "inheritedTypes": ["SwiftUI.View"]}],
         "calls": [{"value": "URLRequest", "scope": ["SampleView"]}],
@@ -549,7 +549,7 @@ enum Consumer {
         "calls": [{"value": "URLRequest", "scope": ["SampleModel"]}],
     }
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
-        findings.append("代码质量规则边界自检失败：SwiftSyntax View 请求范围匹配")
+        findings.append("代码质量规则界限自检失败：SwiftSyntax View 请求范围匹配")
     for constructor in (
         "Foundation.URLRequest(url: url)",
         "Foundation . URLRequest(url: url)",
@@ -585,7 +585,7 @@ enum Consumer {
     ) or uses_application_support_storage(
         {"value": "FileManager.default.urls(for: .applicationSupportDirectory)"}
     ):
-        findings.append("代码质量规则边界自检失败：持久化仓库的统一存储入口识别")
+        findings.append("代码质量规则界限自检失败：持久化仓库的统一存储入口识别")
 
     relocated_facts = {
         "declarations": [{"kind": "struct", "name": "ExampleView", "scope": []}],
@@ -596,9 +596,9 @@ enum Consumer {
     }
     relocated_index = {"Moved/ExampleView.swift": relocated_facts}
     if not owner_has_call(relocated_index, "ExampleView", "restoreCache"):
-        findings.append("代码质量规则边界自检失败：类型迁移后仍按声明作用域匹配契约")
+        findings.append("代码质量规则界限自检失败：类型迁移后仍按声明作用域匹配契约")
     if owner_has_call(relocated_index, "MissingView", "restoreCache"):
-        findings.append("代码质量规则边界自检失败：缺少契约类型应保持失败")
+        findings.append("代码质量规则界限自检失败：缺少契约类型应保持失败")
     module_path = ROOT / "Modules/GalleryFeature/Sources/ExampleView.swift"
     for source, marker in (
         ('struct ExampleView: View { func load() { print("value") } }', "Logger"),
@@ -606,7 +606,7 @@ enum Consumer {
         (r'let text = "\(print("value"))"', "Logger"),
     ):
         if not any(marker in finding for finding in client_source_findings(module_path, source)):
-            findings.append("代码质量规则边界自检失败：模块与插值中的客户端规则")
+            findings.append("代码质量规则界限自检失败：模块与插值中的客户端规则")
     for source, expected in (
         ("item.loadTransferable(type: Data.self)", True),
         ("item.loadTransferable(type: Foundation.Data.self)", True),
@@ -619,7 +619,7 @@ enum Consumer {
         ):
             findings.append("照片读取容量门禁自检")
     if client_source_findings(module_path, '// print("value")\nlet example = "DateFormatter()"'):
-        findings.append("代码质量规则边界自检失败：模块文案进入执行代码规则")
+        findings.append("代码质量规则界限自检失败：模块文案进入执行代码规则")
     for constructor in (
         "DateFormatter.init()",
         "typealias Formatter = DateFormatter; Formatter()",
@@ -642,7 +642,7 @@ enum Consumer {
             patch.object(Path, "read_text", return_value=source),
         ):
             if sum("重复 import" in value for value in source_findings()[0]) != expected:
-                findings.append("代码质量规则边界自检失败：分支内重复导入与注释、字符串隔离")
+                findings.append("代码质量规则界限自检失败：分支内重复导入与注释、字符串隔离")
     findings.extend(smoke_script_boundary_findings())
     workflow_source = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     findings.extend(
@@ -725,14 +725,14 @@ enum Consumer {
         }
     }
     if extension_dependency_findings(extension_graph):
-        findings.append("代码质量规则边界自检失败：父 target 的扩展编译覆盖识别")
+        findings.append("代码质量规则界限自检失败：父 target 的扩展编译覆盖识别")
     extension_graph["objects"]["watch-edge"].pop("platformFilter")
     if not extension_dependency_findings(extension_graph):
-        findings.append("代码质量规则边界自检失败：Mac Catalyst 的扩展平台隔离")
+        findings.append("代码质量规则界限自检失败：Mac Catalyst 的扩展平台隔离")
     extension_graph["objects"]["watch-edge"]["platformFilter"] = "ios"
     extension_graph["objects"]["watch"]["dependencies"] = []
     if not extension_dependency_findings(extension_graph):
-        findings.append("代码质量规则边界自检失败：扩展依赖断开应触发门禁")
+        findings.append("代码质量规则界限自检失败：扩展依赖断开应触发门禁")
     from code_quality_rules import native_project_targets
 
     native_graph = {

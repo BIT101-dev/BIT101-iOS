@@ -11,7 +11,7 @@ nonisolated struct CourseReminderOccurrence: Equatable, Sendable {
     let endDate: Date
 }
 
-/// 提醒候选、展示窗口和刷新边界使用同一组纯规则。
+/// 提醒候选、展示窗口和刷新界限使用同一组纯规则。
 nonisolated enum ScheduleReminderPlanner {
     /// 把课表缓存解析成仍然有效的提醒候选。
     ///
@@ -164,7 +164,7 @@ nonisolated enum ScheduleReminderPlanner {
         return starts
     }
 
-    /// 计算下一条刷新边界。
+    /// 计算下一条刷新界限。
     ///
     /// 调度关注两个时刻：
     /// 1. 某条提醒进入可展示窗口

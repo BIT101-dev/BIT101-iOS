@@ -92,7 +92,7 @@ struct BIT101APIClient {
         Chrome/150.0.0.0 Safari/537.36
         """
     private let schoolBaseURL = AppURL.required("https://sso.bit.edu.cn")
-    private let bit101BaseURL = AppURL.required("https://bit101.flwfdd.xyz")
+    private let bit101BaseURL = AppEndpoints.bit101
 
     private let httpClient: HTTPClient
     private let noRedirectHTTPClient: HTTPClient
@@ -211,7 +211,7 @@ struct BIT101APIClient {
         return SchoolLoginHTMLParser.parse(html: html).isLoggedIn
     }
 
-    /// 手动补走学校侧 SSO 的 302 链路，确保相关学校 cookie 真正落盘。
+    /// 手动补走学校侧 SSO 的 302 链路，确保相关学校 cookie 真正写入磁盘。
     ///
     /// 这一步继续访问跳转链并完成学校 cookie 写入；教务和乐学接口在进入主界面后依赖这些 cookie。
     private func finishSchoolRedirects(from location: String, relativeTo baseURL: URL) async throws

@@ -15,7 +15,7 @@ import CommunityPersistence
 import DesignSystemKit
 import SwiftUI
 
-/// UI 自动化在本机连接中更新场景夹具，App 进程持续运行。
+/// UI 自动化在本机连接中更新场景测试数据，App 进程持续运行。
 nonisolated final class UITestControlServer: Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "BIT101.UITestControl")
@@ -61,7 +61,7 @@ nonisolated final class UITestControlServer: Sendable {
     }
 }
 
-/// 场景参数在同一个进程中更新，传输夹具与页面共同读取这份配置。
+/// 场景参数在同一个进程中更新，传输测试数据与页面共同读取这份配置。
 @MainActor
 final class UITestSceneConfiguration {
     static let shared = UITestSceneConfiguration()

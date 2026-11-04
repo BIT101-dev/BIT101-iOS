@@ -83,7 +83,7 @@ def check_spacing_literals(facts, raw_source, relative, errors, emitted_rule_fin
                     emitted_rule_findings,
                     relative,
                     line_number,
-                    f"{label} 必须使用 AppDesignSystem.Spacing 或专用语义令牌",
+                    f"{label} 必须使用 AppDesignSystem.Spacing 或专用含义令牌",
                     pattern,
                 )
 
@@ -219,7 +219,7 @@ def main(
                         emitted_rule_findings,
                         relative,
                         line_number,
-                        "请直接使用语义令牌，替换比例或重复加减运算",
+                        "请直接使用含义令牌，替换比例或重复加减运算",
                         pattern,
                     )
 

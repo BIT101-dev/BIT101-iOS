@@ -247,34 +247,34 @@ extension View {
 """
     haptic_syntax = swift_syntax_index_sources({str(haptic_path): haptic_source})
     if haptic_entry_findings({haptic_path: haptic_source}, haptic_syntax)[0]:
-        findings.append("UI 契约规则边界自检失败：公共触感声明应支持文件迁移")
+        findings.append("UI 契约规则界限自检失败：公共触感声明应支持文件迁移")
     wrong_source = haptic_source.replace(
         "UISelectionFeedbackGenerator", "UIImpactFeedbackGenerator"
     )
     wrong_syntax = swift_syntax_index_sources({str(haptic_path): wrong_source})
     if len(haptic_entry_findings({haptic_path: wrong_source}, wrong_syntax)[0]) != 1:
-        findings.append("UI 契约规则边界自检失败：公共触感声明需要对应系统动作")
+        findings.append("UI 契约规则界限自检失败：公共触感声明需要对应系统动作")
     if not ast_has_marker(facts, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：组件调用识别")
+        findings.append("UI 契约规则界限自检失败：组件调用识别")
     if ast_has_marker(facts, "AppFailureStates"):
-        findings.append("UI 契约规则边界自检失败：标识符精确匹配")
+        findings.append("UI 契约规则界限自检失败：标识符精确匹配")
     if not ast_has_marker(facts, 'Text("课程暂未发布说明")'):
-        findings.append("UI 契约规则边界自检失败：调用文案联合识别")
+        findings.append("UI 契约规则界限自检失败：调用文案联合识别")
     if ast_has_marker(facts, 'Text("课程未发布说明")'):
-        findings.append("UI 契约规则边界自检失败：字符串片段精确匹配")
+        findings.append("UI 契约规则界限自检失败：字符串片段精确匹配")
     unrelated_scope_facts = {
         **facts,
         "calls": [{"value": "AppFailureState", "scope": ["OtherView"]}],
         "stringSegments": [{"value": "课程暂未发布说明", "scope": ["OtherView"]}],
     }
     if ast_has_marker(unrelated_scope_facts, "AppFailureState", ["SampleView"]):
-        findings.append("UI 契约规则边界自检失败：组件调用严格遵循当前 View 作用域")
+        findings.append("UI 契约规则界限自检失败：组件调用严格遵循当前 View 作用域")
     qualified_facts = {
         **facts,
         "calls": [{"value": "AppDateText.relativeText", "scope": ["SampleView"]}],
     }
     if not ast_has_marker(qualified_facts, "AppDateText", ["SampleView"]):
-        findings.append("UI 契约规则边界自检失败：模块限定调用的根类型识别")
+        findings.append("UI 契约规则界限自检失败：模块限定调用的根类型识别")
 
     scattered_facts = {
         "declarations": [],
@@ -289,9 +289,9 @@ extension View {
         "stringSegments": [{"value": "课程暂未发布说明", "scope": ["SampleView"]}],
     }
     if ast_has_marker(scattered_facts, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：分散标识符被识别为组件契约")
+        findings.append("UI 契约规则界限自检失败：分散标识符被识别为组件契约")
     if ast_has_marker(scattered_facts, 'Text("课程暂未发布说明")'):
-        findings.append("UI 契约规则边界自检失败：跨节点调用与文案被识别为同一表达式")
+        findings.append("UI 契约规则界限自检失败：跨节点调用与文案被识别为同一表达式")
     literal_only_facts = {
         **scattered_facts,
         "calls": [{"value": "Text", "scope": ["SampleView"]}],
@@ -299,7 +299,7 @@ extension View {
         "stringSegments": [{"value": "AppFailureState", "scope": ["SampleView"]}],
     }
     if ast_has_marker(literal_only_facts, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：源码字面量被识别为组件调用")
+        findings.append("UI 契约规则界限自检失败：源码字面量被识别为组件调用")
     control = {
         "name": "Toggle",
         "invocation": 'Toggle("sample", isOn: $value)',
@@ -316,9 +316,9 @@ extension View {
         "scope": ["OtherView"],
     }
     if not selection_control_has_feedback(control, [attached_modifier]):
-        findings.append("UI 契约规则边界自检失败：控件上的触感修饰器识别")
+        findings.append("UI 契约规则界限自检失败：控件上的触感修饰器识别")
     if selection_control_has_feedback(control, [unrelated_modifier]):
-        findings.append("UI 契约规则边界自检失败：控件与触感修饰器保持同一表达式")
+        findings.append("UI 契约规则界限自检失败：控件与触感修饰器保持同一表达式")
 
     parent_facts = {
         "declarations": [
@@ -355,7 +355,7 @@ extension View {
     if not view_or_child_has_marker(
         delegated_syntax, parent_facts, ["ParentView"], "appSelectionFeedback"
     ):
-        findings.append("UI 契约规则边界自检失败：直接子 View 的公共触感调用识别")
+        findings.append("UI 契约规则界限自检失败：直接子 View 的公共触感调用识别")
     wrapped_parent_facts = {
         **parent_facts,
         "calls": [{"value": "WrapperView", "scope": ["ParentView"]}],
@@ -382,7 +382,7 @@ extension View {
     if not view_or_child_has_marker(
         deep_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"
     ):
-        findings.append("UI 契约规则边界自检失败：多层子 View 的契约归属识别")
+        findings.append("UI 契约规则界限自检失败：多层子 View 的契约归属识别")
     cyclic_parent = {
         **parent_facts,
         "calls": [{"value": "WrapperView", "scope": ["ParentView"]}],
@@ -398,7 +398,7 @@ extension View {
     if view_or_child_has_marker(
         cycle_syntax, cyclic_parent, ["ParentView"], "appSelectionFeedback"
     ):
-        findings.append("UI 契约规则边界自检失败：递归组件循环终止")
+        findings.append("UI 契约规则界限自检失败：递归组件循环终止")
     plain_wrapper = {
         **wrapper_facts,
         "calls": [{"value": "PlainLeafView", "scope": ["WrapperView"]}],
@@ -417,7 +417,7 @@ extension View {
     if view_or_child_has_marker(
         isolated_syntax, wrapped_parent_facts, ["ParentView"], "appSelectionFeedback"
     ):
-        findings.append("UI 契约规则边界自检失败：独立同名子树掩盖契约缺口")
+        findings.append("UI 契约规则界限自检失败：独立同名子树掩盖契约缺口")
     helper_scope = ["RenderedParent"]
     helper_view_facts = {
         "declarations": [],
@@ -441,7 +441,7 @@ extension View {
         "nonRenderedRanges": [],
     }
     if rendered_view_has_marker(helper_view_facts, helper_scope, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：未引用的 View 辅助方法满足页面契约")
+        findings.append("UI 契约规则界限自检失败：未引用的 View 辅助方法满足页面契约")
     reachable_helper_facts = {
         **helper_view_facts,
         "calls": [
@@ -450,7 +450,7 @@ extension View {
         ],
     }
     if not rendered_view_has_marker(reachable_helper_facts, helper_scope, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：body 引用的 View 辅助方法未进入契约")
+        findings.append("UI 契约规则界限自检失败：body 引用的 View 辅助方法未进入契约")
     extension_helper_facts = {
         **helper_view_facts,
         "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 120}],
@@ -478,7 +478,7 @@ extension View {
     if not rendered_view_has_marker(
         extension_parent_facts, helper_scope, "AppFailureState", extension_syntax
     ):
-        findings.append("UI 契约规则边界自检失败：跨文件 View 辅助方法未进入契约")
+        findings.append("UI 契约规则界限自检失败：跨文件 View 辅助方法未进入契约")
     callback_facts = {
         **helper_view_facts,
         "calls": [{"value": "AppFailureState", "scope": helper_scope, "start": 35}],
@@ -486,7 +486,7 @@ extension View {
         "nonRenderedRanges": [{"scope": helper_scope, "start": 30, "end": 40}],
     }
     if rendered_view_has_marker(callback_facts, helper_scope, "AppFailureState"):
-        findings.append("UI 契约规则边界自检失败：交互回调中的组件满足页面契约")
+        findings.append("UI 契约规则界限自检失败：交互回调中的组件满足页面契约")
     nested_child_facts = {
         **leaf_facts,
         "declarations": [
@@ -524,7 +524,7 @@ extension View {
             ["Outer", "ParentView", "ChildView"],
         )
     ]:
-        findings.append("UI 契约规则边界自检失败：嵌套 View 名称优先解析")
+        findings.append("UI 契约规则界限自检失败：嵌套 View 名称优先解析")
     return findings
 
 
@@ -714,7 +714,7 @@ def school_lifecycle_boundary_findings() -> list[str]:
         "yncCourses() } } } }"
     )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
-        findings.append("学校生命周期自测：用户操作保持独立调用边界")
+        findings.append("学校生命周期自测：用户操作保持独立调用界限")
     loader = prefix + (
         "protocol Loading { func load() async }; struct Loader: Loading { let service: any Sco"
         "reListServicing; func load() async { await service.fetchScores() } };"
@@ -735,14 +735,14 @@ def school_lifecycle_boundary_findings() -> list[str]:
             dict(ports, **{path: manual_loader, str(ROOT / "BIT101-iOS/Loader.swift"): loader})
         )
     ):
-        findings.append("学校生命周期自测：协议转发的用户操作保持独立边界")
+        findings.append("学校生命周期自测：协议转发的用户操作保持独立界限")
     manual = prefix + (
         "struct Screen: View { let service: any ScheduleCourseServicing; var action: () async "
         "throws -> Void { { _ = try await service.syncCourses(term: nil) } }; var body: some V"
         'iew { Button("刷新") { Task { try? await action() } } } }'
     )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: manual}))):
-        findings.append("学校生命周期自测：计算属性动作保持用户操作边界")
+        findings.append("学校生命周期自测：计算属性动作保持用户操作界限")
     for active in (False, True):
         source = prefix + (
             "struct SampleHolder { let action: () async -> Void; init(refresh cb: @escaping ()"
@@ -799,5 +799,5 @@ def school_lifecycle_boundary_findings() -> list[str]:
         "} }"
     )
     if automatic_school_fetch_findings(swift_syntax_index_sources(dict(ports, **{path: source}))):
-        findings.append("学校生命周期自测：局部包装类型保持所属方法边界")
+        findings.append("学校生命周期自测：局部包装类型保持所属方法界限")
     return findings

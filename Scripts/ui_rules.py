@@ -254,7 +254,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
                 requirement = "struct" if expected is None else f"struct: {expected}"
                 errors.append(f"公共组件组「{group}」缺少符合 {requirement} 的 {symbol}")
 
-    # 页面级公共规则按语义模式发现。
+    # 页面级公共规则按含义模式发现。
     for path, source in code_sources.items():
         facts = syntax[str(path)]
         for scope in view_scopes(facts):
@@ -485,7 +485,7 @@ def check_font_invocation(
             if "AppDesignSystem." not in value:
                 line = pattern_line_number(raw_source, invocation, match.start())
                 errors.append(
-                    f"{relative}:{line}: 字体字号必须使用设计系统令牌或系统语义字体：{value}"
+                    f"{relative}:{line}: 字体字号必须使用设计系统令牌或系统含义字体：{value}"
                 )
     elif name == "systemFont":
         for match in ui_pattern.finditer(source):
@@ -493,11 +493,11 @@ def check_font_invocation(
             if "AppDesignSystem." not in value:
                 line = pattern_line_number(raw_source, invocation, match.start())
                 errors.append(
-                    f"{relative}:{line}: UIFont 字号必须使用设计系统令牌或系统语义字体：{value}"
+                    f"{relative}:{line}: UIFont 字号必须使用设计系统令牌或系统含义字体：{value}"
                 )
     elif name == "custom" and custom_pattern.search(source):
         errors.append(
-            f"{relative}:{pattern_line_number(raw_source, invocation, 0)}: 字体采用系统语义或公共令牌"
+            f"{relative}:{pattern_line_number(raw_source, invocation, 0)}: 字体采用系统含义或公共令牌"
         )
 
 

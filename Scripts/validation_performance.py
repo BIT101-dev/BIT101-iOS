@@ -170,7 +170,7 @@ def complete_selected_result_step() -> bool:
                 shutil.move(str(BUNDLE), str(diagnostic))
             shutil.move(str(retained), str(BUNDLE))
         if not BUNDLE.exists() or bundle_identity(BUNDLE) != pending["baselineIdentity"]:
-            raise ValueError("定向回归需要保留完整验收的原始结果包。")
+            raise ValueError("定向复测需要保留完整验收的原始结果包。")
         current = bundle_identity(diagnostic) if result_bundle_complete(diagnostic) else None
         for row in report.get("groups", {}).values():
             if not (

@@ -543,7 +543,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     /// 处理字典形式的请求与回复。
     ///
-    /// 该方法承载 `requestLatestSnapshot` 语义字段，并让它与
+    /// 该方法承载 `requestLatestSnapshot` 含义字段，并让它与
     /// `applicationContext` 的键保持一致，供两条同步链路复用同一套协议。
     nonisolated func session(
         _ session: WCSession,
@@ -580,7 +580,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
 
     /// 处理 `applicationContext` 的 best-effort 同步。
     ///
-    /// 该链路传递“最新状态镜像”，系统按 best-effort 语义交付；
+    /// 该链路传递“最新状态镜像”，系统按 best-effort 含义交付；
     /// 主端在缓存更新时持续覆盖 `applicationContext`，watch 读取最后一份快照。
     nonisolated func session(
         _ session: WCSession,

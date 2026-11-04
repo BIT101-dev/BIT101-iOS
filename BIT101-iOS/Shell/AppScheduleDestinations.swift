@@ -57,8 +57,7 @@ extension ScheduleDestinations {
             resolveCourseShare: { course in
                 guard let resolution = try await resolver.resolve(course) else { return nil }
                 return ScheduleCourseShare(
-                    url: AppURL.required(
-                        "https://open.aihelpme.dev/course/\(resolution.selectedCourse.id)"),
+                    url: AppEndpoints.openLink("course/\(resolution.selectedCourse.id)"),
                     subject: resolution.selectedCourse.name
                 )
             }

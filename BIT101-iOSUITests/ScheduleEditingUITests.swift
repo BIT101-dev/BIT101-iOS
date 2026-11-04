@@ -67,7 +67,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(timeline.appears(timeout: 5), "线性模式应提供可缩放的时间轴。")
         let canvas = app.buttons["schedule.blank-context-menu"]
         XCTAssertEqual(
-            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "初始时间轴应与视口左边界对齐。")
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "初始时间轴应与视口左界限对齐。")
         let initial = timeline.value as? String
         timeline.pinch(withScale: 1.5, velocity: 1)
         assertUI(
@@ -75,14 +75,14 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
             "双指展开应放大时间轴，当前值：\(String(describing: timeline.value))，\(timeline.label)。")
         let enlarged = timeline.value as? String
         XCTAssertEqual(
-            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "放大后的日期列应与视口左边界对齐。"
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "放大后的日期列应与视口左界限对齐。"
         )
         timeline.swipeUp()
         timeline.swipeDown()
         timeline.pinch(withScale: 0.8, velocity: -1)
         assertUI(timeline.value as? String != enlarged, "双指收拢应缩小时间轴。")
         XCTAssertEqual(
-            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "缩小后的日期列应与视口左边界对齐。"
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "缩小后的日期列应与视口左界限对齐。"
         )
         assertUI(timeline.isHittable, "缩放和滚动后时间轴应可交互。")
         XCTAssertEqual(

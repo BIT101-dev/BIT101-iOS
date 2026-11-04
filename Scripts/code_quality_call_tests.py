@@ -77,7 +77,7 @@ def cross_file_view_request_self_test() -> list[str]:
                 ast_has_view_request(facts[view], context=facts) != expected
                 or bool(view_transport_findings(facts)) != expected
             ):
-                return ["视图辅助函数边界自测：同文件、跨文件及未调用入口"]
+                return ["视图辅助函数界限自测：同文件、跨文件及未调用入口"]
     sources = {
         "View.swift": "enum Namespace { struct Screen: SwiftUI.View {}; struct Helper {} }",
         "Actions.swift": "extension Namespace.Screen { func load() { _ = URLRequest(url: url) } }",
@@ -109,7 +109,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if not automatic_school_fetch_findings(cloud):
-            return ["代码质量规则边界自检失败：云拉取的生命周期传递调用"]
+            return ["代码质量规则界限自检失败：云拉取的生命周期传递调用"]
     cloud["App.swift"] = swift_syntax_index_sources(
         {
             "App.swift": (
@@ -119,7 +119,7 @@ def cross_file_view_request_self_test() -> list[str]:
         }
     )["App.swift"]
     if automatic_school_fetch_findings(cloud):
-        return ["代码质量规则边界自检失败：待用户操作的方法引用"]
+        return ["代码质量规则界限自检失败：待用户操作的方法引用"]
     for action, invoked in (("_ = actions", False), ("await actions.start()", True)):
         stored = swift_syntax_index_sources(
             {
@@ -133,7 +133,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if bool(automatic_school_fetch_findings(stored)) != invoked:
-            return ["代码质量规则边界自检失败：成员构造器保存闭包与后续调用"]
+            return ["代码质量规则界限自检失败：成员构造器保存闭包与后续调用"]
     for action, invoked in (("_ = actions", False), ("await actions.start()", True)):
         stored = swift_syntax_index_sources(
             {
@@ -149,7 +149,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if bool(automatic_school_fetch_findings(stored)) != invoked:
-            return ["代码质量规则边界自检失败：同名参数标签与实际执行引用"]
+            return ["代码质量规则界限自检失败：同名参数标签与实际执行引用"]
     registered = swift_syntax_index_sources(
         {
             "App.swift": (
@@ -163,7 +163,7 @@ def cross_file_view_request_self_test() -> list[str]:
         }
     )
     if automatic_school_fetch_findings(registered):
-        return ["代码质量规则边界自检失败：交互回调的登记边界"]
+        return ["代码质量规则界限自检失败：交互回调的登记界限"]
     for operation, executed in (
         ("_ = action", False),
         ("await action()", True),
@@ -184,7 +184,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if bool(automatic_school_fetch_findings(callbacks)) != executed:
-            return ["代码质量规则边界自检失败：回调保存、直接执行与传递执行"]
+            return ["代码质量规则界限自检失败：回调保存、直接执行与传递执行"]
     for method, restricted in (("preferences", False), ("business", True)):
         isolated = swift_syntax_index_sources(
             {
@@ -202,7 +202,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if bool(automatic_school_fetch_findings(isolated)) != restricted:
-            return ["代码质量规则边界自检失败：同名执行参数的调用归属"]
+            return ["代码质量规则界限自检失败：同名执行参数的调用归属"]
     preference = swift_syntax_index_sources(
         {
             "App.swift": (
@@ -217,12 +217,12 @@ def cross_file_view_request_self_test() -> list[str]:
         }
     )
     if automatic_school_fetch_findings(preference):
-        return ["代码质量规则边界自检失败：已启用偏好同步的生命周期协调"]
+        return ["代码质量规则界限自检失败：已启用偏好同步的生命周期协调"]
     types = declaration_conformances(index)
     if not ast_has_view_request(index["Actions.swift"], types, index) or ast_has_view_request(
         index["Other.swift"], types, index
     ):
-        return ["代码质量规则边界自检失败：跨文件 View 扩展与完整类型作用域"]
+        return ["代码质量规则界限自检失败：跨文件 View 扩展与完整类型作用域"]
     for target in ("Foundation.URLRequest", "Leaf"):
         sources["Aliases.swift"] = (
             f"private typealias Leaf = Foundation.URLRequest; typealias Request = {target}"
@@ -235,7 +235,7 @@ def cross_file_view_request_self_test() -> list[str]:
         if not ast_has_view_request(
             aliases["Actions.swift"], declaration_conformances(aliases), aliases
         ):
-            return ["代码质量规则边界自检失败：跨文件请求别名与别名声明文件归属"]
+            return ["代码质量规则界限自检失败：跨文件请求别名与别名声明文件归属"]
     for method in ("fetchScores", "`fetchScores`"):
         school = swift_syntax_index_sources(
             {
@@ -249,7 +249,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if not automatic_school_fetch_findings(school):
-            return ["代码质量规则边界自检失败：生命周期学校请求的转义标识符"]
+            return ["代码质量规则界限自检失败：生命周期学校请求的转义标识符"]
     for setup, preparation, action in (
         ("", "let refresh = service.syncCourses;", "try? await refresh()"),
         (
@@ -278,7 +278,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if not automatic_school_fetch_findings(school):
-            return ["代码质量规则边界自检失败：生命周期初始化器与方法引用调用链"]
+            return ["代码质量规则界限自检失败：生命周期初始化器与方法引用调用链"]
         safe = swift_syntax_index_sources(
             {
                 "Safe.swift": (
@@ -292,7 +292,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if automatic_school_fetch_findings(safe):
-            return ["代码质量规则边界自检失败：手动调用引用作用域"]
+            return ["代码质量规则界限自检失败：手动调用引用作用域"]
     safe = swift_syntax_index_sources(
         {
             "Safe.swift": (
@@ -304,7 +304,7 @@ def cross_file_view_request_self_test() -> list[str]:
         }
     )
     if automatic_school_fetch_findings(safe):
-        return ["代码质量规则边界自检失败：类型声明与构造调用区分"]
+        return ["代码质量规则界限自检失败：类型声明与构造调用区分"]
     for property in (
         "let work = Task { try? await Service().syncCourses() }",
         "let work = Task { try? await Service().syncCourses() }; init() {}",
@@ -324,7 +324,7 @@ def cross_file_view_request_self_test() -> list[str]:
             }
         )
         if not automatic_school_fetch_findings(school):
-            return ["代码质量规则边界自检失败：构造执行实例属性初始化"]
+            return ["代码质量规则界限自检失败：构造执行实例属性初始化"]
     for construction in (
         (
             "var manualRefresh: () async throws -> Void; init(service: any ScheduleCourseServicing"
@@ -347,12 +347,12 @@ def cross_file_view_request_self_test() -> list[str]:
         )
         safe = swift_syntax_index_sources({"Safe.swift": fixture.replace("ACTION", "_ = model")})
         if automatic_school_fetch_findings(safe):
-            return ["代码质量规则边界自检失败：构造保存手动回调"]
+            return ["代码质量规则界限自检失败：构造保存手动回调"]
         invoked = swift_syntax_index_sources(
             {"School.swift": fixture.replace("ACTION", "try? await model.manualRefresh()")}
         )
         if not automatic_school_fetch_findings(invoked):
-            return ["代码质量规则边界自检失败：生命周期调用已保存回调"]
+            return ["代码质量规则界限自检失败：生命周期调用已保存回调"]
     fixture = (
         "protocol ScheduleCourseServicing { func fetchCurrentTermOnly() async throws -> String"
         " }; struct Service: ScheduleCourseServicing { func fetchCurrentTermOnly() async throw"
@@ -391,7 +391,7 @@ def cross_file_view_request_self_test() -> list[str]:
             )
             != expected
         ):
-            return ["代码质量规则边界自检失败：变更回调、接收者归属与不可执行分支"]
+            return ["代码质量规则界限自检失败：变更回调、接收者归属与不可执行分支"]
     for owner, callback, action, expected in (
         (
             "UIApplicationDelegate",
@@ -423,7 +423,7 @@ def cross_file_view_request_self_test() -> list[str]:
             )
             != expected
         ):
-            return ["代码质量规则边界自检失败：系统 delegate 生命周期及手动入口归属"]
+            return ["代码质量规则界限自检失败：系统 delegate 生命周期及手动入口归属"]
     ports = str(ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift")
     path = str(ROOT / "BIT101-iOS/LifecycleClassroom.swift")
     for owner, entry, extra, expected in (
@@ -452,6 +452,6 @@ def cross_file_view_request_self_test() -> list[str]:
         facts = swift_syntax_index_sources({ports: Path(ports).read_text(), path: source})
         if bool(automatic_school_fetch_findings(facts)) != expected:
             return [
-                "学校生命周期自测：空教室预取沿所属页面入口，课表同步及其他入口保持显式操作边界"
+                "学校生命周期自测：空教室预取沿所属页面入口，课表同步及其他入口保持显式操作界限"
             ]
     return []

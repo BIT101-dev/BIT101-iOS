@@ -7,7 +7,7 @@ extension CommunityAPIClient {
     init(
         storage: LoginStorage = AppAccountSession.storage,
         httpClient: HTTPClient? = nil,
-        baseURL: URL = AppURL.required("https://bit101.flwfdd.xyz"),
+        baseURL: URL = AppEndpoints.bit101,
         errorDomain: String
     ) {
         let selectedClient =
@@ -40,7 +40,7 @@ extension CommunitySession {
                 httpClient: selectedClient, noRedirectHTTPClient: selectedClient))
         return CommunitySession(
             httpClient: selectedClient,
-            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            baseURL: AppEndpoints.bit101,
             credentials: { storage.communityCredentials },
             refresh: { observed in
                 try await login.renewCommunitySession(observed: observed)

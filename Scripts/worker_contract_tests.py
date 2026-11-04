@@ -738,4 +738,4 @@ def worker_boundary_findings() -> list[str]:
         cwd=ROOT / "Cloudflare/EmergencyUpdateWorker",
         timeout=60,
     )
-    return [f"Worker 行为回归：{result.stderr}"] if result.returncode else []
+    return [f"Worker 行为复测：{result.stderr}"] if result.returncode else []

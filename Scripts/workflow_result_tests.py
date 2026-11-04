@@ -67,7 +67,7 @@ def focused_result_retention(fixture: Path) -> None:
         patch.object(provenance, "REPORT", report),
         patch.object(provenance, "report_lock", side_effect=nullcontext),
         patch.object(
-            subject, "merge_result_bundles", side_effect=AssertionError("定向回归需要覆盖当前诊断")
+            subject, "merge_result_bundles", side_effect=AssertionError("定向复测需要覆盖当前诊断")
         ),
     ):
         for current in (b"focused first", b"focused second", b"focused current"):
@@ -513,7 +513,7 @@ wait "$slow_pid"
         env=dict(os.environ, GITHUB_ACTIONS="false"),
     )
     try:
-        assert select.select([process.stdout], [], [], 5)[0], "失败组需要即时显示根因。"
+        assert select.select([process.stdout], [], [], 5)[0], "失败组需要即时显示原因。"
         assert "immediate failure" in process.stdout.readline() and process.poll() is None
     finally:
         os.killpg(process.pid, signal.SIGTERM)

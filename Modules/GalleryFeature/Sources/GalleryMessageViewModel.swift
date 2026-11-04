@@ -437,7 +437,7 @@ final class GalleryMessageViewModel: ObservableObject {
 
     /// 当滚动到尾部附近时触发分页加载。
     ///
-    /// 消息列表分页继续沿用 `last_id` 语义；新页追加到末尾，消息分页按需加载。
+    /// 消息列表分页继续沿用 `last_id` 含义；新页追加到末尾，消息分页按需加载。
     func loadMoreIfNeeded(for type: GalleryMessageType, currentMessage: GalleryMessage?) async {
         guard let currentMessage else { return }
         let state = state(for: type)

@@ -136,7 +136,7 @@ struct ServiceContractTests {
             Array(repeating: (200, "[]"), count: probe == "gallery.search" ? 16 : 10))
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            baseURL: AppEndpoints.bit101,
             credentials: {
                 .init(identity: .init(accountIdentifier: "contracts"), cookie: "fixture")
             }, refresh: { _ in })
@@ -211,7 +211,7 @@ struct ServiceContractTests {
                 : Array(repeating: (200, "[]"), count: 6))
         let session = CommunitySession(
             httpClient: HTTPClient(transport: transport, observer: nil),
-            baseURL: AppURL.required("https://bit101.flwfdd.xyz"),
+            baseURL: AppEndpoints.bit101,
             credentials: {
                 .init(
                     identity: .init(accountIdentifier: "contracts"),

@@ -20,7 +20,7 @@ public struct ScheduleService {
         cd6572a216b231105adc27d
         """
     )
-    let bitLoginBaseURL = AppURL.required("https://login.bit101.flwfdd.xyz")
+    let bitLoginBaseURL = AppEndpoints.bit101Login
     let schoolSSOBaseURL = AppURL.required("https://sso.bit.edu.cn")
     let lexueBaseURL = AppURL.required("https://lexue.bit.edu.cn")
     let webVPNLexueBaseURL = AppURL.required(

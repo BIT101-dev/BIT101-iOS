@@ -13,6 +13,8 @@ DEPTH_LIMIT = 4
 EMOJI = regex.compile(
     r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3"
 )
+BANNED_WORDS = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因".split()
+BANNED_EXEMPT = {"AGENTS.md", "Scripts/code_style_rules.py"}
 CODE_SUFFIXES = {".swift", ".py", ".sh", ".js"}
 
 
@@ -50,6 +52,17 @@ def emoji_findings(name: str, source: str) -> list[str]:
         issue(name, number, "包含 Emoji；请使用文字或 SF Symbol")
         for number, text in enumerate(source.splitlines(), 1)
         if EMOJI.search(text)
+    ]
+
+
+def banned_word_findings(name: str, source: str) -> list[str]:
+    if name in BANNED_EXEMPT:
+        return []
+    return [
+        issue(name, number, f"包含禁用词 {word}")
+        for number, text in enumerate(source.splitlines(), 1)
+        for word in BANNED_WORDS
+        if word in text
     ]
 
 
@@ -234,7 +247,7 @@ def style_findings(contents: dict[str, str]) -> list[str]:
     findings = [
         finding
         for name, source in contents.items()
-        for finding in emoji_findings(name, source)
+        for finding in emoji_findings(name, source) + banned_word_findings(name, source)
     ]
     for name, source in sources.items():
         findings.extend(line_findings(name, source))

@@ -153,7 +153,7 @@ public nonisolated struct ScheduleExternalDeadlineSnapshot: Codable, Hashable, I
 
 /// 主 App 导出、Widget 和 Watch 读取的统一日程快照。
 ///
-/// 这份结构定义跨 target 的稳定边界：
+/// 这份结构定义跨 target 的稳定界限：
 /// - 主 App 从完整缓存裁剪出可共享的最小信息
 /// - Widget 和 Watch 依赖这份快照，与主 App 状态机保持解耦
 public nonisolated struct ScheduleExternalSnapshot: Codable, Hashable, Sendable {

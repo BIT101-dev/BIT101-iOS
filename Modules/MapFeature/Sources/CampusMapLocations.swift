@@ -32,7 +32,7 @@ public nonisolated enum CampusPreset: String, CaseIterable, Identifiable, Sendab
         }
     }
 
-    /// 为 VoiceOver 和其他需要完整语义的界面提供校区名。
+    /// 为 VoiceOver 和其他需要完整含义的界面提供校区名。
     public var displayName: String {
         switch self {
         case .liangxiang:

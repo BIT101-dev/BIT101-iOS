@@ -622,7 +622,7 @@ struct FeedbackSubmissionClient {
 
     static func submit<Payload: FeedbackSubmissionPayload>(_ payload: Payload) async throws {
         var request = URLRequest(
-            url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
+            url: AppEndpoints.feedbackReports)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -644,7 +644,7 @@ struct FeedbackSubmissionClient {
     #if DEBUG || RELEASE_NETWORK_SMOKE
     static func submitNetworkSmoke(runID: String) async throws {
         var request = URLRequest(
-            url: AppURL.required("https://feedback.aihelpme.dev/api/error-reports"))
+            url: AppEndpoints.feedbackReports)
         request.httpMethod = "POST"
         request.timeoutInterval = 60 + 20
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

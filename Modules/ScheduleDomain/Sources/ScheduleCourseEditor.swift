@@ -9,7 +9,7 @@ import ScheduleContracts
 /// 课程编辑草稿校验、周次编解码和课程记录变换。
 ///
 /// 新增、整课编辑和单次调课共享同一套规则，
-/// 边界输入可以独立于 `ScheduleViewModel` 测试。
+/// 界限输入可以独立于 `ScheduleViewModel` 测试。
 public nonisolated enum ScheduleCourseEditor {
     public struct CourseRuleReconciliation {
         public let courses: [CourseRecord]

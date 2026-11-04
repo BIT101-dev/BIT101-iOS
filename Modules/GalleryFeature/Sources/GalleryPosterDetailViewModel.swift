@@ -47,7 +47,7 @@ final class GalleryPosterDetailViewModel: ObservableObject {
     private var contentFilter: GalleryCommentFilter?
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
-    /// 评论和帖子点赞接口都使用同一套 `poster{id}` 语义，由这个属性统一生成，
+    /// 评论和帖子点赞接口都使用同一套 `poster{id}` 含义，由这个属性统一生成，
     /// 减少多个方法重复拼接同一个字面量。
     private var posterObjectID: String { "poster\(posterID)" }
 

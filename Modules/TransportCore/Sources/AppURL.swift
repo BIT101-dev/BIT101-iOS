@@ -44,3 +44,17 @@ public nonisolated enum AppURL {
         return url
     }
 }
+
+/// 应用内置服务地址的唯一定义处。
+public nonisolated enum AppEndpoints {
+    public static let bit101 = AppURL.required("https://bit101.flwfdd.xyz")
+    public static let bit101Login = AppURL.required("https://login.bit101.flwfdd.xyz")
+    public static let feedbackReports = AppURL.required(
+        "https://feedback.aihelpme.dev/api/error-reports")
+    public static let openLinks = AppURL.required("https://open.aihelpme.dev")
+
+    /// 生成 `open.aihelpme.dev` 下的分享链接，例如 `course/12`。
+    public static func openLink(_ path: String) -> URL {
+        AppURL.required("https://open.aihelpme.dev/\(path)")
+    }
+}

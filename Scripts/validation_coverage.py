@@ -475,7 +475,7 @@ def self_test(evidence) -> None:
             except ValueError:
                 pass
             else:
-                raise AssertionError("分片边界及登记数量需要严格匹配。")
+                raise AssertionError("分片界限及登记数量需要严格匹配。")
     inventory = {"Layout/testWeeks", *(f"Suite/test{index:02}" for index in range(30))}
     with (
         patch("validation_test_areas.test_inventory", return_value=inventory),

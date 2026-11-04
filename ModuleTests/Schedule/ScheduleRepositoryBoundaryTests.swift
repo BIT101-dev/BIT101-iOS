@@ -669,7 +669,7 @@ struct ScheduleRepositoryBoundaryTests {
             "2026-09-28"
         let courses = try ScheduleCourseEditor.adding(
             CourseDraft(
-                title: "边界课程", classroom: "文萃楼I203", weekday: 1, startSection: 1, endSection: 2,
+                title: "界限课程", classroom: "文萃楼I203", weekday: 1, startSection: 1, endSection: 2,
                 weeksText: "1-2"),
             to: [], term: repository.persistenceSnapshot.currentTerm, id: "boundary-course"
         )
@@ -681,7 +681,7 @@ struct ScheduleRepositoryBoundaryTests {
         let code = try await viewModel.exportScheduleCode()
         try await viewModel.importScheduleCode(code)
         let shared = try #require(repository.persistenceSnapshot.sharedSchedules.first)
-        #expect(shared.courses.first?.name == "边界课程")
+        #expect(shared.courses.first?.name == "界限课程")
         #expect(shared.currentTerm == "2026-2027-1")
         #expect(viewModel.settingsSnapshot.sharedSchedules.first?.id == shared.id)
         #expect(viewModel.settingsSnapshot.sharedSchedules.first?.title == shared.title)

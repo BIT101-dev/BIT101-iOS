@@ -158,7 +158,7 @@ public nonisolated struct BITLoginChallengePayload: Decodable, Sendable {
     }
 }
 
-/// `BITLoginChallengeSupport` 共享成绩和课表的 bit-login 协议细节，各业务维护自己的会话与错误语义。
+/// `BITLoginChallengeSupport` 共享成绩和课表的 bit-login 协议细节，各业务维护自己的会话与错误含义。
 public enum BITLoginChallengeSupport {
     private struct PollDeadlineReached: Error {}
 
