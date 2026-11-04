@@ -45,13 +45,13 @@ private struct GalleryPosterDetailViewScene: View {
     private let dependencies: GalleryDependencies
     private let destinations: CommunityProfileDestination
     private let media: MediaEnvironment
-    @ObservedObject private var contentPreferences: CommunityPreferences
+    private var contentPreferences: CommunityPreferences
     private struct UserRoute: Identifiable, Hashable {
         let userID: Int
         var id: Int { userID }
     }
 
-    @StateObject private var viewModel: GalleryPosterDetailViewModel
+    @State private var viewModel: GalleryPosterDetailViewModel
     @State private var imageViewer: ImagePreviewRequest?
     @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var userRoute: UserRoute?
@@ -77,10 +77,10 @@ private struct GalleryPosterDetailViewScene: View {
     ) {
         self.dependencies = dependencies
         self.media = media
-        _contentPreferences = ObservedObject(wrappedValue: dependencies.preferences)
+        self.contentPreferences = dependencies.preferences
         self.destinations = profiles
-        _viewModel = StateObject(
-            wrappedValue: GalleryPosterDetailViewModel(
+        _viewModel = State(
+            initialValue: GalleryPosterDetailViewModel(
                 initialPoster: poster, initialDetail: initialDetail,
                 service: dependencies.posterDetail))
         self.onUpdated = onUpdated

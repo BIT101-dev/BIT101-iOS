@@ -1,50 +1,50 @@
-import Combine
 import CommunityCore
 import CommunityTransport
 import CommunityUI
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 @MainActor
-final class GalleryPosterDetailViewModel: ObservableObject {
+@Observable final class GalleryPosterDetailViewModel {
     let pendingOperations = CommunityDetailTasks()
-    private(set) var needsContentRefresh = false
+    @ObservationIgnored private(set) var needsContentRefresh = false
     /// 当前正在展示的帖子详情。
-    @Published private(set) var poster: GalleryPosterDetail
+    private(set) var poster: GalleryPosterDetail
     /// 帖子正文区域的加载状态。
-    @Published private(set) var posterStatus: CommunityLoadStatus = .idle
+    private(set) var posterStatus: CommunityLoadStatus = .idle
     /// 评论区的分页状态。
-    @Published private(set) var commentState = CommunityCommentState()
+    private(set) var commentState = CommunityCommentState()
     /// 当前评论排序方式。
-    @Published var commentOrder: CommunityCommentOrder = .newest
+    var commentOrder: CommunityCommentOrder = .newest
     /// 点赞请求是否进行中，重复操作直接返回。
-    @Published private(set) var isLikingPoster = false
-    @Published private(set) var hasKnownLikeState = false
-    @Published private(set) var isSavingSubscription = false
+    private(set) var isLikingPoster = false
+    private(set) var hasKnownLikeState = false
+    private(set) var isSavingSubscription = false
     var subscriptionLevel: GallerySubscriptionLevel {
         poster.subscription ?? GallerySubscriptionLevel.none
     }
-    private var subscriptionRevision = 0
+    @ObservationIgnored private var subscriptionRevision = 0
     /// 当前正在点赞的评论 ID 集合。
-    @Published private(set) var likingCommentIDs: Set<Int> = []
+    private(set) var likingCommentIDs: Set<Int> = []
     /// 评论提交请求是否进行中。
-    @Published private(set) var isSubmittingComment = false
-    @Published private(set) var deletingCommentIDs: Set<Int> = []
+    private(set) var isSubmittingComment = false
+    private(set) var deletingCommentIDs: Set<Int> = []
     /// 帖子删除请求是否进行中。
-    @Published private(set) var isDeletingPoster = false
+    private(set) var isDeletingPoster = false
     /// 页面级统一提示。
-    @Published var alert: AppAlert?
+    var alert: AppAlert?
 
     /// 固定的帖子 ID。后续刷新都基于它重新请求详情。
     private let posterID: Int
     private let service: any GalleryPosterDetailServicing
-    private var likeRevision = 0
-    private var likeResultNeedsReview = false
-    private var latestLikeResult: CommunityLikeResult?
-    private var refreshGeneration = 0
-    private var commentRefreshGeneration = 0
-    private var contentFilter: GalleryCommentFilter?
+    @ObservationIgnored private var likeRevision = 0
+    @ObservationIgnored private var likeResultNeedsReview = false
+    @ObservationIgnored private var latestLikeResult: CommunityLikeResult?
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var commentRefreshGeneration = 0
+    @ObservationIgnored private var contentFilter: GalleryCommentFilter?
     /// 当前详情页对应的帖子对象 ID 字符串。
     ///
     /// 评论和帖子点赞接口都使用同一套 `poster{id}` 含义，由这个属性统一生成，

@@ -38,7 +38,7 @@ private struct PaperRootViewScene: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
-    @StateObject private var viewModel: PaperListViewModel
+    @State private var viewModel: PaperListViewModel
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
@@ -55,7 +55,7 @@ private struct PaperRootViewScene: View {
         self.dependencies = dependencies
         self.media = media
         _requestedPaperID = requestedPaperID
-        _viewModel = StateObject(wrappedValue: PaperListViewModel(service: dependencies.list))
+        _viewModel = State(initialValue: PaperListViewModel(service: dependencies.list))
         self.onShowFeed = onShowFeed
     }
 

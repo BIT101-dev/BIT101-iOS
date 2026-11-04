@@ -209,10 +209,10 @@ struct AppShellView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.scenePhase) private var scenePhase
-    @EnvironmentObject private var settings: AppSettingsStore
-    @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
-    @EnvironmentObject private var lifecycle: AppAccountLifecycle
-    @EnvironmentObject private var promptCoordinator: AppPromptCoordinator
+    @Environment(AppSettingsStore.self) private var settings: AppSettingsStore
+    @Environment(ScheduleViewModel.self) private var scheduleViewModel: ScheduleViewModel
+    @Environment(AppAccountLifecycle.self) private var lifecycle: AppAccountLifecycle
+    @Environment(AppPromptCoordinator.self) private var promptCoordinator: AppPromptCoordinator
     #if BIT101_UI_TESTING
     @State private var selectedTab: AppTab =
         AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
@@ -289,7 +289,8 @@ struct AppShellView: View {
             guard session == lifecycle.currentSession() else { return }
             refreshReminderPrompt()
         }
-        .onReceive(AppDeepLinkCoordinator.shared.$pendingURL.compactMap { $0 }) { url in
+        .onChange(of: AppDeepLinkCoordinator.shared.pendingURL, initial: true) { _, url in
+            guard let url else { return }
             handleIncomingURL(url)
             AppDeepLinkCoordinator.shared.consume(url)
         }

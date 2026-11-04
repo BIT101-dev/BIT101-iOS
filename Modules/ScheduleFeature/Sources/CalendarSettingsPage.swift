@@ -46,7 +46,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         let title: String
     }
 
-    @ObservedObject private var viewModel: ScheduleViewModel
+    private var viewModel: ScheduleViewModel
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @AppStorage("schedule.calendar.axisMode") private var storedCalendarAxisMode =
         ScheduleCalendarAxisMode.quantized.rawValue

@@ -630,8 +630,10 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             let completed = expectation(description: "production pagination")
             Task { @MainActor in
                 let model = PaperListViewModel(service: PerformancePaperService(pages: pages))
-                let observation = model.objectWillChange.sink { _ in }
-                defer { observation.cancel() }
+                withObservationTracking {
+                    _ = model.state
+                } onChange: {
+                }
                 var messages = GalleryMessageListState()
                 for _ in 0..<passes {
                     await model.refresh()

@@ -3,6 +3,7 @@ import CommunityTransport
 import CommunityUI
 import Foundation
 import MediaKit
+import Observation
 import ScheduleDomain
 import ScheduleFeature
 import ScoreDomain
@@ -13,7 +14,7 @@ import StorageCore
 
 /// 应用生命周期持有场景依赖，集中处理账号切换和外部日程展示。
 @MainActor
-final class AppAccountLifecycle: ObservableObject {
+@Observable final class AppAccountLifecycle {
     let scheduleViewModel: ScheduleViewModel
     let scoreViewModel: ScoreViewModel
     let transcriptService: any TrustedTranscriptServicing
@@ -24,9 +25,9 @@ final class AppAccountLifecycle: ObservableObject {
     let preferenceCloudSync: ExperimentalPreferenceCloudSync
     let scheduleChanges: AnyPublisher<AppStorageSession, Never>
     let isNotificationPermissionDenied: @MainActor () async -> Bool
-    private var subscriptions = Set<AnyCancellable>()
-    private var externalRefreshTask: Task<Void, Never>?
-    private var scheduleCloudRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var subscriptions = Set<AnyCancellable>()
+    @ObservationIgnored private var externalRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var scheduleCloudRefreshTask: Task<Void, Never>?
     private let refreshScheduleCloud: @MainActor () async -> Void
     private let externalDisplays: any AppExternalDisplayCoordinating
     let prompts: AppPromptCoordinator

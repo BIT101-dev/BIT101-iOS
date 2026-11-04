@@ -4,7 +4,7 @@ import DesignSystemKit
 import SwiftUI
 
 private struct ScheduleSchoolVerification: ViewModifier {
-    @ObservedObject var viewModel: ScheduleDDLViewModel
+    var viewModel: ScheduleDDLViewModel
     let isEnabled: Bool
 
     func body(content: Content) -> some View {

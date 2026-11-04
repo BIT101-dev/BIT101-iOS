@@ -20,11 +20,11 @@ struct AccountSettingsPage: View {
     let studentID: String
     let onLogout: () -> Void
 
-    @StateObject private var model: AccountSettingsModel
+    @State private var model: AccountSettingsModel
     private var profile: MineUserInfo? { model.profile }
     private var isCheckingLogin: Bool { model.isCheckingLogin }
     private var isLoggedIn: Bool { model.isLoggedIn }
-    @StateObject private var profileMutation: AccountProfileMutation
+    @State private var profileMutation: AccountProfileMutation
     private var isBusy: Bool { profileMutation.isBusy }
     @State private var showNicknameEditor = false
     @State private var showMottoEditor = false
@@ -42,8 +42,8 @@ struct AccountSettingsPage: View {
         self.dependencies = dependencies
         self.studentID = studentID
         self.onLogout = onLogout
-        _model = StateObject(wrappedValue: AccountSettingsModel(dependencies: dependencies))
-        _profileMutation = StateObject(wrappedValue: dependencies.profileMutation)
+        _model = State(initialValue: AccountSettingsModel(dependencies: dependencies))
+        _profileMutation = State(initialValue: dependencies.profileMutation)
     }
 
     var body: some View {

@@ -7,6 +7,7 @@
 
 import Combine
 import Foundation
+import Observation
 import StorageCore
 
 /// 持久化到 `UserDefaults` 的设置快照。
@@ -108,7 +109,7 @@ nonisolated struct AppSettingsSyncPayload: Codable, Equatable, Sendable {
 /// 应用设置仓库。
 ///
 /// 当前账号的账号偏好和话廊筛选偏好都会统一写入这里，再由具体页面按需读取。
-final class AppSettingsStore: ObservableObject {
+@Observable final class AppSettingsStore {
     private let saveSubject = PassthroughSubject<AppStorageSession, Never>()
     var localSaves: AnyPublisher<AppStorageSession, Never> { saveSubject.eraseToAnyPublisher() }
     private let recoverySubject = PassthroughSubject<AppStorageSession, Never>()
@@ -138,15 +139,15 @@ final class AppSettingsStore: ObservableObject {
     /// “鸣谢 LINUX DO”提示按账号映射到首周内的延迟天数，分散弹出时间。
     nonisolated static let linuxDoThanksNoticeSpreadDays = 7
 
-    @Published private(set) var snapshot = AppSettingsSnapshot()
-    @Published private(set) var hidesCourseHistoryMakeupOutliers = true
-    @Published private(set) var automaticUpdateChecksEnabled = true
-    @Published private(set) var storageIssue: String?
+    private(set) var snapshot = AppSettingsSnapshot()
+    private(set) var hidesCourseHistoryMakeupOutliers = true
+    private(set) var automaticUpdateChecksEnabled = true
+    private(set) var storageIssue: String?
 
     private let defaults: UserDefaults
     private let session: () -> AppStorageSession
     private let snapshotStore: AccountScopedCodableStore<AppSettingsSnapshot>
-    private var snapshotReadBlocked = false
+    @ObservationIgnored private var snapshotReadBlocked = false
     /// 初始化当前账号的设置快照。
     init(
         defaults: UserDefaults = AppFileDirectories.defaults,

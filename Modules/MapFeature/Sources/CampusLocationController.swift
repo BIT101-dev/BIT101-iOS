@@ -1,5 +1,6 @@
 #if os(iOS)
 import DesignSystemKit
+import Observation
 //
 //  CampusLocationController.swift
 //  BIT101-iOS
@@ -7,7 +8,6 @@ import DesignSystemKit
 //  Created by Codex on 2026-08-12.
 //
 
-import Combine
 import CoreLocation
 import MapKit
 import TransportCore
@@ -20,10 +20,10 @@ typealias MapNotice = AppAlert
 ///
 /// 封装定位授权状态和错误提示。当前位置由地图桥接层通过 `MKMapView` 管理。
 @MainActor
-final class CampusLocationController: NSObject, ObservableObject, CLLocationManagerDelegate {
-    @Published private(set) var authorizationStatus: CLAuthorizationStatus
+@Observable final class CampusLocationController: NSObject, CLLocationManagerDelegate {
+    private(set) var authorizationStatus: CLAuthorizationStatus
     /// 当前需要直接弹给用户的定位提示。
-    @Published var notice: MapNotice?
+    var notice: MapNotice?
 
     private let manager: CLLocationManager
 

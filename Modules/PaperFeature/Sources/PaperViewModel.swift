@@ -4,6 +4,7 @@ import CommunityTransport
 import CommunityUI
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 private func normalizedPaperSearchText(_ text: String) -> String? {
@@ -22,32 +23,32 @@ extension PaperListState {
 
 @MainActor
 /// 文章集合统一维护刷新、分页、取消恢复与预览元数据。
-class PaperCollectionViewModel: ObservableObject {
-    @Published private(set) var state = PaperListState()
-    @Published private(set) var needsRefresh = false
-    @Published private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
-    @Published private(set) var previewFailedIDs: Set<Int> = []
-    @Published var selectedOrder: PaperSortOrder = .newest
-    @Published var searchText = ""
-    @Published var alert: AppAlert?
+@Observable class PaperCollectionViewModel {
+    private(set) var state = PaperListState()
+    private(set) var needsRefresh = false
+    private(set) var previewMetadataByPaperID: [Int: PaperPreviewMetadata] = [:]
+    private(set) var previewFailedIDs: Set<Int> = []
+    var selectedOrder: PaperSortOrder = .newest
+    var searchText = ""
+    var alert: AppAlert?
 
     private let service: any PaperListServicing
-    private var resourceSubscription: AnyCancellable?
+    @ObservationIgnored private var resourceSubscription: AnyCancellable?
     private let requiresSearchText: Bool
-    private var hasBootstrapped = false
-    private var pageQuery: (search: String?, order: PaperSortOrder)?
+    @ObservationIgnored private var hasBootstrapped = false
+    @ObservationIgnored private var pageQuery: (search: String?, order: PaperSortOrder)?
     var displayedQueryDescription: String? {
         guard let pageQuery,
             pageQuery.search != trimmedSearchText || pageQuery.order != selectedOrder
         else { return nil }
         return "\(pageQuery.search.map { "“\($0)”的文章" } ?? "全部文章") · \(pageQuery.order.title)"
     }
-    private var previewLoadingIDs: Set<Int> = []
-    private var previewRevalidationIDs: Set<Int> = []
-    @Published private(set) var refreshGeneration = 0
-    @Published private(set) var previewGeneration = 0
-    private var refreshTask: Task<Void, Never>?
-    private var refreshPreviousState:
+    @ObservationIgnored private var previewLoadingIDs: Set<Int> = []
+    @ObservationIgnored private var previewRevalidationIDs: Set<Int> = []
+    private(set) var refreshGeneration = 0
+    private(set) var previewGeneration = 0
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshPreviousState:
         (state: PaperListState, metadata: [Int: PaperPreviewMetadata], failures: Set<Int>)?
 
     init(service: any PaperListServicing, requiresSearchText: Bool) {
@@ -310,27 +311,27 @@ final class PaperSearchViewModel: PaperCollectionViewModel {
 #if os(iOS)
 @MainActor
 /// 文章详情状态机。
-final class PaperDetailViewModel: ObservableObject {
+@Observable final class PaperDetailViewModel {
     let pendingOperations = CommunityDetailTasks()
-    @Published private(set) var paper: PaperDetail?
-    @Published private(set) var contentBlocks: [PaperContentBlock] = []
-    @Published private(set) var paperStatus: CommunityLoadStatus = .idle
-    @Published private(set) var commentState = CommunityCommentState()
-    @Published var commentOrder: CommunityCommentOrder = .newest
-    @Published private(set) var isLikingPaper = false
-    @Published private(set) var isDeletingPaper = false
-    @Published private(set) var likingCommentIDs: Set<Int> = []
-    @Published private(set) var isSubmittingComment = false
-    @Published var alert: AppAlert?
+    private(set) var paper: PaperDetail?
+    private(set) var contentBlocks: [PaperContentBlock] = []
+    private(set) var paperStatus: CommunityLoadStatus = .idle
+    private(set) var commentState = CommunityCommentState()
+    var commentOrder: CommunityCommentOrder = .newest
+    private(set) var isLikingPaper = false
+    private(set) var isDeletingPaper = false
+    private(set) var likingCommentIDs: Set<Int> = []
+    private(set) var isSubmittingComment = false
+    var alert: AppAlert?
 
     let initialPaper: PaperSummary
 
     private let service: any PaperDetailServicing
-    private var likeRevision = 0
-    private var likeResultNeedsReview = false
-    @Published private var latestLikeResult: CommunityLikeResult?
-    private var refreshGeneration = 0
-    private var commentRefreshGeneration = 0
+    @ObservationIgnored private var likeRevision = 0
+    @ObservationIgnored private var likeResultNeedsReview = false
+    private var latestLikeResult: CommunityLikeResult?
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var commentRefreshGeneration = 0
 
     init(initialPaper: PaperSummary, service: any PaperDetailServicing) {
         self.initialPaper = initialPaper

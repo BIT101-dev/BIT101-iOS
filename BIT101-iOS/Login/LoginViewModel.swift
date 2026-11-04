@@ -1,6 +1,7 @@
 import Combine
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 //
@@ -22,23 +23,23 @@ enum LoginScreenState: Equatable {
 
 /// 管理本地登录态恢复、登录提交状态和退出后的界面回退。
 @MainActor
-final class LoginViewModel: ObservableObject {
+@Observable final class LoginViewModel {
     /// 学号输入框内容。
-    @Published var studentID: String
+    var studentID: String
     /// 密码输入框内容。
-    @Published var password = ""
+    var password = ""
     /// 登录模块当前处于登录页还是主壳层。
-    @Published private(set) var screenState: LoginScreenState
+    private(set) var screenState: LoginScreenState
     /// 是否正在执行登录请求。
-    @Published private(set) var isSubmitting = false
+    private(set) var isSubmitting = false
     /// 当前待展示的提示弹窗，登录模块通过 `AppAlert` 向视图层提供提示数据。
-    @Published var alert: AppAlert?
+    var alert: AppAlert?
 
     private let service: any LoginServicing
-    private var sessionSubscription: AnyCancellable?
-    private var sessionRevision = 0
+    @ObservationIgnored private var sessionSubscription: AnyCancellable?
+    @ObservationIgnored private var sessionRevision = 0
     /// 启动校验在视图重建期间保持单次触发。
-    private var hasBootstrapped = false
+    @ObservationIgnored private var hasBootstrapped = false
 
     /// 用持久化的本地状态初始化登录表单与首屏。
     ///
@@ -175,24 +176,24 @@ enum RegistrationVerificationMethod: String, CaseIterable {
 }
 
 @MainActor
-final class AccountRegistrationViewModel: ObservableObject {
-    @Published var studentID: String { didSet { invalidateVerification() } }
-    @Published var password = ""
-    @Published var confirmation = ""
-    @Published var schoolPassword = "" {
+@Observable final class AccountRegistrationViewModel {
+    var studentID: String { didSet { invalidateVerification() } }
+    var password = ""
+    var confirmation = ""
+    var schoolPassword = "" {
         didSet { if method == .school { invalidateVerification() } }
     }
-    @Published var code = ""
-    @Published var method: RegistrationVerificationMethod = .school {
+    var code = ""
+    var method: RegistrationVerificationMethod = .school {
         didSet { invalidateVerification() }
     }
-    @Published private(set) var isVerifying = false
-    @Published private(set) var isSubmitting = false
-    @Published private(set) var verified = false
-    @Published private(set) var resendAt = Date.distantPast
-    @Published var alert: AppAlert?
-    private var token = ""
-    private var revision = 0
+    private(set) var isVerifying = false
+    private(set) var isSubmitting = false
+    private(set) var verified = false
+    private(set) var resendAt = Date.distantPast
+    var alert: AppAlert?
+    @ObservationIgnored private var token = ""
+    @ObservationIgnored private var revision = 0
     private let service: any AccountRegistrationServicing
 
     init(studentID: String, service: (any AccountRegistrationServicing)? = nil) {

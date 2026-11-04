@@ -492,7 +492,7 @@ private enum ErrorReportConfirmation: String, Identifiable {
 
 private struct AppErrorReportSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: ErrorReportViewModel
+    @State private var viewModel: ErrorReportViewModel
     @State private var confirmation: ErrorReportConfirmation?
     @State private var submissionTask: Task<Void, Never>?
     @State private var confirmationTask: Task<Void, Never>?
@@ -500,7 +500,7 @@ private struct AppErrorReportSheet: View {
     let onClose: (() -> Void)?
 
     init(alert: any DiagnosticAlertPresentable, onClose: (() -> Void)? = nil) {
-        _viewModel = StateObject(wrappedValue: ErrorReportViewModel(alert: alert))
+        _viewModel = State(initialValue: ErrorReportViewModel(alert: alert))
         self.onClose = onClose
     }
 

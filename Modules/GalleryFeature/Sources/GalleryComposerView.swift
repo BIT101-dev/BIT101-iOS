@@ -29,7 +29,7 @@ struct GalleryComposerView: View {
 private struct GalleryComposerScene: View {
     private let dependencies: GalleryDependencies
     @Environment(MediaEnvironment.self) private var media
-    @StateObject private var viewModel: GalleryComposerViewModel
+    @State private var viewModel: GalleryComposerViewModel
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var isShowingDraftAlert = false
     @State private var isShowingDraftRestoreAlert = false
@@ -46,8 +46,8 @@ private struct GalleryComposerScene: View {
         self.editingPoster = editingPoster
         self.onCreated = onCreated
         let imagePreparer = ComposerImagePreparer()
-        _viewModel = StateObject(
-            wrappedValue: GalleryComposerViewModel(
+        _viewModel = State(
+            initialValue: GalleryComposerViewModel(
                 editingPoster: editingPoster,
                 service: dependencies.composer, images: dependencies.images,
                 drafts: dependencies.drafts,

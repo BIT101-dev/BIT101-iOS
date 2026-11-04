@@ -40,7 +40,8 @@ public final class NetworkPathState {
     public private(set) var snapshot: NetworkPathSnapshot
     public var isReachable: Bool { snapshot.isReachable }
     private let monitor: NWPathMonitor?
-    private var recoveryContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+    @ObservationIgnored private var recoveryContinuations: [UUID: AsyncStream<Void>.Continuation] =
+        [:]
 
     public init() {
         snapshot = NetworkPathSnapshot(status: .checking)

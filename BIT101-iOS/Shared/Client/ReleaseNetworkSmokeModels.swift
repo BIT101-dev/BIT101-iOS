@@ -7,6 +7,7 @@ import GalleryFeature
 import MediaKit
 import MineFeature
 import OSLog
+import Observation
 import PaperFeature
 import ScheduleContracts
 import ScheduleDomain
@@ -883,12 +884,11 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
 }
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
-import Combine
 
 @MainActor
-final class ReleaseNetworkSmokeSMSPrompt: ObservableObject {
-    @Published var request: SchoolSMSCodeRequest?
-    private var continuation: CheckedContinuation<String, any Error>?
+@Observable final class ReleaseNetworkSmokeSMSPrompt {
+    var request: SchoolSMSCodeRequest?
+    @ObservationIgnored private var continuation: CheckedContinuation<String, any Error>?
 
     func requestCode(_ value: SchoolSMSCodeRequest) async throws -> String {
         try Task.checkCancellation()

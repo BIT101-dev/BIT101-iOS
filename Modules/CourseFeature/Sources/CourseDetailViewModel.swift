@@ -1,37 +1,37 @@
-import Combine
 import CommunityCore
 import CommunityTransport
 import CommunityUI
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 @MainActor
-final class CourseDetailViewModel: ObservableObject {
+@Observable final class CourseDetailViewModel {
     let pendingOperations = CommunityDetailTasks()
-    private(set) var needsContentRefresh = false
-    @Published private(set) var course: CourseDetail?
-    @Published private(set) var status: CourseDetailLoadStatus = .idle
-    @Published private(set) var isLikingCourse = false
-    @Published private(set) var commentState = CommunityCommentState()
-    @Published private(set) var historyGrades: [CourseHistoryGrade] = []
-    @Published private(set) var historyGradeStatus: CourseHistoryGradeLoadStatus = .idle
-    @Published private(set) var historyGradesAllowsDiagnostics = true
-    @Published private(set) var likingCommentIDs: Set<Int> = []
-    @Published private(set) var isSubmittingComment = false
-    @Published var alert: AppAlert?
+    @ObservationIgnored private(set) var needsContentRefresh = false
+    private(set) var course: CourseDetail?
+    private(set) var status: CourseDetailLoadStatus = .idle
+    private(set) var isLikingCourse = false
+    private(set) var commentState = CommunityCommentState()
+    private(set) var historyGrades: [CourseHistoryGrade] = []
+    private(set) var historyGradeStatus: CourseHistoryGradeLoadStatus = .idle
+    private(set) var historyGradesAllowsDiagnostics = true
+    private(set) var likingCommentIDs: Set<Int> = []
+    private(set) var isSubmittingComment = false
+    var alert: AppAlert?
 
     let initialCourse: CourseSummary
 
     private let service: any CourseDetailServicing
-    private var likeRevision = 0
-    private var likeResultNeedsReview = false
-    private var latestLikeResult: CommunityLikeResult?
-    private var refreshGeneration = 0
-    private var commentRefreshGeneration = 0
-    private var historyGeneration = 0
-    private var historyGradeNumber: String?
-    private var cachedCourseCredits: [CommunityCourseCredit] = []
+    @ObservationIgnored private var likeRevision = 0
+    @ObservationIgnored private var likeResultNeedsReview = false
+    @ObservationIgnored private var latestLikeResult: CommunityLikeResult?
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var commentRefreshGeneration = 0
+    @ObservationIgnored private var historyGeneration = 0
+    @ObservationIgnored private var historyGradeNumber: String?
+    @ObservationIgnored private var cachedCourseCredits: [CommunityCourseCredit] = []
     private let loadCourseCredits: @MainActor () async -> [CommunityCourseCredit]
 
     init(

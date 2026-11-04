@@ -63,7 +63,7 @@ public struct CoursePageContent: View {
     @Environment(\.appPageIsVisible) private var isVisible
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     private let dependencies: CourseDependencies
-    @ObservedObject var viewModel: CourseListViewModel
+    @Bindable var viewModel: CourseListViewModel
     @Binding private var selection: CourseSummary?
 
     public var body: some View {

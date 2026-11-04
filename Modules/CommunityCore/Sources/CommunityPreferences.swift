@@ -1,5 +1,5 @@
-import Combine
 import Foundation
+import Observation
 
 public struct CommunityPreferenceSnapshot: Equatable, Hashable {
     public var galleryHideBotPosterInSearch: Bool
@@ -20,16 +20,30 @@ public struct CommunityPreferenceSnapshot: Equatable, Hashable {
     }
 }
 
-public final class CommunityPreferences: ObservableObject {
-    @Published public private(set) var snapshot: CommunityPreferenceSnapshot
+@Observable public final class CommunityPreferences {
+    private var applied: CommunityPreferenceSnapshot
+    @ObservationIgnored private let source: (() -> CommunityPreferenceSnapshot)?
     private let saveMakeupFilter: (Bool) -> Void
 
+    /// 有来源时直接读取来源的最新值，页面随来源的观察依赖刷新。
+    public var snapshot: CommunityPreferenceSnapshot { source?() ?? applied }
+
     public init(snapshot: CommunityPreferenceSnapshot, saveMakeupFilter: @escaping (Bool) -> Void) {
-        self.snapshot = snapshot
+        applied = snapshot
+        source = nil
         self.saveMakeupFilter = saveMakeupFilter
     }
 
-    public func apply(_ snapshot: CommunityPreferenceSnapshot) { self.snapshot = snapshot }
+    public init(
+        source: @escaping () -> CommunityPreferenceSnapshot,
+        saveMakeupFilter: @escaping (Bool) -> Void
+    ) {
+        applied = source()
+        self.source = source
+        self.saveMakeupFilter = saveMakeupFilter
+    }
+
+    public func apply(_ snapshot: CommunityPreferenceSnapshot) { applied = snapshot }
     public var galleryUseWebView: Bool { snapshot.galleryUseWebView }
     public var hidesCourseHistoryMakeupOutliers: Bool { snapshot.hidesCourseHistoryMakeupOutliers }
     public func setHideMakeupOutliers(_ enabled: Bool) { saveMakeupFilter(enabled) }

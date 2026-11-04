@@ -1,5 +1,4 @@
 import ClientCore
-import Combine
 import CommunityCore
 import CommunityPersistence
 import CommunityTransport
@@ -76,7 +75,7 @@ extension FeatureCompositionTests {
                 viewModel: selected, requestedSection: .constant(section),
                 destinations: destinations
             )
-            .environmentObject(surrounding).environment(media())
+            .environment(surrounding).environment(media())
         ) {
             if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
             try await waitForTestEvent { !(!selected.isCacheWritable) }

@@ -5,6 +5,7 @@ import CommunityPersistence
 import CryptoKit
 import Foundation
 import OSLog
+import Observation
 import ScoreDomain
 import ScoreInfrastructure
 import ScorePorts
@@ -76,7 +77,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
 ///
 /// 开关保存在当前设备并按学号隔离，默认关闭；设置与筛选按字段合并，已读取并集，成绩按快照版本同步。
 @MainActor
-final class ExperimentalPreferenceCloudSync: ObservableObject {
+@Observable final class ExperimentalPreferenceCloudSync {
     nonisolated enum RecordCleanupScope { case currentAccount, otherAccounts }
     private nonisolated enum CloudValue: Equatable, Sendable {
         case missing
@@ -101,10 +102,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
 
     private static let logger = Logger(subsystem: "BIT101", category: "PreferenceCloudSync")
 
-    @Published private(set) var isEnabled = false
-    @Published private(set) var syncIssue: String?
-    private var syncIssueDomain: ExperimentalPreferenceSyncDomain?
-    private var legacyRecordIssues: [ExperimentalPreferenceSyncDomain: String] = [:]
+    private(set) var isEnabled = false
+    private(set) var syncIssue: String?
+    @ObservationIgnored private var syncIssueDomain: ExperimentalPreferenceSyncDomain?
+    @ObservationIgnored private var legacyRecordIssues: [ExperimentalPreferenceSyncDomain: String] =
+        [:]
 
     let defaults: UserDefaults
     let settings: AppSettingsStore
@@ -112,8 +114,8 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private let cloudStore: any PreferenceCloudStoring
     private let scoreEncryption: ScoreCacheSyncEncryption
     private let synchronizedDomains: Set<ExperimentalPreferenceSyncDomain>
-    private var cloudObserverTask: Task<Void, Never>?
-    private var reconciliationGeneration = 0
+    @ObservationIgnored private var cloudObserverTask: Task<Void, Never>?
+    @ObservationIgnored private var reconciliationGeneration = 0
     private let cloudAccountGeneration = OSAllocatedUnfairLock(initialState: 0)
     private struct Generation: Equatable {
         let reconciliation: Int
@@ -149,9 +151,11 @@ final class ExperimentalPreferenceCloudSync: ObservableObject {
     private var pendingScoreKey: String {
         "experimental.preference-cloud-sync.pending-score.\(localAccountIdentifier)"
     }
-    private var reconciliationTask: Task<Void, Never>?
-    private var pendingReconciliationDomains = Set<ExperimentalPreferenceSyncDomain>()
-    private var saveSubscriptions = Set<AnyCancellable>()
+    @ObservationIgnored private var reconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingReconciliationDomains = Set<
+        ExperimentalPreferenceSyncDomain
+    >()
+    @ObservationIgnored private var saveSubscriptions = Set<AnyCancellable>()
 
     init(
         settings: AppSettingsStore,

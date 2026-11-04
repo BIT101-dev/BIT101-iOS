@@ -47,8 +47,8 @@ struct ScoreRootView: View {
 private struct ScoreRootScene: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
-    @EnvironmentObject private var scoreViewModel: ScoreViewModel
-    @StateObject private var courseViewModel: CourseListViewModel
+    @Environment(ScoreViewModel.self) private var scoreViewModel: ScoreViewModel
+    @State private var courseViewModel: CourseListViewModel
     private let transcriptService: any TrustedTranscriptServicing
     @Environment(\.appExpandedNavigation) private var expandedNavigation
     private let showingCourses: Bool?
@@ -72,7 +72,7 @@ private struct ScoreRootScene: View {
         self.courses = courses
         self.selection = selection
         self.showingCourses = showingCourses
-        _courseViewModel = StateObject(wrappedValue: courses.makeListViewModel())
+        _courseViewModel = State(initialValue: courses.makeListViewModel())
         self.transcriptService = transcriptService
         _requestedCourse = requestedCourse
     }

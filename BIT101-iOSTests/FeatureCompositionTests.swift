@@ -627,14 +627,14 @@ struct FeatureCompositionTests {
         }
     }
 
-    final class TabRoute: ObservableObject {
-        @Published var selection = 0
-        var otherAppeared = false
-        var paperDisappeared = false
+    @Observable final class TabRoute {
+        var selection = 0
+        @ObservationIgnored var otherAppeared = false
+        @ObservationIgnored var paperDisappeared = false
     }
 
     struct PaperTabs: View {
-        @ObservedObject var route: TabRoute
+        @Bindable var route: TabRoute
         let dependencies: PaperDependencies
         let media: MediaEnvironment
         var body: some View {

@@ -88,12 +88,12 @@ private struct GalleryRootViewScene: View {
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     /// 主 feed 视图模型，负责帖子流、搜索和详情入口状态。
-    @StateObject private var viewModel: GalleryViewModel
+    @State private var viewModel: GalleryViewModel
     /// 消息中心独立维护视图模型和加载状态。
-    @StateObject private var messageViewModel: GalleryMessageViewModel
+    @State private var messageViewModel: GalleryMessageViewModel
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     private var networkObserver: NetworkPathState { dependencies.networkPath }
-    @ObservedObject private var appSettings: CommunityPreferences
+    private var appSettings: CommunityPreferences
     private enum BrowserSelection: Hashable {
         case poster(CommunityPoster)
         case posterID(Int)
@@ -148,11 +148,11 @@ private struct GalleryRootViewScene: View {
         self.profiles = profiles
         self.destinations = papers
         self.courses = courses
-        _viewModel = StateObject(wrappedValue: GalleryViewModel(service: dependencies.feed))
-        _messageViewModel = StateObject(
-            wrappedValue: GalleryMessageViewModel(
+        _viewModel = State(initialValue: GalleryViewModel(service: dependencies.feed))
+        _messageViewModel = State(
+            initialValue: GalleryMessageViewModel(
                 service: dependencies.messageService, readStore: dependencies.messages))
-        _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
+        self.appSettings = dependencies.preferences
     }
 
     var body: some View {

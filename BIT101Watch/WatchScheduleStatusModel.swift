@@ -1,4 +1,3 @@
-import Combine
 import ScheduleContracts
 import ScheduleSharedStore
 import SwiftUI
@@ -62,25 +61,25 @@ struct WatchScheduleStatusDependencies {
 
 /// watch 主页面状态模型协调共享快照、时间推进和镜像同步。
 @MainActor
-final class WatchScheduleStatusModel: ObservableObject {
+@Observable final class WatchScheduleStatusModel {
     private static let maxVisibleOccurrences = 50
     private static let foregroundRefreshInterval: TimeInterval = 60
 
-    @Published private(set) var snapshot: ScheduleExternalSnapshot?
-    @Published private(set) var contentState: ScheduleExternalContentState = .missing
-    @Published private(set) var nextOccurrence: ScheduleExternalOccurrence?
-    @Published private(set) var upcomingOccurrences: [ScheduleExternalOccurrence] = []
-    @Published private(set) var isUsingCachedSnapshot = false
-    @Published private(set) var refreshState: WatchScheduleRefreshState = .idle
-    @Published private(set) var referenceDate: Date
+    private(set) var snapshot: ScheduleExternalSnapshot?
+    private(set) var contentState: ScheduleExternalContentState = .missing
+    private(set) var nextOccurrence: ScheduleExternalOccurrence?
+    private(set) var upcomingOccurrences: [ScheduleExternalOccurrence] = []
+    private(set) var isUsingCachedSnapshot = false
+    private(set) var refreshState: WatchScheduleRefreshState = .idle
+    private(set) var referenceDate: Date
 
     private let dependencies: WatchScheduleStatusDependencies
-    private var hasActivated = false
-    private var refreshFeedbackTask: Task<Void, Never>?
-    private var foregroundRefreshTask: Task<Void, Never>?
-    private var snapshotTask: Task<Void, Never>?
-    private var snapshotGeneration: UInt64 = 0
-    private var refreshGeneration: UInt64 = 0
+    @ObservationIgnored private var hasActivated = false
+    @ObservationIgnored private var refreshFeedbackTask: Task<Void, Never>?
+    @ObservationIgnored private var foregroundRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+    @ObservationIgnored private var snapshotGeneration: UInt64 = 0
+    @ObservationIgnored private var refreshGeneration: UInt64 = 0
 
     #if os(watchOS)
     convenience init() {

@@ -2,20 +2,25 @@ import Combine
 import CommunityCore
 import Foundation
 import MediaKit
+import Observation
 import TransportCore
 
 /// 图片先进入本地草稿，上传任务沿图片身份独立持有。
 @MainActor
-public final class ComposerImageUploads: ObservableObject {
-    @Published public private(set) var drafts: [ComposerImageDraft] = []
-    @Published public private(set) var isAddingImages = false
-    @Published public private(set) var errorMessage: String?
+@Observable public final class ComposerImageUploads {
+    public private(set) var drafts: [ComposerImageDraft] = []
+    public private(set) var isAddingImages = false
+    public private(set) var errorMessage: String? {
+        didSet { if let errorMessage { onError?(errorMessage) } }
+    }
+    /// 新错误产生时回调，供所属页面转为弹窗。
+    @ObservationIgnored public var onError: ((String) -> Void)?
     private let upload: @MainActor (Data, String) async throws -> CommunityImage
     private let prepare: @MainActor (Data) async throws -> Data
     private let isCurrentSession: () -> Bool
-    private var generation = 0
-    private var importTask: Task<Void, Never>?
-    private var uploads: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var importTask: Task<Void, Never>?
+    @ObservationIgnored private var uploads: [UUID: Task<Void, Never>] = [:]
 
     public init(
         upload: @escaping @MainActor (Data, String) async throws -> CommunityImage,

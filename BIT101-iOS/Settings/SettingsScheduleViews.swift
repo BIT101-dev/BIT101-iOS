@@ -4,10 +4,11 @@ import SwiftUI
 
 /// 应用偏好与云同步状态适配到日程设置页。
 struct AppCalendarSettingsPage: View {
-    @ObservedObject var viewModel: ScheduleViewModel
-    @ObservedObject var scheduleCloudSync: ScheduleCloudSyncPresentation
-    @EnvironmentObject private var settings: AppSettingsStore
-    @EnvironmentObject private var preferenceCloudSync: ExperimentalPreferenceCloudSync
+    var viewModel: ScheduleViewModel
+    var scheduleCloudSync: ScheduleCloudSyncPresentation
+    @Environment(AppSettingsStore.self) private var settings: AppSettingsStore
+    @Environment(ExperimentalPreferenceCloudSync.self) private var preferenceCloudSync:
+        ExperimentalPreferenceCloudSync
     @State private var cleanupScope: ExperimentalPreferenceCloudSync.RecordCleanupScope?
     @State private var cleanupFeedback: String?
 

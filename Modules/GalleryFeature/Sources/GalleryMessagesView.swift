@@ -21,7 +21,7 @@ struct GalleryMessagesView: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(CommunityProfileDestination.self) private var profiles
     @Environment(\.scenePhase) private var scenePhase
-    @ObservedObject var viewModel: GalleryMessageViewModel
+    @Bindable var viewModel: GalleryMessageViewModel
     @Environment(\.dismiss) private var dismiss
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var requestedMessage: GalleryMessage?
@@ -60,7 +60,7 @@ struct GalleryMessagesView: View {
             .listRowBackground(Color.clear)
             .task(id: viewModel.paginationTaskID(for: type)) {
                 await viewModel.loadMoreIfNeeded(
-                    for: type, currentMessage: message)
+                    for: type, currentMessage: message, automatic: true)
             }
         }
     }

@@ -1,6 +1,6 @@
 import ClientCore
-import Combine
 import Foundation
+import Observation
 import ScheduleDomain
 import SchedulePorts
 import TransportCore
@@ -40,7 +40,7 @@ extension Int {
 /// 负责：
 /// 课表同步、编辑与选择状态归此对象；DDL 和空教室各自拥有状态与服务接口。
 /// 三个子功能通过 ScheduleRepository 共享当前账号的持久化数据。
-public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
+@Observable public final class ScheduleViewModel: ScheduleStateConsumer {
     /// 课表页当前正在显示的课表分身。
     ///
     /// 主课表来自当前账号缓存；导入的课表作为只读分身追加到列表，供上下滑循环切换。
@@ -66,15 +66,16 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         }
     }
 
-    private var courseScheduleProjection: (revision: Int, values: [CourseScheduleVariant])?
+    @ObservationIgnored private var courseScheduleProjection:
+        (revision: Int, values: [CourseScheduleVariant])?
 
     /// 当前选中的一级分栏。
-    @Published public var selectedSection: ScheduleSection = .courses
+    public var selectedSection: ScheduleSection = .courses
     /// 是否正在同步课表/考试。
     public var isSyncingCourses: Bool { courseSyncCoordinator.isSyncingCourses }
-    @Published var selectedWeek = 1
-    @Published var requestedSystemCalendarEvent: ScheduleSystemCalendarNavigationRequest?
-    @Published private var selectedCourseScheduleID = "__primary__"
+    var selectedWeek = 1
+    var requestedSystemCalendarEvent: ScheduleSystemCalendarNavigationRequest?
+    private var selectedCourseScheduleID = "__primary__"
     var selectedCourseScheduleIndex: Int {
         get { courseSchedules.firstIndex { $0.id == selectedCourseScheduleID } ?? 0 }
         set {
@@ -82,7 +83,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
             selectedCourseScheduleID = variants[min(max(newValue, 0), variants.count - 1)].id
         }
     }
-    @Published public internal(set) var notice: ScheduleNotice?
+    public internal(set) var notice: ScheduleNotice?
     public var verificationChallenge: BITLoginAuthenticationChallenge? {
         courseSyncCoordinator.verificationChallenge
     }
@@ -129,8 +130,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     let courseSyncCoordinator: ScheduleCourseSyncCoordinator
     let platformActions: any SchedulePlatformActions
     let newCustomScheduleDraft: () -> CustomScheduleDraft
-    private var subscriptions = Set<AnyCancellable>()
-    var cloudSyncEnableTask: Task<Void, Never>?
+    @ObservationIgnored var cloudSyncEnableTask: Task<Void, Never>?
     private var hasLoaded = false
 
     public init(
@@ -155,24 +155,12 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
         classroom = ScheduleClassroomViewModel(
             service: classroomService, repository: repository,
             virtualNetworkLikely: virtualNetworkLikely)
-        repository.courseChanges.sink { [weak self] in self?.objectWillChange.send() }.store(
-            in: &subscriptions)
-        repository.$hasPersistenceConflict.dropFirst().sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }.store(in: &subscriptions)
-        repository.$isResolvingPersistenceConflict.dropFirst().sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }.store(in: &subscriptions)
-        repository.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
-            in: &subscriptions)
-        ddl.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
-            in: &subscriptions)
-        classroom.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }.store(
-            in: &subscriptions)
-        courseSyncCoordinator.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
-            .store(in: &subscriptions)
-        courseSyncCoordinator.$notice.compactMap { $0 }.sink { [weak self] in self?.notice = $0 }
-            .store(in: &subscriptions)
+        let relayNotice: (ScheduleNotice) -> Void = { [weak self] in self?.notice = $0 }
+        repository.onNotice = relayNotice
+        ddl.onNotice = relayNotice
+        classroom.onNotice = relayNotice
+        courseSyncCoordinator.onNotice = relayNotice
+        if let notice = repository.notice { relayNotice(notice) }
         classroom.onAuthenticationRequired = { [weak courseSyncCoordinator] challenge in
             courseSyncCoordinator?.waitForClassroomAuth(challenge)
         }
@@ -222,6 +210,7 @@ public final class ScheduleViewModel: ObservableObject, ScheduleStateConsumer {
     ///
     /// 顺序固定为：我的课表在前，导入的分享课表依次排在后面。
     var courseSchedules: [CourseScheduleVariant] {
+        repository.trackCourseSection()
         let revision = repository.revision
         if let courseScheduleProjection, courseScheduleProjection.revision == revision {
             return courseScheduleProjection.values

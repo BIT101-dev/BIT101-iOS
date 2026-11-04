@@ -2,6 +2,7 @@ import ClientCore
 import Combine
 import DesignSystemKit
 import Foundation
+import Observation
 import ScoreDomain
 import ScorePorts
 import StorageCore
@@ -14,31 +15,31 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
 
 /// 管理完整成绩查询、缓存恢复、筛选同步、统计汇总和错误提示。
 @MainActor
-public final class ScoreViewModel: ObservableObject {
+@Observable public final class ScoreViewModel {
     /// 全量成绩数据。
-    @Published private(set) var rows: [ScoreRow] = [] { didSet { invalidateProjection() } }
+    private(set) var rows: [ScoreRow] = [] { didSet { invalidateProjection() } }
     /// 页面加载状态。
-    @Published private(set) var state: ScoreLoadState = .idle
+    private(set) var state: ScoreLoadState = .idle
     /// 当前可选学期列表。
-    @Published private(set) var availableTerms: [String] = []
+    private(set) var availableTerms: [String] = []
     /// 按实际成绩动态生成的课程性质列表。
-    @Published private(set) var availableCourseTypes: [String] = []
+    private(set) var availableCourseTypes: [String] = []
     /// 当前选中的学期集合。
-    @Published private(set) var selectedTerms: Set<String> = [] {
+    private(set) var selectedTerms: Set<String> = [] {
         didSet { invalidateProjection() }
     }
     /// 当前选中的课程性质集合。
-    @Published private(set) var selectedCourseTypes: Set<String> = [] {
+    private(set) var selectedCourseTypes: Set<String> = [] {
         didSet { invalidateProjection() }
     }
-    @Published private(set) var allowsDiagnostics = true
-    @Published private(set) var failureCause: (any Error)?
+    private(set) var allowsDiagnostics = true
+    private(set) var failureCause: (any Error)?
     /// 当前成绩列表排序索引。
-    @Published private(set) var sortIndex: ScoreSortIndex = .courseName {
+    private(set) var sortIndex: ScoreSortIndex = .courseName {
         didSet { visibleProjection = nil }
     }
     /// 当前成绩列表排序方向。
-    @Published private(set) var sortOrder: ScoreSortOrder = .ascending {
+    private(set) var sortOrder: ScoreSortOrder = .ascending {
         didSet { visibleProjection = nil }
     }
     /// 是否正在同步基础成绩列表。
@@ -46,16 +47,16 @@ public final class ScoreViewModel: ObservableObject {
         case idle, authenticating, awaitingVerification, summary, details
         var isSyncing: Bool { self == .authenticating || self == .summary || self == .details }
     }
-    @Published private(set) var refreshPhase = RefreshPhase.idle
+    private(set) var refreshPhase = RefreshPhase.idle
     var isSyncing: Bool { refreshPhase.isSyncing }
     /// 两阶段查询进度使用现有同步提示区域展示，查询过程保持页面内反馈。
-    @Published private(set) var syncStatusText = "同步中"
+    private(set) var syncStatusText = "同步中"
     /// 最近一次成功写入成绩缓存的时间；刷新失败时保留该时间。
-    @Published private(set) var lastUpdatedAt: Date?
+    private(set) var lastUpdatedAt: Date?
     /// 已缓存课表可确认的未出分课程；对应学期课表缺失时返回 nil。
-    @Published private(set) var pendingCourses: [ScoreCourseSummary]?
+    private(set) var pendingCourses: [ScoreCourseSummary]?
     /// 当前等待用户输入图形或短信验证码的短期认证挑战。
-    @Published private(set) var verificationChallenge: BITLoginAuthenticationChallenge? {
+    private(set) var verificationChallenge: BITLoginAuthenticationChallenge? {
         didSet {
             if verificationChallenge != nil {
                 refreshPhase = .awaitingVerification
@@ -65,13 +66,13 @@ public final class ScoreViewModel: ObservableObject {
         }
     }
     /// 验证码提交过程的行内错误提示。
-    @Published private(set) var verificationError: String?
-    @Published private(set) var isSubmittingVerificationCode = false
-    @Published var alert: AppAlert?
-    @Published private(set) var needsStorageRecovery = false
-    @Published private(set) var isRecoveringStorage = false
-    @Published var isStorageRecoveryPresented = false
-    private var recoverySession: AppStorageSession?
+    private(set) var verificationError: String?
+    private(set) var isSubmittingVerificationCode = false
+    var alert: AppAlert?
+    private(set) var needsStorageRecovery = false
+    private(set) var isRecoveringStorage = false
+    var isStorageRecoveryPresented = false
+    @ObservationIgnored private var recoverySession: AppStorageSession?
 
     private let service: any ScoreListServicing
     private let currentScoreCacheSession: @MainActor () -> AppStorageSession
@@ -80,23 +81,23 @@ public final class ScoreViewModel: ObservableObject {
     private var isRefreshing: Bool { refreshPhase.isSyncing }
     private var hasContent: Bool { !rows.isEmpty || state == .loaded }
     /// 账号切换时递增，页面与缓存写入前核对请求所属代际。
-    private(set) var accountGeneration = 0
-    private var presentationGeneration = 0
-    private var scheduleReadGeneration = 0
-    private var activeRequestID: UUID?
-    private var cancelActiveRequest: (() -> Void)?
-    private var didRestoreCachedRows = false
-    private var didInitializeTermSelection = false
-    private var didInitializeCourseTypeSelection = false
-    private var isSynchronizingScoreFields = false
+    @ObservationIgnored private(set) var accountGeneration = 0
+    @ObservationIgnored private var presentationGeneration = 0
+    @ObservationIgnored private var scheduleReadGeneration = 0
+    @ObservationIgnored private var activeRequestID: UUID?
+    @ObservationIgnored private var cancelActiveRequest: (() -> Void)?
+    @ObservationIgnored private var didRestoreCachedRows = false
+    @ObservationIgnored private var didInitializeTermSelection = false
+    @ObservationIgnored private var didInitializeCourseTypeSelection = false
+    @ObservationIgnored private var isSynchronizingScoreFields = false
     /// 初始化时读取一次已持久化的筛选快照。
     private let cacheStore: any ScoreCaching
     private let preferenceStore: any ScoreFilterPreferencesStoring
-    private var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
-    private var preferenceObserver: AnyCancellable?
-    private var scoreCacheObserver: AnyCancellable?
-    private var scheduleCacheObserver: AnyCancellable?
-    private var cachedCoursesByTerm: [String: [ScoreCourseSummary]] = [:]
+    @ObservationIgnored private var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
+    @ObservationIgnored private var preferenceObserver: AnyCancellable?
+    @ObservationIgnored private var scoreCacheObserver: AnyCancellable?
+    @ObservationIgnored private var scheduleCacheObserver: AnyCancellable?
+    @ObservationIgnored private var cachedCoursesByTerm: [String: [ScoreCourseSummary]] = [:]
 
     public init(
         service: any ScoreListServicing,
@@ -573,9 +574,9 @@ public final class ScoreViewModel: ObservableObject {
         return value
     }
 
-    private var filteredProjection: [ScoreRow]?
-    private var visibleProjection: [ScoreRow]?
-    private var summaryProjection: ScoreSummary?
+    @ObservationIgnored private var filteredProjection: [ScoreRow]?
+    @ObservationIgnored private var visibleProjection: [ScoreRow]?
+    @ObservationIgnored private var summaryProjection: ScoreSummary?
     private func invalidateProjection() {
         filteredProjection = nil
         visibleProjection = nil

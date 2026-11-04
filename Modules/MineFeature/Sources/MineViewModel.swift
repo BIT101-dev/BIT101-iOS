@@ -3,6 +3,7 @@ import CommunityCore
 import CommunityTransport
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 /// 四类主页列表共用第一页恢复与分页推进规则，业务对象持有代际与提示。
@@ -101,28 +102,28 @@ private func minePosterCountText(for state: MinePagedState<CommunityPoster>) -> 
 /// “我的”页状态机。
 ///
 /// 负责资料卡刷新，以及粉丝、关注、帖子三个分页列表的加载。
-final class MineViewModel: ObservableObject {
+@Observable final class MineViewModel {
     /// 当前登录用户的资料卡信息。
-    @Published private(set) var userInfo: MineUserInfo?
+    private(set) var userInfo: MineUserInfo?
     /// 资料卡加载状态。
-    @Published private(set) var profileStatus: MineLoadStatus = .idle
-    @Published private(set) var profileNeedsRefresh = false
+    private(set) var profileStatus: MineLoadStatus = .idle
+    private(set) var profileNeedsRefresh = false
     /// 粉丝列表分页状态。
-    @Published private(set) var followerState = MinePagedState<CommunityUser>()
+    private(set) var followerState = MinePagedState<CommunityUser>()
     /// 关注列表分页状态。
-    @Published private(set) var followingState = MinePagedState<CommunityUser>()
+    private(set) var followingState = MinePagedState<CommunityUser>()
     /// 我的帖子列表分页状态。
-    @Published private(set) var posterState = MinePagedState<CommunityPoster>()
-    @Published var alert: AppAlert?
+    private(set) var posterState = MinePagedState<CommunityPoster>()
+    var alert: AppAlert?
 
     private let service: any MineOverviewServicing
-    private var resourceSubscription: AnyCancellable?
+    @ObservationIgnored private var resourceSubscription: AnyCancellable?
     /// 记录主页首次加载流程的执行状态。
-    private var hasBootstrapped = false
-    private var profileGeneration = 0
-    private var followerGeneration = 0
-    private var followingGeneration = 0
-    private var posterGeneration = 0
+    @ObservationIgnored private var hasBootstrapped = false
+    @ObservationIgnored private var profileGeneration = 0
+    @ObservationIgnored private var followerGeneration = 0
+    @ObservationIgnored private var followingGeneration = 0
+    @ObservationIgnored private var posterGeneration = 0
 
     init(service: any MineOverviewServicing) {
         self.service = service
@@ -278,27 +279,27 @@ final class MineViewModel: ObservableObject {
 /// 他人主页状态机。
 ///
 /// 负责拉取指定用户的公开资料和帖子列表，供话题详情里的“查看主页”复用。
-final class UserProfileViewModel: ObservableObject {
+@Observable final class UserProfileViewModel {
     /// 他人主页资料卡。
-    @Published private(set) var userInfo: MineUserInfo?
+    private(set) var userInfo: MineUserInfo?
     /// 资料卡加载状态。
-    @Published private(set) var profileStatus: MineLoadStatus = .idle
-    @Published private(set) var profileNeedsRefresh = false
+    private(set) var profileStatus: MineLoadStatus = .idle
+    private(set) var profileNeedsRefresh = false
     /// 他人帖子列表分页状态。
-    @Published private(set) var posterState = MinePagedState<CommunityPoster>()
-    @Published private(set) var isFollowingUser = false
-    @Published var alert: AppAlert?
+    private(set) var posterState = MinePagedState<CommunityPoster>()
+    private(set) var isFollowingUser = false
+    var alert: AppAlert?
 
     private let userID: Int
     private let service: any UserProfileServicing
-    private var resourceSubscription: AnyCancellable?
+    @ObservationIgnored private var resourceSubscription: AnyCancellable?
     /// 记录首次加载流程的执行状态。
-    private var hasBootstrapped = false
-    private var profileGeneration = 0
-    private var posterGeneration = 0
-    private var followRevision = 0
-    private var latestFollowResult: MineFollowResult?
-    private var followResultNeedsReview = false
+    @ObservationIgnored private var hasBootstrapped = false
+    @ObservationIgnored private var profileGeneration = 0
+    @ObservationIgnored private var posterGeneration = 0
+    @ObservationIgnored private var followRevision = 0
+    @ObservationIgnored private var latestFollowResult: MineFollowResult?
+    @ObservationIgnored private var followResultNeedsReview = false
 
     init(userID: Int, service: any UserProfileServicing) {
         self.userID = userID

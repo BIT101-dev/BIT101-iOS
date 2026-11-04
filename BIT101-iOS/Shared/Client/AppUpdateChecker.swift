@@ -1,4 +1,3 @@
-import Combine
 import CommunityTransport
 import Foundation
 import StorageCore
@@ -332,7 +331,7 @@ struct AppPrompt: Identifiable {
 
 /// 应用级弹窗队列。SwiftUI 在同一时刻展示一个 `.alert`。
 @MainActor
-final class AppPromptCoordinator: ObservableObject {
+@Observable final class AppPromptCoordinator {
     private struct DismissalWaiter {
         let id: UUID
         let continuation: CheckedContinuation<Void, Never>
@@ -340,15 +339,15 @@ final class AppPromptCoordinator: ObservableObject {
 
     static let shared = AppPromptCoordinator()
 
-    @Published private(set) var activePrompt: AppPrompt?
+    private(set) var activePrompt: AppPrompt?
 
-    private var queue: [AppPrompt] = []
-    private var queuedIDs: Set<String> = []
-    private var handledIDs: Set<String> = []
-    private var advanceTask: Task<Void, Never>?
+    @ObservationIgnored private var queue: [AppPrompt] = []
+    @ObservationIgnored private var queuedIDs: Set<String> = []
+    @ObservationIgnored private var handledIDs: Set<String> = []
+    @ObservationIgnored private var advanceTask: Task<Void, Never>?
     private let advanceDelay: Duration
-    private var dismissalWaiters: [String: [DismissalWaiter]] = [:]
-    private(set) var isHostReady = false
+    @ObservationIgnored private var dismissalWaiters: [String: [DismissalWaiter]] = [:]
+    @ObservationIgnored private(set) var isHostReady = false
 
     init(advanceDelay: Duration = .milliseconds(350)) {
         self.advanceDelay = advanceDelay
@@ -536,7 +535,7 @@ final class AppUpdatePromptCoordinator {
 
 private struct AppPromptHostModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
-    @ObservedObject var promptCoordinator: AppPromptCoordinator
+    var promptCoordinator: AppPromptCoordinator
     let updateCoordinator: AppUpdatePromptCoordinator
     private let networkConnectionDescription = NetworkConnectionDescription.shared
 

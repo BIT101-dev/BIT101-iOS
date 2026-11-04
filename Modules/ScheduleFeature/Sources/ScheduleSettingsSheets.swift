@@ -6,7 +6,7 @@ import SwiftUI
 
 public struct ScheduleTermPickerPage: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
-    @ObservedObject var viewModel: ScheduleViewModel
+    var viewModel: ScheduleViewModel
     @State private var selectionFeedbackToken = 0
 
     public init(viewModel: ScheduleViewModel) { self.viewModel = viewModel }
@@ -395,7 +395,7 @@ public struct ScheduleImportCodeSheet: View {
             try await onImport(code)
             try Task.checkCancellation()
             dismiss()
-        } catch where TaskCancellation.matches(error) {
+        } catch  where TaskCancellation.matches(error) {
             return
         } catch let error as ScheduleShareCodeError {
             if case .unsupportedNewerFormat(let version) = error {
@@ -448,7 +448,7 @@ public struct ScheduleRenameSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("确定", action: handleConfirm)
-                    .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
+                        .accessibilityIdentifier("ui.schedule-rename-sheet.confirm")
                 }
             }
             .diagnosticAlert(item: $localAlert)

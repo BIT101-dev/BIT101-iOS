@@ -1,9 +1,9 @@
-import Combine
 import CommunityCore
 import CommunityTransport
 import DesignSystemKit
 import Foundation
 import MineFeature
+import Observation
 import TransportCore
 
 //
@@ -59,11 +59,11 @@ struct SettingsAccountDependencies {
 }
 
 @MainActor
-final class AccountProfileMutation: ObservableObject {
-    @Published private(set) var isUpdating = false
-    @Published private(set) var isRunning = false
+@Observable final class AccountProfileMutation {
+    private(set) var isUpdating = false
+    private(set) var isRunning = false
     var isBusy: Bool { isRunning || isUpdating }
-    private var task: Task<Void, Never>?
+    @ObservationIgnored private var task: Task<Void, Never>?
     @discardableResult
     func start(_ operation: @escaping @MainActor () async -> Void) -> Bool {
         guard !isBusy else { return false }
@@ -89,16 +89,16 @@ final class AccountProfileMutation: ObservableObject {
 }
 
 @MainActor
-final class AccountSettingsModel: ObservableObject {
-    @Published private(set) var profile: MineUserInfo?
-    @Published private(set) var isLoadingProfile = false
-    @Published private(set) var profileLoadError: (any Error)?
-    @Published private(set) var isCheckingLogin = false
-    @Published private(set) var isLoggedIn: Bool
-    @Published var alert: AppAlert?
+@Observable final class AccountSettingsModel {
+    private(set) var profile: MineUserInfo?
+    private(set) var isLoadingProfile = false
+    private(set) var profileLoadError: (any Error)?
+    private(set) var isCheckingLogin = false
+    private(set) var isLoggedIn: Bool
+    var alert: AppAlert?
     private let dependencies: SettingsAccountDependencies
-    private var profileOwner: CommunitySessionIdentity?
-    private var readRevision = 0
+    @ObservationIgnored private var profileOwner: CommunitySessionIdentity?
+    @ObservationIgnored private var readRevision = 0
 
     init(dependencies: SettingsAccountDependencies) {
         self.dependencies = dependencies

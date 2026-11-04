@@ -1,7 +1,7 @@
 import ClientCore
-import Combine
 import DesignSystemKit
 import Foundation
+import Observation
 import ScheduleDomain
 import SchedulePorts
 import TransportCore
@@ -14,7 +14,7 @@ enum ScheduleAuthenticationContinuation: Equatable {
 
 /// 学校请求、图形与短信验证续接及取消由同一阶段维护。
 @MainActor
-final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsumer {
+@Observable final class ScheduleCourseSyncCoordinator: ScheduleStateConsumer {
     enum Phase {
         case idle
         case syncing(term: String?)
@@ -25,16 +25,20 @@ final class ScheduleCourseSyncCoordinator: ObservableObject, ScheduleStateConsum
             ScheduleAuthenticationContinuation, BITLoginAuthenticationChallenge)
     }
 
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var verificationError: String?
-    @Published private(set) var availableTerms: [String] = []
-    @Published private(set) var hasLoadedAvailableTerms = false
-    @Published private(set) var notice: ScheduleNotice?
+    private(set) var phase: Phase = .idle
+    private(set) var verificationError: String?
+    private(set) var availableTerms: [String] = []
+    private(set) var hasLoadedAvailableTerms = false
+    private(set) var notice: ScheduleNotice? {
+        didSet { if let notice { onNotice?(notice) } }
+    }
+    /// 最新提示同步给所属日程页面。
+    @ObservationIgnored var onNotice: ((ScheduleNotice) -> Void)?
     let repository: ScheduleRepository
     let virtualNetworkLikely: @MainActor () -> Bool
     private let service: any ScheduleCourseServicing
-    private var requestTask: Task<Void, Never>?
-    private var revision = 0
+    @ObservationIgnored private var requestTask: Task<Void, Never>?
+    @ObservationIgnored private var revision = 0
 
     init(
         service: any ScheduleCourseServicing, repository: ScheduleRepository,

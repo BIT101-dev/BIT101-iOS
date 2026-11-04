@@ -40,7 +40,7 @@ private struct PaperDetailViewScene: View {
     private let onDeleted: (() -> Void)?
     let initialPaper: PaperSummary
 
-    @StateObject private var viewModel: PaperDetailViewModel
+    @State private var viewModel: PaperDetailViewModel
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var editingPaper: PaperDetail?
@@ -58,8 +58,8 @@ private struct PaperDetailViewScene: View {
         self.initialPaper = initialPaper
         self.onChanged = onChanged
         self.onDeleted = onDeleted
-        _viewModel = StateObject(
-            wrappedValue: PaperDetailViewModel(
+        _viewModel = State(
+            initialValue: PaperDetailViewModel(
                 initialPaper: initialPaper, service: dependencies.detail))
     }
 

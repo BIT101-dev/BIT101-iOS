@@ -21,8 +21,8 @@ enum AppLegalInfo {
 /// 应用根容器持有会话状态，组装登录页和登录后壳层。
 struct ContentView: View {
     let transcriptService: any TrustedTranscriptServicing
-    @ObservedObject var localData: AppLocalDataService
-    @StateObject private var loginViewModel = LoginViewModel()
+    var localData: AppLocalDataService
+    @State private var loginViewModel = LoginViewModel()
 
     var body: some View {
         Group {
@@ -50,7 +50,7 @@ struct ContentView: View {
         .task {
             await loginViewModel.bootstrapIfNeeded()
         }
-        .onReceive(loginViewModel.$screenState) { state in
+        .onChange(of: loginViewModel.screenState, initial: true) { _, state in
             AppRestoreReadiness.restoredSession(state)
         }
         .diagnosticAlert(item: $loginViewModel.alert)

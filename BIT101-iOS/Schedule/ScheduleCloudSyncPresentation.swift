@@ -2,15 +2,16 @@ import CloudKit
 import Combine
 import CommunityTransport
 import Foundation
+import Observation
 import ScheduleSync
 
 /// 同步状态随所选账号事件重置，迟到报告按完整账号代际筛选。
 @MainActor
-final class ScheduleCloudSyncPresentation: ObservableObject {
-    @Published private(set) var status: ScheduleCloudSyncStatus = .idle
+@Observable final class ScheduleCloudSyncPresentation {
+    private(set) var status: ScheduleCloudSyncStatus = .idle
     private let currentAccount: () -> ScheduleCloudAccount?
-    private var subscription: AnyCancellable?
-    private var cloudSubscription: AnyCancellable?
+    @ObservationIgnored private var subscription: AnyCancellable?
+    @ObservationIgnored private var cloudTask: Task<Void, Never>?
 
     init(
         currentAccount: @escaping () -> ScheduleCloudAccount?,
@@ -28,9 +29,14 @@ final class ScheduleCloudSyncPresentation: ObservableObject {
             }
             self.status = .idle
         }
-        cloudSubscription = NotificationCenter.default.publisher(for: .CKAccountChanged)
-            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.status = .idle }
+        cloudTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .CKAccountChanged) {
+                self?.status = .idle
+            }
+        }
     }
+
+    deinit { cloudTask?.cancel() }
 
     func receive(account: ScheduleCloudAccount, status: ScheduleCloudSyncStatus) {
         guard account == currentAccount() else { return }

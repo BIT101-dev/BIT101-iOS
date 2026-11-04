@@ -104,8 +104,8 @@ struct SettingsRootView: View {
                     studentID: studentID, onLogout: onLogout, dependencies: dependencies)
             }
         }
-        .environmentObject(dependencies.settings)
-        .environmentObject(dependencies.schedule)
+        .environment(dependencies.settings)
+        .environment(dependencies.schedule)
         .environment(dependencies.media)
         .navigationTitle(initialRoute?.title ?? "设置")
         .navigationBarTitleDisplayMode(.inline)
@@ -124,7 +124,7 @@ struct SettingsRootView: View {
 }
 
 private struct SettingsStorageNotice: View {
-    @ObservedObject var settings: AppSettingsStore
+    var settings: AppSettingsStore
     @State private var showsRecoveryConfirmation = false
     var body: some View {
         if let issue = settings.storageIssue {
@@ -216,7 +216,7 @@ private struct SettingsIndexCard: View {
 ///
 /// 其它模块通过 `route` 进入对应的设置页面。
 private struct SettingsRoutePage: View {
-    @EnvironmentObject private var scheduleViewModel: ScheduleViewModel
+    @Environment(ScheduleViewModel.self) private var scheduleViewModel: ScheduleViewModel
     @Environment(\.appWindowLayout) private var layout
     let route: SettingsRoute
     let studentID: String

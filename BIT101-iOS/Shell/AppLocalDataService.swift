@@ -1,6 +1,6 @@
-import Combine
 import Foundation
 import OSLog
+import Observation
 import StorageCore
 
 nonisolated struct AppCacheCleanupResult: Sendable {
@@ -28,10 +28,10 @@ struct AppLocalDataActions {
 
 /// 应用本地数据清理由操作服务承接，页面绑定进度与结果。
 @MainActor
-final class AppLocalDataService: ObservableObject {
+@Observable final class AppLocalDataService {
     private static let logger = Logger(subsystem: "BIT101", category: "LocalDataCleanup")
-    @Published private(set) var isCleaning = false
-    private(set) var resetFailureMessage: String?
+    private(set) var isCleaning = false
+    @ObservationIgnored private(set) var resetFailureMessage: String?
     private let files: any AppFileService
     private let actions: AppLocalDataActions
     private let cacheDirectories: Set<URL>

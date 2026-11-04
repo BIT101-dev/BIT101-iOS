@@ -11,18 +11,18 @@ import DesignSystemKit
 import SwiftUI
 
 struct GalleryPublicationReviewView: View {
-    @StateObject private var viewModel: GalleryViewModel
+    @State private var viewModel: GalleryViewModel
     init(service: any GalleryFeedServicing, query: String) {
         let model = GalleryViewModel(service: service)
         model.searchQuery.text = query
-        _viewModel = StateObject(wrappedValue: model)
+        _viewModel = State(initialValue: model)
     }
     var body: some View { GallerySearchView(viewModel: viewModel) }
 }
 
 struct GallerySearchView: View {
     @Environment(GalleryDependencies.self) private var dependencies
-    @ObservedObject var viewModel: GalleryViewModel
+    @Bindable var viewModel: GalleryViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(MediaEnvironment.self) private var media
 

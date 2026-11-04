@@ -7,7 +7,6 @@ import DesignSystemKit
 //  Created by Codex on 2026-03-24.
 //
 
-import Combine
 import MapKit
 import SwiftUI
 
@@ -74,7 +73,7 @@ public struct CampusMapScreen: View {
         .liangxiang.rawValue
     @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode =
         CampusMapDisplayMode.standard.rawValue
-    @StateObject private var locationController = CampusLocationController()
+    @State private var locationController = CampusLocationController()
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appWindowLayout) private var layout
     @State private var isVisible = false
@@ -157,7 +156,7 @@ public struct CampusMapScreen: View {
         .onChange(of: requestedLocation?.id) { _, _ in
             consumeLocationRequest()
         }
-        .onReceive(locationController.$authorizationStatus.dropFirst()) { status in
+        .onChange(of: locationController.authorizationStatus) { _, status in
             guard pendingCenterOnUserAfterAuthorization else { return }
 
             if status == .authorizedAlways || status == .authorizedWhenInUse {

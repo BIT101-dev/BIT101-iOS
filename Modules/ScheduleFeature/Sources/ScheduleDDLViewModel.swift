@@ -1,6 +1,6 @@
 import ClientCore
-import Combine
 import Foundation
+import Observation
 import ScheduleDomain
 import SchedulePorts
 import TransportCore
@@ -13,7 +13,7 @@ import TransportCore
 private nonisolated struct DDLPersistenceFailure: Error {}
 
 @MainActor
-public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer {
+@Observable public final class ScheduleDDLViewModel: ScheduleStateConsumer {
     private(set) var cache: ScheduleDDLState {
         get { repository.ddlState }
         set { repository.ddlState = newValue }
@@ -23,12 +23,15 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
     let virtualNetworkLikely: @MainActor () -> Bool
     let repository: ScheduleRepository
     private let service: any ScheduleDDLServicing
-    @Published public var isSyncingDDL = false
-    @Published public var notice: ScheduleNotice?
-    @Published var schoolSMSCodeRequest: SchoolSMSCodeRequest?
-    private var schoolSMSContinuation: CheckedContinuation<String, Error>?
-    private(set) var schoolSMSWaitID: UUID?
-    private var subscription: AnyCancellable?
+    public var isSyncingDDL = false
+    public var notice: ScheduleNotice? {
+        didSet { if let notice { onNotice?(notice) } }
+    }
+    /// 最新提示同步给所属日程页面。
+    @ObservationIgnored var onNotice: ((ScheduleNotice) -> Void)?
+    var schoolSMSCodeRequest: SchoolSMSCodeRequest?
+    @ObservationIgnored private var schoolSMSContinuation: CheckedContinuation<String, Error>?
+    @ObservationIgnored private(set) var schoolSMSWaitID: UUID?
 
     public init(
         service: any ScheduleDDLServicing, repository: ScheduleRepository,
@@ -39,7 +42,6 @@ public final class ScheduleDDLViewModel: ObservableObject, ScheduleStateConsumer
         self.beforeSchoolRequest = beforeSchoolRequest
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
-        subscription = repository.ddlChanges.sink { [weak self] in self?.objectWillChange.send() }
     }
 
     public func refreshFromUser() async {

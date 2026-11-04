@@ -3,6 +3,7 @@ import CommunityCore
 import DesignSystemKit
 import Foundation
 import OSLog
+import Observation
 import TransportCore
 
 nonisolated enum GalleryMessageDestination: Hashable {
@@ -32,22 +33,22 @@ private enum GalleryMessagePersistenceError: LocalizedError {
 /// 消息中心状态机。
 ///
 /// 负责未读数、分类切换和按 `last_id` 分页加载消息列表。
-final class GalleryMessageViewModel: ObservableObject {
+@Observable final class GalleryMessageViewModel {
     let pendingOperations = CommunityDetailTasks()
-    @Published var selectedType: GalleryMessageType = .comment
+    var selectedType: GalleryMessageType = .comment
     /// 服务端返回的分类未读摘要。
-    @Published private(set) var unreadCounts = GalleryMessageUnreadCounts()
-    @Published private(set) var unreadCountsFailure: String?
-    @Published private(set) var isRecoveringReadState = false
-    @Published private var pendingRecoveryTypes: Set<GalleryMessageType> = []
+    private(set) var unreadCounts = GalleryMessageUnreadCounts()
+    private(set) var unreadCountsFailure: String?
+    private(set) var isRecoveringReadState = false
+    private var pendingRecoveryTypes: Set<GalleryMessageType> = []
     private static let logger = Logger(subsystem: "BIT101", category: "GalleryMessages")
-    @Published var alert: AppAlert?
-    @Published var destination: GalleryMessageDestination?
+    var alert: AppAlert?
+    var destination: GalleryMessageDestination?
     /// 用于强制触发依赖本地已读仓库的视图刷新。
-    @Published private var localReadVersion = 0
+    private var localReadVersion = 0
 
     /// 各消息分类的列表状态字典。
-    @Published private(set) var listStates: [GalleryMessageType: GalleryMessageListState] = {
+    private(set) var listStates: [GalleryMessageType: GalleryMessageListState] = {
         var states: [GalleryMessageType: GalleryMessageListState] = [:]
         GalleryMessageType.allCases.forEach { states[$0] = GalleryMessageListState() }
         return states
@@ -55,12 +56,12 @@ final class GalleryMessageViewModel: ObservableObject {
 
     private let service: any GalleryMessageServicing
     private let readStore: any GalleryMessageReadStoring
-    private var readStateObserver: AnyCancellable?
-    @Published private var completedRefreshGenerations: [GalleryMessageType: Int] = [:]
-    private var listGenerations: [GalleryMessageType: Int] = [:]
-    private var unreadGeneration = 0
-    private var posterGeneration = 0
-    private var refreshingTypes: Set<GalleryMessageType> = []
+    @ObservationIgnored private var readStateObserver: AnyCancellable?
+    private var completedRefreshGenerations: [GalleryMessageType: Int] = [:]
+    @ObservationIgnored private var listGenerations: [GalleryMessageType: Int] = [:]
+    @ObservationIgnored private var unreadGeneration = 0
+    @ObservationIgnored private var posterGeneration = 0
+    @ObservationIgnored private var refreshingTypes: Set<GalleryMessageType> = []
 
     /// 集中初始化服务和已读仓库，供构造器复用。
     init(service: any GalleryMessageServicing, readStore: any GalleryMessageReadStoring) {
@@ -207,10 +208,10 @@ final class GalleryMessageViewModel: ObservableObject {
             var page = hasPresentedFirstPage ? state(for: type) : GalleryMessageListState()
             if page.items.isEmpty {
                 page.applyFirstCursorPage(messages)
+                page.paginationError = nil
             } else {
                 page.prependCurrentWindow(messages)
             }
-            page.paginationError = nil
             page.status = .loaded
             listStates[type] = page
             hasPresentedFirstPage = true
@@ -438,9 +439,13 @@ final class GalleryMessageViewModel: ObservableObject {
     /// 当滚动到尾部附近时触发分页加载。
     ///
     /// 消息列表分页继续沿用 `last_id` 含义；新页追加到末尾，消息分页按需加载。
-    func loadMoreIfNeeded(for type: GalleryMessageType, currentMessage: GalleryMessage?) async {
+    /// 页尾自动触发的加载在已有分页错误时等待用户重试，避免对同一游标重复失败和弹窗。
+    func loadMoreIfNeeded(
+        for type: GalleryMessageType, currentMessage: GalleryMessage?, automatic: Bool = false
+    ) async {
         guard let currentMessage else { return }
         let state = state(for: type)
+        guard !automatic || state.paginationError == nil else { return }
         let generation = listGenerations[type] ?? 0
         let session = readStore.currentSession
 

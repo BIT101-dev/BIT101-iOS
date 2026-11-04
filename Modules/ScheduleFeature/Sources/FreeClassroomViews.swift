@@ -9,7 +9,7 @@ import SwiftUI
 struct FreeClassroomTabView: View {
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.appWindowLayout) private var layout
-    @ObservedObject var viewModel: ScheduleClassroomViewModel
+    var viewModel: ScheduleClassroomViewModel
     @State private var selectedPage: ClassroomPage?
     private enum ClassroomPage: Hashable { case sections }
 
@@ -68,10 +68,12 @@ struct FreeClassroomTabView: View {
 
     private func classroomRow(_ classroom: ClassroomAvailability) -> some View {
         let matchesAllSelectedSections = isExactMatch(for: classroom)
-        let font = matchesAllSelectedSections
+        let font =
+            matchesAllSelectedSections
             ? AppDesignSystem.Typography.subheadlineEmphasis
             : AppDesignSystem.Typography.subheadline
-        let foregroundStyle = matchesAllSelectedSections
+        let foregroundStyle =
+            matchesAllSelectedSections
             ? AppDesignSystem.Foreground.primary
             : AppDesignSystem.Foreground.secondary
 
@@ -188,7 +190,7 @@ struct FreeClassroomTabView: View {
 }
 
 struct ClassroomRefreshStatusRow: View {
-    @ObservedObject var viewModel: ScheduleClassroomViewModel
+    var viewModel: ScheduleClassroomViewModel
     var body: some View {
         AppRefreshStatusRow(
             isRefreshing: viewModel.isRefreshingPage, refreshingText: viewModel.pageRefreshText,

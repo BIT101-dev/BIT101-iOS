@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct BIT101WatchApp: App {
-    @StateObject private var model = WatchScheduleStatusModel()
+    @State private var model = WatchScheduleStatusModel()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

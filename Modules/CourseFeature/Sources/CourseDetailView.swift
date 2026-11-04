@@ -44,8 +44,8 @@ private struct CourseDetailViewScene: View {
     let initialCourse: CourseSummary
 
     @Environment(\.openURL) private var openURL
-    @StateObject private var viewModel: CourseDetailViewModel
-    @ObservedObject private var appSettings: CommunityPreferences
+    @State private var viewModel: CourseDetailViewModel
+    private var appSettings: CommunityPreferences
     @State private var composerTarget: CommunityCommentComposerTarget?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var userRoute: UserRoute?
@@ -59,9 +59,9 @@ private struct CourseDetailViewScene: View {
         self.media = media
         self.destinations = profiles
         self.initialCourse = initialCourse
-        _appSettings = ObservedObject(wrappedValue: dependencies.preferences)
-        _viewModel = StateObject(
-            wrappedValue: CourseDetailViewModel(
+        self.appSettings = dependencies.preferences
+        _viewModel = State(
+            initialValue: CourseDetailViewModel(
                 initialCourse: initialCourse, initialDetail: initialDetail,
                 service: dependencies.detail, loadCourseCredits: dependencies.loadCourseCredits)
         )

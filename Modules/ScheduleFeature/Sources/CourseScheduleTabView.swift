@@ -17,7 +17,7 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
 }
 
 struct CourseScheduleRefreshStatusRow: View {
-    @ObservedObject var viewModel: ScheduleViewModel
+    var viewModel: ScheduleViewModel
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
     }
@@ -64,7 +64,7 @@ struct CourseScheduleTabView: View {
         let subject: String
     }
 
-    @ObservedObject var viewModel: ScheduleViewModel
+    var viewModel: ScheduleViewModel
     let resetSignal: Int
     let destinations: ScheduleDestinations
     @State var selectedEntry: ScheduleCalendarEntry?

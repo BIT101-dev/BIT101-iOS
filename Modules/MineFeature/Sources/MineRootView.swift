@@ -62,7 +62,7 @@ private struct MineRootViewScene: View {
     let onLogout: () -> Void
 
     /// “我的”主页状态机。
-    @StateObject private var viewModel: MineViewModel
+    @State private var viewModel: MineViewModel
 
     init(
         dependencies: MineDependencies, media: MediaEnvironment,
@@ -74,7 +74,7 @@ private struct MineRootViewScene: View {
         self.media = media
         self.posters = posters
         self.destinations = settings
-        _viewModel = StateObject(wrappedValue: MineViewModel(service: dependencies.overview))
+        _viewModel = State(initialValue: MineViewModel(service: dependencies.overview))
         self.fallbackStudentID = fallbackStudentID
         self.onLogout = onLogout
         _requestedSettings = requestedSettings
@@ -280,7 +280,7 @@ private struct UserProfileRootViewScene: View {
     let userID: Int
 
     /// 指定用户主页状态机。
-    @StateObject private var viewModel: UserProfileViewModel
+    @State private var viewModel: UserProfileViewModel
     @State private var selectedPoster: CommunityPoster?
     @State private var imageViewer: ImagePreviewRequest?
     @State private var isProfileRetryRequested = false
@@ -295,8 +295,8 @@ private struct UserProfileRootViewScene: View {
         self.media = media
         self.destinations = posters
         self.userID = userID
-        _viewModel = StateObject(
-            wrappedValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
+        _viewModel = State(
+            initialValue: UserProfileViewModel(userID: userID, service: dependencies.profile))
     }
 
     private func posterRow(index: Int, poster: CommunityPoster, count: Int) -> some View {

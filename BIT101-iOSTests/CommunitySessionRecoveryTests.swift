@@ -14,16 +14,16 @@ import UIKit
 
 @MainActor
 struct CommunitySessionRecoveryTests {
-    private final class RecoveryProbe: ObservableObject {
-        @Published var visible = true
-        @Published var enabled = true
-        @Published var phase = ScenePhase.active
-        var events = 0
-        var requests = 0
-        var cancellations = 0
-        var failed = true
-        var pending: CheckedContinuation<Void, Never>?
-        var mounted = false
+    @Observable final class RecoveryProbe {
+        var visible = true
+        var enabled = true
+        var phase = ScenePhase.active
+        @ObservationIgnored var events = 0
+        @ObservationIgnored var requests = 0
+        @ObservationIgnored var cancellations = 0
+        @ObservationIgnored var failed = true
+        @ObservationIgnored var pending: CheckedContinuation<Void, Never>?
+        @ObservationIgnored var mounted = false
         func retry() async {
             events += 1
             guard failed else { return }
@@ -40,7 +40,7 @@ struct CommunitySessionRecoveryTests {
         }
     }
     private struct RecoveryView: View {
-        @ObservedObject var probe: RecoveryProbe
+        var probe: RecoveryProbe
         let path: NetworkPathState
         var body: some View {
             Group {

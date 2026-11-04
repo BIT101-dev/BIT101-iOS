@@ -20,7 +20,7 @@ struct DDLScheduleTabView: View {
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     @Environment(\.openURL) private var openURL
-    @ObservedObject var viewModel: ScheduleDDLViewModel
+    var viewModel: ScheduleDDLViewModel
     @State private var imageViewer: ImagePreviewRequest?
     @State private var selectedEvent: DDLEventRecord?
     @State private var draft = DDLDraft()
@@ -262,7 +262,7 @@ private struct DDLEventRow: View {
 }
 
 struct DDLRefreshStatusRow: View {
-    @ObservedObject var viewModel: ScheduleDDLViewModel
+    var viewModel: ScheduleDDLViewModel
     var body: some View {
         AppRefreshStatusRow(
             isRefreshing: viewModel.isSyncingDDL, refreshingText: "正在刷新 DDL",
@@ -486,7 +486,8 @@ private struct DDLImageStrip: View {
     }
 
     private func tile(for image: DDLImageAttachment, at index: Int) -> some View {
-        let pointSize = onRemove == nil
+        let pointSize =
+            onRemove == nil
             ? AppDesignSystem.Size.Media.attachment
             : AppDesignSystem.Size.Media.draft
         return LocalImageTile(

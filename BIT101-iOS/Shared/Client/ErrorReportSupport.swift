@@ -1,6 +1,7 @@
 import Combine
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 import UIKit
 
@@ -259,9 +260,10 @@ nonisolated enum ErrorReportRedactor {
         }
         let decoded = try item.value.map(decodedPercent)
         let nested = decoded.flatMap { value -> String? in
-            let hasHTTP = value.range(
-                of: #"https?://"#, options: [.regularExpression, .caseInsensitive]
-            ) != nil
+            let hasHTTP =
+                value.range(
+                    of: #"https?://"#, options: [.regularExpression, .caseInsensitive]
+                ) != nil
             guard hasHTTP else { return nil }
             return redactURLs(
                 value, credentials: credentials, studentID: studentID, depth: depth + 1
@@ -683,7 +685,7 @@ struct FeedbackSubmissionClient {
 }
 
 @MainActor
-final class ErrorReportViewModel: ObservableObject {
+@Observable final class ErrorReportViewModel {
     enum Mode: String, CaseIterable, Identifiable {
         case sanitized
         case raw
@@ -691,12 +693,12 @@ final class ErrorReportViewModel: ObservableObject {
         var title: String { self == .sanitized ? "脱敏调试信息" : "原始网络响应" }
     }
 
-    @Published var mode: Mode = .sanitized
-    @Published var comment = ""
-    @Published var contact = ""
-    @Published var diagnostics: [NetworkDiagnosticRecord] = []
-    @Published var isSubmitting = false
-    @Published var resultMessage: String?
+    var mode: Mode = .sanitized
+    var comment = ""
+    var contact = ""
+    var diagnostics: [NetworkDiagnosticRecord] = []
+    var isSubmitting = false
+    var resultMessage: String?
     let alert: any DiagnosticAlertPresentable
     private let identity = AppAccountSession.storage.schoolSessionIdentity
     private var accountSubscription: AnyCancellable?
@@ -791,7 +793,7 @@ final class ErrorReportViewModel: ObservableObject {
     }
 
     private static var deviceModel: String {
-        var info = utsname()
+        @ObservationIgnored var info = utsname()
         uname(&info)
         return withUnsafePointer(to: &info.machine) {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }

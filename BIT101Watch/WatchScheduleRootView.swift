@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// 页面先展示当前或下一节摘要，再列出后续课节。
 struct WatchScheduleRootView: View {
-    @ObservedObject var model: WatchScheduleStatusModel
+    var model: WatchScheduleStatusModel
     @State private var isShowingClearConfirmation = false
 
     var body: some View {

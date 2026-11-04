@@ -1,6 +1,6 @@
 import ClientCore
-import Combine
 import Foundation
+import Observation
 import ScheduleDomain
 import SchedulePorts
 import TransportCore
@@ -11,7 +11,7 @@ import TransportCore
 //
 
 @MainActor
-public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateConsumer {
+@Observable public final class ScheduleClassroomViewModel: ScheduleStateConsumer {
     private(set) var cache: ScheduleClassroomState {
         get { repository.classroomState }
         set { repository.classroomState = newValue }
@@ -21,19 +21,24 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     let repository: ScheduleRepository
     private let service: any ScheduleClassroomServicing
     private let classroomCoordinator = ScheduleClassroomCoordinator()
-    @Published var selectedBuildingID = ""
-    @Published var notice: ScheduleNotice?
-    var onAuthenticationRequired: ((BITLoginAuthenticationChallenge) -> Void)?
-    private var classroomRecords: [ClassroomRecord] = []
-    private var classroomQueryDate: Date?
+    var selectedBuildingID: String {
+        get { cache.selectedBuildingID }
+        set { cache.selectedBuildingID = newValue }
+    }
+    var notice: ScheduleNotice? {
+        didSet { if let notice { onNotice?(notice) } }
+    }
+    /// 最新提示同步给所属日程页面。
+    @ObservationIgnored var onNotice: ((ScheduleNotice) -> Void)?
+    @ObservationIgnored var onAuthenticationRequired: ((BITLoginAuthenticationChallenge) -> Void)?
+    @ObservationIgnored private var classroomRecords: [ClassroomRecord] = []
+    @ObservationIgnored private var classroomQueryDate: Date?
     private let now: @MainActor () -> Date
-    private var classroomTask: Task<Void, Never>?
-    private var classroomTaskID: UUID?
-    private(set) var classroomPrefetchTask: Task<Void, Never>?
-    private var classroomPrefetchID: UUID?
-    private var classroomPrefetchBuildingID: String?
-    private var subscription: AnyCancellable?
-    private var cacheSubscription: AnyCancellable?
+    @ObservationIgnored private var classroomTask: Task<Void, Never>?
+    @ObservationIgnored private var classroomTaskID: UUID?
+    @ObservationIgnored private(set) var classroomPrefetchTask: Task<Void, Never>?
+    @ObservationIgnored private var classroomPrefetchID: UUID?
+    @ObservationIgnored private var classroomPrefetchBuildingID: String?
 
     public init(
         service: any ScheduleClassroomServicing, repository: ScheduleRepository,
@@ -44,11 +49,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         self.repository = repository
         self.virtualNetworkLikely = virtualNetworkLikely
         self.now = now
-        subscription = repository.classroomChanges.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
-        cacheSubscription = repository.classroomSelection
-            .sink { [weak self] in self?.selectedBuildingID = $0 }
     }
 
     deinit {
@@ -57,7 +57,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     }
 
     func restoreCachedState() {
-        selectedBuildingID = cache.selectedBuildingID
         campuses = cache.cachedClassroomCampuses
         buildings = cache.cachedClassroomBuildingsByCampusCode[cache.selectedCampusCode] ?? []
         _ = restoreClassroomQuery()
@@ -100,15 +99,15 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
     func isCancellation(_ error: Error) -> Bool { TaskCancellation.matches(error) }
 
     /// 是否正在加载空教室元数据（校区/教学楼）。
-    @Published var isLoadingClassroomMeta = false
+    var isLoadingClassroomMeta = false
     /// 是否正在加载空教室结果。
-    @Published var isLoadingClassrooms = false
+    var isLoadingClassrooms = false
     /// 当前教学楼最近一次成功刷新空教室结果的时间。
-    @Published var classroomLastUpdatedAt: Date?
+    var classroomLastUpdatedAt: Date?
     /// 首次进入空教室页且结果数组为空时，加载指示器显示为无文案状态。
-    @Published var shouldShowInitialClassroomSpinner = false
-    @Published var campuses: [CampusRecord] = []
-    @Published var buildings: [BuildingRecord] = []
+    var shouldShowInitialClassroomSpinner = false
+    var campuses: [CampusRecord] = []
+    var buildings: [BuildingRecord] = []
     var classroomAvailabilities: [ClassroomAvailability] { classroomAvailabilities(at: now()) }
 
     /// 空教室页面展示的最近一次成功刷新时间。
@@ -124,7 +123,6 @@ public final class ScheduleClassroomViewModel: ObservableObject, ScheduleStateCo
         cache.selectedCampusCode = code
         cache.selectedCampusName = campuses.first(where: { $0.code == code })?.name ?? ""
         selectedBuildingID = ""
-        cache.selectedBuildingID = ""
         buildings = cache.cachedClassroomBuildingsByCampusCode[code] ?? []
         if !buildings.isEmpty { resolveBuilding() }
         classroomRecords = []

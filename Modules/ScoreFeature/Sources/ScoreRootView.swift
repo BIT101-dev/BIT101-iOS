@@ -9,7 +9,7 @@ import SwiftUI
 import UIKit
 
 public struct ScoreRefreshStatusRow: View {
-    @ObservedObject private var viewModel: ScoreViewModel
+    @Bindable private var viewModel: ScoreViewModel
     public init(viewModel: ScoreViewModel) { self.viewModel = viewModel }
     public var body: some View {
         AppRefreshStatusRow(
@@ -27,7 +27,7 @@ public struct ScoreRefreshStatusRow: View {
 }
 
 public struct ScoreListPage: View {
-    @ObservedObject var viewModel: ScoreViewModel
+    @Bindable var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
     let transcriptService: any TrustedTranscriptServicing
     private let onSurfaceStep: ((Int) -> Void)?
@@ -347,12 +347,12 @@ struct TrustedTranscriptDestination: View {
 }
 
 private struct TrustedTranscriptPage: View {
-    @StateObject private var viewModel: TrustedTranscriptViewModel
+    @State private var viewModel: TrustedTranscriptViewModel
     @State private var imageViewer: ImagePreviewRequest?
     @State private var retryGeneration = 0
 
     init(service: any TrustedTranscriptServicing) {
-        _viewModel = StateObject(wrappedValue: TrustedTranscriptViewModel(service: service))
+        _viewModel = State(initialValue: TrustedTranscriptViewModel(service: service))
     }
 
     var body: some View {

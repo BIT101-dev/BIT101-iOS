@@ -402,10 +402,12 @@ final class UIElement: NSObject {
         }
         let query = path + [["type": "9"], ["predicate": "selected == true"]]
         let data = try JSONSerialization.data(withJSONObject: query)
-        guard let response = UITestControlClient.request([
-            "command": "query", "query": String(decoding: data, as: UTF8.self),
-        ]), let values = try JSONSerialization.jsonObject(with: Data(response.utf8))
-            as? [[String: Any]]
+        guard
+            let response = UITestControlClient.request([
+                "command": "query", "query": String(decoding: data, as: UTF8.self),
+            ]),
+            let values = try JSONSerialization.jsonObject(with: Data(response.utf8))
+                as? [[String: Any]]
         else { throw CocoaError(.coderInvalidValue) }
         return try values.map { value in
             guard let identifier = value["identifier"] as? String,
@@ -658,32 +660,45 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        let labels = UITestMainNavigation.labels(title)
-        let query = native.buttons.matching(NSPredicate(format: "label IN %@", labels))
+        let query = native.buttons.matching(
+            NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
+        guard query.firstMatch.exists else { return UIElement(query.firstMatch) }
         let deadline = Date().addingTimeInterval(5)
         repeat {
-            guard let snapshot = try? native.snapshot() else { return UIElement(query.firstMatch) }
-            let buttons = snapshot.snapshots(matching: .button)
-            let candidates = buttons.filter { labels.contains($0.label) }
-            if candidates.isEmpty { return UIElement(query.firstMatch) }
-            func named(_ name: String) -> (any XCUIElementSnapshot)? {
-                buttons.first { $0.label == name || $0.identifier == name }
-            }
-            if let map = named("地图"), let mine = named("我的") {
+            let map = native.buttons["地图"].firstMatch
+            let mine = native.buttons["我的"].firstMatch
+            if map.exists && mine.exists {
                 let reference = map.frame
                 let horizontal = abs(reference.midY - mine.frame.midY) <= 1
-                let index = candidates.firstIndex {
-                    horizontal
-                        ? abs($0.frame.midY - reference.midY) <= 1
-                        : abs($0.frame.midX - reference.midX) <= 1
+                if let match = matchingMainTabButton(
+                    in: query, reference: reference, horizontal: horizontal)
+                {
+                    return match
                 }
-                if let index { return UIElement(query.element(boundBy: index)) }
             }
             UITestSnapshotReader.poll()
             UITestSnapshotReader.invalidate()
         } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
         return UIElement(query.firstMatch)
+    }
+
+    private func matchingMainTabButton(
+        in query: XCUIElementQuery,
+        reference: CGRect,
+        horizontal: Bool
+    ) -> UIElement? {
+        for button in query.allElementsBoundByIndex {
+            let frame = button.frame
+            let aligned =
+                horizontal
+                ? abs(frame.midY - reference.midY) <= 1
+                : abs(frame.midX - reference.midX) <= 1
+            if aligned {
+                return UIElement(button)
+            }
+        }
+        return nil
     }
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title

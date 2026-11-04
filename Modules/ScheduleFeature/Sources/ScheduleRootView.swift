@@ -43,7 +43,7 @@ public struct ScheduleRootView: View {
     private var isCurrentSectionVisible: Bool {
         isPageVisible && displayedSection == viewModel.selectedSection
     }
-    @ObservedObject private var viewModel: ScheduleViewModel
+    @Bindable private var viewModel: ScheduleViewModel
     @State private var courseTabResetSignal = 0
     @State private var horizontalControlFrames: [CGRect] = []
 
@@ -188,8 +188,8 @@ public struct ScheduleRootView: View {
                     .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
-        .environmentObject(viewModel)
-        .environmentObject(viewModel.ddl)
+        .environment(viewModel)
+        .environment(viewModel.ddl)
     }
 
     private var pairedPages: some View {
@@ -278,7 +278,7 @@ public struct ScheduleRootView: View {
 
 /// 页面与设置共用读取重试和部分恢复确认。
 public struct ScheduleCacheRecoveryView: View {
-    @ObservedObject private var repository: ScheduleRepository
+    private var repository: ScheduleRepository
     @State private var isConfirmingRebuild = false
     @State private var rebuildGeneration = 0
 
@@ -323,7 +323,7 @@ public struct ScheduleCacheRecoveryView: View {
 
 /// 页面与设置共用版本选择，保留待处理编辑及独立同步修改。
 public struct SchedulePersistenceConflictView: View {
-    @ObservedObject private var repository: ScheduleRepository
+    private var repository: ScheduleRepository
 
     public init(repository: ScheduleRepository) { self.repository = repository }
 

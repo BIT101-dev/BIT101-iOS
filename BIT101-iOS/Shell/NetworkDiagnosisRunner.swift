@@ -1,8 +1,8 @@
 import ClientCore
-import Combine
 import CommunityTransport
 import Foundation
 import GalleryFeature
+import Observation
 import PaperFeature
 import ScheduleDomain
 import SchedulePorts
@@ -38,7 +38,7 @@ struct NetworkDiagnosisDependencies {
 }
 
 @MainActor
-final class NetworkDiagnosisRunner: ObservableObject {
+@Observable final class NetworkDiagnosisRunner {
     struct Identity: Equatable, Sendable {
         let community: CommunitySessionIdentity
         let school: SchoolSessionIdentity
@@ -67,8 +67,8 @@ final class NetworkDiagnosisRunner: ObservableObject {
         }
     }
 
-    @Published private(set) var isRunning = false
-    @Published private(set) var completedCount = 0
+    private(set) var isRunning = false
+    private(set) var completedCount = 0
     let totalCount = Step.allCases.count
     private var currentTermForDiagnosis: String?
     private let identity: () -> Identity
@@ -96,7 +96,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
         }
 
         let independentSteps: [Step] = [.path, .bit101Home, .gallery, .paper, .currentTerm]
-        var resultByStep: [String: String] = [:]
+        @ObservationIgnored var resultByStep: [String: String] = [:]
         await withTaskGroup(of: (String, String?).self) { group in
             for step in independentSteps {
                 let title = step.title
@@ -208,7 +208,7 @@ final class NetworkDiagnosisRunner: ObservableObject {
     }
 
     private func fetch(_ url: URL) async throws -> Data {
-        var request = URLRequest(
+        @ObservationIgnored var request = URLRequest(
             url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("BIT101-iOS network diagnosis", forHTTPHeaderField: "User-Agent")
         let response = try await dependencies.httpClient.send(request, accepting: 200..<400)

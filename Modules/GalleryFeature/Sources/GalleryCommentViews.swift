@@ -219,7 +219,7 @@ struct GalleryCommentComposerSheet: View {
     @State private var anonymous = false
     @State private var isSubmissionRequested = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @StateObject private var imageUploads: ComposerImageUploads
+    @State private var imageUploads: ComposerImageUploads
     private var uploadedImages: [CommunityImage] { imageUploads.uploadedImages }
     private var isUploadingImages: Bool {
         imageUploads.isAddingImages || imageUploads.hasUploadingImages
@@ -242,8 +242,8 @@ struct GalleryCommentComposerSheet: View {
         self.onSubmit = onSubmit
         let owner = dependencies.currentIdentity()
         let preparer = ComposerImagePreparer()
-        _imageUploads = StateObject(
-            wrappedValue: ComposerImageUploads(
+        _imageUploads = State(
+            initialValue: ComposerImageUploads(
                 upload: { try await dependencies.images.uploadImage(data: $0, filename: $1) },
                 prepare: { try await preparer.prepare($0) },
                 isCurrentSession: { dependencies.currentIdentity() == owner }))

@@ -6,7 +6,7 @@ import TransportCore
 
 struct GallerySettingsPage: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
-    @EnvironmentObject private var settings: AppSettingsStore
+    @Environment(AppSettingsStore.self) private var settings: AppSettingsStore
     let media: MediaEnvironment
     @State private var imageCacheLimitMB: Int
     @FocusState private var imageCacheLimitFocused: Bool
@@ -14,13 +14,12 @@ struct GallerySettingsPage: View {
     @State private var imageCacheUsageGeneration = 0
     @State private var hiddenUserIDsText = ""
     @State private var hiddenUserIDsAlert: AppAlert?
-    @StateObject private var networkDiagnosis: NetworkDiagnosisRunner
+    @State private var networkDiagnosis: NetworkDiagnosisRunner
     @State private var diagnosisAlert: AppAlert?
     @State private var diagnosisTask: Task<Void, Never>?
 
     init(media: MediaEnvironment, diagnosis: NetworkDiagnosisDependencies) {
-        _networkDiagnosis = StateObject(
-            wrappedValue: NetworkDiagnosisRunner(dependencies: diagnosis))
+        _networkDiagnosis = State(initialValue: NetworkDiagnosisRunner(dependencies: diagnosis))
         self.media = media
         _imageCacheLimitMB = State(initialValue: media.cacheLimitMB)
     }
@@ -223,7 +222,7 @@ struct AboutSettingsPage: View {
     let prompts: AppPromptCoordinator
 
     @Environment(\.openURL) private var openURL
-    @EnvironmentObject private var settings: AppSettingsStore
+    @Environment(AppSettingsStore.self) private var settings: AppSettingsStore
     @State private var alert: AppAlert?
     @State private var isResettingLocalData = false
     @State private var isClearingCaches = false

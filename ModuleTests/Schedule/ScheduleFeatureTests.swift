@@ -599,9 +599,10 @@ struct ScheduleFeatureTests {
             repository: repository, actions: ModuleSchedulePlatformActions(), service: service)
         await model.loadIfNeeded()
         let previousUpdate = model.courseState.coursesUpdatedAt
-        var changes = 0
-        let observation = model.objectWillChange.sink { changes += 1 }
-        defer { observation.cancel() }
+        let changes = ObservationCounter {
+            _ = model.courseState
+            _ = model.isSyncingCourses
+        }
         if switchesTerm {
             await model.syncCourses(term: targetTerm)
         } else {
@@ -614,7 +615,8 @@ struct ScheduleFeatureTests {
             disk.courses == [updated] && disk.coursesUpdatedAt == model.courseState.coursesUpdatedAt
         )
         if switchesTerm { #expect(disk.termSchedulesByTerm["term"]?.courses == [old]) }
-        #expect(changes > 0 && !model.isSyncingCourses)
+        await changes.settle()
+        #expect(changes.count > 0 && !model.isSyncingCourses)
     }
 
     @Test(.timeLimit(.minutes(1))) func courseVerifyFailurePreservesChallenge() async throws {

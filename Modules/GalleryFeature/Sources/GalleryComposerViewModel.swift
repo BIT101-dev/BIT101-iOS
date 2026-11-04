@@ -1,10 +1,10 @@
-import Combine
 import CommunityCore
 import CommunityTransport
 import CommunityUI
 import DesignSystemKit
 import Foundation
 import OSLog
+import Observation
 import TransportCore
 
 nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
@@ -14,28 +14,28 @@ nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
 
 /// 发帖场景持有编辑、草稿与上传状态，异步结果核对账号和页面生命周期。
 @MainActor
-final class GalleryComposerViewModel: ObservableObject {
+@Observable final class GalleryComposerViewModel {
     private static let logger = Logger(subsystem: "BIT101", category: "GalleryComposer")
     static let maximumImageCount = ComposerDraftImagePolicy.maximumImageCount
-    @Published var title: String
-    @Published var text: String
-    @Published var selectedTags: [String]
-    @Published var customTagDrafts: [GalleryCustomTagDraft] = []
-    @Published var anonymous: Bool
-    @Published var isPublic: Bool
-    @Published var selectedClaimID: Int
+    var title: String
+    var text: String
+    var selectedTags: [String]
+    var customTagDrafts: [GalleryCustomTagDraft] = []
+    var anonymous: Bool
+    var isPublic: Bool
+    var selectedClaimID: Int
     let imageUploads: ComposerImageUploads
     var imageDrafts: [ComposerImageDraft] { imageUploads.drafts }
-    @Published private(set) var existingImages: [CommunityImage]
-    @Published private(set) var claims = [CommunityClaim(id: 0, text: "无声明")]
+    private(set) var existingImages: [CommunityImage]
+    private(set) var claims = [CommunityClaim(id: 0, text: "无声明")]
     var isAddingImages: Bool { imageUploads.isAddingImages }
-    @Published private(set) var isLoadingClaims = false
-    @Published private(set) var claimsLoadError: String?
-    @Published private(set) var isSubmitting = false
-    @Published private(set) var isSavingDraft = false
-    @Published private(set) var isDiscardingDraft = false
-    @Published private(set) var isRestoringDraft = false
-    @Published var alert: AppAlert?
+    private(set) var isLoadingClaims = false
+    private(set) var claimsLoadError: String?
+    private(set) var isSubmitting = false
+    private(set) var isSavingDraft = false
+    private(set) var isDiscardingDraft = false
+    private(set) var isRestoringDraft = false
+    var alert: AppAlert?
     let editingPoster: GalleryPosterDetail?
 
     private let service: any GalleryComposerServicing
@@ -43,16 +43,14 @@ final class GalleryComposerViewModel: ObservableObject {
     private let currentIdentity: () -> CommunitySessionIdentity
     private let owner: CommunitySessionIdentity
     private let prepareImageData: (Data) async -> Data?
-    private var generation = 0
-    private var didCheckDraft = false
-    private var didLoadClaims = false
-    private var retainedClaim: CommunityClaim?
-    private var imageObservation: AnyCancellable?
-    private var imageErrorObservation: AnyCancellable?
-    private var submissionTask: Task<Bool, Never>?
-    @Published private(set) var publicationReview: ComposerPublicationReviewState = .ready
-    private var didPublish = false
-    private var savingTask: Task<Bool, Never>?
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var didCheckDraft = false
+    @ObservationIgnored private var didLoadClaims = false
+    @ObservationIgnored private var retainedClaim: CommunityClaim?
+    @ObservationIgnored private var submissionTask: Task<Bool, Never>?
+    private(set) var publicationReview: ComposerPublicationReviewState = .ready
+    @ObservationIgnored private var didPublish = false
+    @ObservationIgnored private var savingTask: Task<Bool, Never>?
 
     init(
         editingPoster: GalleryPosterDetail? = nil, service: any GalleryComposerServicing,
@@ -84,11 +82,7 @@ final class GalleryComposerViewModel: ObservableObject {
         isPublic = editingPoster?.public ?? true
         selectedClaimID = editingPoster?.claim.id ?? 0
         existingImages = editingPoster?.images ?? []
-        imageObservation = imageUploads.objectWillChange.sink { [weak self] in
-            self?.objectWillChange.send()
-        }
-        imageErrorObservation = imageUploads.$errorMessage.compactMap { $0 }.sink {
-            [weak self] message in
+        imageUploads.onError = { [weak self] message in
             self?.alert = AppAlert(title: "图片添加失败", message: message)
         }
     }
@@ -503,8 +497,9 @@ final class GalleryComposerViewModel: ObservableObject {
                     let content = ComposerPublicationContent.gallery(
                         title: title, text: text, imageMids: mids,
                         anonymous: anonymous, tags: tags, claimID: claimID, isPublic: isPublic)
-                    guard let attempt = try await beginGalleryPublication(
-                        content: content, operation: operation)
+                    guard
+                        let attempt = try await beginGalleryPublication(
+                            content: content, operation: operation)
                     else {
                         return false
                     }

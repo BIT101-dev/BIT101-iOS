@@ -2,6 +2,7 @@ import Combine
 import CommunityCore
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 //
@@ -12,19 +13,19 @@ import TransportCore
 //
 
 @MainActor
-final class GallerySubscriptionsViewModel: ObservableObject {
+@Observable final class GallerySubscriptionsViewModel {
     let pendingOperations = CommunityDetailTasks()
-    @Published private var pagedItems = CommunityPagedItems<GallerySubscription>()
+    private var pagedItems = CommunityPagedItems<GallerySubscription>()
     var items: [GallerySubscription] { pagedItems.items }
-    @Published private(set) var status: CommunityLoadStatus = .idle
-    @Published private(set) var needsRefresh = false
-    @Published private(set) var isLoadingMore = false
-    @Published private(set) var canLoadMore = true
-    @Published private(set) var paginationError: String?
-    @Published var alert: AppAlert?
+    private(set) var status: CommunityLoadStatus = .idle
+    private(set) var needsRefresh = false
+    private(set) var isLoadingMore = false
+    private(set) var canLoadMore = true
+    private(set) var paginationError: String?
+    var alert: AppAlert?
     private let service: any GallerySubscriptionServicing
-    private var nextPage = 0
-    private var generation = 0
+    @ObservationIgnored private var nextPage = 0
+    @ObservationIgnored private var generation = 0
 
     init(service: any GallerySubscriptionServicing) { self.service = service }
 
@@ -96,25 +97,14 @@ final class GallerySubscriptionsViewModel: ObservableObject {
 /// 话廊页状态机。
 ///
 /// 同时管理五个 feed 和一个搜索结果页，并显式处理分页、刷新和取消错误。
-final class GalleryViewModel: ObservableObject {
+@Observable final class GalleryViewModel {
     /// 当前选中的 feed。
-    @Published var selectedFeed: GalleryFeedKind = .recommend
+    var selectedFeed: GalleryFeedKind = .recommend
     /// 搜索页当前条件。
-    @Published var searchQuery = GallerySearchQuery()
+    var searchQuery = GallerySearchQuery()
     /// 搜索结果列表状态。
-    private var searchStorage = GalleryFeedState()
-    var searchState: GalleryFeedState {
-        get { searchStorage }
-        set {
-            objectWillChange.send()
-            searchStorage = newValue
-        }
-        _modify {
-            objectWillChange.send()
-            yield &searchStorage
-        }
-    }
-    private var pageSearchQuery: GallerySearchQuery?
+    var searchState = GalleryFeedState()
+    @ObservationIgnored private var pageSearchQuery: GallerySearchQuery?
     var displayedQueryDescription: String? {
         guard let pageSearchQuery,
             pageSearchQuery.text != searchQuery.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -127,36 +117,25 @@ final class GalleryViewModel: ObservableObject {
             """
     }
     /// 是否展示搜索页。
-    @Published var isShowingSearch = false
+    var isShowingSearch = false
     /// 统一错误提示。
-    @Published var alert: AppAlert?
+    var alert: AppAlert?
 
     /// 各 feed 的完整状态字典。
-    private var feedStorage: [GalleryFeedKind: GalleryFeedState] = {
+    private(set) var feedStates: [GalleryFeedKind: GalleryFeedState] = {
         var states: [GalleryFeedKind: GalleryFeedState] = [:]
         GalleryFeedKind.allCases.forEach { states[$0] = GalleryFeedState() }
         return states
     }()
-    private(set) var feedStates: [GalleryFeedKind: GalleryFeedState] {
-        get { feedStorage }
-        set {
-            objectWillChange.send()
-            feedStorage = newValue
-        }
-        _modify {
-            objectWillChange.send()
-            yield &feedStorage
-        }
-    }
 
     private let service: any GalleryFeedServicing
-    private var resourceSubscription: AnyCancellable?
+    @ObservationIgnored private var resourceSubscription: AnyCancellable?
     private let recommendPrefetch: GalleryRecommendPrefetchCoordinator
-    private var refreshGenerations: [GalleryFeedKind: Int] = [:]
-    private var refreshPreviousStates: [GalleryFeedKind: GalleryFeedState] = [:]
-    private var searchGeneration = 0
-    private var interactionTasks: [String: Task<Void, Never>] = [:]
-    private var interactionTaskTokens: [String: UUID] = [:]
+    @ObservationIgnored private var refreshGenerations: [GalleryFeedKind: Int] = [:]
+    @ObservationIgnored private var refreshPreviousStates: [GalleryFeedKind: GalleryFeedState] = [:]
+    @ObservationIgnored private var searchGeneration = 0
+    @ObservationIgnored private var interactionTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var interactionTaskTokens: [String: UUID] = [:]
 
     init(service: any GalleryFeedServicing) {
         self.service = service
@@ -167,11 +146,11 @@ final class GalleryViewModel: ObservableObject {
     }
 
     private func applyResourceMetrics(_ metrics: [CommunityResourceMetrics]) {
-        if feedStorage.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
+        if feedStates.values.contains(where: { $0.posters.needsCommunityRefresh(for: metrics) })
             || refreshPreviousStates.values.contains(where: {
                 $0.posters.needsCommunityRefresh(for: metrics)
             })
-            || searchStorage.posters.needsCommunityRefresh(for: metrics)
+            || searchState.posters.needsCommunityRefresh(for: metrics)
         {
             cancelPendingOperations()
         }
@@ -181,8 +160,8 @@ final class GalleryViewModel: ObservableObject {
             if needsRefresh { state.needsRefresh = true }
             return changed || needsRefresh
         }
-        var feeds = feedStorage
-        var search = searchStorage
+        var feeds = feedStates
+        var search = searchState
         var changed = apply(to: &search)
         for feed in GalleryFeedKind.allCases {
             var state = feeds[feed] ?? GalleryFeedState()
@@ -192,9 +171,8 @@ final class GalleryViewModel: ObservableObject {
             }
         }
         if changed {
-            objectWillChange.send()
-            feedStorage = feeds
-            searchStorage = search
+            feedStates = feeds
+            searchState = search
         }
     }
 
@@ -454,11 +432,13 @@ final class GalleryViewModel: ObservableObject {
             let cancelled = TaskCancellation.matches(error)
             let fallbackStatus: CommunityLoadStatus
             if cancelled {
-                fallbackStatus = previousState.status == .loading
+                fallbackStatus =
+                    previousState.status == .loading
                     ? (previousState.posters.isEmpty ? .idle : .loaded)
                     : previousState.status
             } else {
-                fallbackStatus = previousState.posters.isEmpty
+                fallbackStatus =
+                    previousState.posters.isEmpty
                     ? .failed(error.localizedDescription)
                     : .loaded
             }

@@ -189,26 +189,25 @@ enum ScheduleReminderBackgroundRefresh {
 @main
 struct BIT101_iOSApp: App {
     #if RELEASE_NETWORK_SMOKE
-    @StateObject private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
+    @State private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
     #endif
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
     #if !BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
     #if BIT101_UI_TESTING
-    @StateObject private var uiTestScene: UITestSceneState
+    @State private var uiTestScene: UITestSceneState
     private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
     #else
-    @StateObject private var lifecycle: AppAccountLifecycle
+    @State private var lifecycle: AppAccountLifecycle
     #endif
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         #if BIT101_UI_TESTING
         AppUITestBootstrap.prepareForLaunch()
-        _uiTestScene = StateObject(
-            wrappedValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
+        _uiTestScene = State(initialValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
         #else
-        _lifecycle = StateObject(wrappedValue: Self.makeLifecycle())
+        _lifecycle = State(initialValue: Self.makeLifecycle())
         #endif
     }
 
@@ -433,13 +432,13 @@ struct BIT101_iOSApp: App {
             .environment(lifecycle.communityDestinations)
             .environment(lifecycle.community)
             .environment(lifecycle.communityDestinations.media)
-            .environmentObject(lifecycle.scheduleViewModel)
-            .environmentObject(lifecycle)
-            .environmentObject(lifecycle.scheduleViewModel.ddl)
-            .environmentObject(lifecycle.scoreViewModel)
-            .environmentObject(lifecycle.settings)
-            .environmentObject(lifecycle.preferenceCloudSync)
-            .environmentObject(lifecycle.prompts)
+            .environment(lifecycle.scheduleViewModel)
+            .environment(lifecycle)
+            .environment(lifecycle.scheduleViewModel.ddl)
+            .environment(lifecycle.scoreViewModel)
+            .environment(lifecycle.settings)
+            .environment(lifecycle.preferenceCloudSync)
+            .environment(lifecycle.prompts)
             .appKeyboardDismissSupport()
             #if BIT101_UI_TESTING
             .environment(\.appInteractionEvidence) { identifier, action in
@@ -511,13 +510,13 @@ struct BIT101_iOSApp: App {
 
 #if BIT101_UI_TESTING
 @MainActor
-final class UITestSceneState: ObservableObject {
-    @Published private(set) var lifecycle: AppAccountLifecycle
-    @Published private(set) var revision = 0
-    var largeText = false
-    var colorScheme: ColorScheme?
+@Observable final class UITestSceneState {
+    private(set) var lifecycle: AppAccountLifecycle
+    private(set) var revision = 0
+    @ObservationIgnored var largeText = false
+    @ObservationIgnored var colorScheme: ColorScheme?
     private let makeLifecycle: () -> AppAccountLifecycle
-    private var control: UITestControlServer?
+    @ObservationIgnored private var control: UITestControlServer?
 
     init(makeLifecycle: @escaping () -> AppAccountLifecycle) {
         self.makeLifecycle = makeLifecycle

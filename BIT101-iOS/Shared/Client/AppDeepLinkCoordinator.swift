@@ -1,5 +1,5 @@
-import Combine
 import Foundation
+import Observation
 
 enum AppDeepLinkRoute: Equatable {
     case scheduleCourses
@@ -71,10 +71,10 @@ enum AppDeepLinkRoute: Equatable {
 
 /// 暂存等待登录状态恢复后处理的 URL，由调用方负责消费。
 @MainActor
-final class AppDeepLinkCoordinator: ObservableObject {
+@Observable final class AppDeepLinkCoordinator {
     static let shared = AppDeepLinkCoordinator()
 
-    @Published private(set) var pendingURL: URL?
+    private(set) var pendingURL: URL?
 
     private init() {}
 

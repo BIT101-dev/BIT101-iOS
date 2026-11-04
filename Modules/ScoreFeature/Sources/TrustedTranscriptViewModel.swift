@@ -1,5 +1,6 @@
 import DesignSystemKit
 import MediaKit
+import Observation
 import ScoreDomain
 import ScorePorts
 
@@ -12,33 +13,33 @@ import UIKit
 
 /// 成绩单页面持有报告来源与可用分页，认证和图片恢复各自推进。
 @MainActor
-final class TrustedTranscriptViewModel: ObservableObject {
+@Observable final class TrustedTranscriptViewModel {
     enum State: Equatable {
         case idle, loading, loaded
         case failed(String)
     }
-    @Published private(set) var state: State = .idle
-    @Published private(set) var images: [UIImage] = []
-    @Published private(set) var pageNumbers: [Int] = []
-    @Published private(set) var expectedPageCount = 0
-    @Published private(set) var deliveryWarning: String?
-    @Published private(set) var verificationChallenge: BITLoginAuthenticationChallenge?
-    @Published private(set) var verificationError: String?
-    @Published private(set) var isSubmittingVerificationCode = false
-    @Published private(set) var isLoadingPages = false
-    @Published private(set) var allowsDiagnostics = true
-    @Published private(set) var failureCause: (any Error)?
+    private(set) var state: State = .idle
+    private(set) var images: [UIImage] = []
+    private(set) var pageNumbers: [Int] = []
+    private(set) var expectedPageCount = 0
+    private(set) var deliveryWarning: String?
+    private(set) var verificationChallenge: BITLoginAuthenticationChallenge?
+    private(set) var verificationError: String?
+    private(set) var isSubmittingVerificationCode = false
+    private(set) var isLoadingPages = false
+    private(set) var allowsDiagnostics = true
+    private(set) var failureCause: (any Error)?
 
     private let service: any TrustedTranscriptServicing
     private let limits: TrustedTranscriptResourceLimits
-    private var authenticatedChallenge: BITLoginAuthenticationChallenge?
-    private var report: TrustedTranscriptReport?
-    private var encodedBytesByPage: [Int: Int] = [:]
-    private var stagedImages: [Int: UIImage] = [:]
-    private var stagedBytes: [Int: Int] = [:]
-    private var stagedReport: TrustedTranscriptReport?
-    private var retryRequested = false
-    private var verificationContinuation: Task<Void, Never>?
+    @ObservationIgnored private var authenticatedChallenge: BITLoginAuthenticationChallenge?
+    @ObservationIgnored private var report: TrustedTranscriptReport?
+    @ObservationIgnored private var encodedBytesByPage: [Int: Int] = [:]
+    @ObservationIgnored private var stagedImages: [Int: UIImage] = [:]
+    @ObservationIgnored private var stagedBytes: [Int: Int] = [:]
+    @ObservationIgnored private var stagedReport: TrustedTranscriptReport?
+    @ObservationIgnored private var retryRequested = false
+    @ObservationIgnored private var verificationContinuation: Task<Void, Never>?
 
     init(
         service: any TrustedTranscriptServicing,

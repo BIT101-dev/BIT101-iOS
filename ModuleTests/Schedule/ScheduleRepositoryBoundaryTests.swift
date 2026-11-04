@@ -1,6 +1,5 @@
 import BIT101TestSupport
 import ClientCore
-import Combine
 import Foundation
 import ScheduleDomain
 import SchedulePorts
@@ -261,33 +260,42 @@ struct ScheduleRepositoryBoundaryTests {
         #expect(repository.syncState.hasUnpushedCloudChanges)
     }
 
+    private func sectionCounters(_ repository: ScheduleRepository) -> (
+        course: ObservationCounter, ddl: ObservationCounter, classroom: ObservationCounter
+    ) {
+        (
+            ObservationCounter {
+                _ = repository.courseState
+                _ = repository.presentationPreferences
+                _ = repository.syncState
+            },
+            ObservationCounter { _ = repository.ddlState },
+            ObservationCounter { _ = repository.classroomState }
+        )
+    }
+
     @Test(.timeLimit(.minutes(1))) func sceneSubscriptionsSeparatePrefs() async {
         var stored = ScheduleCache()
         let repository = makeRepository(load: { _ in .loaded(stored) }, save: { _, _, _ in })
-        var courseChanges = 0
-        var ddlChanges = 0
-        var classroomChanges = 0
-        let subscriptions = [
-            repository.courseChanges.sink { courseChanges += 1 },
-            repository.ddlChanges.sink { ddlChanges += 1 },
-            repository.classroomChanges.sink { classroomChanges += 1 },
-        ]
-        defer { subscriptions.forEach { $0.cancel() } }
         await repository.loadIfNeeded()
-        #expect(courseChanges == 2)
-        #expect(ddlChanges == 2)
-        #expect(classroomChanges == 2)
+        let counters = sectionCounters(repository)
+        let (course, ddl, classroom) = (counters.course, counters.ddl, counters.classroom)
+        await course.settle()
+        let base = (course.count, ddl.count, classroom.count)
         repository.presentationPreferences.showSaturday = false
-        #expect(courseChanges == 3)
+        await course.settle()
+        #expect(course.count == base.0 + 1)
         repository.syncState.iCloudSyncEnabled = false
-        #expect(courseChanges == 4)
+        await course.settle()
+        #expect(course.count == base.0 + 2)
         stored = repository.persistenceSnapshot
         stored.cloudSyncBaselineRecordTag = "cloud-tag"
         stored.hasUnpushedCloudChanges = true
         await repository.reload()
-        #expect(courseChanges == 4)
-        #expect(ddlChanges == 2)
-        #expect(classroomChanges == 2)
+        await course.settle()
+        #expect(course.count == base.0 + 2)
+        #expect(ddl.count == base.1)
+        #expect(classroom.count == base.2)
     }
 
     @Test(.timeLimit(.minutes(1))) func semesterStartDatePersistsWithinItsAccount() async throws {
@@ -740,38 +748,28 @@ struct ScheduleRepositoryBoundaryTests {
     @Test(.timeLimit(.minutes(1))) func sceneSubscriptionsFollowTheirOwnedFields() async {
         let repository = makeRepository(load: { _ in .missing }, save: { _, _, _ in })
         await repository.loadIfNeeded()
-        var courseChanges = 0
-        var ddlChanges = 0
-        var classroomChanges = 0
-        let subscriptions = [
-            repository.courseChanges.sink { courseChanges += 1 },
-            repository.ddlChanges.sink { ddlChanges += 1 },
-            repository.classroomChanges.sink { classroomChanges += 1 },
-        ]
-        defer { subscriptions.forEach { $0.cancel() } }
+        let counters = sectionCounters(repository)
+        let (course, ddl, classroom) = (counters.course, counters.ddl, counters.classroom)
 
         repository.ddlState.ddlBeforeDay = 12
-        #expect(courseChanges == 0)
-        #expect(ddlChanges == 1)
-        #expect(classroomChanges == 0)
+        await course.settle()
+        #expect((course.count, ddl.count, classroom.count) == (0, 1, 0))
         repository.ddlState.ddlBeforeDay = 12
-        #expect(ddlChanges == 1)
+        await course.settle()
+        #expect(ddl.count == 1)
 
         repository.courseState.primaryScheduleTitle = "场景课表"
-        #expect(courseChanges == 1)
-        #expect(ddlChanges == 1)
-        #expect(classroomChanges == 0)
+        await course.settle()
+        #expect((course.count, ddl.count, classroom.count) == (1, 1, 0))
 
         repository.classroomState.selectedBuildingID = "building"
-        #expect(courseChanges == 1)
-        #expect(ddlChanges == 1)
-        #expect(classroomChanges == 1)
+        await course.settle()
+        #expect((course.count, ddl.count, classroom.count) == (1, 1, 1))
 
         repository.courseState.manualFirstDayStringsByTerm[repository.courseState.currentTerm] =
             "2026-09-28"
-        #expect(courseChanges == 2)
-        #expect(ddlChanges == 1)
-        #expect(classroomChanges == 2)
+        await course.settle()
+        #expect((course.count, ddl.count, classroom.count) == (2, 1, 2))
     }
 
     @Test(.timeLimit(.minutes(1))) func courseSceneWritePreservesOtherSceneData() async {

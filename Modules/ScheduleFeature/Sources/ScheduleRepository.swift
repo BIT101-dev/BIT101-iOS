@@ -1,34 +1,46 @@
 import Combine
 import Foundation
+import Observation
 import ScheduleDomain
 import StorageCore
 import TransportCore
 
 /// 日程子功能共享的账号数据源。页面状态由各子功能拥有。
 @MainActor
-public final class ScheduleRepository: ObservableObject {
-    @Published private var cache = ScheduleCache() {
-        didSet { revision &+= 1 }
+@Observable public final class ScheduleRepository {
+    /// 各分区令牌仅在对应投影变化时递增，页面按所读分区精确刷新。
+    @ObservationIgnored private var cache = ScheduleCache() {
+        didSet {
+            revision &+= 1
+            noteSectionChanges(from: oldValue)
+        }
     }
-    @Published private(set) var isWritable = false
-    @Published private(set) var isLoading = true
-    @Published private(set) var requiresRecoveryConfirmation = false
-    @Published private(set) var hasReadFailure = false
-    @Published private(set) var canRebuildCache = false
-    @Published private(set) var isConfirmingRecovery = false
-    @Published var notice: ScheduleNotice?
-    @Published private(set) var hasPersistenceConflict = false
-    @Published private(set) var isResolvingPersistenceConflict = false
-    private var loadedCache: ScheduleCache?
-    private var loadedRevision = 0
-    private(set) var accountGeneration = 0
-    private(set) var revision = 0
-    private var loadGeneration = 0
-    private var hasLoaded = false
-    private var ownerSession: AppStorageSession
+    private(set) var courseToken = 0
+    private(set) var ddlToken = 0
+    private(set) var classroomToken = 0
+    private(set) var isWritable = false
+    private(set) var isLoading = true
+    private(set) var requiresRecoveryConfirmation = false
+    private(set) var hasReadFailure = false
+    private(set) var canRebuildCache = false
+    private(set) var isConfirmingRecovery = false
+    var notice: ScheduleNotice? {
+        didSet { if let notice { onNotice?(notice) } }
+    }
+    /// 最新提示同步给所属日程页面。
+    @ObservationIgnored var onNotice: ((ScheduleNotice) -> Void)?
+    private(set) var hasPersistenceConflict = false
+    private(set) var isResolvingPersistenceConflict = false
+    @ObservationIgnored private var loadedCache: ScheduleCache?
+    @ObservationIgnored private var loadedRevision = 0
+    @ObservationIgnored private(set) var accountGeneration = 0
+    @ObservationIgnored private(set) var revision = 0
+    @ObservationIgnored private var loadGeneration = 0
+    @ObservationIgnored private var hasLoaded = false
+    @ObservationIgnored private var ownerSession: AppStorageSession
     var accountSession: AppStorageSession { ownerSession }
-    private var observer: AnyCancellable?
-    private var persistenceTask: Task<Bool, Never>?
+    @ObservationIgnored private var observer: AnyCancellable?
+    @ObservationIgnored private var persistenceTask: Task<Bool, Never>?
     private final class PendingPersistence {
         var snapshot: ScheduleCache
         var revision: Int
@@ -39,9 +51,9 @@ public final class ScheduleRepository: ObservableObject {
             self.source = source
         }
     }
-    private var pendingPersistence: PendingPersistence?
-    private var persistenceGeneration = 0
-    private var reloadAfterPersistence = false
+    @ObservationIgnored private var pendingPersistence: PendingPersistence?
+    @ObservationIgnored private var persistenceGeneration = 0
+    @ObservationIgnored private var reloadAfterPersistence = false
     private let session: () -> AppStorageSession
     private let load: (AppStorageSession) async -> ScheduleCacheLoadResult
     private let save:
@@ -415,43 +427,20 @@ public final class ScheduleRepository: ObservableObject {
 
     var persistenceSnapshot: ScheduleCache { cache }
 
-    var courseChanges: AnyPublisher<Void, Never> {
-        valueChanges(for: ScheduleCourseState.init)
-            .merge(with: valueChanges(for: { $0.presentation }))
-            .merge(with: valueChanges(for: { $0.iCloudSyncEnabled }))
-            .merge(with: availabilityChanges)
-            .eraseToAnyPublisher()
-    }
+    /// 读取课程分区令牌，使缓存命中的读取方也登记对课程分区的观察。
+    func trackCourseSection() { _ = courseToken }
 
-    var ddlChanges: AnyPublisher<Void, Never> { changes(for: { $0.ddlData }) }
-    var classroomChanges: AnyPublisher<Void, Never> { changes(for: ScheduleClassroomState.init) }
-    var classroomSelection: AnyPublisher<String, Never> {
-        $cache.map(\.selectedBuildingID).removeDuplicates().eraseToAnyPublisher()
-    }
-
-    /// 场景数据与读写状态分别参与订阅，相关字段变化时刷新消费页面。
-    private func changes<State: Equatable>(for projection: @escaping (ScheduleCache) -> State)
-        -> AnyPublisher<Void, Never>
-    {
-        valueChanges(for: projection).merge(with: availabilityChanges).eraseToAnyPublisher()
-    }
-
-    private var availabilityChanges: AnyPublisher<Void, Never> {
-        $isWritable.removeDuplicates().dropFirst().map { _ in () }
-            .merge(with: $isLoading.removeDuplicates().dropFirst().map { _ in () })
-            .merge(with: $hasPersistenceConflict.removeDuplicates().dropFirst().map { _ in () })
-            .merge(
-                with: $requiresRecoveryConfirmation.removeDuplicates().dropFirst().map { _ in () }
-            )
-            .merge(with: $hasReadFailure.removeDuplicates().dropFirst().map { _ in () })
-            .merge(with: $isConfirmingRecovery.removeDuplicates().dropFirst().map { _ in () })
-            .eraseToAnyPublisher()
-    }
-
-    private func valueChanges<State: Equatable>(for projection: @escaping (ScheduleCache) -> State)
-        -> AnyPublisher<Void, Never>
-    {
-        $cache.map(projection).removeDuplicates().dropFirst().map { _ in () }.eraseToAnyPublisher()
+    private func noteSectionChanges(from old: ScheduleCache) {
+        if ScheduleCourseState(cache: cache) != ScheduleCourseState(cache: old)
+            || cache.presentation != old.presentation
+            || cache.iCloudSyncEnabled != old.iCloudSyncEnabled
+        {
+            courseToken &+= 1
+        }
+        if cache.ddlData != old.ddlData { ddlToken &+= 1 }
+        if ScheduleClassroomState(cache: cache) != ScheduleClassroomState(cache: old) {
+            classroomToken &+= 1
+        }
     }
 }
 
@@ -541,27 +530,42 @@ nonisolated struct ScheduleSyncState: Equatable {
 
 extension ScheduleRepository {
     var presentationPreferences: SchedulePresentationPreferences {
-        get { cache.presentation }
+        get {
+            _ = courseToken
+            return cache.presentation
+        }
         set { if acceptsEdits { cache.presentation = newValue } }
     }
 
     var syncState: ScheduleSyncState {
-        get { ScheduleSyncState(cache: cache) }
+        get {
+            _ = courseToken
+            return ScheduleSyncState(cache: cache)
+        }
         set { if acceptsEdits { cache.syncData.iCloudSyncEnabled = newValue.iCloudSyncEnabled } }
     }
 
     var courseState: ScheduleCourseState {
-        get { ScheduleCourseState(cache: cache) }
+        get {
+            _ = courseToken
+            return ScheduleCourseState(cache: cache)
+        }
         set { if acceptsEdits { cache.courseData = newValue.data } }
     }
 
     var ddlState: ScheduleDDLState {
-        get { cache.ddlData }
+        get {
+            _ = ddlToken
+            return cache.ddlData
+        }
         set { if acceptsEdits { cache.ddlData = newValue } }
     }
 
     var classroomState: ScheduleClassroomState {
-        get { ScheduleClassroomState(cache: cache) }
+        get {
+            _ = classroomToken
+            return ScheduleClassroomState(cache: cache)
+        }
         set { if hasLoaded && ownerSession == session() { cache.classroomData = newValue.data } }
     }
 

@@ -703,11 +703,7 @@ struct LoginStorageTests {
                     apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http)))
             await model.bootstrapIfNeeded()
             #expect(model.screenState == .signedOut && reopened.credentialReadIssue != nil)
-            var readiness: [Bool] = []
-            let observer = model.$screenState.sink {
-                readiness.append(AppRestoreReadiness.sessionIsReady($0, storage: reopened))
-            }
-            #expect(readiness == [false])
+            #expect(!AppRestoreReadiness.sessionIsReady(model.screenState, storage: reopened))
             let delegate = AppDelegate()
             delegate.restoreLoginSession = { reopened.retrySessionReadIfNeeded() }
             backend.failsReads = false
@@ -718,8 +714,7 @@ struct LoginStorageTests {
             }
             #expect(model.screenState == .signedIn(studentID: "A"))
             #expect(reopened.fakeCookie == "cookie-A" && reopened.credentialReadIssue == nil)
-            #expect(readiness == [false, true])
-            withExtendedLifetime(observer) {}
+            #expect(AppRestoreReadiness.sessionIsReady(model.screenState, storage: reopened))
         }
     }
 }

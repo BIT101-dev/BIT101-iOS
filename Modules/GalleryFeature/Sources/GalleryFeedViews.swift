@@ -18,7 +18,7 @@ struct GallerySubscriptionsView: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(CommunityProfileDestination.self) private var profiles
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: GallerySubscriptionsViewModel
+    @State private var viewModel: GallerySubscriptionsViewModel
     @State private var selectedPoster: GalleryPosterDetail?
     @State private var openingID: Int?
     let onOpenResource: (String, Int) -> Void
@@ -27,7 +27,7 @@ struct GallerySubscriptionsView: View {
         service: any GallerySubscriptionServicing,
         onOpenResource: @escaping (String, Int) -> Void
     ) {
-        _viewModel = StateObject(wrappedValue: GallerySubscriptionsViewModel(service: service))
+        _viewModel = State(initialValue: GallerySubscriptionsViewModel(service: service))
         self.onOpenResource = onOpenResource
     }
 

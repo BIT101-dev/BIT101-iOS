@@ -24,14 +24,14 @@ private struct PaperSearchScene: View {
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: PaperSearchViewModel
+    @State private var viewModel: PaperSearchViewModel
 
     init(dependencies: PaperDependencies, media: MediaEnvironment, initialQuery: String) {
         self.dependencies = dependencies
         self.media = media
         let model = PaperSearchViewModel(service: dependencies.list)
         model.searchText = initialQuery
-        _viewModel = StateObject(wrappedValue: model)
+        _viewModel = State(initialValue: model)
     }
     @State private var selectedPaper: PaperSummary?
 

@@ -270,20 +270,20 @@ extension CommunityDependencyBoundaryTests {
         let store = RecordingMessageReadStore()
         let otherStore = RecordingMessageReadStore()
         let model = GalleryMessageViewModel(service: RecordingMessageService(), readStore: store)
-        var refreshes = 0
-        let subscription = model.objectWillChange.sink { refreshes += 1 }
+        let refreshes = ObservationCounter { _ = model.totalUnreadCount }
         otherStore.changeSubject.send(store.currentSession)
         store.changeSubject.send(AppStorageSession(accountIdentifier: "other-account"))
-        #expect(refreshes == 0)
+        await refreshes.settle()
+        #expect(refreshes.count == 0)
         store.changeSubject.send(store.currentSession)
-        #expect(refreshes == 1)
+        await refreshes.settle()
+        #expect(refreshes.count == 1)
         #expect(model.unreadCount(for: .comment) == 7)
         await model.refresh(type: .comment)
         #expect(store.latestIDs.isEmpty)
         await model.markCurrentTypeAsRead()
         #expect(store.seenIDs == [42])
         #expect(otherStore.seenIDs.isEmpty)
-        withExtendedLifetime(subscription) {}
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: ["newer", "list", "cancel"])

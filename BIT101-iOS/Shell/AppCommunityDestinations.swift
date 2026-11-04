@@ -177,8 +177,6 @@ final class AppCommunityDependencies {
     let paper: PaperDependencies
     let mine: MineDependencies
     let suggestion: DeveloperSuggestionDependencies
-    private var subscriptions = Set<AnyCancellable>()
-
     init(
         settings: AppSettingsStore,
         session: CommunitySession,
@@ -195,7 +193,7 @@ final class AppCommunityDependencies {
         self.checkLogin = checkLogin
         self.networkPath = networkPath
         let preferences = CommunityPreferences(
-            snapshot: Self.snapshot(for: settings),
+            source: { Self.snapshot(for: settings) },
             saveMakeupFilter: { settings.setHideMakeupOutliers($0) }
         )
         self.preferences = preferences
@@ -240,18 +238,6 @@ final class AppCommunityDependencies {
             deletePoster: { try await galleryService.deletePoster(id: $0) },
             networkPath: networkPath
         )
-        settings.$snapshot.combineLatest(settings.$hidesCourseHistoryMakeupOutliers)
-            .sink { snapshot, hideMakeup in
-                preferences.apply(
-                    CommunityPreferenceSnapshot(
-                        hideBots: snapshot.galleryHideBotPosterInSearch,
-                        hiddenUserIDs: snapshot.galleryHiddenUserIDs,
-                        hideAnonymous: snapshot.galleryHideAnonymousContent,
-                        useWebView: snapshot.galleryUseWebView,
-                        hideMakeupOutliers: hideMakeup
-                    ))
-            }
-            .store(in: &subscriptions)
     }
 
     static func app(settings: AppSettingsStore, stores: AppAccountStores)

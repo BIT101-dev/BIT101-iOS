@@ -87,7 +87,7 @@ final class SchoolPasswordPrompt {
 ///
 /// 展示应用根容器提供的登录状态与表单。
 struct LoginRootView: View {
-    @ObservedObject var viewModel: LoginViewModel
+    @Bindable var viewModel: LoginViewModel
 
     /// 登录模块根视图主体。
     ///
@@ -105,7 +105,7 @@ struct LoginRootView: View {
 /// 表单采用 SwiftUI 原生组件，沿用系统输入、焦点和辅助功能行为。
 private struct LoginFormView: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
-    @ObservedObject var viewModel: LoginViewModel
+    @Bindable var viewModel: LoginViewModel
     /// 学号和密码输入框共享焦点路由。
     @FocusState private var focusedField: LoginField?
     @State private var loginRequested = false
@@ -208,14 +208,14 @@ private struct LoginFormView: View {
 }
 
 private struct AccountRegistrationView: View {
-    @StateObject private var viewModel: AccountRegistrationViewModel
+    @State private var viewModel: AccountRegistrationViewModel
     @FocusState private var focusedField: Field?
     @State private var requestedOperation: Operation?
     private enum Field: Hashable { case studentID, password, confirmation, schoolPassword, code }
     private enum Operation: Hashable, Sendable { case verify, submit }
 
     init(studentID: String) {
-        _viewModel = StateObject(wrappedValue: AccountRegistrationViewModel(studentID: studentID))
+        _viewModel = State(initialValue: AccountRegistrationViewModel(studentID: studentID))
     }
 
     var body: some View {

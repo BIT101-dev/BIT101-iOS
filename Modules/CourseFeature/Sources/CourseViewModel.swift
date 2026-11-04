@@ -2,6 +2,7 @@ import Combine
 import CommunityCore
 import DesignSystemKit
 import Foundation
+import Observation
 import TransportCore
 
 /// 首屏刷新沿课程分页状态执行重置。
@@ -16,19 +17,19 @@ extension CoursePagedState {
 
 @MainActor
 /// 管理课程列表的加载、刷新和分页状态。
-public final class CourseListViewModel: ObservableObject {
-    @Published private(set) var state = CoursePagedState()
-    @Published var searchText = ""
-    @Published var alert: AppAlert?
+@Observable public final class CourseListViewModel {
+    private(set) var state = CoursePagedState()
+    var searchText = ""
+    var alert: AppAlert?
 
     private let service: any CourseListServicing
-    private var resourceSubscription: AnyCancellable?
-    private var needsRefresh = false
-    private var hasBootstrapped = false
-    private var refreshGeneration = 0
-    private var pageSearch: String?
-    private var refreshTask: Task<Void, Never>?
-    private var refreshPreviousState: CoursePagedState?
+    @ObservationIgnored private var resourceSubscription: AnyCancellable?
+    @ObservationIgnored private var needsRefresh = false
+    @ObservationIgnored private var hasBootstrapped = false
+    @ObservationIgnored private var refreshGeneration = 0
+    @ObservationIgnored private var pageSearch: String?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshPreviousState: CoursePagedState?
 
     public init(service: any CourseListServicing) {
         self.service = service

@@ -4,8 +4,8 @@ import DesignSystemKit
 import SwiftUI
 
 public struct DDLSettingsPage: View {
-    @ObservedObject private var viewModel: ScheduleDDLViewModel
-    @ObservedObject private var repository: ScheduleRepository
+    private var viewModel: ScheduleDDLViewModel
+    private var repository: ScheduleRepository
     @State private var pickerRoute: DDLSettingsNumberPickerRoute?
 
     public init(viewModel: ScheduleDDLViewModel) {
@@ -127,7 +127,7 @@ private struct DDLSettingsActionRow: View {
 private struct DDLSettingsNumberPickerSheet: View {
     let title: String
     let onSubmit: (Int) -> Bool
-    @ObservedObject private var repository: ScheduleRepository
+    private var repository: ScheduleRepository
 
     @Environment(\.dismiss) private var dismiss
     @State private var value: Int
@@ -174,8 +174,8 @@ private struct DDLSettingsNumberPickerSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成", action: handleDone)
-                    .disabled(!repository.acceptsEdits)
-                    .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
+                        .disabled(!repository.acceptsEdits)
+                        .accessibilityIdentifier("ui.ddl-settings-number-picker-sheet.done")
                 }
             }
         }
