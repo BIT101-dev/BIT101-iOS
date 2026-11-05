@@ -6,7 +6,7 @@ extension AppDesignSystem {
     public enum Typography {
         public static let title = Font.headline
         public static let titleEmphasis = Font.headline.weight(.bold)
-        /// 主体可读内容；跟随当前平台的系统正文基线和动态字体设置。
+        /// 主体可读内容；跟随当前平台的系统正文尺度和动态字体设置。
         public static let body = Font.body
         /// 主体内容中的强调文字。
         public static let bodyEmphasis = Font.body.weight(.semibold)

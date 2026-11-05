@@ -551,7 +551,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
             requiresRequestEvidence: false, checkLogin: { "fixture" },
             writeReport: { stored = $0 },
             clearRawCourseResponse: {},
-            writeRawCourseResponse: { _, _ in Issue.record("成绩单流程使用独立探针") },
+            writeRawCourseResponse: { _, _ in Issue.record("成绩单流程使用独立采样项") },
             makeScores: { scores })
         let handler: SchoolSMSCodeHandler = { _ in
             if stage == "cancelled" { throw CancellationError() }

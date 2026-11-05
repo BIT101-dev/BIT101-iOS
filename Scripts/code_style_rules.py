@@ -13,7 +13,19 @@ DEPTH_LIMIT = 4
 EMOJI = regex.compile(
     r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3"
 )
-BANNED_WORDS = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因".split()
+def _load_banned_words() -> list[str]:
+    agents = Path(__file__).resolve().parents[1] / "AGENTS.md"
+    words = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因 门禁 基线 冒烟 探针".split()
+    if agents.is_file():
+        match = re.search(r"##\s*严格禁止词表\s+([^\n#]+)", agents.read_text())
+        if match:
+            words.extend(
+                part.strip() for part in re.split(r"[；;、\s]+", match.group(1)) if part.strip()
+            )
+    return list(dict.fromkeys(words))
+
+
+BANNED_WORDS = _load_banned_words()
 BANNED_EXEMPT = {"AGENTS.md", "Scripts/code_style_rules.py"}
 CODE_SUFFIXES = {".swift", ".py", ".sh", ".js"}
 UPPER_CAMEL = re.compile(r"^_?[A-Z][A-Za-z0-9_]*$")

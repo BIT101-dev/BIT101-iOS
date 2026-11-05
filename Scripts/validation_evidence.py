@@ -815,7 +815,7 @@ def inspect_report(args) -> int:
             report["releaseCommit"] = commit
             write_report(report)
     rows = [
-        "| 验证组 | 范围 | 结果 | 用例 / 探针 | 覆盖率模块 | 耗时 / 秒 |",
+        "| 验证组 | 范围 | 结果 | 用例 / 采样项 | 覆盖率模块 | 耗时 / 秒 |",
         "| --- | --- | --- | ---: | ---: | ---: |",
     ]
     from validation_coverage import policy_findings

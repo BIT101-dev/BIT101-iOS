@@ -305,9 +305,9 @@ def interaction_inventory_boundary_findings() -> list[str]:
             {path: 'struct Screen: View { var body: some View { Button("入口") {} } }\n' + change}
         )
         if not source_inventory_findings(changed, manifest, {"ExampleUITests/testScreen"}):
-            findings.append("UI 清单自测：新增页面与交互进入门禁")
+            findings.append("UI 清单自测：新增页面与交互进入验收")
     if not source_inventory_findings(original, manifest, set()):
-        findings.append("UI 清单自测：验收用例删除进入门禁")
+        findings.append("UI 清单自测：验收用例删除进入拦截")
     evidence = [
         {
             "scope": "ExampleUITests/testScreen / 页面",

@@ -486,7 +486,7 @@ enum Consumer {
             )
             != expected
         ):
-            findings.append("代码质量自测：Foundation 文件写入与闭包内清理沿丢弃错误门禁处理")
+            findings.append("代码质量自测：Foundation 文件写入与闭包内清理沿丢弃错误检查处理")
     if discarded_file_write_findings(
         ROOT / "Modules/MediaKit/Sources/RemoteImageCache.swift", write_source, write_facts
     ):
@@ -617,7 +617,7 @@ enum Consumer {
             any("照片原始数据" in value for value in client_source_findings(module_path, source))
             != expected
         ):
-            findings.append("照片读取容量门禁自检")
+            findings.append("照片读取容量限制自检")
     if client_source_findings(module_path, '// print("value")\nlet example = "DateFormatter()"'):
         findings.append("代码质量规则界限自检失败：模块文案进入执行代码规则")
     for constructor in (
@@ -732,7 +732,7 @@ enum Consumer {
     extension_graph["objects"]["watch-edge"]["platformFilter"] = "ios"
     extension_graph["objects"]["watch"]["dependencies"] = []
     if not extension_dependency_findings(extension_graph):
-        findings.append("代码质量规则界限自检失败：扩展依赖断开应触发门禁")
+        findings.append("代码质量规则界限自检失败：扩展依赖断开应触发拦截")
     from code_quality_rules import native_project_targets
 
     native_graph = {

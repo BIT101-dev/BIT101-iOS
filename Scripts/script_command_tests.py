@@ -90,7 +90,7 @@ def script_command_boundary_findings() -> list[str]:
     assert any(
         metadata_option in finding
         for finding in test_build_argument_findings(shlex.join(metadata_arguments))
-    ), "日志标签中的参数进入元数据，实际编译命令承担参数门禁"
+    ), "日志标签中的参数进入元数据，实际编译命令承担参数检查"
     assert any(
         "ONLY_ACTIVE_ARCH=YES" in finding
         for finding in test_build_argument_findings(

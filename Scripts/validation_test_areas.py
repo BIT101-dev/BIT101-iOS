@@ -334,7 +334,7 @@ def network_capability_findings(index: dict) -> list[str]:
         if value.startswith("."):
             modes.add(value[1:])
     for mode in sorted(feed_cases - modes):
-        errors.append(f"话廊分栏需要静态网络探针入口：{mode}")
+        errors.append(f"话廊分栏需要静态网络采样入口：{mode}")
     return errors
 
 
@@ -372,7 +372,7 @@ CRITICAL_CONTRACTS = {
         "建议暂存受阻期间持续受理": "SuggestionDependencyTests/suggestionPersistenceFailureKeepsAvailable",
     },
     "modules": {
-        "云端冲突决策写入基线": "ScheduleSyncTests/keepingConflictPersistsRepository",
+        "云端冲突决策写入参照快照": "ScheduleSyncTests/keepingConflictPersistsRepository",
         "云端冲突选择保留双端独立记录": "ScheduleSyncTests/conflictChoicesPreserveRecordsRepository",
         "恢复快照等待本机确认后同步": "ScheduleSyncTests/recoveredSnapshotsWaitConfirmation",
         "损坏日程根结构保留原文": "SchedulePersistenceTests/unrecognizedCacheRootsPreserveTheirBytes",

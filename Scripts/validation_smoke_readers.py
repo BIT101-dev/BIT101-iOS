@@ -335,7 +335,7 @@ def smoke_summary(group: str, value: dict, *, full: bool = True) -> dict:
                 return isinstance(item, str) and any(
                     item.startswith("[" + name + "]")
                     or item.startswith(name + "（")
-                    or item == "必需探针缺失：" + name
+                    or item == "必需采样缺失：" + name
                     for name in external
                 )
 

@@ -311,7 +311,7 @@ extension NetworkClientTests {
         }
 
         let complete = makeReport(coverageGaps: [])
-        let partial = makeReport(coverageGaps: ["详情探针（列表为空）"])
+        let partial = makeReport(coverageGaps: ["详情采样（列表为空）"])
         #expect(complete.passed)
         #expect(complete.coverageComplete)
         #expect(partial.passed)

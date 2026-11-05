@@ -528,7 +528,7 @@ def manual_structure(check: str) -> dict:
         if capabilities:
             row["capabilities"] = {key: dict(observation) for key in sorted(capabilities)}
         if check == "performance-baseline":
-            row["measurement"] = "所属性能场景的完整测量与基线对象"
+            row["measurement"] = "所属性能场景的完整测量与批准参照对象"
         if check == "installation-paths":
             row["actions"] = {key: dict(observation) for key in sorted(INSTALLATION_ACTIONS[name])}
             if name == "app-store-upgrade":

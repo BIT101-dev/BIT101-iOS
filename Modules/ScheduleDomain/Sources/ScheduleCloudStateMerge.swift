@@ -1,6 +1,6 @@
 import Foundation
 
-/// 相对已确认基线合并独立编辑；同一记录的分歧交给现有冲突选择。
+/// 相对已确认参照状态合并独立编辑；同一记录的分歧交给现有冲突选择。
 public nonisolated enum ScheduleCloudStateMerge {
     public static func baseline(for cache: ScheduleCache) throws -> Data {
         let encoder = JSONEncoder()

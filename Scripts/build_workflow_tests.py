@@ -302,7 +302,7 @@ def verify_cache_build_action(
         if not all(
             flag in builds[-1] for flag in ("-Xswiftc", "-warnings-as-errors", "-Xcc", "-Werror")
         ):
-            findings.append("编译入口自测：SwiftPM 构建与测试的警告门禁")
+            findings.append("编译入口自测：SwiftPM 构建与测试的警告检查")
         return
     debug_format = [value for value in builds[-1] if value.startswith("DEBUG_INFORMATION_FORMAT=")]
     if debug_format != expected:
@@ -323,7 +323,7 @@ def verify_cache_build_action(
         "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES",
     )
     if check_cache_setting_defaults(builds[-1], settings, defaults):
-        findings.append("编译入口自测：构建、测试与正式归档的警告门禁及缓存路径映射")
+        findings.append("编译入口自测：构建、测试与正式归档的警告检查及缓存路径映射")
 
 
 def build_cache_boundary_findings() -> list[str]:

@@ -351,7 +351,7 @@ struct BIT101_iOSApp: App {
             #if ICLOUD_CROSS_DEVICE_SMOKE
             Color.clear.accessibilityIdentifier("icloud-cross-device-smoke-host")
             #elseif RELEASE_NETWORK_SMOKE
-            // 冒烟宿主通过当前登录会话执行网络探针，并承接短信验证码输入。
+            // 采样宿主通过当前登录会话执行网络采样，并承接短信验证码输入。
             Color.clear
                 .accessibilityIdentifier("release-network-smoke-host")
                 .task {

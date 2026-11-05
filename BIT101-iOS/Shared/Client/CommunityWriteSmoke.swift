@@ -143,7 +143,7 @@ final class CommunityWriteSmoke {
         do {
             guard let followTarget = operations.followTarget(), followTarget > 0,
                 try await operations.following(followTarget)
-            else { throw failure("关注探针需要已关注的验收目标") }
+            else { throw failure("关注采样需要已关注的验收目标") }
             journal.followTarget = followTarget
             try persist(journal)
             operation = "取消关注"
@@ -773,8 +773,8 @@ final class CommunityWriteSmoke {
 }
 #endif
 
-/// ReleaseNetworkSmokeRunner 在当前进程执行发布前网络探针。
+/// ReleaseNetworkSmokeRunner 在当前进程执行发布前网络采样。
 ///
 /// 这份实现同时服务于：
 /// - 真机采样宿主：通过 `bit101://network-smoke/...` 在当前进程内复用会话执行；
-/// - XCTest：保留一个直接调用入口，方便复测和未来 CI 复用同一组探针。
+/// - XCTest：保留一个直接调用入口，方便复测和未来 CI 复用同一组采样项。

@@ -338,7 +338,7 @@ import TransportCore
         }
     }
 
-    /// 合并时沿用本机学校数据，同步版本提供用户状态及持久化基线。
+    /// 合并时沿用本机学校数据，同步版本提供用户状态及持久化参照。
     private func reconcile(
         with remote: ScheduleCache, resolution: ScheduleCacheConflictResolution? = nil
     ) async -> Bool {
@@ -513,7 +513,7 @@ nonisolated struct ScheduleClassroomState: Equatable {
     }
 }
 
-/// 云同步开关可由用户操作更新，云端基线由持久化适配维护。
+/// 云同步开关可由用户操作更新，云端参照状态由持久化适配维护。
 nonisolated struct ScheduleSyncState: Equatable {
     var iCloudSyncEnabled: Bool
     let cloudSyncBaselineAt: Date

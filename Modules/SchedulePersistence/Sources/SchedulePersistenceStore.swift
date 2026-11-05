@@ -550,7 +550,7 @@ public actor SchedulePersistenceStore {
                     cache.syncData.cloudSyncBaselineUserState
                         == storedCache.syncData.cloudSyncBaselineUserState
                 else {
-                    Self.logger.error("云端基线已更新，保留磁盘数据和本机修改")
+                    Self.logger.error("云端参照状态已更新，保留磁盘数据和本机修改")
                     return nil
                 }
                 cache.cloudSyncBaselineAt = storedCache.cloudSyncBaselineAt

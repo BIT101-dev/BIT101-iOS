@@ -398,8 +398,8 @@ nonisolated enum NetworkSmokeRequestError: LocalizedError {
     case parameterMismatch(String)
     var errorDescription: String? {
         switch self {
-        case .missingResponse: "探针需要实际请求端点与 HTTP 响应记录。"
-        case .parameterMismatch(let key): "探针请求参数 \(key) 与业务输入存在差异。"
+        case .missingResponse: "网络采样需要实际请求端点与 HTTP 响应记录。"
+        case .parameterMismatch(let key): "采样请求参数 \(key) 与业务输入存在差异。"
         }
     }
 }

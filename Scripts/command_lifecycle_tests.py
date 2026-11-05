@@ -591,7 +591,7 @@ def check_build_argument_mutations(
             text=True,
         )
         if not test_build_argument_findings(mutated.stdout):
-            mutations.append(f"编译参数变异自测：注释中的 {option} 保留执行门禁")
+            mutations.append(f"编译参数变异自测：注释中的 {option} 保留执行检查")
     return mutations
 
 

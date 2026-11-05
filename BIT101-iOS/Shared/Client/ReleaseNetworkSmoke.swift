@@ -533,9 +533,9 @@ final class ReleaseNetworkSmokeRunner {
                         }
                     } else {
                         self.recordSkip(
-                            "paper.search", "文章搜索探针需要维护对象的标题", area: .bit101, scope: scope)
+                            "paper.search", "文章搜索采样需要维护对象的标题", area: .bit101, scope: scope)
                         self.recordSkip(
-                            "paper.image", "文章正文探针需要可渲染的维护对象", area: .bit101, scope: scope)
+                            "paper.image", "文章正文采样需要可渲染的维护对象", area: .bit101, scope: scope)
                     }
                 },
                 {
@@ -645,12 +645,12 @@ final class ReleaseNetworkSmokeRunner {
                 },
             ])
         } else {
-            recordSkip("profile.posts", "资料探针没有可用数据", area: .bit101, scope: scope)
-            recordSkip("user.profile", "资料探针没有可用数据", area: .bit101, scope: scope)
-            recordSkip("user.posts", "资料探针没有可用数据", area: .bit101, scope: scope)
+            recordSkip("profile.posts", "资料采样没有可用数据", area: .bit101, scope: scope)
+            recordSkip("user.profile", "资料采样没有可用数据", area: .bit101, scope: scope)
+            recordSkip("user.posts", "资料采样没有可用数据", area: .bit101, scope: scope)
         }
 
-        // 可信成绩单探针位于学校相关探针的首段，模拟用户手动点击“申请可信成绩单”的路径。
+        // 可信成绩单采样位于学校相关流程的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let transcriptService = dependencies.makeScores()
         _ = await probe(.transcript, area: .transcript, scope: scope) {
             let result: TrustedTranscriptPages
@@ -763,16 +763,16 @@ final class ReleaseNetworkSmokeRunner {
                         print("NETWORK_SMOKE_GAP name=classroom.occupancy reason=empty_sample")
                     }
                 } else {
-                    let reason = buildings == nil ? "教学楼探针没有可用数据" : "教学楼列表为空"
+                    let reason = buildings == nil ? "教学楼采样没有可用数据" : "教学楼列表为空"
                     recordSkip("classroom.occupancy", reason, area: .schedule, scope: scope)
                 }
             } else {
-                let reason = campuses == nil ? "校区探针没有可用数据" : "校区列表为空"
+                let reason = campuses == nil ? "校区采样没有可用数据" : "校区列表为空"
                 recordSkip("classroom.buildings", reason, area: .schedule, scope: scope)
                 recordSkip("classroom.occupancy", reason, area: .schedule, scope: scope)
             }
         } else {
-            let reason = "当前学期探针缺少可用学期"
+            let reason = "当前学期采样缺少可用学期"
             recordSkip("schedule.sync", reason, area: .schedule, scope: scope)
             recordSkip("classroom.campuses", reason, area: .schedule, scope: scope)
             recordSkip("classroom.buildings", reason, area: .schedule, scope: scope)
@@ -836,7 +836,7 @@ final class ReleaseNetworkSmokeRunner {
                 )
             }
         } else {
-            recordSkip("lexue.ddl", "日历订阅地址探针没有可用数据", area: .ddl, scope: scope)
+            recordSkip("lexue.ddl", "日历订阅地址采样没有可用数据", area: .ddl, scope: scope)
         }
 
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，

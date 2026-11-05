@@ -51,7 +51,7 @@ public nonisolated enum ScheduleCacheSaveSource: Sendable {
     /// 用户确认以当前可用日程重建损坏文件。
     case rebuild
     case cloud
-    /// 记录已确认的云端基线，同时保留后续本地编辑的待上传状态。
+    /// 记录已确认的云端参照状态，同时保留后续本地编辑的待上传状态。
     case cloudBaseline
 }
 

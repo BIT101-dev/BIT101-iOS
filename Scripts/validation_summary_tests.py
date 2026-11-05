@@ -476,7 +476,7 @@ def verify_group_summaries(
         full_sms,
         passed=False,
         failures=["[update.app-store] fixture failure"],
-        coverageGaps=["必需探针缺失：update.app-store"],
+        coverageGaps=["必需采样缺失：update.app-store"],
         skippedProbes=["update.app-store（fixture）"],
     )
     assert subject.complete_summary("school-sms", subject.smoke_summary("school-sms", peripheral))

@@ -41,7 +41,7 @@ extension ReleaseNetworkSmokeRunner {
         }
         for name in scope.requiredProbes where !executedProbes.contains(name) {
             if !coverageGaps.contains(where: { $0.hasPrefix(name + "（") }) {
-                coverageGaps.append("必需探针缺失：" + name)
+                coverageGaps.append("必需采样缺失：" + name)
             }
         }
 
@@ -180,7 +180,7 @@ extension ReleaseNetworkSmokeRunner {
             communitySessionAvailable || scope == .communityCleanup
                 || !kind.requiresCommunitySession
         else {
-            recordSkip(name, "社区登录探针已失败", area: area, scope: scope)
+            recordSkip(name, "社区登录检测已失败", area: area, scope: scope)
             return nil
         }
         executedProbes.append(name)

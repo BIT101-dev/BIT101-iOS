@@ -665,7 +665,7 @@ def validate_capture(proof: dict) -> None:
             row["measurement"]["current"] != current[name]
             or row["measurement"]["baseline"] != baseline[name]
         ):
-            raise ValueError("性能验收需要实际结果包导出的当前采样与已批准基线。")
+            raise ValueError("性能验收需要实际结果包导出的当前采样与已批准参照。")
 
 
 def execution_fields_match(current: dict, row: dict) -> bool:
@@ -712,12 +712,12 @@ def merge_findings(report: dict) -> list[str]:
                     )
                 ):
                     errors.append(
-                        f"{name} 需要本次完整真机采样与同环境批准基线，并满足性能退化上限。"
+                        f"{name} 需要本次完整真机采样与同环境批准参照，并满足性能退化上限。"
                     )
         return errors
     except (KeyError, TypeError, ValueError, AttributeError):
         return [
-            f"合并验收需要 {len(performance_workloads())} 个性能场景的完整采样和维护者批准基线。"
+            f"合并验收需要 {len(performance_workloads())} 个性能场景的完整采样和维护者批准参照。"
         ]
 
 
@@ -775,7 +775,7 @@ def main(arguments: list[str]) -> int:
                 or limit is not None
                 and (not math.isfinite(limit) or limit < 0)
             ):
-                raise ValueError("性能基线需要批准人和有效退化上限。")
+                raise ValueError("性能参照需要批准人和有效退化上限。")
             update_baseline_records(proof, approver, limit)
         from validation_provenance import REPORT, report_lock, write_report
 

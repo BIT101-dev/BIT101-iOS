@@ -1,6 +1,6 @@
 # BIT101-iOS
 
-BIT101 的原生 iOS 客户端，已上架 App Store。项目以 Android 端能力为基线，使用 AI 辅助迁移与维护，并适配 Widget、Live Activity 和 Apple Watch。
+BIT101 的原生 iOS 客户端，已上架 App Store。项目对齐 Android 端能力，使用 AI 辅助迁移与维护，并适配 Widget、Live Activity 和 Apple Watch。
 
 参考项目：[Android](https://github.com/BIT101-dev/BIT101-Android)、[服务端](https://github.com/BIT101-dev/BIT101-GO)、[Web](https://github.com/BIT101-dev/BIT101)。
 

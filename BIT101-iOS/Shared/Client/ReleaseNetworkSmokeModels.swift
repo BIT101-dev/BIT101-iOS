@@ -382,7 +382,7 @@ struct ScheduleCacheAuditSnapshot: Codable, Sendable {
     let courses: [ScheduleCacheAuditCourse]
 }
 
-/// ReleaseNetworkSmokeReport 保存一次网络冒烟执行的结果。
+/// ReleaseNetworkSmokeReport 保存一次网络验收执行的结果。
 struct EclassDDLAudit: Codable {
     let nativeAuthenticationVerified: Bool
     let courseCount: Int
@@ -465,7 +465,7 @@ struct ReleaseNetworkSmokeReport: Codable {
             ? "" : "\n需要人工认证，相关路径尚未完成验证：\n" + authenticationBlockers.joined(separator: "\n")
         let coverageSection =
             coverageGaps.isEmpty ? "" : "\n验证覆盖不完整：\n" + coverageGaps.joined(separator: "\n")
-        return "发布前网络冒烟结果：" + failureSection + authenticationSection + coverageSection
+        return "发布前网络验收结果：" + failureSection + authenticationSection + coverageSection
     }
 
     private static func duration(_ interval: TimeInterval) -> String {
@@ -473,7 +473,7 @@ struct ReleaseNetworkSmokeReport: Codable {
     }
 }
 
-/// ReleaseNetworkSmokeReportStore 保存网络冒烟报告。
+/// ReleaseNetworkSmokeReportStore 保存网络验收报告。
 enum ReleaseNetworkSmokeReportStore {
     private static let logger = Logger(subsystem: "BIT101", category: "ReleaseNetworkSmoke")
     private static let directoryName = "NetworkSmoke"

@@ -144,7 +144,7 @@ final class AppUpdateChecker {
         self.loadData = loadData
 
         #if DEBUG
-        // 真机更新提醒 smoke 使用；显式传入启动环境变量时清除提醒门禁；Release 构建使用常规检查流程。
+        // 真机更新提醒 smoke 使用；显式传入启动环境变量时清除提醒冷却；Release 构建使用常规检查流程。
         if ProcessInfo.processInfo.environment["BIT101_UPDATE_PROMPT_SMOKE_RESET"] == "1" {
             [
                 Self.lastAttemptKey,
@@ -157,7 +157,7 @@ final class AppUpdateChecker {
         #endif
     }
 
-    /// 每次冷启动调用一次。联网查询与弹窗展示分别受 24 小时门禁控制。
+    /// 每次冷启动调用一次。联网查询与弹窗展示分别按 24 小时冷却控制。
     func releaseToPresentAtLaunch() async -> AppStoreRelease? {
         let currentDate = now()
         if let lastAttempt = defaults.object(forKey: Self.lastAttemptKey) as? Date {
@@ -167,7 +167,7 @@ final class AppUpdateChecker {
             }
         }
 
-        // 查询发起时立即记录时间，成功和失败结果都进入 24 小时查询门禁。
+        // 查询发起时立即记录时间，成功和失败结果都计入 24 小时查询冷却。
         defaults.set(currentDate, forKey: Self.lastAttemptKey)
 
         do {
@@ -180,7 +180,7 @@ final class AppUpdateChecker {
         }
     }
 
-    /// 手动检查跳过自动检查的时间门禁和展示门禁，使用同一条 App Store 查询链路。
+    /// 手动检查跳过自动检查的时间冷却和展示限制，使用同一条 App Store 查询链路。
     func checkManually() async throws -> AppStoreUpdateCheckResult {
         defaults.set(now(), forKey: Self.lastAttemptKey)
         let release = try await fetchLatestRelease()

@@ -643,7 +643,7 @@ def module_events_self_test(subject) -> None:
         except ValueError:
             pass
         else:
-            raise AssertionError("事件缺失、空参数及运行失败需要进入证据门禁")
+            raise AssertionError("事件缺失、空参数及运行失败需要进入证据检查")
     for declared in (None, [], [{"id": "case-a"}], [{"id": "case-a"}, {"id": "case-a"}], [{}]):
         broken = json.loads(json.dumps(records))
         broken[1]["payload"]["_testCases"] = declared

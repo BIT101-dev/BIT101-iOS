@@ -95,7 +95,7 @@ Scripts/run-extended-tests.sh ui
 
 各用例独立启动并结束 App 宿主；单个流程内复用进程并核对进程身份。字体与系统外观启动配置变化时重新启动宿主，持久化断言重新读取文件与偏好。验证码覆盖逐位输入、整段自动提交、失败重试、取消和原业务继续。
 
-交互库存按场景、祖先行与稳定控件标识区分身份，访问证据核对实际动作及业务断言。完整门禁按源码控件、动作类型和归属用例核对覆盖；挂载实例的待访问项用于诊断，日期等值域和互斥分支由所属测试断言验收。完整覆盖表包含各页面、平台专项及对应预置数据，维护入口为 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
+交互库存按场景、祖先行与稳定控件标识区分身份，访问证据核对实际动作及业务断言。完整验收按源码控件、动作类型和归属用例核对覆盖；挂载实例的待访问项用于诊断，日期等值域和互斥分支由所属测试断言验收。完整覆盖表包含各页面、平台专项及对应预置数据，维护入口为 [UI 交互覆盖](UI_INTERACTION_COVERAGE.md)。
 
 真机执行期间保持 App 前台并暂停手动操作。设备要求 Enable UI Automation 验证时，在设备上完成系统授权后重试。失败附件保留原生元素树和截图；实际执行与通过数量从原始 XCTest 结果读取。
 
@@ -191,19 +191,19 @@ Scripts/release-network-smoke.sh all sms
 BIT101_SIMULATOR_AUTHORIZED=1 BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/release-network-smoke.sh school
 ```
 
-读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按探针强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
+读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按采样项强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
 
-指定 `BIT101_SIMULATOR_DEVICE_TYPE` 时，网络入口复用已授权类型的开发设备、登录与存储，通过同一业务探针采集真实服务响应；结果覆盖同一固定网络报告，并包含脱敏响应和实际运行环境。开发设备结果用于定向诊断；发布门禁采用真机证据。采样完成后通过 `simulator restore` 恢复常规 App。
+指定 `BIT101_SIMULATOR_DEVICE_TYPE` 时，网络入口复用已授权类型的开发设备、登录与存储，通过同一业务采样项采集真实服务响应；结果覆盖同一固定网络报告，并包含脱敏响应和实际运行环境。开发设备结果用于定向诊断；发布验收采用真机证据。采样完成后通过 `simulator restore` 恢复常规 App。
 
 `prepare` 从当前会话及列表采集专用账号、维护对象和已关注目标，保存到 `.build/release-network-smoke/community-configuration.json`。后续 `all`、`bit101`、`community-writes` 自动读取这份配置，宿主在执行社区操作前核对当前账号。环境变量可显式指定账号、维护对象和关注目标。配置与采样报告分别维护，连续采样沿用已准备对象。
 
 也可通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 和 `BIT101_NETWORK_SMOKE_FIXTURES` 显式指定账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的维护对象。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。
 
-报告分别记录服务健康、必需探针、认证、请求规范和样本覆盖。空业务结果保持其真实含义；完整验收继续核对所属探针需要的样本，覆盖缺口以状态码 2 呈现。独立探针继续归集结果。端点、方法、参数、实体与分页规范根据 [网络请求规范](../Scripts/network_request_contracts.py)及实际响应验收。
+报告分别记录服务健康、必需采样项、认证、请求规范和样本覆盖。空业务结果保持其真实含义；完整验收继续核对所属采样项需要的样本，覆盖缺口以状态码 2 呈现。独立采样项继续归集结果。端点、方法、参数、实体与分页规范根据 [网络请求规范](../Scripts/network_request_contracts.py)及实际响应验收。
 
-实网验收豁免 `community.report-types`、`message.follow`、`message.system`、`message.like`、`message.comment`：对应样本依赖外部服务端配置、管理员权限及其他账号互动。报告通过 `exemptedProbes` 单独记录原因；必需探针清单按其余项目验收。消息列表真实跨页由订阅消息验收，公开帖子评论分页独立验收。
+实网验收豁免 `community.report-types`、`message.follow`、`message.system`、`message.like`、`message.comment`：对应样本依赖外部服务端配置、管理员权限及其他账号互动。报告通过 `exemptedProbes` 单独记录原因；必需采样清单按其余项目验收。消息列表真实跨页由订阅消息验收，公开帖子评论分页独立验收。
 
-外部后端由对应维护者处理，iOS 保存脱敏请求与响应证据，并验收协议适配、错误呈现和恢复行为。失败探针可通过 `Scripts/run-extended-tests.sh network-smoke NetworkSmokeRegressionTests` 执行受控复验。
+外部后端由对应维护者处理，iOS 保存脱敏请求与响应证据，并验收协议适配、错误呈现和恢复行为。失败采样项可通过 `Scripts/run-extended-tests.sh network-smoke NetworkSmokeRegressionTests` 执行受控复验。
 
 ### 社区线上写入与恢复
 
@@ -275,7 +275,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 - 发布上传同时向 App Store Connect 交付当前归档中的 App 与各扩展 dSYM，按 [Apple 的符号上传说明](https://developer.apple.com/documentation/xcode/building-your-app-to-include-debugging-information)操作；在对应版本的处理结果中确认符号接收，将平台回执登记为该专项的证据。
 - 固定归档路径在下一次归档时覆盖，后续商店崩溃报告使用该版本已上传的符号解析。
 
-性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准基线，后续候选使用 `performance current`。
+性能采样使用 [性能负载](../BIT101-iOSTests/PerformanceWorkloads.json)和原始 XCTest 指标，比较同设备、系统、工具链及生产配置下的耗时与内存。完整行为和 UI 运行后，通过 `Scripts/run-extended-tests.sh performance baseline 批准人` 保存批准标准，后续候选使用 `performance current`。
 
 提交全部改动后，`python3 Scripts/validation_evidence.py bind` 绑定完整本地证据，`python3 Scripts/validation_evidence.py check` 核对当前输入、环境、结果和提交。发布回执通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成固定 `release-receipt.json` 附件，按发布授权上传。公开回执保存必要的版本、提交、执行状态及采样身份，完整设备、邮件和影像证据从本地报告审阅。
 

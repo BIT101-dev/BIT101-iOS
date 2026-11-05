@@ -2,7 +2,7 @@ import Foundation
 
 #if DEBUG || RELEASE_NETWORK_SMOKE
 
-/// 网络冒烟共用执行队列，各等待者独立取消。
+/// 网络验收共用执行队列，各等待者独立取消。
 @MainActor
 final class NetworkSmokeExecutionGate {
     private var isRunning = false

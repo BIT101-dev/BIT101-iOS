@@ -2,10 +2,10 @@
 import XCTest
 @testable import BIT101_iOS
 
-/// 发布前真机网络冒烟测试。
+/// 发布前真机网络验收测试。
 ///
 /// 测试根据编译条件或 `BIT101_NETWORK_SMOKE_SCOPE` 选择 smoke 范围，调用共享 runner。
-/// 采样宿主的当前登录态冒烟通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
+/// 采样宿主的当前登录态网络验收通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
 nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
     @MainActor var scope: NetworkSmokeScope? {
         #if SMOKE_BIT101

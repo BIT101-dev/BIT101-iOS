@@ -637,7 +637,7 @@ def self_test() -> None:
             except ValueError as error:
                 assert omitted in str(error)
             else:
-                raise AssertionError("忽略源码、资源与执行脚本需要进入输入范围门禁。")
+                raise AssertionError("忽略源码、资源与执行脚本需要进入输入范围检查。")
     with (
         patch.object(
             subprocess,

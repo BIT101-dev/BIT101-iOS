@@ -376,7 +376,7 @@ nonisolated struct LegacyScheduleCache: Decodable, Sendable {
             try container.decodeIfPresent(String.self, forKey: .cloudSyncBaselineRecordTag) ?? ""
         hasUnpushedCloudChanges =
             try container.decodeIfPresent(Bool.self, forKey: .hasUnpushedCloudChanges) ?? false
-        // coursesUpdatedAt 缺失时，使用现有缓存更新时间作为课程数据的时间基线。
+        // coursesUpdatedAt 缺失时，使用现有缓存更新时间作为课程数据的时间参考。
         coursesUpdatedAt = decodedCoursesUpdatedAt ?? (courses.isEmpty ? .distantPast : updatedAt)
         if !currentTerm.isEmpty, !courses.isEmpty {
             if termSchedulesByTerm[currentTerm]?.courses.isEmpty ?? true {

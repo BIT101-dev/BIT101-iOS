@@ -190,9 +190,9 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             )
         )
     ):
-        return ["代码质量规则界限自检失败：CI 原始附件留存门禁"]
+        return ["代码质量规则界限自检失败：CI 原始附件留存检查"]
     if not ci_wiring_findings(source.replace("          clean: false", "          clean: true")):
-        return ["代码质量规则界限自检失败：CI 共享缓存保留门禁"]
+        return ["代码质量规则界限自检失败：CI 共享缓存保留检查"]
     mutations = [
         re.sub(r"(?m)^  pull_request:.*\n", "", source),
         re.sub(r"(?m)^  push:\n    branches:.*\n", "", source),
@@ -214,7 +214,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
             source.replace("  pull_request:\n", f"  pull_request:\n    types: {types}\n")
         )
     findings = [
-        "代码质量规则界限自检失败：CI 自动触发与 shell 继承门禁"
+        "代码质量规则界限自检失败：CI 自动触发与 shell 继承检查"
         for changed in mutations
         if not ci_wiring_findings(changed)
     ]
@@ -399,7 +399,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
                 f"        run: {command}", f"        {modifier}\n        run: {command}"
             )
             if not ci_wiring_findings(skipped):
-                findings.append("代码质量规则界限自检失败：CI 步骤条件与失败传播门禁")
+                findings.append("代码质量规则界限自检失败：CI 步骤条件与失败传播检查")
     downgraded_release = workflow_source.replace(
         "  release-acceptance:\n", "  release-acceptance:\n    continue-on-error: true\n"
     )
@@ -450,7 +450,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
     if not any(
         "Catalyst 行为 Job 需要聚合执行" in item for item in ci_wiring_findings(skipped_catalyst)
     ):
-        findings.append("代码质量规则界限自检失败：并行 Catalyst 行为用例执行门禁")
+        findings.append("代码质量规则界限自检失败：并行 Catalyst 行为用例执行检查")
     for before, after in (
         ("timeout-minutes: 105", "timeout-minutes: 20"),
         ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
@@ -523,7 +523,7 @@ def ci_trigger_shell_self_test(workflow_source: str) -> list[str]:
 def audit_wiring_findings(
     ROOT, scheme_inventory_findings, extension_dependency_findings
 ) -> list[str]:
-    """检查统一静态审计入口与 CI 门禁。"""
+    """检查统一静态审计入口与 CI 流程。"""
     SCRIPT_ROOT = ROOT / "Scripts"
     errors: list[str] = []
     audit_path = ROOT / "Scripts/run-static-audit.sh"

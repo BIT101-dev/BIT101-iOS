@@ -375,7 +375,7 @@ enum CourseHistoryMakeupPolicy {
     }
 
     /// 第二遍忽略学期位置，对第一遍剩余的全部数据点统一比较人数。
-    /// 使用高位人数基线，识别人数至少低十倍的离群学期。
+    /// 使用高位人数参考值，识别人数至少低十倍的离群学期。
     private static func globalOutlierTerms(in samples: [ComparableGrade]) -> Set<String> {
         let counts = samples.compactMap(\.grade.studentNum).filter { $0 > 0 }.sorted()
         guard counts.count >= 2 else { return [] }

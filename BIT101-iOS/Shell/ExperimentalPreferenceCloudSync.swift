@@ -482,7 +482,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
         } catch { reportPreferenceError(error, domain: domain) }
     }
 
-    /// 显式恢复业务设置时重建所属账号的派生合并基线。
+    /// 显式恢复业务设置时重建所属账号的派生合并参照。
     private func recoverPreferences(
         in domain: ExperimentalPreferenceSyncDomain, for owner: AppStorageSession
     ) {

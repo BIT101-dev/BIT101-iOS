@@ -41,7 +41,7 @@ SMS_MODE="${2:-preflight}"
 case "$SMOKE_SCOPE" in
   all|bit101|school|transcript|schedule|ddl|community-writes|community-cleanup) ;;
   -h|--help)
-    echo "Scripts/release-network-smoke.sh   自动选机、验证全部网络探针"
+    echo "Scripts/release-network-smoke.sh   自动选机、验证全部网络采样项"
     echo "Scripts/release-network-smoke.sh prepare  从当前账号采集验收配置"
     echo "指定范围：bit101、school、transcript、schedule、ddl、community-writes、community-cleanup。"
     echo "短信专项：all sms、school sms；真实发送与验证码输入按用户授权执行。"
@@ -240,7 +240,7 @@ rm -f "$BUILD_LOG" "$SUMMARY_OUTPUT" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PAT
 WORKER_SNAPSHOT=""
 if ! $PREPARE_ONLY && ! WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" \
   worker-snapshot "$SMOKE_SCOPE")"; then
-  echo "Worker 部署身份待补齐，继续归集网络健康探针。" >&2
+  echo "Worker 部署身份待补齐，继续归集网络健康采样。" >&2
 fi
 DEVICETCL_DEVICE_ID="${BIT101_DEVICETCL_DEVICE_ID:-}"
 
@@ -354,7 +354,7 @@ else
 fi
 console_process=$!
 
-echo "[探针] 执行 $SMOKE_SCOPE"
+echo "[网络采样] 执行 $SMOKE_SCOPE"
 DEADLINE=$(( SECONDS + 1800 ))
 REPORT_READY=false
 typeset -A shown_smoke_progress=()
@@ -510,7 +510,7 @@ coverage_gaps = report.get("coverageGaps", [])
 coverage_complete = not coverage_gaps
 
 state = "通过" if passed and coverage_complete else "失败" if not passed else "覆盖待补齐"
-print(f"网络 Smoke：{scope} · {state} · {len(executed)} 项探针")
+print(f"网络 Smoke：{scope} · {state} · {len(executed)} 项采样")
 if scope in {"all", "school", "transcript"}:
     print(f"学校短信覆盖：{sms_coverage}")
 if failures:
@@ -533,6 +533,6 @@ PY
 else
   SMOKE_STATUS=$?
 fi
-emit_output "$SUMMARY_OUTPUT" "网络冒烟结果" "$SUMMARY_OUTPUT_TEXT"
+emit_output "$SUMMARY_OUTPUT" "网络验收结果" "$SUMMARY_OUTPUT_TEXT"
 report_ready=true
 exit $SMOKE_STATUS
