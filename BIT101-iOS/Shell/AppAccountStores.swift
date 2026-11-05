@@ -109,12 +109,11 @@ extension ScoreCourseSummary {
     init(course: CourseRecord) {
         let scheduleText: String
         if (1...7).contains(course.weekday), course.startSection > 0 {
-            let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
             let section =
                 course.endSection > course.startSection
                 ? "第\(course.startSection)-\(course.endSection)节"
                 : "第\(course.startSection)节"
-            scheduleText = "星期\(weekdays[course.weekday - 1]) \(section)"
+            scheduleText = "星期\(ScheduleDateCodec.weekdaySymbol(course.weekday)) \(section)"
         } else {
             scheduleText = "-"
         }

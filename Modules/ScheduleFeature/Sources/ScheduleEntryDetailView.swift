@@ -361,14 +361,9 @@ struct ScheduleEntryDetailSheet: View {
     private func arrangementText(for arrangement: [CourseRecord]) -> String {
         guard let first = arrangement.first else { return "时间安排" }
         let weeks = "\(ScheduleWeekCodec.formatWeeks(arrangement.flatMap(\.weeks)))周"
-        let weekday = weekdayText(first.weekday).replacingOccurrences(of: "周", with: "")
+        let weekday = ScheduleDateCodec.weekdaySymbol(first.weekday)
         let classroom = ScheduleDisplayNormalizer.normalizeClassroom(first.classroom)
         return "\(weeks) 星期\(weekday) \(first.startSection)-\(first.endSection)节 \(classroom)"
-    }
-
-    private func weekdayText(_ weekday: Int) -> String {
-        let titles = ["", "一", "二", "三", "四", "五", "六", "日"]
-        return titles.indices.contains(weekday) ? titles[weekday] : "?"
     }
 
     private func handleOpenCourseLocation(_ courses: [CourseRecord]) {

@@ -193,9 +193,7 @@ private struct LinearScheduleHeader: View {
     }
 
     private func weekdayTitle(_ weekday: Int) -> String {
-        let titles = ["一", "二", "三", "四", "五", "六", "日"]
-        guard titles.indices.contains(weekday - 1) else { return "?" }
-        return "周\(titles[weekday - 1])"
+        "周\(ScheduleDateCodec.weekdaySymbol(weekday))"
     }
 }
 

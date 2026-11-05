@@ -203,7 +203,7 @@ private struct PaperDetailViewScene: View {
 
     private var contentBlocks: [PaperContentBlock] {
         let blocks = viewModel.contentBlocks
-        if blocks.isEmpty, case .loaded = viewModel.paperStatus, let paper = viewModel.paper {
+        if blocks.isEmpty, let paper = viewModel.paper, !paper.content.isEmpty {
             return PaperContentRenderer.blocks(from: paper.content)
         }
         return blocks

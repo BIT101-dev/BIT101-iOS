@@ -242,10 +242,7 @@ public struct AppBrowserLayout<
                     landscapeDetailStack
                 }
             } else {
-                NavigationStack(
-                    path: Binding(
-                        get: { selection.map { [$0] } ?? [] }, set: { selection = $0.last })
-                ) {
+                NavigationStack(path: detailPathBinding) {
                     masterContent
                         .environment(\.appPageIsVisible, isVisible && selection == nil)
                         .navigationDestination(for: Selection.self) { selected in

@@ -367,7 +367,11 @@ def _read_cached_facts(cache_path: Path, requested: dict[str, str], context: str
                 ),
             )
             shared.update(parsed)
-        if reclaim:
+        if reclaim or (
+            database.execute("PRAGMA freelist_count").fetchone()[0]
+            * database.execute("PRAGMA page_size").fetchone()[0]
+            >= 64 * 1024 * 1024
+        ):
             database.commit()
             database.execute("VACUUM")
         return shared

@@ -10,7 +10,6 @@ import SchedulePorts
 import ScoreDomain
 import ScorePorts
 import SwiftUI
-import Testing
 import TransportCore
 import UIKit
 import XCTest

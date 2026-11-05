@@ -4,6 +4,13 @@ import TransportCore
 public nonisolated enum SchoolServiceTarget: Sendable, CaseIterable {
     case teachingCenter, grades, transcript, webVPN
 
+    public static let teachingCenterWebVPNURL = AppURL.required(
+        """
+        https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999b\
+        cd6572a216b231105adc27d
+        """
+    )
+
     public var baseURL: URL {
         switch self {
         case .teachingCenter: AppURL.required("https://jxzxehallapp.bit.edu.cn")
@@ -14,15 +21,19 @@ public nonisolated enum SchoolServiceTarget: Sendable, CaseIterable {
     }
 
     public var webVPNBaseURL: URL? {
-        let token: String
         switch self {
-        case .teachingCenter: token = "faef5b842238695c720999bcd6572a216b231105adc27d"
-        case .grades: token = "fae04c8f69326144300d8db9d6562d"
-        case .transcript, .webVPN: return nil
+        case .teachingCenter:
+            return Self.teachingCenterWebVPNURL
+        case .grades:
+            return AppURL.required(
+                """
+                https://webvpn.bit.edu.cn/http/77726476706e69737468656265737421\
+                fae04c8f69326144300d8db9d6562d
+                """
+            )
+        case .transcript, .webVPN:
+            return nil
         }
-        let scheme = self == .grades ? "http" : "https"
-        return AppURL.required(
-            "https://webvpn.bit.edu.cn/\(scheme)/77726476706e69737468656265737421\(token)")
     }
 }
 

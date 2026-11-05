@@ -9,7 +9,6 @@ import SwiftUI
 /// 这是纯本地课程的补录入口，主要用于补一周里的临时课或手动修正课表。
 struct AddCourseSheet: View {
     @Binding var draft: CourseDraft
-    let mode: CourseEditorMode
     let timeTable: [TimeSlot]
     let onSubmit: () -> Void
     let onDismiss: () -> Void
@@ -27,7 +26,7 @@ struct AddCourseSheet: View {
             }
             .appGroupedListStyle()
             .tint(AppDesignSystem.Palette.Accent.primary)
-            .navigationTitle(mode.title)
+            .navigationTitle("添加课程")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

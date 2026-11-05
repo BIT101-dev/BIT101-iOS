@@ -183,7 +183,6 @@ struct CourseScheduleCalendarView: View {
     @ScaledMetric(relativeTo: .caption) private var captionLineHeight = AppDesignSystem.Schedule
         .WeekSlider.captionLineHeight
     @Environment(\.scheduleCurrentDate) private var currentDate
-    private static let weekdayTitles = ["一", "二", "三", "四", "五", "六", "七"]
     @State private var contextMenuFeedbackToken = 0
 
     let entries: [ScheduleCalendarEntry]
@@ -523,7 +522,7 @@ struct CourseScheduleCalendarView: View {
                 .background(AppDesignSystem.Palette.Background.secondaryGrouped)
 
             ForEach(Array(weekDates.enumerated()), id: \.offset) { index, _ in
-                Text(weekdayText(for: visibleWeekdays[index]))
+                Text("周\(weekdayText(for: visibleWeekdays[index]))")
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.primary)
                     .frame(width: dayWidth, height: headerHeight)
@@ -714,10 +713,7 @@ struct CourseScheduleCalendarView: View {
     }
 
     private func weekdayText(for weekday: Int) -> String {
-        guard (1...Self.weekdayTitles.count).contains(weekday) else {
-            return "?"
-        }
-        return Self.weekdayTitles[weekday - 1]
+        ScheduleDateCodec.weekdaySymbol(weekday)
     }
 
     private func currentMinute() -> Int {

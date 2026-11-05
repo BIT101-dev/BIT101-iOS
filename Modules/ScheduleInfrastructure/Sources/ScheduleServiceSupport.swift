@@ -1,5 +1,4 @@
 import Foundation
-import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
@@ -42,8 +41,6 @@ func isScheduleNetworkError(_ error: Error) -> Bool {
     return containsUnderlyingError(error) { candidate in
         candidate.domain == NSURLErrorDomain
             && [
-                NSURLErrorCannotFindHost,
-                NSURLErrorDNSLookupFailed,
                 NSURLErrorTimedOut,
                 NSURLErrorCannotConnectToHost,
                 NSURLErrorNetworkConnectionLost,

@@ -81,7 +81,7 @@ struct PaperCommentsSection: View {
         case .failed(let message) where comments.isEmpty:
             AppFailureState(
                 title: "加载评论失败",
-                systemImage: "text.bubble",
+                systemImage: "bubble.right.fill",
                 message: message,
                 onRetry: onRetry
             )

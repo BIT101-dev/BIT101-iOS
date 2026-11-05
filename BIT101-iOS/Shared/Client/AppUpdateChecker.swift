@@ -531,11 +531,18 @@ private struct AppPromptHostModifier: ViewModifier {
     @Environment(\.openURL) private var openURL
     var promptCoordinator: AppPromptCoordinator
     let updateCoordinator: AppUpdatePromptCoordinator
-    private let networkConnectionDescription = NetworkConnectionDescription.shared
+
+    init(
+        promptCoordinator: AppPromptCoordinator,
+        updateCoordinator: AppUpdatePromptCoordinator
+    ) {
+        self.promptCoordinator = promptCoordinator
+        self.updateCoordinator = updateCoordinator
+        promptCoordinator.markHostReady()
+        _ = NetworkConnectionDescription.shared
+    }
 
     func body(content: Content) -> some View {
-        let _ = promptCoordinator.markHostReady()
-        let _ = networkConnectionDescription
         let presentedPromptID = promptCoordinator.activePrompt?.id
         content
             .task {

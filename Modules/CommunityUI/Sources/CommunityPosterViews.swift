@@ -255,7 +255,6 @@ public struct CommunityPosterImagesView: View {
             .clipShape(
                 AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card)
             )
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
@@ -379,9 +378,6 @@ public struct CommunityPosterImagesView: View {
 /// 单张帖子图片缩略图。
 public struct CommunityImageThumbnail: View {
     let image: CommunityImage
-    private let width: CGFloat?
-    private let maxHeight: CGFloat?
-    private let aspectRatio: CGFloat?
     private let contentMode: ContentMode
     private let loadsOriginal: Bool
     private let onAspectRatioResolved: ((CGFloat) -> Void)?
@@ -393,42 +389,16 @@ public struct CommunityImageThumbnail: View {
         onAspectRatioResolved: ((CGFloat) -> Void)? = nil
     ) {
         self.image = image
-        width = nil
-        maxHeight = nil
-        aspectRatio = nil
         self.contentMode = contentMode
         self.loadsOriginal = loadsOriginal
         self.onAspectRatioResolved = onAspectRatioResolved
     }
 
-    /// 保留课程评论原有尺寸含义；话廊图片使用上面的自适应初始化器。
-    public init(
-        image: CommunityImage, width: CGFloat?, maxHeight: CGFloat?, aspectRatio: CGFloat
-    ) {
-        self.image = image
-        self.width = width
-        self.maxHeight = maxHeight
-        self.aspectRatio = aspectRatio
-        contentMode = .fit
-        loadsOriginal = false
-        onAspectRatioResolved = nil
-    }
-
     public var body: some View {
-        if let aspectRatio {
-            thumbnailContent
-                .frame(maxWidth: width == nil ? .infinity : width)
-                .aspectRatio(aspectRatio, contentMode: .fit)
-                .frame(width: width)
-                .frame(maxHeight: maxHeight)
-                .clipped()
-                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
-        } else {
-            thumbnailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
-        }
+        thumbnailContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+            .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.card))
     }
 
     @ViewBuilder

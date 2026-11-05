@@ -46,6 +46,10 @@ public enum ScheduleDateCodec {
         ScheduleSharedDateCodec.parseDate(string)
     }
 
+    public static func combine(date: Date, time: String) -> Date? {
+        ScheduleSharedDateCodec.combine(date: date, time: time)
+    }
+
     /// 解析 `HH:mm` 文本为一个只关心时分的 `Date`。
     public static func parseTime(_ string: String) -> Date? {
         guard let date = timeFormatter.date(from: string),
@@ -102,6 +106,14 @@ public enum ScheduleDateCodec {
     public static func weekdayIndex(from date: Date) -> Int {
         let weekday = calendar.component(.weekday, from: date)
         return ((weekday + 5) % 7) + 1
+    }
+
+    private nonisolated static let chineseWeekdays = ["一", "二", "三", "四", "五", "六", "日"]
+
+    /// 返回“周一=1 ... 周日=7”对应的中文简称（“一”...“日”）。
+    public nonisolated static func weekdaySymbol(_ weekday: Int) -> String {
+        guard (1...chineseWeekdays.count).contains(weekday) else { return "?" }
+        return chineseWeekdays[weekday - 1]
     }
 
     /// 读取某个 `Date` 在一天中的分钟偏移。

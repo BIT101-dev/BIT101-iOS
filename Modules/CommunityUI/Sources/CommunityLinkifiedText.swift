@@ -33,8 +33,7 @@ private actor CommunityLinkifiedTextCache {
         guard !Task.isCancelled else { return AttributedString(text) }
         for match in matches {
             if let url = match.url {
-                rendered.addAttribute(
-                    NSAttributedString.Key("NSLink"), value: url, range: match.range)
+                rendered.addAttribute(.link, value: url, range: match.range)
             }
         }
         let result =

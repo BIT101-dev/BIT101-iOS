@@ -634,7 +634,7 @@ def main(root: Path) -> None:
         ".build/static-audit",
         ".build/extended-automation",
         ".build/icloud-cross-device-smoke",
-        ".build/release-" + "network-smoke",
+        ".build/release-network-smoke",
         ".build/issue-report-inbox",
     }
     violations = []

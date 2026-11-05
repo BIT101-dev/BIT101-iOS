@@ -177,9 +177,9 @@ import TransportCore
     }
 
     func loadMoreCommentsIfNeeded(currentComment: CommunityComment?) async {
-        guard let currentComment,
-            commentState.items.suffix(4).contains(where: { $0.id == currentComment.id })
-        else { return }
+        guard let currentComment, commentState.shouldLoadMore(currentID: currentComment.id) else {
+            return
+        }
         await loadMoreComments()
     }
 

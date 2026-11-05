@@ -2,9 +2,7 @@ import CloudKit
 import Combine
 import CommunityCore
 import CommunityPersistence
-import CryptoKit
 import Foundation
-import OSLog
 import Observation
 import ScoreDomain
 import ScoreInfrastructure
@@ -366,7 +364,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
         guard isEnabled else { return }
         if changeReason == NSUbiquitousKeyValueStoreAccountChange { return }
         if changeReason == NSUbiquitousKeyValueStoreQuotaViolationChange {
-            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限。本机设置和成绩缓存继续保留；可在日历设置中清理云端偏好记录，再开启偏好同步。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限。本机设置和成绩缓存继续保留；可在课程表设置中清理云端偏好记录，再开启偏好同步。"
             syncIssueDomain =
                 changedKeys?.compactMap { key in
                     ExperimentalPreferenceSyncDomain.allCases.first {
@@ -745,7 +743,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
         }
         guard fitsCloudStore(data, replacing: key, values: values) else {
             let label = domain == .scoreCache ? "成绩缓存" : "偏好数据"
-            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限，\(label)保留在本机。可在日历设置中清理云端偏好记录，再开启偏好同步。"
+            syncIssue = "BIT101 的 iCloud 同步记录达到应用容量上限，\(label)保留在本机。可在课程表设置中清理云端偏好记录，再开启偏好同步。"
             syncIssueDomain = domain
             Self.logger.error(
                 """

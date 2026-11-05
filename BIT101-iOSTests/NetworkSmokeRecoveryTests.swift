@@ -1,5 +1,4 @@
 #if RELEASE_NETWORK_SMOKE
-import XCTest
 @testable import BIT101_iOS
 import Darwin
 import Foundation
@@ -20,7 +19,6 @@ import StorageCore
 import CourseFeature
 import UIKit
 import MediaKit
-@testable import BIT101_iOS
 
 extension ReleaseNetworkSmokeLifecycleTests {
     @Test(.timeLimit(.minutes(1))) func concurrentRunnerEntrypointsRecovery() async throws {

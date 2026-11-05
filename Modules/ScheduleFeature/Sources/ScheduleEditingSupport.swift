@@ -3,17 +3,6 @@ import ScheduleContracts
 import ScheduleDomain
 import SwiftUI
 
-enum CourseEditorMode: Equatable {
-    case add
-
-    var title: String {
-        switch self {
-        case .add:
-            return "添加课程"
-        }
-    }
-}
-
 enum CourseArrangementEditorMode: Hashable, Identifiable {
     case course
     case occurrence(week: Int)
@@ -37,9 +26,7 @@ struct CourseArrangementDraft: Identifiable, Equatable {
     var draft: CourseDraft
 
     var title: String {
-        let weekday = ["", "一", "二", "三", "四", "五", "六", "日"]
-        let weekdayText =
-            weekday.indices.contains(original.weekday) ? weekday[original.weekday] : "?"
+        let weekdayText = ScheduleDateCodec.weekdaySymbol(original.weekday)
         return "周\(weekdayText) · 第\(original.startSection)-\(original.endSection)节"
     }
 
@@ -73,9 +60,7 @@ struct ScheduleDayAdjustmentContext: Identifiable {
     }
 
     private var weekdayText: String {
-        let titles = ["一", "二", "三", "四", "五", "六", "日"]
-        guard (1...titles.count).contains(weekday) else { return "?" }
-        return "周\(titles[weekday - 1])"
+        "周\(ScheduleDateCodec.weekdaySymbol(weekday))"
     }
 }
 

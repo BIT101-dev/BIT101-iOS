@@ -6,13 +6,8 @@ import TransportCore
 
 @MainActor
 public struct ScheduleService {
-    let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")
-    let webVPNSchoolBaseURL = AppURL.required(
-        """
-        https://webvpn.bit.edu.cn/https/77726476706e69737468656265737421faef5b842238695c720999b\
-        cd6572a216b231105adc27d
-        """
-    )
+    let schoolBaseURL = SchoolServiceTarget.teachingCenter.baseURL
+    let webVPNSchoolBaseURL = SchoolServiceTarget.teachingCenterWebVPNURL
     let bitLoginBaseURL = AppEndpoints.bit101Login
     let schoolSSOBaseURL = AppURL.required("https://sso.bit.edu.cn")
     let lexueBaseURL = AppURL.required("https://lexue.bit.edu.cn")

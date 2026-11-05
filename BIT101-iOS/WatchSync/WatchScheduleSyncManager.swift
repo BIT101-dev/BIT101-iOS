@@ -5,7 +5,6 @@ import StorageCore
 #if canImport(WatchConnectivity)
 
 import Foundation
-import OSLog
 import os
 // WCSessionDelegate callbacks enter through SDK nonisolated methods; state is
 // handed back to the MainActor manager before mutation.

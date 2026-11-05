@@ -13,7 +13,6 @@ import SwiftUI
 import Testing
 import TransportCore
 import UIKit
-import XCTest
 
 @testable import BIT101_iOS
 @testable import MapFeature

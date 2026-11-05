@@ -710,18 +710,7 @@ import TransportCore
         else {
             return nil
         }
-
-        let parts = time.split(separator: ":")
-        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else {
-            return nil
-        }
-
-        var components = ScheduleDateCodec.calendar.dateComponents(
-            [.year, .month, .day], from: day)
-        components.hour = hour
-        components.minute = minute
-        components.second = 0
-        return ScheduleDateCodec.calendar.date(from: components)
+        return ScheduleDateCodec.combine(date: day, time: time)
     }
 
     /// 进入或刷新空教室时，按当前时间切换到对应的节次块筛选。

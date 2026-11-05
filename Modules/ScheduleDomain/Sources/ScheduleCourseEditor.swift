@@ -481,17 +481,13 @@ public nonisolated enum ScheduleCourseEditor {
         let (candidate, other) = conflict
         let weeks = ScheduleWeekCodec.formatWeeks(
             Array(Set(candidate.weeks).intersection(other.weeks)))
+        let weekday = ScheduleDateCodec.weekdaySymbol(candidate.weekday)
         return
             """
-            \(candidate.name)与\(other.name)在第\(weeks)周周\(weekdayText(candidate.weekday))第\
+            \(candidate.name)与\(other.name)在第\(weeks)周周\(weekday)第\
             \(max(candidate.startSection, other.startSection))-\
             \(min(candidate.endSection, other.endSection))节发生冲突。
             """
-    }
-
-    private static func weekdayText(_ weekday: Int) -> String {
-        let titles = ["", "一", "二", "三", "四", "五", "六", "日"]
-        return titles.indices.contains(weekday) ? titles[weekday] : "?"
     }
 
     private static func copying(

@@ -42,26 +42,22 @@ VALIDATION_SCRIPTS = {
     "validation_manual.py",
     "validation_restore.py",
     "validation_media.py",
+    "validation_simulator.py",
+    "validation_publication.py",
+    "validation_compilation.py",
+    "validation_performance.py",
     "ManualEvidenceProbe.swift",
     "validate_distribution.py",
     "validate_versions.py",
     "swift_source_index.py",
+    "swift_type_index.py",
     "code_quality_rules.py",
     "audit_callback_rules.py",
     "ci_wiring_rules.py",
     "check-module-boundaries.py",
+    "network_capability_rules.py",
+    "network_request_contracts.py",
 } | set(SWIFT_SYNTAX_SOURCE_NAMES)
-VALIDATION_SCRIPTS.add("swift_type_index.py")
-VALIDATION_SCRIPTS.add("validation_simulator.py")
-VALIDATION_SCRIPTS.update(
-    {
-        "validation_publication.py",
-        "validation_compilation.py",
-        "validation_performance.py",
-        "network_capability_rules.py",
-        "network_request_contracts.py",
-    }
-)
 AUDIT_IMPLEMENTATIONS = frozenset(
     {
         "code_quality_rules.py",

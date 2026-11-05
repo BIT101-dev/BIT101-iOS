@@ -1,28 +1,10 @@
-import ClientCore
-import CommunityCore
-import CommunityTransport
 import Foundation
-import Network
-import ScheduleActivityContracts
-import ScheduleContracts
-import ScheduleDomain
-import SchedulePorts
 import ScoreDomain
-import ScorePorts
-import Security
 import StorageCore
 import Testing
-import TransportCore
-import UIKit
-import XCTest
 import os
 
 @testable import BIT101_iOS
-@testable import CommunityUI
-@testable import GalleryFeature
-@testable import MediaKit
-@testable import ScheduleFeature
-@testable import ScoreFeature
 @testable import ScoreInfrastructure
 
 @Suite("Score cache file safety")

@@ -70,7 +70,6 @@ struct CourseScheduleTabView: View {
     @State var dayAdjustmentDraft = ScheduleDayAdjustmentDraft()
     @State var isShowingEditSchedule = false
     @State var isShowingCourseEditor = false
-    @State var courseEditorMode: CourseEditorMode = .add
     @State var isShowingScheduleImport = false
     @State private var isShowingAddContentMenu = false
     @State var exportedSchedule: ScheduleCodePresentation?
@@ -119,7 +118,6 @@ struct CourseScheduleTabView: View {
                 .accessibilityIdentifier("schedule.add-custom")
 
                 Button("添加课程") {
-                    courseEditorMode = .add
                     courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
                     isShowingCourseEditor = true
                 }
@@ -465,7 +463,6 @@ struct CourseScheduleTabView: View {
         .sheet(isPresented: $isShowingCourseEditor) {
             AddCourseSheet(
                 draft: $courseDraft,
-                mode: courseEditorMode,
                 timeTable: viewModel.courseState.timeTable,
                 onSubmit: {
                     do {
