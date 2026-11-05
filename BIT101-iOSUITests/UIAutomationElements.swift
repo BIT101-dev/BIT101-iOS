@@ -239,7 +239,15 @@ enum UITestSnapshotReader {
             return result
         }
         func descendants(_ element: any XCUIElementSnapshot) -> [any XCUIElementSnapshot] {
-            element.children.flatMap { [$0] + descendants($0) }
+            var result: [any XCUIElementSnapshot] = []
+            func append(_ node: any XCUIElementSnapshot) {
+                for child in node.children {
+                    result.append(child)
+                    append(child)
+                }
+            }
+            append(element)
+            return result
         }
         var elements = [cached]
         for step in path {

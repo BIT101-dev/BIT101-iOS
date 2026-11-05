@@ -190,7 +190,7 @@ struct ScheduleSharedStoreTests {
             notificationCenter: center
         )
         let other = ScheduleExternalSnapshotStore(
-            files: files, containerURL: URL(fileURLWithPath: "/module-shared-store-other"),
+            files: files,
             notificationCenter: NotificationCenter()
         )
         let value = snapshot(
