@@ -15,13 +15,6 @@ import StorageCore
 import SwiftUI
 import UIKit
 
-//
-//  AppShellView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 enum AppInterfaceOrientationPolicy {
     static func supportedOrientations(for traits: UITraitCollection) -> UIInterfaceOrientationMask {
         if traits.userInterfaceIdiom == .phone {
@@ -309,7 +302,6 @@ struct AppShellView: View {
                 Tab(value: destination) {
                     destinationContent(destination)
                         .tint(destination.tab.tintColor)
-                        .accentColor(destination.tab.tintColor)
                         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                         .environment(
                             \.appPageIsVisible, destination == destinationSelection.wrappedValue)
@@ -328,7 +320,7 @@ struct AppShellView: View {
     }
 
     private var compactTabs: some View {
-        TabView(selection: tabSelection) {
+        TabView(selection: $selectedTab) {
             ForEach(AppTab.allCases) { tab in
                 tabItemView(for: tab)
             }
@@ -347,7 +339,6 @@ struct AppShellView: View {
         }
         .environment(\.appPageIsVisible, tab == selectedTab)
         .tint(tab.tintColor)
-        .accentColor(tab.tintColor)
         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
         .tag(tab)
         .tabItem {
@@ -438,12 +429,12 @@ struct AppShellView: View {
                 courses: community.course,
                 onOpenAcademicCourse: { request in
                     scoreSurface = .course
-                    selectTab(.score)
+                    selectedTab = .score
                     requestedCourse = request
                 },
                 onOpenCourseLocation: { request in
                     requestedMapLocation = request
-                    selectTab(.map)
+                    selectedTab = .map
                 }), showingClassrooms: showingClassrooms)
     }
 
@@ -480,30 +471,17 @@ struct AppShellView: View {
                     } else if scheduleViewModel.selectedSection == .classroom {
                         scheduleViewModel.selectedSection = .courses
                     }
-                    selectTab(.schedule)
-                case .map: selectTab(.map)
+                    selectedTab = .schedule
+                case .map: selectedTab = .map
                 case .topics, .papers:
                     gallerySurface = destination == .topics ? .gallery : .paper
-                    selectTab(.gallery)
+                    selectedTab = .gallery
                 case .scores, .courses:
                     scoreSurface = destination == .scores ? .score : .course
-                    selectTab(.score)
-                case .mine: selectTab(.mine)
+                    selectedTab = .score
+                case .mine: selectedTab = .mine
                 }
             })
-    }
-
-    private var tabSelection: Binding<AppTab> {
-        Binding(
-            get: { selectedTab },
-            set: { newTab in
-                selectTab(newTab)
-            }
-        )
-    }
-
-    private func selectTab(_ tab: AppTab) {
-        selectedTab = tab
     }
 
     /// 处理来自小组件等入口的 app 深链。
@@ -515,25 +493,25 @@ struct AppShellView: View {
 
         switch route {
         case .scheduleCourses:
-            selectTab(.schedule)
+            selectedTab = .schedule
             requestedScheduleSection = .courses
         case .scheduleDDL:
-            selectTab(.schedule)
+            selectedTab = .schedule
             requestedScheduleSection = .ddl
         case .paper(let paperID):
             gallerySurface = .paper
-            selectTab(.gallery)
+            selectedTab = .gallery
             requestedPaperID = paperID
         case .gallery(let posterID):
             gallerySurface = .gallery
-            selectTab(.gallery)
+            selectedTab = .gallery
             requestedPosterID = posterID
         case .course(let courseID):
             scoreSurface = .course
-            selectTab(.score)
+            selectedTab = .score
             requestedCourse = CourseNavigationRequest(courseID: courseID)
         case .calendarEvent(_, _, let account):
-            selectTab(.schedule)
+            selectedTab = .schedule
             guard account == AppAccountSession.currentSession.accountStorageIdentifier else {
                 AppErrorPresenter.shared.present(
                     AppAlert(title: "日历事件账号", message: "请切换到创建该事件的账号后查看。"))

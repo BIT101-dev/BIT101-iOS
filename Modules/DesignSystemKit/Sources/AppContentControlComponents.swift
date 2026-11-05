@@ -287,16 +287,18 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     @Environment(\.dismiss) private var dismiss
 
     public var body: some View {
+        let selectedSet = Set(selectedItems)
+        let availableItems = Set(items)
         ScrollViewReader { proxy in
             List {
-                selectAllSection
+                selectAllSection(selectedSet: selectedSet, availableItems: availableItems)
 
                 Section {
                     if items.isEmpty {
                         Text("暂无可选项").foregroundStyle(AppDesignSystem.Foreground.secondary)
                     }
                     ForEach(items, id: \.self) { item in
-                        itemRow(item)
+                        itemRow(item, isSelected: selectedSet.contains(item))
                     }
                 }
             }
@@ -313,26 +315,27 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
     }
 
     @ViewBuilder
-    private var selectAllSection: some View {
+    private func selectAllSection(selectedSet: Set<Item>, availableItems: Set<Item>) -> some View {
         if selectAllTitle != nil {
             Section {
-                Button(toggleAllTitle) { toggleAll() }
-                    .disabled(items.isEmpty)
-                    .accessibilityValue(
-                        """
-                        已选 \(Set(selectedItems).intersection(Set(items)).count) 项，共\
-                         \(items.count) 项
-                        """
-                    )
-                    .appInteractiveListRow()
-                    .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
+                Button(toggleAllTitle(selectedSet: selectedSet, availableItems: availableItems)) {
+                    toggleAll()
+                }
+                .disabled(items.isEmpty)
+                .accessibilityValue(
+                    """
+                    已选 \(selectedSet.intersection(availableItems).count) 项，共\
+                     \(items.count) 项
+                    """
+                )
+                .appInteractiveListRow()
+                .accessibilityIdentifier("ui.app-multi-selection-list.toggle-all")
             }
         }
     }
 
     @ViewBuilder
-    private func itemRow(_ item: Item) -> some View {
-        let isSelected = selectedItems.contains(item)
+    private func itemRow(_ item: Item, isSelected: Bool) -> some View {
         Button {
             toggle(item)
         } label: {
@@ -361,9 +364,8 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
         }
     }
 
-    private var toggleAllTitle: String {
-        let availableItems = Set(items)
-        let allSelected = !items.isEmpty && availableItems.isSubset(of: Set(selectedItems))
+    private func toggleAllTitle(selectedSet: Set<Item>, availableItems: Set<Item>) -> String {
+        let allSelected = !items.isEmpty && availableItems.isSubset(of: selectedSet)
         return allSelected ? "全不选" : (selectAllTitle ?? "全选")
     }
 
@@ -384,9 +386,6 @@ public struct AppMultiSelectionList<Item: Hashable>: View {
         selectedItems = availableItems.isSubset(of: Set(selectedItems)) ? [] : items
     }
 }
-#endif
-
-#if os(iOS)
 
 /// 横向控件以全局坐标参与分区切换的命中排除。
 public struct AppHorizontalControlFramesKey: PreferenceKey {

@@ -1,13 +1,6 @@
 import CommunityCore
 import Foundation
 
-//
-//  MineModels.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 /// “我的”页个人信息接口模型。
 ///
 /// `MineUserInfo` 服务于“我的主页”和他人主页的资料卡。

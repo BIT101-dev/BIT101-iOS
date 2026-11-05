@@ -459,9 +459,7 @@ enum NetworkSmokePaging {
         guard sorted else { throw URLError(.badServerResponse) }
     }
 }
-#endif
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 extension ReleaseNetworkSmokeRunner {
     nonisolated static func validateCourseSyncPayload(_ payload: CourseSyncPayload) throws {
         guard let exams = payload.exams, payload.warnings.isEmpty,

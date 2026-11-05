@@ -3,11 +3,6 @@ import ScheduleContracts
 import ScheduleDomain
 import SchedulePorts
 
-//
-//  ScheduleServiceDTOs.swift
-//  BIT101-iOS
-//
-
 /// 当前学期接口响应体。
 nonisolated struct CurrentTermResponse: Decodable, Sendable {
     nonisolated struct Datas: Decodable, Sendable {

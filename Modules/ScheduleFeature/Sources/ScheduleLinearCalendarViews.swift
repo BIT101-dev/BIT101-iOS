@@ -43,6 +43,7 @@ struct LinearScheduleCalendarView: View {
                     weekSliderHeight: weekSliderHeight, dateHeaderHeight: dateHeaderHeight,
                     compactHeaderHeight: metrics.compactHeaderHeight,
                     week: week,
+                    currentWeek: currentWeek,
                     availableWeeks: availableWeeks,
                     displayMode: displayMode,
                     firstDay: firstDay,
@@ -84,6 +85,7 @@ private struct LinearScheduleHeader: View {
     let dateHeaderHeight: CGFloat
     let compactHeaderHeight: CGFloat
     let week: Int
+    let currentWeek: Int
     let availableWeeks: [Int]
     let displayMode: ScheduleDisplayMode
     let firstDay: Date
@@ -106,7 +108,7 @@ private struct LinearScheduleHeader: View {
                 ScheduleInlineWeekSlider(
                     weeks: availableWeeks,
                     currentWeek: week,
-                    highlightedWeek: resolvedCurrentWeek(firstDay: firstDay),
+                    highlightedWeek: currentWeek,
                     onSelectWeek: onSelectWeekValue
                 )
                 .frame(maxWidth: .infinity)

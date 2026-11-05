@@ -1,13 +1,6 @@
 #if os(iOS)
 import ClientCore
 import DesignSystemKit
-//
-//  ScheduleRootView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import SwiftUI
 
 private struct ScheduleCurrentDateKey: EnvironmentKey {

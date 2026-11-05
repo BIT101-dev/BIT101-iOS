@@ -4,12 +4,6 @@ import TransportCore
 import MediaKit
 import CommunityCore
 import DesignSystemKit
-//
-//  GalleryPosterDetailView.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 public struct GalleryPosterDetailView: View {

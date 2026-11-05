@@ -3,9 +3,6 @@ import CommunityUI
 import MediaKit
 import CommunityCore
 import DesignSystemKit
-//
-//  PaperCommentViews.swift
-//  BIT101-iOS
 import SwiftUI
 
 struct PaperCommentsSection: View {

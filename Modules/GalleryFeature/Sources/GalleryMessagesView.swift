@@ -4,12 +4,6 @@ import TransportCore
 import MediaKit
 import CommunityCore
 import DesignSystemKit
-//
-//  GalleryMessagesView.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 struct GalleryMessagesView: View {

@@ -1,9 +1,6 @@
 import Combine
 import CommunityCore
 import CommunityTransport
-//
-//  PaperService.swift
-//  BIT101-iOS
 import Foundation
 import TransportCore
 

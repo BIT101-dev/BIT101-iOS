@@ -2,12 +2,6 @@
 import CommunityUI
 import TransportCore
 import DesignSystemKit
-//
-//  GalleryPosterActionViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 struct GalleryReportSheet: View {

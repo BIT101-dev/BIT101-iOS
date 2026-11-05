@@ -96,7 +96,6 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     ) -> [ScheduleSystemCalendarEventDraft] {
         let slots = Dictionary(
             timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let calendar = shanghaiCalendar()
 
         let drafts: [ScheduleSystemCalendarEventDraft] = courses.flatMap {
             (course: CourseRecord) -> [ScheduleSystemCalendarEventDraft] in
@@ -109,17 +108,15 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
 
             return course.weeks.compactMap { week in
                 if let targetWeek, targetWeek != week { return nil }
-                guard ScheduleCourseConstraints.isValidWeek(week) else { return nil }
-                let weekOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week)
-                let dayOffset = weekOffset * 7 + (course.weekday - 1)
                 guard
-                    let day = calendar.date(
-                        byAdding: .day,
-                        value: dayOffset,
-                        to: firstDay
+                    let startDate = ScheduleSharedDateCodec.combine(
+                        firstDay: firstDay, week: week, weekday: course.weekday,
+                        time: startSlot.start
                     ),
-                    let startDate = date(on: day, time: startSlot.start, calendar: calendar),
-                    let endDate = date(on: day, time: endSlot.end, calendar: calendar),
+                    let endDate = ScheduleSharedDateCodec.combine(
+                        firstDay: firstDay, week: week, weekday: course.weekday,
+                        time: endSlot.end
+                    ),
                     endDate > startDate
                 else { return nil }
 
@@ -128,22 +125,13 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
                     course.number.isEmpty ? nil : "课程编号：\(escapedCourseNumber(course.number))",
                     course.description.isEmpty ? nil : course.description,
                 ].compactMap { $0 }
-                let structuredLocation = CampusMapPlaceCatalog.place(
-                    campusName: course.campus,
-                    classroom: course.classroom
-                ).map {
-                    ScheduleSystemCalendarStructuredLocation(
-                        title: "北京理工大学 · \($0.campus.displayName) · \($0.name)",
-                        latitude: $0.latitude,
-                        longitude: $0.longitude
-                    )
-                }
 
                 return ScheduleSystemCalendarEventDraft(
                     markerID: ScheduleSystemCalendarMarkerID.course(course.id, week: week),
                     title: course.name,
                     location: displayLocation(campus: course.campus, classroom: course.classroom),
-                    structuredLocation: structuredLocation,
+                    structuredLocation: structuredLocation(
+                        campus: course.campus, classroom: course.classroom),
                     notes: noteLines.joined(separator: "\n"),
                     startDate: startDate,
                     endDate: endDate
@@ -161,11 +149,10 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     }
 
     static func makeDraft(for exam: ExamRecord) -> ScheduleSystemCalendarEventDraft? {
-        let calendar = shanghaiCalendar()
         guard
-            let day = date(from: exam.dateString, calendar: calendar),
-            let startDate = date(on: day, time: exam.beginTime, calendar: calendar),
-            let endDate = date(on: day, time: exam.endTime, calendar: calendar),
+            let day = ScheduleSharedDateCodec.parseDate(exam.dateString),
+            let startDate = ScheduleSharedDateCodec.combine(date: day, time: exam.beginTime),
+            let endDate = ScheduleSharedDateCodec.combine(date: day, time: exam.endTime),
             endDate > startDate
         else { return nil }
 
@@ -191,11 +178,10 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     static func makeDraft(for schedule: CustomScheduleRecord, dateString: String? = nil)
         -> ScheduleSystemCalendarEventDraft?
     {
-        let calendar = shanghaiCalendar()
         guard
-            let day = date(from: dateString ?? schedule.dateString, calendar: calendar),
-            let startDate = date(on: day, time: schedule.beginTime, calendar: calendar),
-            let endDate = date(on: day, time: schedule.endTime, calendar: calendar),
+            let day = ScheduleSharedDateCodec.parseDate(dateString ?? schedule.dateString),
+            let startDate = ScheduleSharedDateCodec.combine(date: day, time: schedule.beginTime),
+            let endDate = ScheduleSharedDateCodec.combine(date: day, time: schedule.endTime),
             endDate > startDate
         else { return nil }
 
@@ -248,57 +234,6 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             previousWasNumber = character.isNumber
         }
         return result
-    }
-
-    private static func date(on day: Date, time: String, calendar: Calendar) -> Date? {
-        let parts = time.split(separator: ":", omittingEmptySubsequences: false)
-        guard
-            parts.count == 2,
-            let hour = Int(parts[0]),
-            let minute = Int(parts[1]),
-            (0...23).contains(hour) || (hour == 24 && minute == 0),
-            (0...59).contains(minute)
-        else { return nil }
-
-        var components = calendar.dateComponents(
-            [.year, .month, .day],
-            from: day
-        )
-        components.hour = hour
-        components.minute = minute
-        components.second = 0
-        return calendar.date(from: components)
-    }
-
-    private static func date(from value: String, calendar: Calendar) -> Date? {
-        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
-        guard
-            parts.count == 3,
-            let year = Int(parts[0]),
-            let month = Int(parts[1]),
-            let day = Int(parts[2]),
-            (1...12).contains(month),
-            (1...31).contains(day)
-        else { return nil }
-
-        let date = calendar.date(
-            from: DateComponents(
-                calendar: calendar,
-                timeZone: calendar.timeZone,
-                year: year,
-                month: month,
-                day: day
-            ))
-        guard let date else { return nil }
-        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
-        guard resolved.year == year, resolved.month == month, resolved.day == day else {
-            return nil
-        }
-        return date
-    }
-
-    private static func shanghaiCalendar() -> Calendar {
-        ScheduleSharedDateCodec.calendar
     }
 }
 

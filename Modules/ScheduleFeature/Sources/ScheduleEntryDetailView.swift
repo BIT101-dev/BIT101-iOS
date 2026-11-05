@@ -2,11 +2,6 @@
 import ScheduleDomain
 import DesignSystemKit
 import ScheduleContracts
-//
-//  ScheduleEntryDetailView.swift
-//  BIT101-iOS
-//
-
 import SwiftUI
 
 /// 课表条目详情。

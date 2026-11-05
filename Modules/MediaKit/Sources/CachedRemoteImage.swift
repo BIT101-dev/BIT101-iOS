@@ -2,13 +2,6 @@
 import StorageCore
 import DesignSystemKit
 import TransportCore
-//
-//  CachedRemoteImage.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-29.
-//
-
 import Observation
 import SwiftUI
 import UIKit
@@ -132,7 +125,7 @@ public struct AppAvatarView: View {
         }
     }
 
-    private var anonymousAvatarImage: Image? {
+    private static let cachedAnonymousAvatarImage: Image? = {
         let iconKey =
             UIDevice.current.userInterfaceIdiom == .pad
             ? "CFBundleIcons~ipad"
@@ -147,6 +140,10 @@ public struct AppAvatarView: View {
             return nil
         }
         return Image(uiImage: image)
+    }()
+
+    private var anonymousAvatarImage: Image? {
+        Self.cachedAnonymousAvatarImage
     }
 }
 

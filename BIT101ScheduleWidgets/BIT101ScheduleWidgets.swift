@@ -15,12 +15,6 @@ private nonisolated enum WidgetSnapshotStorage {
             identifier: ScheduleSharedContainer.identifier))
 }
 
-private let scheduleWidgetSyncMessage = "请先获取课表"
-private let scheduleWidgetUnavailableMessage = "课表读取失败，请重试"
-private let scheduleWidgetInvalidMessage = "请重新同步课表"
-private let scheduleWidgetLoginMessage = "请登录"
-private let scheduleWidgetRestMessage = "暂无后续日程"
-
 private struct DeadlineWidgetEntry: TimelineEntry {
     let date: Date
     let resolved: ScheduleExternalResolvedDeadlines
@@ -409,7 +403,7 @@ private struct LiveActivityTimerText: View {
 private struct ScheduleWidgetEntry: TimelineEntry {
     let date: Date
     let nextOccurrences: [ScheduleExternalOccurrence]
-    let message: String?
+    let contentState: ScheduleExternalContentState
 }
 
 /// 课表小组件的时间线提供器。
@@ -437,7 +431,7 @@ private struct ScheduleWidgetProvider: TimelineProvider {
                     displayUntilDate: Date().addingTimeInterval(260 * 60)
                 ),
             ],
-            message: nil
+            contentState: .ready
         )
     }
 
@@ -472,36 +466,12 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
         -> ScheduleWidgetEntry
     {
-
-        switch resolved.contentState {
-        case .missing:
-            return emptyEntry(message: scheduleWidgetSyncMessage, date: now)
-        case .unavailable:
-            return emptyEntry(message: scheduleWidgetUnavailableMessage, date: now)
-        case .invalid:
-            return emptyEntry(message: scheduleWidgetInvalidMessage, date: now)
-        case .loggedOut:
-            return emptyEntry(message: scheduleWidgetLoginMessage, date: now)
-        case .rest:
-            return emptyEntry(message: scheduleWidgetRestMessage, date: now)
-        case .ready:
-            return ScheduleWidgetEntry(
-                date: now,
-                nextOccurrences: resolved.upcomingOccurrences,
-                message: nil
-            )
-        }
-    }
-
-    /// 构造统一的空态条目。
-    private func emptyEntry(message: String, date: Date) -> ScheduleWidgetEntry {
         ScheduleWidgetEntry(
-            date: date,
-            nextOccurrences: [],
-            message: message
+            date: now,
+            nextOccurrences: resolved.contentState == .ready ? resolved.upcomingOccurrences : [],
+            contentState: resolved.contentState
         )
     }
-
 }
 
 /// 课程表小组件主体，支持桌面小组件与锁屏 accessory family。
@@ -825,20 +795,10 @@ private struct ScheduleWidgetEntryView: View {
     /// 课表为空或后续课程为空时显示统一空态。
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-            Text(entry.message ?? scheduleWidgetRestMessage)
+            Text(emptyTitleText)
                 .font(AppDesignSystem.Typography.subheadlineEmphasis)
-            if entry.message == scheduleWidgetSyncMessage {
-                Text("打开 App 同步课表后，这里会显示接下来的日程。")
-                    .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if entry.message == scheduleWidgetInvalidMessage {
-                Text("打开 App 重新同步课表后，这里会显示接下来的日程。")
-                    .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if entry.message == scheduleWidgetLoginMessage {
-                Text("登录后，这里会显示接下来的日程。")
+            if let subtitle = emptySubtitleText {
+                Text(subtitle)
                     .font(AppDesignSystem.Typography.caption)
                     .foregroundStyle(AppDesignSystem.Foreground.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -846,26 +806,45 @@ private struct ScheduleWidgetEntryView: View {
         }
     }
 
+    private var emptyTitleText: String {
+        switch entry.contentState {
+        case .missing: "请先获取课表"
+        case .unavailable: "课表读取失败，请重试"
+        case .invalid: "请重新同步课表"
+        case .loggedOut: "请登录"
+        case .rest, .ready: "暂无后续日程"
+        }
+    }
+
+    private var emptySubtitleText: String? {
+        switch entry.contentState {
+        case .missing: "打开 App 同步课表后，这里会显示接下来的日程。"
+        case .invalid: "打开 App 重新同步课表后，这里会显示接下来的日程。"
+        case .loggedOut: "登录后，这里会显示接下来的日程。"
+        case .unavailable, .rest, .ready: nil
+        }
+    }
+
     private var accessoryEmptyText: String {
-        switch entry.message {
-        case scheduleWidgetLoginMessage:
-            return scheduleWidgetLoginMessage
-        case scheduleWidgetSyncMessage:
+        switch entry.contentState {
+        case .loggedOut:
+            return "请登录"
+        case .missing:
             return "请先同步课表"
-        case scheduleWidgetInvalidMessage:
+        case .invalid:
             return "请重新同步"
-        default:
+        case .unavailable, .rest, .ready:
             return "暂无日程"
         }
     }
 
     private var circularEmptyText: String {
-        switch entry.message {
-        case scheduleWidgetLoginMessage:
-            return scheduleWidgetLoginMessage
-        case scheduleWidgetInvalidMessage:
+        switch entry.contentState {
+        case .loggedOut:
+            return "请登录"
+        case .invalid:
             return "重同步"
-        default:
+        case .missing, .unavailable, .rest, .ready:
             return "无课"
         }
     }

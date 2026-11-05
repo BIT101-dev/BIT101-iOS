@@ -800,7 +800,7 @@ struct ExperimentalPreferenceCloudSyncTests {
                     experimental.preference-cloud-sync.pending-score.\
                     \(capturedOwner.accountStorageIdentifier)
                     """
-            )?["remoteSHA256"] is Data)
+            )?["remoteSnapshot"] is Data)
         sync.localValueDidChange(in: .galleryMessageRead, for: capturedOwner)
         #expect(
             defaults.object(

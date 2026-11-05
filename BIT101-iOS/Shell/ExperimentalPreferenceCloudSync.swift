@@ -128,7 +128,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
     }
     private struct PendingScoreMutation {
         var updatedAt: Date
-        let remoteSHA256: Data?
+        let remoteSnapshot: Data?
     }
     private var pendingScoreMutation: PendingScoreMutation? {
         get {
@@ -136,7 +136,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
                 let date = record["updatedAt"] as? Date
             else { return nil }
             return PendingScoreMutation(
-                updatedAt: date, remoteSHA256: record["remoteSHA256"] as? Data)
+                updatedAt: date, remoteSnapshot: record["remoteSnapshot"] as? Data)
         }
         set {
             guard let newValue else {
@@ -144,7 +144,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
                 return
             }
             var record: [String: Any] = ["updatedAt": newValue.updatedAt]
-            record["remoteSHA256"] = newValue.remoteSHA256
+            record["remoteSnapshot"] = newValue.remoteSnapshot
             defaults.set(record, forKey: pendingScoreKey)
         }
     }
@@ -265,7 +265,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
             setLocalUpdatedAt(updatedAt, for: domain, owner: session)
             if domain == .scoreCache {
                 var record: [String: Any] = ["updatedAt": updatedAt]
-                record["remoteSHA256"] = Self.scoreDigest(scoreCloudData(owner: session))
+                record["remoteSnapshot"] = scoreCloudData(owner: session)
                 defaults.set(
                     record,
                     forKey:
@@ -288,7 +288,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
         case .scoreCache:
             let updatedAt = nextLocalUpdatedAt(for: domain)
             pendingScoreMutation = PendingScoreMutation(
-                updatedAt: updatedAt, remoteSHA256: Self.scoreDigest(scoreCloudData()))
+                updatedAt: updatedAt, remoteSnapshot: scoreCloudData())
             setLocalUpdatedAt(updatedAt, for: domain)
             if isEnabled { scheduleReconciliation(for: [domain]) }
         case .galleryMessageRead:
@@ -661,7 +661,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
             }
             var localVersion = version
             if pendingScoreMutation?.updatedAt == version && version != nil
-                && pendingScoreMutation?.remoteSHA256 == Self.scoreDigest(observedRemote)
+                && pendingScoreMutation?.remoteSnapshot == observedRemote
                 || version == nil
                     && (remote == nil
                         || !localPayload.rows.isEmpty && remote?.payload.rows.isEmpty != false)
@@ -945,10 +945,6 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
             }
         }
         return snapshot
-    }
-
-    private nonisolated static func scoreDigest(_ data: Data?) -> Data? {
-        data.map { Data(SHA256.hash(data: $0)) }
     }
 
     private func requireCurrent(owner: AppStorageSession, generation: Generation) throws {

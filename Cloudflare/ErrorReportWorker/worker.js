@@ -766,7 +766,8 @@ export default {
           !attachment ||
           typeof attachment.data !== "string" ||
           (attachment.contentType != null && typeof attachment.contentType !== "string") ||
-          (attachment.name != null && typeof attachment.name !== "string")
+          (attachment.name != null && typeof attachment.name !== "string") ||
+          (attachment.filename != null && typeof attachment.filename !== "string")
         ) {
           return json({ error: "invalid_attachment" }, 400);
         }

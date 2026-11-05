@@ -3,13 +3,6 @@ import CommunityCore
 import CommunityTransport
 import Foundation
 
-//
-//  CourseService.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-02.
-//
-
 /// 课程模块接口错误。
 public enum CourseServiceError: LocalizedError {
     case notLoggedIn

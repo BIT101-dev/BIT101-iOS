@@ -1,8 +1,3 @@
-//
-//  LoginSessionState.swift
-//  BIT101-iOS
-//
-
 import ClientCore
 import Foundation
 import Security

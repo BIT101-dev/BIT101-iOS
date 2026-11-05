@@ -13,19 +13,14 @@ private nonisolated enum WidgetSnapshotStorage {
             identifier: ScheduleSharedContainer.identifier))
 }
 
-private let watchScheduleWidgetSyncMessage = "打开手机 App 同步课表"
-private let watchScheduleWidgetUnavailableMessage = "课表读取失败，请重试"
-private let watchScheduleWidgetInvalidMessage = "请在手机上重新同步课表"
-/// Watch 端需要登录时使用的提示文案。
-private let watchScheduleWidgetLoginMessage = "请先登录"
-/// 后续课程为空时使用的提示文案。
-private let watchScheduleWidgetRestMessage = "暂无后续日程"
-
 /// Apple Watch complication 的时间线条目。
 private struct WatchScheduleEntry: TimelineEntry {
     let date: Date
     let nextOccurrence: ScheduleExternalOccurrence?
-    let message: String?
+    let status: WatchScheduleEntryStatus
+    var message: String? {
+        nextOccurrence == nil ? status.message : nil
+    }
 }
 
 /// Apple Watch complication 使用的展示摘要。
@@ -63,18 +58,23 @@ private enum WatchScheduleEntryStatus {
     case loggedOut
     case rest
 
-    init(message: String?) {
-        switch message {
-        case watchScheduleWidgetSyncMessage:
-            self = .sync
-        case watchScheduleWidgetUnavailableMessage:
-            self = .unavailable
-        case watchScheduleWidgetInvalidMessage:
-            self = .invalid
-        case watchScheduleWidgetLoginMessage:
-            self = .loggedOut
-        default:
-            self = .rest
+    init(contentState: ScheduleExternalContentState) {
+        switch contentState {
+        case .missing: self = .sync
+        case .unavailable: self = .unavailable
+        case .invalid: self = .invalid
+        case .loggedOut: self = .loggedOut
+        case .rest, .ready: self = .rest
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .sync: "打开手机 App 同步课表"
+        case .unavailable: "课表读取失败，请重试"
+        case .invalid: "请在手机上重新同步课表"
+        case .loggedOut: "请先登录"
+        case .rest: "暂无后续日程"
         }
     }
 
@@ -114,10 +114,6 @@ extension WatchScheduleEntry {
         guard let nextOccurrence else { return nil }
         return WatchScheduleDisplaySummary(occurrence: nextOccurrence, referenceDate: date)
     }
-
-    fileprivate var status: WatchScheduleEntryStatus {
-        WatchScheduleEntryStatus(message: message)
-    }
 }
 
 /// 把共享快照转换为 Apple Watch widget 时间线。
@@ -135,7 +131,7 @@ private struct WatchScheduleProvider: TimelineProvider {
                 endDate: now.addingTimeInterval(110 * 60),
                 displayUntilDate: now.addingTimeInterval(110 * 60)
             ),
-            message: nil
+            status: .rest
         )
     }
 
@@ -173,33 +169,19 @@ private struct WatchScheduleProvider: TimelineProvider {
     private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
         -> WatchScheduleEntry
     {
-
-        switch resolved.contentState {
-        case .missing:
-            return WatchScheduleEntry(
-                date: now, nextOccurrence: nil, message: watchScheduleWidgetSyncMessage)
-        case .unavailable:
-            return WatchScheduleEntry(
-                date: now, nextOccurrence: nil, message: watchScheduleWidgetUnavailableMessage)
-        case .invalid:
-            return WatchScheduleEntry(
-                date: now, nextOccurrence: nil, message: watchScheduleWidgetInvalidMessage)
-        case .loggedOut:
-            return WatchScheduleEntry(
-                date: now, nextOccurrence: nil, message: watchScheduleWidgetLoginMessage)
-        case .rest:
-            return WatchScheduleEntry(
-                date: now, nextOccurrence: nil, message: watchScheduleWidgetRestMessage)
-        case .ready:
-            let nextOccurrence = resolved.upcomingOccurrences.first(where: { $0.startDate > now })
+        guard case .ready = resolved.contentState else {
             return WatchScheduleEntry(
                 date: now,
-                nextOccurrence: nextOccurrence,
-                message: nextOccurrence == nil ? watchScheduleWidgetRestMessage : nil
+                nextOccurrence: nil,
+                status: WatchScheduleEntryStatus(contentState: resolved.contentState)
             )
         }
+        return WatchScheduleEntry(
+            date: now,
+            nextOccurrence: resolved.upcomingOccurrences.first(where: { $0.startDate > now }),
+            status: .rest
+        )
     }
-
 }
 
 /// 提供 Apple Watch complication 和 Smart Stack 课表卡片。
@@ -297,7 +279,7 @@ private struct WatchScheduleInlineView: View {
         if let summary = entry.displaySummary {
             Text(summary.inlineText)
         } else {
-            Text(entry.message ?? watchScheduleWidgetRestMessage)
+            Text(entry.status.message)
         }
     }
 }
@@ -341,7 +323,7 @@ private struct WatchScheduleRectangularView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                Text(entry.message ?? watchScheduleWidgetRestMessage)
+                Text(entry.status.message)
                     .font(AppDesignSystem.Typography.title)
                     .fixedSize(horizontal: false, vertical: true)
                 if case .sync = entry.status {

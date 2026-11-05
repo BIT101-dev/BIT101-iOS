@@ -4,12 +4,6 @@ import TransportCore
 import MediaKit
 import CommunityCore
 import DesignSystemKit
-//
-//  GalleryCommentViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 import UIKit
 import PhotosUI

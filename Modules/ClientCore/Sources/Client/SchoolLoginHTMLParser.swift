@@ -1,8 +1,3 @@
-//
-//  SchoolLoginHTMLParser.swift
-//  BIT101-iOS
-//
-
 import Foundation
 import TransportCore
 

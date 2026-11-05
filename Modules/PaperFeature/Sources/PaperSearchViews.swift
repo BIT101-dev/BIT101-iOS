@@ -3,9 +3,6 @@ import MediaKit
 import CommunityUI
 import CommunityCore
 import DesignSystemKit
-//
-//  PaperSearchViews.swift
-//  BIT101-iOS
 import SwiftUI
 
 struct PaperSearchView: View {

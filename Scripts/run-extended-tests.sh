@@ -121,7 +121,7 @@ if [[ "${1:-}" == build ]]; then
 fi
 if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-      all|release-runtime|network-smoke|schedule|infrastructure|login|extensions|ui|\
+      all|release-runtime|network-smoke|icloud-smoke|schedule|infrastructure|login|extensions|ui|\
       catalyst|catalyst-release-runtime|modules|verify)
       MODE="$1"
       shift

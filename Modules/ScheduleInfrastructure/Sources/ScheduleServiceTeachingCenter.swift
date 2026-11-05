@@ -4,13 +4,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleServiceTeachingCenter.swift
-//  BIT101-iOS
-//
-//  Teaching-center session recovery and academic API endpoints.
-//
-
 extension ScheduleService {
     /// 完成教学中心认证与接口预热，业务请求计时从此阶段完成后开始。
     public func prepareTeachingAccess() async throws {
@@ -385,13 +378,6 @@ extension ScheduleService {
         }
 
         return term
-    }
-
-    /// 拉取指定目标学期的课程表。
-    ///
-    /// 将学校接口中的课表字段转换为 iOS 端的 `CourseRecord`。
-    func fetchCourses(term: String) async throws -> [CourseRecord] {
-        try await fetchParsedCourses(term: term).map(\.course)
     }
 
     /// 拉取课程行及其周次证据，供同步流程计算小学期偏移。

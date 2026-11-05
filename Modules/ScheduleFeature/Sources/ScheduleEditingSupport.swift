@@ -3,11 +3,6 @@ import ScheduleContracts
 import ScheduleDomain
 import SwiftUI
 
-//
-//  ScheduleEditingSupport.swift
-//  BIT101-iOS
-//
-
 enum CourseEditorMode: Equatable {
     case add
 

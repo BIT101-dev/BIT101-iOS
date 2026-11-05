@@ -1,11 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
 import ScheduleContracts
-//
-//  ScheduleCourseEntries.swift
-//  BIT101-iOS
-//
-
 import SwiftUI
 
 /// 统一压缩教室名称里的冗长楼名，提升课表卡片可读性。

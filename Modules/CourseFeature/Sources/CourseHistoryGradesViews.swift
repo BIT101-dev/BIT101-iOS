@@ -1,10 +1,6 @@
 #if os(iOS)
 import CommunityUI
 import DesignSystemKit
-//
-//  CourseHistoryGradesViews.swift
-//  BIT101-iOS
-//
 import Charts
 import SwiftUI
 

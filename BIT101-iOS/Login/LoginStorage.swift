@@ -1,8 +1,3 @@
-//
-//  LoginStorage.swift
-//  BIT101-iOS
-//
-
 import ClientCore
 import Combine
 import CommunityTransport

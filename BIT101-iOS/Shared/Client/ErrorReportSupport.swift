@@ -183,14 +183,61 @@ nonisolated enum ErrorReportRedactor {
         throw PercentDecodingError.budgetExceeded
     }
 
+    private static let urlExpression = try? NSRegularExpression(
+        pattern: #"https?://[^\s<>"']+"#, options: .caseInsensitive)
+
+    private static let authorizationExpression = try? NSRegularExpression(
+        pattern:
+            """
+            (?i)((?:authorization|proxy-authorization|cookie|set-cookie)\\s*[=:]\\s*)[^&\\r\\n]+
+            """
+    )
+
+    private static let protectedExpressions:
+        [(json: NSRegularExpression, keyValue: NSRegularExpression)] =
+            protectedNames.compactMap { name in
+                let escaped = NSRegularExpression.escapedPattern(for: name)
+                let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")"
+                let keyValuePattern =
+                    #"""
+                    (?i)(\b[\w$-]*\#(escaped)[\w$-]*(?:["']\]?)?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"\#
+                    |$)|'(?:\\.|[^'\\])*(?:'|$)|[^&\r\n,;]+)
+                    """#
+                guard let json = try? NSRegularExpression(pattern: jsonPattern),
+                    let keyValue = try? NSRegularExpression(pattern: keyValuePattern)
+                else { return nil }
+                return (json, keyValue)
+            }
+
+    private static let identityExpressions:
+        [(expression: NSRegularExpression, replacement: String)] =
+            [
+            (
+                "(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+",
+                "$1[REDACTED]"
+            ),
+            (
+                "(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")",
+                "$1[REDACTED]$2"
+            ),
+            ("(?<!\\d)\\d{8,12}(?!\\d)", "[REDACTED]"),
+        ].compactMap { pattern, replacement in
+            (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
+        }
+
+    private static func replace(
+        _ expression: NSRegularExpression?, in source: String, with template: String
+    ) -> String {
+        guard let expression else { return source }
+        return expression.stringByReplacingMatches(
+            in: source, range: NSRange(source.startIndex..., in: source), withTemplate: template)
+    }
+
     private static func redactURLs(
         _ value: String, credentials: [String] = [], studentID: String? = nil, depth: Int = 0
     ) -> String {
         guard depth < 8, !Task.isCancelled else { return "[REDACTED]" }
-        guard
-            let expression = try? NSRegularExpression(
-                pattern: #"https?://[^\s<>"']+"#, options: .caseInsensitive)
-        else { return value }
+        guard let expression = urlExpression else { return value }
         var output = value
         for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value))
             .reversed()
@@ -292,27 +339,14 @@ nonisolated enum ErrorReportRedactor {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") { structured = "[REDACTED]" }
         }
-        var output = redactHTML(redactURLs(structured, credentials: credentials))
-            .replacingOccurrences(
-                of:
-                    """
-                    (?i)((?:authorization|proxy-authorization|cookie|set-cookie)\\s*[=:]\\s*)[^\
-                    &\\r\\n]+
-                    """,
-                with: "$1[REDACTED]", options: .regularExpression
-            )
-        for name in protectedNames {
-            let escaped = NSRegularExpression.escapedPattern(for: name)
-            let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")"
-            let keyValuePattern =
-                #"""
-                (?i)(\b[\w$-]*\#(escaped)[\w$-]*(?:["']\]?)?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"\#
-                |$)|'(?:\\.|[^'\\])*(?:'|$)|[^&\r\n,;]+)
-                """#
-            output = output.replacingOccurrences(
-                of: jsonPattern, with: "$1[REDACTED]$2", options: .regularExpression)
-            output = output.replacingOccurrences(
-                of: keyValuePattern, with: "$1[REDACTED]", options: .regularExpression)
+        var output = replace(
+            authorizationExpression,
+            in: redactHTML(redactURLs(structured, credentials: credentials)),
+            with: "$1[REDACTED]"
+        )
+        for pair in protectedExpressions {
+            output = replace(pair.json, in: output, with: "$1[REDACTED]$2")
+            output = replace(pair.keyValue, in: output, with: "$1[REDACTED]")
         }
         return redactCredentials(output, credentials: credentials)
     }
@@ -340,20 +374,8 @@ nonisolated enum ErrorReportRedactor {
         if !studentID.isEmpty {
             output = output.replacingOccurrences(of: studentID, with: "[REDACTED]")
         }
-        let patterns: [(pattern: String, replacement: String)] = [
-            (
-                "(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+",
-                "$1[REDACTED]"
-            ),
-            (
-                "(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")",
-                "$1[REDACTED]$2"
-            ),
-            ("(?<!\\d)\\d{8,12}(?!\\d)", "[REDACTED]"),
-        ]
-        for pattern in patterns {
-            output = output.replacingOccurrences(
-                of: pattern.pattern, with: pattern.replacement, options: .regularExpression)
+        for item in identityExpressions {
+            output = replace(item.expression, in: output, with: item.replacement)
         }
         return output
     }
@@ -790,8 +812,8 @@ struct FeedbackSubmissionClient {
         }
     }
 
-    private static var deviceModel: String {
-        @ObservationIgnored var info = utsname()
+    static var deviceModel: String {
+        var info = utsname()
         uname(&info)
         return withUnsafePointer(to: &info.machine) {
             $0.withMemoryRebound(to: CChar.self, capacity: 1) { String(cString: $0) }

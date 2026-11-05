@@ -1,13 +1,6 @@
 #if os(iOS)
 import DesignSystemKit
 import Observation
-//
-//  CampusLocationController.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-08-12.
-//
-
 import CoreLocation
 import MapKit
 import TransportCore

@@ -4,13 +4,6 @@ import CommunityUI
 import TransportCore
 import CommunityCore
 import DesignSystemKit
-//
-//  GalleryRootView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import SwiftUI
 import Combine
 import WebKit

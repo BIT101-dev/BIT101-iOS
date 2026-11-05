@@ -1,8 +1,3 @@
-//
-//  ScheduleStringParsing.swift
-//  BIT101-iOS
-//
-
 import Foundation
 
 /// 返回字符串中首个匹配结果的捕获组。

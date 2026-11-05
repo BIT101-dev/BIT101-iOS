@@ -2,11 +2,6 @@ import Foundation
 import ScheduleContracts
 import ScheduleDomain
 
-//
-//  ScheduleViewModel+CourseEditing.swift
-//  BIT101-iOS
-//
-
 extension ScheduleViewModel {
     /// 生成新增课程用的默认草稿。
     ///

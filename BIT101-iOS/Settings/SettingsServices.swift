@@ -6,13 +6,6 @@ import MineFeature
 import Observation
 import TransportCore
 
-//
-//  SettingsServices.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 /// 设置中心网络层使用的错误类型。
 enum SettingsServiceError: LocalizedError {
     case notLoggedIn

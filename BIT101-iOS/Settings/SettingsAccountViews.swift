@@ -8,12 +8,6 @@ import PhotosUI
 import SwiftUI
 import TransportCore
 
-//
-//  SettingsAccountViews.swift
-//  BIT101-iOS
-//
-//
-
 struct AccountSettingsPage: View {
     @Environment(MediaEnvironment.self) private var media
     let dependencies: SettingsAccountDependencies

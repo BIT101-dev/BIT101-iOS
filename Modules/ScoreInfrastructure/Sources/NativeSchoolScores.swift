@@ -33,7 +33,7 @@ nonisolated enum NativeSchoolScoreParser {
 
     static func parse(_ html: String) throws -> Table {
         guard let table = tables(html).first else { throw ScoreServiceError.invalidResponse }
-        let rows = captures(#"<tr\b[^>]*>([\s\S]*?)</tr\s*>"#, in: table)
+        let rows = captures(rowExpression, in: table)
         guard let header = rows.first else { throw ScoreServiceError.invalidResponse }
         let headers = cells(header).map(text)
         guard Set(headers).isSuperset(of: ScoreRow.requiredHeaderNames),
@@ -61,7 +61,7 @@ nonisolated enum NativeSchoolScoreParser {
                 throw ScoreServiceError.invalidResponse
             }
             let path = captures(
-                #"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#, in: SchoolLoginHTMLParser.decodeHTML(row)
+                detailPathExpression, in: SchoolLoginHTMLParser.decodeHTML(row)
             ).first
             records.append(Record(values: values, detailPath: path))
         }
@@ -89,17 +89,39 @@ nonisolated enum NativeSchoolScoreParser {
         return detailHeaders.map { fields[$0] ?? "" }
     }
 
+    private static let tableExpression = try? NSRegularExpression(
+        pattern: #"<table\b[^>]*\bid\s*=\s*["']dataList["'][^>]*>([\s\S]*?)</table\s*>"#,
+        options: .caseInsensitive
+    )
+    private static let rowExpression = try? NSRegularExpression(
+        pattern: #"<tr\b[^>]*>([\s\S]*?)</tr\s*>"#,
+        options: .caseInsensitive
+    )
+    private static let detailPathExpression = try? NSRegularExpression(
+        pattern: #"['"](/jsxsd/kscj/cjfx[^'"]*)['"]"#,
+        options: .caseInsensitive
+    )
+    private static let cellExpression = try? NSRegularExpression(
+        pattern: #"<t[dh]\b[^>]*>([\s\S]*?)</t[dh]\s*>"#,
+        options: .caseInsensitive
+    )
+    private static let scriptStyleExpression = try? NSRegularExpression(
+        pattern: #"<script\b[\s\S]*?</script>|<style\b[\s\S]*?</style>"#,
+        options: .caseInsensitive
+    )
+    private static let tagExpression = try? NSRegularExpression(pattern: #"<[^>]+>"#)
+    private static let whitespaceExpression = try? NSRegularExpression(pattern: #"\s+"#)
+
     static func tables(_ html: String) -> [String] {
-        captures(#"<table\b[^>]*\bid\s*=\s*["']dataList["'][^>]*>([\s\S]*?)</table\s*>"#, in: html)
+        captures(tableExpression, in: html)
     }
 
     private static func cells(_ html: String) -> [String] {
-        captures(#"<t[dh]\b[^>]*>([\s\S]*?)</t[dh]\s*>"#, in: html)
+        captures(cellExpression, in: html)
     }
 
-    private static func captures(_ pattern: String, in html: String) -> [String] {
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-        else { return [] }
+    private static func captures(_ expression: NSRegularExpression?, in html: String) -> [String] {
+        guard let expression else { return [] }
         return expression.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap
         {
             Range($0.range(at: 1), in: html).map { String(html[$0]) }
@@ -107,15 +129,24 @@ nonisolated enum NativeSchoolScoreParser {
     }
 
     private static func text(_ html: String) -> String {
-        SchoolLoginHTMLParser.decodeHTML(
-            html.replacingOccurrences(
-                of: #"<script\b[\s\S]*?</script>|<style\b[\s\S]*?</style>"#, with: "",
-                options: [.regularExpression, .caseInsensitive]
-            )
-            .replacingOccurrences(of: #"<[^>]+>"#, with: "", options: .regularExpression)
+        let stripped = replace(
+            tagExpression,
+            in: replace(scriptStyleExpression, in: html, with: ""),
+            with: ""
         )
-        .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return replace(
+            whitespaceExpression, in: SchoolLoginHTMLParser.decodeHTML(stripped), with: " "
+        )
         .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func replace(
+        _ expression: NSRegularExpression?, in source: String, with template: String
+    ) -> String {
+        guard let expression else { return source }
+        return expression.stringByReplacingMatches(
+            in: source, range: NSRange(source.startIndex..., in: source), withTemplate: template
+        )
     }
 
 }

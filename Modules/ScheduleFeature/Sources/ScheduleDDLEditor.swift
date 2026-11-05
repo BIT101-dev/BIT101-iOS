@@ -2,11 +2,6 @@ import Foundation
 import ScheduleContracts
 import ScheduleDomain
 
-//
-//  ScheduleDDLEditor.swift
-//  BIT101-iOS
-//
-
 /// DDL 集合的纯编辑规则。
 ///
 /// 手动编辑与学校来源合并共用完成状态和排序规则。

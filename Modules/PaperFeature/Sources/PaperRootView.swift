@@ -4,9 +4,6 @@ import CommunityUI
 import CommunityCore
 import TransportCore
 import DesignSystemKit
-//
-//  PaperRootView.swift
-//  BIT101-iOS
 import SwiftUI
 
 /// 文章模块根视图。

@@ -1,12 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
 import DesignSystemKit
-//
-//  ScheduleCalendarViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 import UIKit
 
@@ -580,11 +574,8 @@ struct CourseScheduleCalendarView: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("第\(index + 1)节，开始时间\(slot.start)")
 
-            ForEach(visibleWeekdays, id: \.self) { _ in
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: dayWidth, height: rowHeight)
-            }
+            Color.clear
+                .frame(width: dayWidth * CGFloat(visibleWeekdays.count), height: rowHeight)
         }
     }
 

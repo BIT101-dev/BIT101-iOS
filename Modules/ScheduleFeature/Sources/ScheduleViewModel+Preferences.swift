@@ -3,11 +3,6 @@ import ScheduleDomain
 import SchedulePorts
 import StorageCore
 
-//
-//  ScheduleViewModel+Preferences.swift
-//  BIT101-iOS
-//
-
 extension ScheduleViewModel {
     public var settingsSnapshot: ScheduleSettingsSnapshot {
         ScheduleSettingsSnapshot(

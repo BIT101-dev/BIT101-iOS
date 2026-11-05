@@ -5,13 +5,6 @@ import Foundation
 import Observation
 import TransportCore
 
-//
-//  GalleryViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 @MainActor
 @Observable final class GallerySubscriptionsViewModel {
     let pendingOperations = CommunityDetailTasks()

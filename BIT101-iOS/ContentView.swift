@@ -5,13 +5,6 @@ import ScorePorts
 import SwiftUI
 import TransportCore
 
-//
-//  ContentView.swift
-//  BIT101-iOS
-//
-//  Created by Harry Bit on 2026-03-24.
-//
-
 /// 提供应用内展示的 ICP 备案号和工信部备案管理系统入口，供用户核验备案信息。
 enum AppLegalInfo {
     static let icpDisplayText = "京ICP备2026016481号"

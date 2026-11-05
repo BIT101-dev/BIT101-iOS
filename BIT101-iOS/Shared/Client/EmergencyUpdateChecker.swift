@@ -1,10 +1,10 @@
 import Foundation
 import TransportCore
 
-private enum EmergencyUpdateURLPolicy {
-    nonisolated static let endpointHost = "update.aihelpme.dev"
+nonisolated enum EmergencyUpdateURLPolicy {
+    static let endpointHost = "update.aihelpme.dev"
 
-    nonisolated static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
+    static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
         guard url.scheme?.lowercased() == "https",
             url.host?.lowercased() == host,
             url.port == nil || url.port == 443,

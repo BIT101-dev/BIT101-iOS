@@ -1,10 +1,3 @@
-//
-//  ScheduleModels.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import Foundation
 
 /// 课表名称的统一长度上限。

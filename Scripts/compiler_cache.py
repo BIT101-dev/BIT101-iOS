@@ -129,6 +129,9 @@ def prepare_build_command(root, arguments, derived_roots, owns_structure):
 
 
 def prune_product_symbols(parent):
+    from validation_artifacts import prune_stale_xctestrun
+
+    prune_stale_xctestrun(parent)
     for symbols in parent.rglob("*.dSYM"):
         bundled = any(
             path.suffix in (".app", ".appex", ".framework", ".xctest")

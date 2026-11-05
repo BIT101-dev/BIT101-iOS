@@ -427,7 +427,7 @@ bit101_wait_audit_groups() {
         if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then return 0; fi
       fi
     done
-    if (( remaining )); then sleep 1; fi
+    if (( remaining )); then sleep 0.1; fi
   done
 }
 

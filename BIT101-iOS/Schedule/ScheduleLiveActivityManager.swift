@@ -5,13 +5,6 @@ import ScheduleDomain
 import StorageCore
 import TransportCore
 
-//
-//  ScheduleLiveActivityManager.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-28.
-//
-
 nonisolated struct ScheduleReminderSession: Equatable, Sendable {
     let studentID: String
     let storage: AppStorageSession

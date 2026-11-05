@@ -1,7 +1,3 @@
-//
-//  ScheduleCacheStore.swift
-//  BIT101-iOS
-//
 import Combine
 import CommunityTransport
 import Foundation

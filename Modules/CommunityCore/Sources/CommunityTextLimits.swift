@@ -18,14 +18,9 @@ public nonisolated enum CommunityTextLimits {
             text.utf8.index(
                 text.utf8.startIndex, offsetBy: limit + 1, limitedBy: text.utf8.endIndex) != nil
         else { return text }
-        var end = text.startIndex
-        var remaining = limit - "…".utf8.count
-        while end < text.endIndex {
-            let next = text.index(after: end)
-            let length = text[end..<next].utf8.count
-            guard length <= remaining else { break }
-            remaining -= length
-            end = next
+        var end = text.utf8.index(text.utf8.startIndex, offsetBy: limit - "…".utf8.count)
+        while end > text.utf8.startIndex, end.samePosition(in: text) == nil {
+            end = text.utf8.index(before: end)
         }
         return String(text[..<end]) + "…"
     }

@@ -3,11 +3,6 @@ import CommunityUI
 import MediaKit
 import CommunityCore
 import DesignSystemKit
-//
-//  CourseCommentViews.swift
-//  BIT101-iOS
-//
-
 import SwiftUI
 
 struct CourseCommentsSection: View {

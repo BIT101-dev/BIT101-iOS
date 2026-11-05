@@ -265,7 +265,7 @@ public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Ide
 }
 
 /// 评论列表的排序方式。
-public enum CommunityCommentOrder: String, CaseIterable, Identifiable {
+public nonisolated enum CommunityCommentOrder: String, CaseIterable, Identifiable, Sendable {
     case newest = "new"
     case oldest = "old"
     case like
@@ -436,7 +436,7 @@ public nonisolated struct CommunityLikeResult: Decodable, Sendable {
     }
 }
 
-public enum CommunityLoadStatus: Equatable {
+public nonisolated enum CommunityLoadStatus: Equatable, Sendable {
     case idle
     case loading
     case loaded

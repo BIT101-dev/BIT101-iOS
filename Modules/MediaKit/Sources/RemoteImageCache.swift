@@ -721,16 +721,18 @@ actor RemoteImageCache {
         return target
     }
 
+    private static let placeholderBytes = Data(
+        base64Encoded: """
+            iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAA\
+            ASUVORK5CYII=
+            """
+    )
+
     /// Quick Look 数据源暂时缺图时使用的透明占位文件。
     func placeholderFile() throws -> URL {
         let target = directory.appendingPathComponent("preview-placeholder.png")
         // 1 × 1 透明 PNG；固定字节同时修复已缓存的损坏占位文件。
-        let encoded =
-            """
-            iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAA\
-            ASUVORK5CYII=
-            """
-        guard let data = Data(base64Encoded: encoded) else {
+        guard let data = Self.placeholderBytes else {
             throw CocoaError(.fileWriteUnknown)
         }
         if (try? files.readData(at: target)) != data {

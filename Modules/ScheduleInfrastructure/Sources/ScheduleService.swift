@@ -4,13 +4,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleService.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 @MainActor
 public struct ScheduleService {
     let schoolBaseURL = AppURL.required("https://jxzxehallapp.bit.edu.cn")

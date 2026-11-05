@@ -4,13 +4,6 @@ import MediaKit
 import CommunityCore
 import TransportCore
 import DesignSystemKit
-//
-//  MineRootView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import SwiftUI
 
 /// “我的”页内部导航。

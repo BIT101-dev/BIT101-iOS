@@ -1,8 +1,3 @@
-//
-//  BIT101APIClient.swift
-//  BIT101-iOS
-//
-
 import ClientCore
 import Foundation
 import TransportCore

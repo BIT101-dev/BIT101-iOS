@@ -1,12 +1,5 @@
 #if os(iOS)
 import DesignSystemKit
-//
-//  CampusMapScreen.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 import MapKit
 import SwiftUI
 

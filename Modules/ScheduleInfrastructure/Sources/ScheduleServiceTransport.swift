@@ -5,13 +5,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleServiceTransport.swift
-//  BIT101-iOS
-//
-//  Shared HTTPS transport and response classification.
-//
-
 private nonisolated enum ScheduleJSONResponseResult<Value: Sendable>: Sendable {
     case decoded(Value)
     case businessError(String)

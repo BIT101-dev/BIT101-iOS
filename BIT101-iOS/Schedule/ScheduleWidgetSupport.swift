@@ -6,13 +6,6 @@ import ScheduleSharedStore
 import StorageCore
 import WidgetKit
 
-//
-//  ScheduleWidgetSupport.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-28.
-//
-
 nonisolated enum ScheduleSnapshotExportPolicy {
     static func isCurrent(
         capturedSession: AppStorageSession,

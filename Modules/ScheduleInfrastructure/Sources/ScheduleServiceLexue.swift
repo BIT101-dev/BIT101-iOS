@@ -4,13 +4,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleServiceLexue.swift
-//  BIT101-iOS
-//
-//  Lexue calendar discovery and iCalendar synchronization.
-//
-
 enum SchoolSMSDeliveryMode: Equatable {
     case send
     case preflight

@@ -15,13 +15,6 @@ import SwiftUI
 import UIKit
 import os
 
-//
-//  BIT101_iOSApp.swift
-//  BIT101-iOS
-//
-//  Created by Harry Bit on 2026-03-24.
-//
-
 final class AppDelegate: NSObject, UIApplicationDelegate {
     var restoreLoginSession: @MainActor () -> Void = {
         AppAccountSession.storage.retrySessionReadIfNeeded()
@@ -45,8 +38,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
         application.isIdleTimerDisabled = true
-        #endif
-        #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
         return true
         #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
         return true

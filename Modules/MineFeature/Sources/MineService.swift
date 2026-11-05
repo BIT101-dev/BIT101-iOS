@@ -3,13 +3,6 @@ import CommunityCore
 import CommunityTransport
 import Foundation
 
-//
-//  MineService.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 /// “我的”页接口层错误。
 ///
 /// 错误枚举保留面向 UI 的少量分类；底层 HTTP 状态码在必要时转换为通用 NSError。

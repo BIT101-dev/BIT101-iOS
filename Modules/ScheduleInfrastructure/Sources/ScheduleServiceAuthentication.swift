@@ -4,13 +4,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleServiceAuthentication.swift
-//  BIT101-iOS
-//
-//  Teaching-center authentication and course-sync entry points.
-//
-
 extension ScheduleService {
     /// 同步课表、考试和首周日期。
     ///
@@ -158,21 +151,17 @@ extension ScheduleService {
         )
         do {
             try await requestTeachingCookies(body: body, accessToken: nil, owner: owner)
-        } catch ScheduleServiceError.authenticationFailed(let message)
-            where isTransientAuthFailure(message)
-        {
-            // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断。
-            // 认证请求等待 2 秒后重试一次，处理瞬时认证失败。
-            try await Task.sleep(for: .seconds(2))
-            try await requestTeachingCookies(body: body, accessToken: nil, owner: owner)
-        } catch ScheduleServiceError.challengeInvalid(let message)
-            where isTransientAuthFailure(message)
-        {
-            // challenge 短暂失效时等待 2 秒，再次请求教学中心 Cookie。
-            try await Task.sleep(for: .seconds(2))
-            try await requestTeachingCookies(body: body, accessToken: nil, owner: owner)
         } catch {
-            guard isScheduleNetworkError(error) else { throw error }
+            let shouldRetry: Bool
+            switch error {
+            case ScheduleServiceError.authenticationFailed(let message),
+                ScheduleServiceError.challengeInvalid(let message):
+                shouldRetry = isTransientAuthFailure(message)
+            default:
+                shouldRetry = isScheduleNetworkError(error)
+            }
+            guard shouldRetry else { throw error }
+            // bit-login 到 WebVPN 的单次请求可能被学校侧 25 秒读超时打断；等待 2 秒后重试一次。
             try await Task.sleep(for: .seconds(2))
             try await requestTeachingCookies(body: body, accessToken: nil, owner: owner)
         }

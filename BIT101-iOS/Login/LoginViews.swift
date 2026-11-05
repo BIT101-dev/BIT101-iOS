@@ -2,11 +2,6 @@ import DesignSystemKit
 import SwiftUI
 import UIKit
 
-//
-//  LoginViews.swift
-//  BIT101-iOS
-//
-
 /// 学校凭据在当前页面上方通过系统安全输入框收集。
 @MainActor
 final class SchoolPasswordPrompt {

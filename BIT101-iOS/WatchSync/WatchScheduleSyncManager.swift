@@ -267,9 +267,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             )
         }
     }
-    #endif
 
-    #if os(iOS)
     /// 将最新课表快照推送给已配对的 watch。
     func push(snapshot: ScheduleExternalSnapshot) {
         guard AppAccountSession.storage.hasResolvedSession else { return }

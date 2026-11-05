@@ -1,9 +1,5 @@
 import CommunityCore
 import DesignSystemKit
-//
-//  PaperModels.swift
-//  BIT101-iOS
-//
 import Foundation
 
 /// 文章正文的块解析与富文本辅助。
@@ -45,7 +41,7 @@ enum PaperContentResourceLimits {
 ///
 /// 后端原生支持“更新时间 / 点赞数 / 评论数”三种排序。
 /// 排序标题和接口参数在此统一定义，视图层读取对应值。
-public enum PaperSortOrder: CaseIterable, Identifiable, Hashable {
+public nonisolated enum PaperSortOrder: CaseIterable, Identifiable, Hashable, Sendable {
     case newest
     case like
     case comment

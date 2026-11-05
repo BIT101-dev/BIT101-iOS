@@ -32,6 +32,7 @@ private nonisolated struct DraftRead<Snapshot: Sendable> {
     var sourceURL: URL?
     var needsMigration = false
     var assetRevision: String?
+    var rawData: Data?
 }
 
 private nonisolated struct StoredGalleryComposerDraft: Codable, StoredComposerDraft {
@@ -621,12 +622,14 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
                     return DraftRead(
                         result: .recovered(snapshot, unavailableImages: unavailableImages),
                         sourceURL: url,
-                        assetRevision: assetRevision)
+                        assetRevision: assetRevision,
+                        rawData: data)
                 }
                 return DraftRead(
                     result: .loaded(snapshot), sourceURL: url,
                     needsMigration: url != currentURL || header.schemaVersion == nil,
-                    assetRevision: assetRevision)
+                    assetRevision: assetRevision,
+                    rawData: data)
             } catch {
                 if AppFileSystem.isMissingFile(error) { continue }
                 Self.logger.error(
@@ -815,14 +818,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     ) -> (data: Data?, readable: Bool) {
         let read = readDraft(type, filename: filename, session: session, includeImages: false)
         guard read.result.allowsWrite else { return (nil, false) }
-        guard let source = read.sourceURL else { return (nil, true) }
-        do {
-            return (
-                try files.readData(
-                    at: source, maximumBytes: ComposerDraftImagePolicy.maximumLegacyMetadataBytes),
-                true
-            )
-        } catch { return (nil, false) }
+        guard read.sourceURL != nil else { return (nil, true) }
+        return (read.rawData, read.rawData != nil)
     }
 
     @discardableResult

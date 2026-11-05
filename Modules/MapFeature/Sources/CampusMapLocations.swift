@@ -2,13 +2,6 @@ import CoreLocation
 import Foundation
 import ScheduleContracts
 
-//
-//  CampusMapLocations.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-08-12.
-//
-
 /// 地图页支持的校区预设。
 ///
 /// 校园地图围绕几个固定校区跳转，预设保存中心点和默认半径。

@@ -5,11 +5,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleDDLViewModel.swift
-//  BIT101-iOS
-//
-
 private nonisolated struct DDLPersistenceFailure: Error {}
 
 @MainActor

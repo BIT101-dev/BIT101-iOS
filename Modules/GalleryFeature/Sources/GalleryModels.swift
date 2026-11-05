@@ -1,13 +1,6 @@
 import CommunityCore
 import Foundation
 
-//
-//  GalleryModels.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 public nonisolated enum GallerySubscriptionLevel: Int, Codable, CaseIterable, Identifiable, Sendable
 {
     case none, silent, update, comment
@@ -46,7 +39,7 @@ public nonisolated struct GallerySubscription: Decodable, Identifiable, Hashable
 /// 画廊首页的 feed 类型。
 ///
 /// feed 类型统一提供顶部分类、请求参数和本地机器人分栏定义。
-public enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
+public nonisolated enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable, Sendable {
     case follow
     case recommend
     case newest
@@ -119,7 +112,7 @@ public enum GalleryFeedKind: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 搜索页支持的排序方式。
-public enum GallerySearchOrder: String, CaseIterable, Identifiable, Hashable {
+public nonisolated enum GallerySearchOrder: String, CaseIterable, Identifiable, Hashable, Sendable {
     case similar
     case like
     case newest = "new"
@@ -143,7 +136,7 @@ public enum GallerySearchOrder: String, CaseIterable, Identifiable, Hashable {
 /// 搜索页的文本和排序条件。
 ///
 /// 值类型便于整体传递查询条件，并保留排序和输入框状态。
-public struct GallerySearchQuery: Equatable {
+public nonisolated struct GallerySearchQuery: Equatable, Sendable {
     public var text = ""
     public var order: GallerySearchOrder = .newest
     public init(text: String = "", order: GallerySearchOrder = .newest) {

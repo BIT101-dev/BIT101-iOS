@@ -34,9 +34,6 @@ public struct AppFeedRow<Content: View>: View {
         .environment(\.appFeedRowIsSelected, isSelected)
     }
 }
-#endif
-
-#if os(iOS)
 
 /// 日程和成绩详情页共用的课程评价入口行。
 public struct AppCourseEvaluationRow: View {

@@ -4,12 +4,6 @@ import MediaKit
 import CommunityCore
 import TransportCore
 import DesignSystemKit
-//
-//  GalleryFeedViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 struct GallerySubscriptionsView: View {

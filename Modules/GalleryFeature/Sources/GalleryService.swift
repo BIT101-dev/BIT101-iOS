@@ -4,13 +4,6 @@ import CommunityTransport
 import Foundation
 import TransportCore
 
-//
-//  GalleryService.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 nonisolated enum GalleryWebRequestFactory {
     static func isTrustedPage(_ url: URL?) -> Bool {
         guard let url else { return false }
@@ -298,7 +291,7 @@ public struct GalleryService {
         }
 
         return GalleryPageBatch<CommunityPoster>(
-            items: applyGalleryFilters(collected),
+            items: collected,
             nextSourcePage: sourcePage,
             canLoadMore: canLoadMore,
             sourceIDs: sourceIDs

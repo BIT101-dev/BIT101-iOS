@@ -692,10 +692,6 @@ public struct AppFloatingActionButtonSurface<Content: View>: View {
             )
             .background(fill ?? .clear, in: Circle())
             .background(.ultraThinMaterial, in: Circle())
-            .frame(
-                width: AppDesignSystem.Size.Control.touchTarget,
-                height: AppDesignSystem.Size.Control.touchTarget
-            )
             .contentShape(Circle())
     }
 }

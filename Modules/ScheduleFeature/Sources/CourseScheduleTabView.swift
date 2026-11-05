@@ -1,11 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
 import DesignSystemKit
-//
-//  CourseScheduleTabView.swift
-//  BIT101-iOS
-//
-
 import SwiftUI
 
 private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {

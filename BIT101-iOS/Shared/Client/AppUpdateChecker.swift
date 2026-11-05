@@ -9,14 +9,8 @@ nonisolated enum BIT101AppStore {
         "https://apps.apple.com/cn/app/bit101/id6761147125")
 
     static func acceptsUpdateURL(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https",
-            url.host?.lowercased() == "apps.apple.com",
-            url.port == nil || url.port == 443,
-            url.user == nil,
-            url.password == nil
-        else { return false }
-
-        return url.pathComponents.contains("id6761147125")
+        EmergencyUpdateURLPolicy.acceptsHTTPS(url, host: "apps.apple.com")
+            && url.pathComponents.contains("id6761147125")
     }
 }
 

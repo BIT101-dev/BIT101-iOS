@@ -5,9 +5,6 @@ import MediaKit
 import CommunityCore
 import DesignSystemKit
 import Combine
-//
-//  PaperDetailView.swift
-//  BIT101-iOS
 import SwiftUI
 
 struct PaperDetailView: View {

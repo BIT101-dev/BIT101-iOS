@@ -1,13 +1,6 @@
 import CommunityCore
 import Foundation
 
-//
-//  CourseModels.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-04-02.
-//
-
 /// 课程评分展示工具。
 ///
 /// 后端课程与课程评论评分当前仍按 10 分制返回，iOS 端统一折算成 5 分制展示。
@@ -317,9 +310,7 @@ enum CourseHistoryMakeupPolicy {
         )
 
         let normalizedNumber = courseNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedNumber.hasPrefix(requiredCoursePrefix),
-            !normalizedNumber.hasPrefix(electiveCoursePrefix)
-        else {
+        guard normalizedNumber.hasPrefix(requiredCoursePrefix) else {
             return lowCountTerms
         }
 

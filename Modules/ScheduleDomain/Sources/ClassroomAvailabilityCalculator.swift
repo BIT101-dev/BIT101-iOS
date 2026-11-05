@@ -1,8 +1,3 @@
-//
-//  ClassroomAvailabilityCalculator.swift
-//  BIT101-iOS
-//
-
 import Foundation
 
 public nonisolated enum ClassroomSectionMatch: Sendable {

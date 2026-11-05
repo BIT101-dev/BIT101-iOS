@@ -5,11 +5,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleClassroomViewModel.swift
-//  BIT101-iOS
-//
-
 @MainActor
 @Observable public final class ScheduleClassroomViewModel: ScheduleStateConsumer {
     private(set) var cache: ScheduleClassroomState {

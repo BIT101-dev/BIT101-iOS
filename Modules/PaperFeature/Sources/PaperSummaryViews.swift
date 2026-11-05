@@ -4,12 +4,6 @@ import CommunityCore
 import CommunityUI
 import MediaKit
 import DesignSystemKit
-//
-//  PaperSummaryViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 struct PaperSummaryCard: View {

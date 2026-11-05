@@ -4,11 +4,6 @@ import Foundation
 import Observation
 import TransportCore
 
-//
-//  LoginViewModel.swift
-//  BIT101-iOS
-//
-
 private func isLoginCancellation(_ error: Error) -> Bool {
     TaskCancellation.matches(error)
 }

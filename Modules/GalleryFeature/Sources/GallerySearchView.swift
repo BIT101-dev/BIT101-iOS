@@ -2,12 +2,6 @@
 import CommunityUI
 import MediaKit
 import DesignSystemKit
-//
-//  GallerySearchView.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 struct GalleryPublicationReviewView: View {

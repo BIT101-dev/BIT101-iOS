@@ -1,8 +1,3 @@
-//
-//  ScheduleICSParser.swift
-//  BIT101-iOS
-//
-
 import Foundation
 
 /// 乐学 iCalendar 文本的纯解析器。

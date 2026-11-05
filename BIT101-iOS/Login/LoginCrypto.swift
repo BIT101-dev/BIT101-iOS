@@ -1,8 +1,3 @@
-//
-//  LoginCrypto.swift
-//  BIT101-iOS
-//
-
 import ClientCore
 import CommonCrypto
 import CryptoKit

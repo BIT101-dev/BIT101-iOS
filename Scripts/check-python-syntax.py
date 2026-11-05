@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Compile repository Python and embedded Zsh Python delegates."""
 
+import sys
+
+sys.dont_write_bytecode = True
+
 from pathlib import Path, PurePosixPath
 from python_shell import (
     command_words,
@@ -19,7 +23,6 @@ import re
 import runpy
 import shlex
 import subprocess
-import sys
 from validation_inputs import (
     repository_script_paths,
     python_import_dependencies,

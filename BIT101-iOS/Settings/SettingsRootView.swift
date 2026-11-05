@@ -8,13 +8,6 @@ import SwiftUI
 import TransportCore
 import UIKit
 
-//
-//  SettingsRootView.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 let mitLicenseText =
     """
     MIT License Copyright (c) 2026 BIT101 Contributors Permission is hereby granted, free of ch\
@@ -621,7 +614,7 @@ struct DeveloperSuggestionPage: View {
                     build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
                         ?? "?",
                     systemVersion: UIDevice.current.systemVersion,
-                    deviceModel: UIDevice.current.model,
+                    deviceModel: ErrorReportViewModel.deviceModel,
                     networkStatus: context.networkStatus,
                     submittedAt: Date(),
                     context: context,

@@ -5,13 +5,6 @@ import ScheduleDomain
 import SchedulePorts
 import TransportCore
 
-//
-//  ScheduleViewModel.swift
-//  BIT101-iOS
-//
-//  Created by Codex on 2026-03-24.
-//
-
 /// 周视图的自动定位范围。
 ///
 /// 自动定位结果落在这个范围内，手动翻页沿用完整周次范围。

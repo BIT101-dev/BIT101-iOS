@@ -2,12 +2,6 @@
 import ScheduleDomain
 import ScheduleContracts
 import DesignSystemKit
-//
-//  ScheduleEditorViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 
 /// 新增课程弹层。

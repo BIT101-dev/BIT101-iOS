@@ -1,9 +1,4 @@
 #if os(iOS)
-//
-//  AppHapticFeedback.swift
-//  BIT101-iOS
-//
-
 import SwiftUI
 import UIKit
 

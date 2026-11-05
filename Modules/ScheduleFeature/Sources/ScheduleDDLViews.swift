@@ -1,12 +1,6 @@
 #if os(iOS)
 import ScheduleDomain
 import DesignSystemKit
-//
-//  ScheduleDDLViews.swift
-//  BIT101-iOS
-//
-//
-
 import SwiftUI
 import PhotosUI
 import MediaKit

@@ -9,6 +9,9 @@ import sys
 import subprocess
 import json
 from contextlib import contextmanager, ExitStack, closing
+
+sys.dont_write_bytecode = True
+
 from validation_policy import TEST_GROUPS, BUILD_HOSTS
 
 if not __debug__:
@@ -589,6 +592,19 @@ def maintain_native_storage(shared: Path) -> None:
             print(f"缓存回收待重试：{error}", file=sys.stderr)
 
 
+def prune_stale_xctestrun(parent: Path) -> None:
+    grouped_runs: dict[tuple[str, str], list[Path]] = {}
+    for run_file in parent.glob("*.xctestrun"):
+        prefix, _, target = run_file.stem.rpartition("_")
+        platform = "".join(ch for ch in target if not (ch.isdigit() or ch == "."))
+        grouped_runs.setdefault((prefix, platform), []).append(run_file)
+    for runs in grouped_runs.values():
+        newest = max(runs, key=lambda item: item.stat().st_mtime_ns)
+        for stale in runs:
+            if stale != newest:
+                stale.unlink(missing_ok=True)
+
+
 def main(root: Path) -> None:
     recover_self_test_artifacts(root)
     for name in (
@@ -599,8 +615,12 @@ def main(root: Path) -> None:
         (root / ".build/static-audit" / name).unlink(missing_ok=True)
     self_test()
     shutil.rmtree(root / "Scripts/__pycache__", ignore_errors=True)
-    for ds_store in (root / "Cloudflare/.DS_Store", root / ".DS_Store"):
-        ds_store.unlink(missing_ok=True)
+    for folder in ("", "Cloudflare", "BIT101-iOS", "Modules", "Scripts", "docs"):
+        (root / folder / ".DS_Store").unlink(missing_ok=True)
+    for relative in DERIVED_ROOT_NAMES:
+        products = root / relative / "Build/Products"
+        if products.is_dir():
+            prune_stale_xctestrun(products)
     allowed_root_files = {
         ".build/extended-automation.lock",
         ".build/code-quality-report.txt",
