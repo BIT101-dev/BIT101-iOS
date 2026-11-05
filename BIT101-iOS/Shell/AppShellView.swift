@@ -189,7 +189,7 @@ struct AppShellView: View {
         改进页面状态保留、缓存恢复和网络切换体验。
         """
     private static let linuxDoThanksTitle = "特别鸣谢 LINUX DO"
-    private static let linuxDoThanksBody =
+    static let linuxDoThanksBody =
         """
         特别感谢 LINUX DO（L站）以及佬友们。这个 App 的诞生，离不开他们提供的免费 tokens 与无私的支持。L站倡导“真诚、友善、团结、专业，共建你我引以为荣之社区\
         。”某种意义上，BIT101 也是在这样的氛围里，被一点点推出来的。

@@ -177,18 +177,4 @@ public nonisolated struct PaperDetail: CommunityResourceItem, Decodable, Identif
 }
 
 /// 文章列表分页状态。
-struct PaperListState {
-    var failureCause: (any Error)?
-    var paginationError: String?
-    var pagedItems = CommunityPagedItems<PaperSummary>()
-    var items: [PaperSummary] {
-        get { pagedItems.items }
-        set { pagedItems.replace(with: newValue) }
-    }
-    var status: CommunityLoadStatus = .idle
-    var isLoadingMore = false
-    var nextPage = 0
-    var canLoadMore = true
-}
-
-extension PaperListState: PagedItemsState {}
+typealias PaperListState = CommunityPagedState<PaperSummary>

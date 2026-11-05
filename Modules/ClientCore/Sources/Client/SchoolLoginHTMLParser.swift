@@ -20,9 +20,7 @@ public nonisolated enum SchoolLoginHTMLParser {
 
     /// CAS 表单省略 action 时沿当前文档提交，保留 service 与 execution 上下文。
     public static func loginFormAction(html: String, documentURL: URL) -> URL? {
-        let action =
-            value(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#)
-            ?? ""
+        let action = value(in: html, regex: loginFormActionRegex) ?? ""
         let decoded = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             let url = decoded.isEmpty
@@ -47,10 +45,8 @@ public nonisolated enum SchoolLoginHTMLParser {
         -> SchoolSecondFactorContext?
     {
         let hasSecondFactorMarker =
-            html.range(
-                of: "secondSmsLoginForm|second-auth-tip|sso-second|current-login-type|cas-gateway",
-                options: [.regularExpression, .caseInsensitive]
-            ) != nil
+            secondFactorMarkerRegex?.firstMatch(
+                in: html, range: NSRange(html.startIndex..., in: html)) != nil
         guard hasSecondFactorMarker else { return nil }
         guard let form = secondFactorForm(in: html) else { return nil }
         let fields = field(in: form, id: "user-object-id") == nil ? html : form
@@ -64,11 +60,7 @@ public nonisolated enum SchoolLoginHTMLParser {
             return nil
         }
 
-        let action =
-            value(
-                in: form,
-                pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
-            ) ?? ""
+        let action = value(in: form, regex: secondFactorActionRegex) ?? ""
         let decodedAction = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
         let pageURL = documentURL ?? baseURL
         guard
@@ -88,12 +80,9 @@ public nonisolated enum SchoolLoginHTMLParser {
         )
     }
 
-    /// 使用正则从 HTML 中提取单个字段值。
-    private static func value(in html: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
-        else {
-            return nil
-        }
+    /// 使用预编译正则从 HTML 中提取单个字段值。
+    private static func value(in html: String, regex: NSRegularExpression?) -> String? {
+        guard let regex else { return nil }
 
         let range = NSRange(html.startIndex..., in: html)
         guard
@@ -106,8 +95,53 @@ public nonisolated enum SchoolLoginHTMLParser {
         return String(html[captureRange])
     }
 
+    private struct FieldPatterns: Sendable {
+        let valuePatterns: [NSRegularExpression]
+        let innerTextPattern: NSRegularExpression?
+
+        init(id: String) {
+            let escapedID = NSRegularExpression.escapedPattern(for: id)
+            self.valuePatterns = [
+                #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*\svalue\s*=\s*["']([^"']+)["']"#,
+                #"<[^>]*\svalue\s*=\s*["']([^"']+)["'][^>]*\sid\s*=\s*["']"# + escapedID + #"["']"#,
+            ].compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+            self.innerTextPattern = try? NSRegularExpression(
+                pattern: #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*>\s*([^<\s]+)\s*<"#,
+                options: [.caseInsensitive]
+            )
+        }
+    }
+
+    private static let compiledFields: [String: FieldPatterns] = [
+        "login-croypto": FieldPatterns(id: "login-croypto"),
+        "login-page-flowkey": FieldPatterns(id: "login-page-flowkey"),
+        "login-error-code": FieldPatterns(id: "login-error-code"),
+        "user-object-id": FieldPatterns(id: "user-object-id"),
+    ]
+    private static let loginFormActionRegex = try? NSRegularExpression(
+        pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#,
+        options: [.caseInsensitive]
+    )
+    private static let secondFactorActionRegex = try? NSRegularExpression(
+        pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#,
+        options: [.caseInsensitive]
+    )
+    private static let secondFactorMarkerRegex = try? NSRegularExpression(
+        pattern: "secondSmsLoginForm|second-auth-tip|sso-second|current-login-type|cas-gateway",
+        options: [.caseInsensitive]
+    )
     private static let secondFactorFormRegex = try? NSRegularExpression(
         pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive])
+    private static let loginPageMarkerRegex = try? NSRegularExpression(
+        pattern:
+            #"\sid\s*=\s*["'](?:login-croypto|login-page-flowkey)["']"#
+            + #"|\sname\s*=\s*["']username["']"#,
+        options: [.caseInsensitive]
+    )
+    private static let authenticatedPageMarkerRegex = try? NSRegularExpression(
+        pattern: "退出登录|注销|cas-success|login-success",
+        options: [.caseInsensitive]
+    )
 
     private static func secondFactorForm(in html: String) -> String? {
         guard let regex = secondFactorFormRegex else { return nil }
@@ -124,26 +158,13 @@ public nonisolated enum SchoolLoginHTMLParser {
     }
 
     private static func containsLoginPageMarker(in html: String) -> Bool {
-        let markers = [
-            #"\sid\s*=\s*["']login-croypto["']"#,
-            #"\sid\s*=\s*["']login-page-flowkey["']"#,
-            #"\sname\s*=\s*["']username["']"#,
-        ]
-        return markers.contains { marker in
-            html.range(of: marker, options: [.regularExpression, .caseInsensitive]) != nil
-        }
+        loginPageMarkerRegex?.firstMatch(
+            in: html, range: NSRange(html.startIndex..., in: html)) != nil
     }
 
     private static func isAuthenticatedPage(in html: String) -> Bool {
-        let markers = [
-            "退出登录",
-            "注销",
-            #"cas-success"#,
-            #"login-success"#,
-        ]
-        return markers.contains { marker in
-            html.range(of: marker, options: [.regularExpression, .caseInsensitive]) != nil
-        }
+        authenticatedPageMarkerRegex?.firstMatch(
+            in: html, range: NSRange(html.startIndex..., in: html)) != nil
     }
 
     private static func isSameSecureOrigin(_ url: URL, as baseURL: URL) -> Bool {
@@ -151,24 +172,16 @@ public nonisolated enum SchoolLoginHTMLParser {
     }
 
     private static func field(in html: String, id: String) -> String? {
-        let escapedID = NSRegularExpression.escapedPattern(for: id)
-        let valuePatterns = [
-            #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*\svalue\s*=\s*["']([^"']+)["']"#,
-            #"<[^>]*\svalue\s*=\s*["']([^"']+)["'][^>]*\sid\s*=\s*["']"# + escapedID + #"["']"#,
-        ]
-        for pattern in valuePatterns {
-            guard let rawValue = value(in: html, pattern: pattern) else { continue }
+        let patterns = compiledFields[id] ?? FieldPatterns(id: id)
+        for regex in patterns.valuePatterns {
+            guard let rawValue = value(in: html, regex: regex) else { continue }
             let normalized = decodeHTML(rawValue).trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {
                 return normalized
             }
         }
 
-        let innerText = value(
-            in: html,
-            pattern: #"<[^>]*\sid\s*=\s*["']"# + escapedID + #"["'][^>]*>\s*([^<\s]+)\s*<"#
-        )
-        if let innerText {
+        if let innerText = value(in: html, regex: patterns.innerTextPattern) {
             let normalized = decodeHTML(innerText).trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {
                 return normalized

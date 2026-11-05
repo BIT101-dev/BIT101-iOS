@@ -339,6 +339,31 @@ extension PagedItemsState where Item: Identifiable {
     }
 }
 
+/// 社区页码分页列表共享状态。
+public struct CommunityPagedState<Item: Identifiable>: PagedItemsState {
+    public var failureCause: (any Error)?
+    public var paginationError: String?
+    public var needsRefresh = false
+    public var pagedItems = CommunityPagedItems<Item>()
+    public var status: CommunityLoadStatus = .idle
+    public var nextPage = 0
+    public var isLoadingMore = false
+    public var canLoadMore = true
+
+    public init() {}
+
+    public var loadMoreError: String? {
+        get { paginationError }
+        set { paginationError = newValue }
+    }
+
+    public mutating func prepareForRefresh() {
+        paginationError = nil
+        status = .loading
+        resetPagination()
+    }
+}
+
 /// 使用“最后一项 ID”作为游标的分页列表状态契约。
 ///
 /// 消息中心和页码列表使用不同分页协议，加载更多的状态转移保持一致；

@@ -69,10 +69,7 @@ nonisolated enum PlatformScheduleSnapshotStorage {
         #else
         let files = AppFileSystem.files
         #endif
-        return ScheduleExternalSnapshotStore(
-            files: files,
-            containerURL: files.appGroupContainerURL(
-                identifier: ScheduleSharedContainer.identifier))
+        return ScheduleExternalSnapshotStore(files: files)
     }()
 }
 
@@ -260,7 +257,7 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             try session.updateApplicationContext(
                 WatchScheduleTransferProtocol.snapshotContext($0))
         }) {
-            var failure: String { self.lastDeliveryError ?? "" }
+            let failure = self.lastDeliveryError ?? ""
             Self.logger.error(
                 "Failed to update the watch application context: \(failure, privacy: .public)"
             )

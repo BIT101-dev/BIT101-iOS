@@ -5,16 +5,6 @@ import Foundation
 import Observation
 import TransportCore
 
-/// 首屏刷新沿课程分页状态执行重置。
-extension CoursePagedState {
-    /// 开始首屏刷新并重置分页游标。
-    fileprivate mutating func prepareForRefresh() {
-        paginationError = nil
-        status = .loading
-        resetPagination()
-    }
-}
-
 @MainActor
 /// 管理课程列表的加载、刷新和分页状态。
 @Observable public final class CourseListViewModel {

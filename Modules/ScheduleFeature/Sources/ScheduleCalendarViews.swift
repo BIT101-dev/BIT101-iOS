@@ -122,12 +122,10 @@ final class ScheduleBlankContextMenuControl: UIControl {
     }
 
     private static func coloredMenuImage(_ name: String) -> UIImage? {
-        guard let symbol = UIImage(systemName: name) else { return nil }
-        let color = UIColor(AppDesignSystem.Palette.Accent.primary)
-        return UIGraphicsImageRenderer(size: symbol.size).image { _ in
-            symbol.withTintColor(color, renderingMode: .alwaysOriginal)
-                .draw(in: CGRect(origin: .zero, size: symbol.size))
-        }.withRenderingMode(.alwaysOriginal)
+        UIImage(systemName: name)?.withTintColor(
+            UIColor(AppDesignSystem.Palette.Accent.primary),
+            renderingMode: .alwaysOriginal
+        )
     }
 
     override func contextMenuInteraction(

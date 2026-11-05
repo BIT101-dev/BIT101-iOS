@@ -311,12 +311,7 @@ struct GalleryFeedState {
     var needsContinuation = false
 }
 
-extension GalleryFeedState: PagedItemsState {
-    var items: [CommunityPoster] {
-        get { posters }
-        set { posters = newValue }
-    }
-}
+extension GalleryFeedState: PagedItemsState {}
 
 public nonisolated struct GalleryReportType: Decodable, Identifiable, Hashable, Sendable {
     public let id: Int

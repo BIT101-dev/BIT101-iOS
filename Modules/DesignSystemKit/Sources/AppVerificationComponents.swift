@@ -203,6 +203,7 @@ public struct AppVerificationSheet: View {
     let onSubmit: (String) async -> Void
     let isCaptcha: Bool
     let captchaImage: Data?
+    private let uiCaptchaImage: UIImage?
 
     @State private var code = ""
     @State private var isCodeFieldFocused = false
@@ -227,10 +228,7 @@ public struct AppVerificationSheet: View {
         self.onSubmit = onSubmit
         self.isCaptcha = isCaptcha
         self.captchaImage = captchaImage
-    }
-
-    private var uiCaptchaImage: UIImage? {
-        captchaImage.flatMap { UIImage(data: $0) }
+        self.uiCaptchaImage = captchaImage.flatMap { UIImage(data: $0) }
     }
 
     @ViewBuilder

@@ -184,12 +184,12 @@ public nonisolated enum ScheduleDisplayNormalizer {
     }()
 
     private static let knownBuildingPairs: [(light: String, max: String)] = {
-        let pairs = locationAbbreviationRules.map { ($0.light, $0.max) }
-        return Array(Set(pairs.map { "\($0.0)\u{0}\($0.1)" }))
-            .map { token in
-                let parts = token.split(separator: "\u{0}", maxSplits: 1).map(String.init)
-                return (parts[0], parts[1])
-            }
+        struct BuildingPair: Hashable {
+            let light: String
+            let max: String
+        }
+        return Set(locationAbbreviationRules.map { BuildingPair(light: $0.light, max: $0.max) })
+            .map { ($0.light, $0.max) }
             .sorted { lhs, rhs in
                 if lhs.0.count != rhs.0.count {
                     return lhs.0.count > rhs.0.count

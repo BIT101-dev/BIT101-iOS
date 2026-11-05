@@ -629,10 +629,6 @@ public nonisolated struct SharedScheduleRecord: Codable, Identifiable, Hashable,
     }
 }
 
-/// 课程表和 DDL 共用的日期编解码工具。
-///
-/// 日程模块内部有多种日期展示形式，各页面共用这些格式器。
-
 /// 地图与外部展示消费的课程快照。
 public nonisolated struct ScheduleCourseSnapshot: Equatable, Sendable {
     public let firstDayString: String

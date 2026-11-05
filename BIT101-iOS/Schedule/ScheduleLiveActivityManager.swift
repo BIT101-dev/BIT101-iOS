@@ -190,7 +190,7 @@ final class ScheduleLiveActivityManager {
             return
         }
 
-        guard #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else {
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             logger.debug(
                 """
                 live activity unavailable or disabled by system; keeping fallback notificat\
@@ -220,12 +220,8 @@ final class ScheduleLiveActivityManager {
         }?.0
 
         if let currentOccurrence {
-            var startText: String {
-                Self.debugDateFormatter.string(from: currentOccurrence.startDate)
-            }
-            var endText: String {
-                Self.debugDateFormatter.string(from: currentOccurrence.endDate)
-            }
+            let startText = Self.debugDateFormatter.string(from: currentOccurrence.startDate)
+            let endText = Self.debugDateFormatter.string(from: currentOccurrence.endDate)
             logger.debug(
                 """
                 selected occurrence kind=\(currentOccurrence.kindText, privacy: .public) ti\
@@ -438,7 +434,6 @@ final class ScheduleLiveActivityManager {
     ) async {
         await withActivityOperation {
             guard !Task.isCancelled, self.isCurrentSession(expectedSession) else { return }
-            guard #available(iOS 16.2, *) else { return }
             let report = await Self.endActivities(
                 matchingStudentID: expectedSession.studentID,
                 expectedTarget: expectedTarget
@@ -477,7 +472,7 @@ final class ScheduleLiveActivityManager {
             await clearFallbackNotices()
         }
         await withActivityOperation {
-            guard !Task.isCancelled, #available(iOS 16.2, *) else { return }
+            guard !Task.isCancelled else { return }
             let report = await Self.endActivities { !Task.isCancelled }
             for activityID in report.endedActivityIDs {
                 self.logger.debug("endAllActivities ending id=\(activityID, privacy: .public)")

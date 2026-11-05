@@ -10,9 +10,6 @@ struct BIT101ScheduleWidgetsBundle: WidgetBundle {
     var body: some Widget {
         BIT101ScheduleWidgets()
         BIT101DeadlineWidget()
-        // iOS 16.2 及以上系统提供课程提醒 Live Activity 入口。
-        if #available(iOSApplicationExtension 16.2, *) {
-            CourseReminderLiveActivityWidget()
-        }
+        CourseReminderLiveActivityWidget()
     }
 }

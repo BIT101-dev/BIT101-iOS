@@ -526,54 +526,14 @@ public actor ScheduleCloudSyncManager {
         do {
             record = try await transport.record(named: account.recordName)
             logDebug("upsert fetched existing remote record")
-            guard let decodedRemote = decodeCache(from: record, account: account) else {
-                await publishStatus(.failed("云端日程数据需要更新后重试。"), for: account)
-                logError("upsert abort: remote payload decode failed record=\(account.recordName)")
-                return false
-            }
-            let remoteCache = decodedRemote.cache
-            guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
-            else {
-                return false
-            }
-            let remoteModifiedAt = record.modificationDate ?? remoteCache.cloudSyncBaselineAt
-            let remoteRecordTag = record.recordChangeTag ?? ""
-            let statesMatch = try ScheduleCloudSyncState.matches(cache, remoteCache)
-            if !decodedRemote.requiresPayloadMigration, statesMatch {
-                return await persistCloudSyncState(
-                    remoteModifiedAt,
-                    recordTag: remoteRecordTag,
-                    account: account,
-                    baseline: remoteCache,
-                    expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
-                )
-            }
-            guard cache.hasUnpushedCloudChanges || statesMatch else { return false }
-            if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-                localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
-                localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag
+            if let outcome = try await resolveExistingRemoteRecord(
+                record,
+                cache: cache,
+                account: account,
+                expectedLocalUpdatedAt: expectedLocalUpdatedAt,
+                publishDecodeFailure: true
             ) {
-                if try await mergeConcurrentChanges(
-                    localCache: cache, remoteCache: remoteCache,
-                    record: record, account: account)
-                {
-                    return true
-                }
-                await enqueueCloudConflict(
-                    localCache: cache,
-                    remoteCache: remoteCache,
-                    requiresPayloadMigration: decodedRemote.requiresPayloadMigration,
-                    account: account,
-                    remoteModifiedAt: remoteModifiedAt,
-                    remoteRecordTag: remoteRecordTag
-                )
-                return false
-            }
-            guard cache.updatedAt > remoteCache.updatedAt || decodedRemote.requiresPayloadMigration
-            else {
-                logDebug("upsert skipped: remote cache is as new or newer")
-                return false
+                return outcome
             }
         } catch let error as ScheduleCloudTransportError where error == .unknownItem {
             record = ScheduleCloudRecord(recordName: account.recordName, recordType: recordType)
@@ -587,6 +547,70 @@ public actor ScheduleCloudSyncManager {
             expectedLocalUpdatedAt: expectedLocalUpdatedAt,
             retryOnConflict: true
         )
+    }
+
+    private func resolveExistingRemoteRecord(
+        _ record: ScheduleCloudRecord,
+        cache: ScheduleCache,
+        account: CloudAccountContext,
+        expectedLocalUpdatedAt: Date?,
+        publishDecodeFailure: Bool
+    ) async throws -> Bool? {
+        guard let decodedRemote = decodeCache(from: record, account: account) else {
+            if publishDecodeFailure {
+                await publishStatus(.failed("云端日程数据需要更新后重试。"), for: account)
+                logError("upsert abort: remote payload decode failed record=\(account.recordName)")
+            } else {
+                logError("upsert conflict resolution aborted: remote payload decode failed")
+            }
+            return false
+        }
+        let remoteCache = decodedRemote.cache
+        guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
+        else {
+            return false
+        }
+        let remoteModifiedAt = record.modificationDate ?? remoteCache.cloudSyncBaselineAt
+        let remoteRecordTag = record.recordChangeTag ?? ""
+        let statesMatch = try ScheduleCloudSyncState.matches(cache, remoteCache)
+        if !decodedRemote.requiresPayloadMigration, statesMatch {
+            let persisted = await persistCloudSyncState(
+                remoteModifiedAt,
+                recordTag: remoteRecordTag,
+                account: account,
+                baseline: remoteCache,
+                expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
+            )
+            return publishDecodeFailure ? persisted : true
+        }
+        guard cache.hasUnpushedCloudChanges || statesMatch else { return false }
+        if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
+            localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
+            localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
+            remoteRecordTag: remoteRecordTag
+        ) {
+            if try await mergeConcurrentChanges(
+                localCache: cache, remoteCache: remoteCache,
+                record: record, account: account)
+            {
+                return true
+            }
+            await enqueueCloudConflict(
+                localCache: cache,
+                remoteCache: remoteCache,
+                requiresPayloadMigration: decodedRemote.requiresPayloadMigration,
+                account: account,
+                remoteModifiedAt: remoteModifiedAt,
+                remoteRecordTag: remoteRecordTag
+            )
+            return false
+        }
+        guard cache.updatedAt > remoteCache.updatedAt || decodedRemote.requiresPayloadMigration
+        else {
+            logDebug("upsert skipped: remote cache is as new or newer")
+            return false
+        }
+        return nil
     }
 
     private func save(
@@ -626,62 +650,14 @@ public actor ScheduleCloudSyncManager {
         {
             logDebug("upsert conflict detected; refetching remote record")
             let currentRemoteRecord = try await transport.record(named: account.recordName)
-            guard
-                let currentRemote = decodeCache(
-                    from: currentRemoteRecord,
-                    account: account
-                )
-            else {
-                logError("upsert conflict resolution aborted: remote payload decode failed")
-                return false
-            }
-            let currentRemoteCache = currentRemote.cache
-            guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
-            else {
-                return false
-            }
-            let remoteModifiedAt =
-                currentRemoteRecord.modificationDate ?? currentRemoteCache.cloudSyncBaselineAt
-            let remoteRecordTag = currentRemoteRecord.recordChangeTag ?? ""
-            let statesMatch = try ScheduleCloudSyncState.matches(cache, currentRemoteCache)
-            if !currentRemote.requiresPayloadMigration, statesMatch {
-                await persistCloudSyncState(
-                    remoteModifiedAt,
-                    recordTag: remoteRecordTag,
-                    account: account,
-                    baseline: currentRemoteCache,
-                    expectedLocalUpdatedAt: expectedLocalUpdatedAt ?? cache.updatedAt
-                )
-                return true
-            }
-            guard cache.hasUnpushedCloudChanges || statesMatch else { return false }
-            if ScheduleCacheReconciliationPolicy.hasConcurrentChanges(
-                localHasUnpushedChanges: cache.hasUnpushedCloudChanges,
-                localBaselineRecordTag: cache.cloudSyncBaselineRecordTag,
-                remoteRecordTag: remoteRecordTag
+            if let outcome = try await resolveExistingRemoteRecord(
+                currentRemoteRecord,
+                cache: cache,
+                account: account,
+                expectedLocalUpdatedAt: expectedLocalUpdatedAt,
+                publishDecodeFailure: false
             ) {
-                if try await mergeConcurrentChanges(
-                    localCache: cache, remoteCache: currentRemoteCache,
-                    record: currentRemoteRecord, account: account)
-                {
-                    return true
-                }
-                await enqueueCloudConflict(
-                    localCache: cache,
-                    remoteCache: currentRemoteCache,
-                    requiresPayloadMigration: currentRemote.requiresPayloadMigration,
-                    account: account,
-                    remoteModifiedAt: remoteModifiedAt,
-                    remoteRecordTag: remoteRecordTag
-                )
-                return false
-            }
-            guard
-                cache.updatedAt > currentRemoteCache.updatedAt
-                    || currentRemote.requiresPayloadMigration
-            else {
-                logDebug("upsert conflict resolution skipped: remote cache is newer")
-                return false
+                return outcome
             }
             return try await save(
                 currentRemoteRecord,

@@ -23,7 +23,8 @@ public struct LocalImageTile<Overlay: View>: View {
     @Environment(\.displayScale) private var displayScale
     @State private var thumbnail: UIImage?
     private struct Identity: Equatable {
-        let data: Data
+        let identifier: String
+        let byteCount: Int
         let size: CGFloat
         let scale: CGFloat
     }
@@ -71,7 +72,10 @@ public struct LocalImageTile<Overlay: View>: View {
             }
         }
         .frame(width: pointSize, height: pointSize)
-        .task(id: Identity(data: data, size: pointSize, scale: displayScale)) {
+        .task(
+            id: Identity(
+                identifier: identifier, byteCount: data.count, size: pointSize, scale: displayScale)
+        ) {
             let image = await BoundedStillImageDecoder.thumbnail(
                 data, size: pointSize, scale: displayScale)
             guard !Task.isCancelled else { return }

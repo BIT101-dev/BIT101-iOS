@@ -103,6 +103,10 @@ private struct WatchScheduleProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (WatchScheduleEntry) -> Void) {
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
         completion(loadEntry())
     }
 

@@ -118,6 +118,26 @@ extension BIT101APIClient {
         return (data, response)
     }
 
+    private static let staticRiskProfile: [String: String] = {
+        let values = [
+            "[\"Arial\",\"Helvetica Neue\",\"PingFang SC\",\"Times New Roman\"]", "16", "10",
+            "\"Asia/Shanghai\"", "\"not available\"", "\"MacIntel\"", "\"zh-CN\"", "[956,1470]",
+        ]
+        return [
+            "fonts": riskFingerprint(values[0]),
+            "deviceMemory": riskFingerprint(values[1]),
+            "hardwareConcurrency": riskFingerprint(values[2]),
+            "timezone": values[3],
+            "cpuClass": riskFingerprint(values[4]),
+            "platform": values[5],
+            "language": values[6],
+            "screenResolution": values[7],
+            "fingerprint": riskFingerprint(values.joined()),
+            "userAgent": browserUserAgent,
+            "platformAuthenticator": "support",
+        ]
+    }()
+
     private func schoolRiskToken(referer: URL, cookies: HTTPCookieStorage) async throws -> String? {
         let base = AppURL.required("https://sso.bit.edu.cn")
         var device = cookies.cookies(for: base)?.first { $0.name == "device" }?.value
@@ -131,23 +151,11 @@ extension BIT101APIClient {
                 cookies.setCookie(cookie)
             }
         }
-        let values = [
-            "[\"Arial\",\"Helvetica Neue\",\"PingFang SC\",\"Times New Roman\"]", "16", "10",
-            "\"Asia/Shanghai\"", "\"not available\"", "\"MacIntel\"", "\"zh-CN\"", "[956,1470]",
-        ]
         let group =
             cookies.cookies(for: base)?.first { $0.name == "riskSystemGroupId" }?.value ?? ""
-        let profile = [
-            "fonts": Self.riskFingerprint(values[0]),
-            "deviceMemory": Self.riskFingerprint(values[1]),
-            "hardwareConcurrency": Self.riskFingerprint(values[2]), "localgroupId": group,
-            "timezone": values[3],
-            "cpuClass": Self.riskFingerprint(values[4]), "platform": values[5],
-            "language": values[6],
-            "screenResolution": values[7], "fingerprint": Self.riskFingerprint(values.joined()),
-            "cookieValue": device ?? "",
-            "userAgent": Self.browserUserAgent, "platformAuthenticator": "support",
-        ]
+        var profile = Self.staticRiskProfile
+        profile["localgroupId"] = group
+        profile["cookieValue"] = device ?? ""
         var request = URLRequest(url: base.appending(path: "ustc-rba-front/fp"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

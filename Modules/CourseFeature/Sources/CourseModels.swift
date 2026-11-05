@@ -496,21 +496,7 @@ typealias CourseLoadStatus = CommunityLoadStatus
 /// 课程列表分页状态。
 ///
 /// 集中维护首屏状态和分页游标。
-struct CoursePagedState {
-    var failureCause: (any Error)?
-    var paginationError: String?
-    var pagedItems = CommunityPagedItems<CourseSummary>()
-    var items: [CourseSummary] {
-        get { pagedItems.items }
-        set { pagedItems.replace(with: newValue) }
-    }
-    var status: CourseLoadStatus = .idle
-    var nextPage = 0
-    var isLoadingMore = false
-    var canLoadMore = true
-}
-
-extension CoursePagedState: PagedItemsState {}
+typealias CoursePagedState = CommunityPagedState<CourseSummary>
 
 /// 课程详情加载状态。
 ///

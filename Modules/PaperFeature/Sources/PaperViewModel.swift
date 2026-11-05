@@ -12,15 +12,6 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
     return trimmed.isEmpty ? nil : trimmed
 }
 
-extension PaperListState {
-    /// 首屏请求开始前统一重置分页状态。
-    fileprivate mutating func prepareForRefresh() {
-        paginationError = nil
-        status = .loading
-        resetPagination()
-    }
-}
-
 @MainActor
 /// 文章集合统一维护刷新、分页、取消恢复与预览元数据。
 @Observable class PaperCollectionViewModel {

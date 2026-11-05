@@ -96,7 +96,7 @@ struct NetworkDiagnosisDependencies {
         }
 
         let independentSteps: [Step] = [.path, .bit101Home, .gallery, .paper, .currentTerm]
-        @ObservationIgnored var resultByStep: [String: String] = [:]
+        var resultByStep: [String: String] = [:]
         await withTaskGroup(of: (String, String?).self) { group in
             for step in independentSteps {
                 let title = step.title
@@ -208,7 +208,7 @@ struct NetworkDiagnosisDependencies {
     }
 
     private func fetch(_ url: URL) async throws -> Data {
-        @ObservationIgnored var request = URLRequest(
+        var request = URLRequest(
             url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("BIT101-iOS network diagnosis", forHTTPHeaderField: "User-Agent")
         let response = try await dependencies.httpClient.send(request, accepting: 200..<400)

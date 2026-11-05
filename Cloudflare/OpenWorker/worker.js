@@ -171,7 +171,7 @@ export default {
       normalizedID.length <= 19 &&
       BigInt(normalizedID) <= 9223372036854775807n
     ) {
-      return new Response(landingPage(url, match[1], match[2]), {
+      return new Response(landingPage(url, match[1], normalizedID), {
         headers: {
           "Cache-Control": "public, max-age=300",
           "Content-Type": "text/html; charset=utf-8",

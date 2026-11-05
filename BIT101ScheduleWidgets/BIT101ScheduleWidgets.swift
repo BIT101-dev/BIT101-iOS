@@ -242,7 +242,6 @@ private struct DeadlineWidgetEntryView: View {
 /// - `compact`：显示提醒类型和倒计时
 /// - `minimal`：显示系统图标
 /// 倒计时文本直接绑定目标时刻，由系统驱动更新。
-@available(iOSApplicationExtension 16.2, *)
 struct CourseReminderLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: CourseReminderActivityAttributes.self) { context in
@@ -406,26 +405,27 @@ private struct ScheduleWidgetEntry: TimelineEntry {
 /// 课表小组件的时间线提供器。
 private struct ScheduleWidgetProvider: TimelineProvider {
     func placeholder(in _: Context) -> ScheduleWidgetEntry {
-        ScheduleWidgetEntry(
-            date: Date(),
+        let now = Date()
+        return ScheduleWidgetEntry(
+            date: now,
             nextOccurrences: [
                 ScheduleExternalOccurrence(
                     id: "preview-next",
                     title: "高等数学",
                     classroom: "理教201",
                     teacher: "张老师",
-                    startDate: Date().addingTimeInterval(20 * 60),
-                    endDate: Date().addingTimeInterval(110 * 60),
-                    displayUntilDate: Date().addingTimeInterval(110 * 60)
+                    startDate: now.addingTimeInterval(20 * 60),
+                    endDate: now.addingTimeInterval(110 * 60),
+                    displayUntilDate: now.addingTimeInterval(110 * 60)
                 ),
                 ScheduleExternalOccurrence(
                     id: "preview-later",
                     title: "大学英语",
                     classroom: "文萃302",
                     teacher: "李老师",
-                    startDate: Date().addingTimeInterval(180 * 60),
-                    endDate: Date().addingTimeInterval(260 * 60),
-                    displayUntilDate: Date().addingTimeInterval(260 * 60)
+                    startDate: now.addingTimeInterval(180 * 60),
+                    endDate: now.addingTimeInterval(260 * 60),
+                    displayUntilDate: now.addingTimeInterval(260 * 60)
                 ),
             ],
             contentState: .ready
@@ -433,7 +433,11 @@ private struct ScheduleWidgetProvider: TimelineProvider {
     }
 
     /// 提供预览和系统快照使用的当前条目。
-    func getSnapshot(in _: Context, completion: @escaping (ScheduleWidgetEntry) -> Void) {
+    func getSnapshot(in context: Context, completion: @escaping (ScheduleWidgetEntry) -> Void) {
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
         completion(loadEntry())
     }
 
@@ -828,9 +832,11 @@ private struct ScheduleWidgetEntryView: View {
             return "请登录"
         case .missing:
             return "请先同步课表"
+        case .unavailable:
+            return "课表读取失败"
         case .invalid:
             return "请重新同步"
-        case .unavailable, .rest, .ready:
+        case .rest, .ready:
             return "暂无日程"
         }
     }
@@ -839,9 +845,11 @@ private struct ScheduleWidgetEntryView: View {
         switch entry.contentState {
         case .loggedOut:
             return "请登录"
+        case .unavailable:
+            return "重试"
         case .invalid:
             return "重同步"
-        case .missing, .unavailable, .rest, .ready:
+        case .missing, .rest, .ready:
             return "无课"
         }
     }

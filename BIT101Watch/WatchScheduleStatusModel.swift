@@ -44,6 +44,9 @@ struct WatchScheduleStatusDependencies {
     var waitForRefreshTimeout: @MainActor () async -> Void = {
         try? await Task.sleep(for: .seconds(4))
     }
+    var waitForRefreshFeedback: @MainActor () async -> Void = {
+        try? await Task.sleep(for: .seconds(1.6))
+    }
 
     #if os(watchOS)
     static let live = WatchScheduleStatusDependencies(
@@ -247,8 +250,9 @@ struct WatchScheduleStatusDependencies {
         refreshFeedbackTask?.cancel()
         refreshState = state
         refreshFeedbackTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.6))
-            guard !Task.isCancelled, let self, self.refreshGeneration == generation else { return }
+            guard let self else { return }
+            await self.dependencies.waitForRefreshFeedback()
+            guard !Task.isCancelled, self.refreshGeneration == generation else { return }
             self.refreshState = .idle
         }
     }

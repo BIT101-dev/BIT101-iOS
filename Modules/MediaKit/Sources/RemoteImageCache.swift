@@ -543,7 +543,8 @@ actor RemoteImageCache {
         guard generation == self.generation, !Task.isCancelled else {
             throw CancellationError()
         }
-        transientImages.removeObject(forKey: remoteURL as NSURL)
+        transientImages.removeObject(
+            forKey: HTTPSURLUpgrade.upgradedURL(from: remoteURL) as NSURL)
         return try RemoteImageLease(url: lease.url, files: files, quota: quota)
     }
 

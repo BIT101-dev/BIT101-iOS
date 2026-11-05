@@ -21,41 +21,12 @@ enum LoginCrypto {
         guard let keyData = Data(base64Encoded: saltBase64) else {
             throw LoginServiceError.invalidSchoolLoginPage
         }
-        guard [kCCKeySizeAES128, kCCKeySizeAES192, kCCKeySizeAES256].contains(keyData.count) else {
-            throw LoginServiceError.invalidSchoolLoginPage
-        }
-
-        let inputData = Data(password.utf8)
-        var outputData = Data(count: inputData.count + kCCBlockSizeAES128)
-        let outputBufferSize = outputData.count
-        var outputLength: size_t = 0
-
-        let status = outputData.withUnsafeMutableBytes { outputBytes in
-            inputData.withUnsafeBytes { inputBytes in
-                keyData.withUnsafeBytes { keyBytes in
-                    CCCrypt(
-                        CCOperation(kCCEncrypt),
-                        CCAlgorithm(kCCAlgorithmAES),
-                        CCOptions(kCCOptionECBMode | kCCOptionPKCS7Padding),
-                        keyBytes.baseAddress,
-                        keyData.count,
-                        nil,
-                        inputBytes.baseAddress,
-                        inputData.count,
-                        outputBytes.baseAddress,
-                        outputBufferSize,
-                        &outputLength
-                    )
-                }
-            }
-        }
-
-        guard status == kCCSuccess else {
-            throw LoginServiceError.invalidSchoolLoginPage
-        }
-
-        outputData.count = outputLength
-        return outputData.base64EncodedString()
+        return try aesCrypt(
+            Data(password.utf8),
+            key: keyData,
+            operation: CCOperation(kCCEncrypt),
+            failureError: .invalidSchoolLoginPage
+        ).base64EncodedString()
     }
 
     /// 登录模式注册接口要求密码先转成 MD5 十六进制字符串。
@@ -147,9 +118,14 @@ enum LoginCrypto {
         return current
     }
 
-    private static func aesCrypt(_ data: Data, key: Data, operation: CCOperation) throws -> Data {
+    private static func aesCrypt(
+        _ data: Data,
+        key: Data,
+        operation: CCOperation,
+        failureError: LoginServiceError = .invalidServerResponse
+    ) throws -> Data {
         guard [kCCKeySizeAES128, kCCKeySizeAES192, kCCKeySizeAES256].contains(key.count) else {
-            throw LoginServiceError.invalidServerResponse
+            throw failureError
         }
         var output = Data(count: data.count + kCCBlockSizeAES128)
         let outputCapacity = output.count
@@ -174,7 +150,7 @@ enum LoginCrypto {
             }
         }
         guard status == kCCSuccess else {
-            throw LoginServiceError.invalidServerResponse
+            throw failureError
         }
         output.count = outputLength
         return output

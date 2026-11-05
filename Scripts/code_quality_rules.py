@@ -156,11 +156,12 @@ def ast_has_view_construction(
         for call in facts["calls"]
         if scope_contains_type(call["scope"], view_types)
     ]
+    helper_paths = [path for path, ranges in helpers.items() if ranges]
     calls += [
-        (path, entry, call)
-        for path, entry in context.items()
-        for call in entry["calls"]
-        if any(start <= call["start"] < end for start, end in helpers.get(path, set()))
+        (path, context[path], call)
+        for path in helper_paths
+        for call in context[path]["calls"]
+        if any(start <= call["start"] < end for start, end in helpers[path])
     ]
     for reference_file, source_facts, call in calls:
         called = re.sub(r"\s+", "", mask_literals_and_comments(call["value"]))
