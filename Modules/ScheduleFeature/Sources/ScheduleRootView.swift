@@ -95,6 +95,7 @@ public struct ScheduleRootView: View {
                         .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
                 } else {
                     pairedPages
+                        .padding(.bottom, missingBottomTabBarInset(for: proxy))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -206,6 +207,19 @@ public struct ScheduleRootView: View {
                         : layout.safeAreaInsets.bottom)
         }
         .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
+    }
+
+    private func missingBottomTabBarInset(for proxy: GeometryProxy) -> CGFloat {
+        guard layout.usesBottomTabBar, displayedSection != .classroom, layout.size.height > 0
+        else {
+            return AppDesignSystem.Spacing.none
+        }
+        let sectionBottomInset =
+            displayedSection == .courses
+            ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny
+        let actualBottomInset =
+            layout.size.height - proxy.frame(in: .global).maxY - sectionBottomInset
+        return max(layout.safeAreaInsets.bottom + 49 - actualBottomInset, 0)
     }
 
     @ViewBuilder private var sectionTabs: some View {

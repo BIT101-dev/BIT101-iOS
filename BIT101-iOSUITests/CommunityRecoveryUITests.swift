@@ -339,7 +339,11 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
         assertUI(app.alerts["课程评价加载失败"].appears(timeout: 5), "两路检索故障应展示恢复原因。")
         closeAlertIfPresent()
         releaseRequest("courses")
-        app.buttons["course.evaluation.search"].tapBriefly()
+        let search = app.buttons["course.evaluation.search"]
+        assertUI(
+            waitUntil(NSPredicate { _, _ in search.exists && search.isHittable }, on: search),
+            "关闭提示后应展示可点击的课程搜索入口。")
+        search.tapBriefly()
         assertUI(app.segmentedControls.buttons["课程"].appears(timeout: 5), "恢复入口应进入原生课程搜索。")
         assertUI(app.textFields["在这里搜索课程哦"].value as? String == "学校测试课程", "搜索应保留原课程名称。")
         assertUI(textElement("学校测试课程").appears(timeout: 5), "恢复后的搜索应展示可选择的课程。")

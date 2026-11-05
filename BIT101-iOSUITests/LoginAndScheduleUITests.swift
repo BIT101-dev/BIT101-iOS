@@ -69,8 +69,8 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true)
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         defer {
-            XCUIDevice.shared.press(.home)
             app.activate()
+            _ = waitUntil(NSPredicate { _, _ in self.app.state == .runningForeground }, on: app)
         }
         XCUIDevice.shared.press(.home)
         springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.82)).press(

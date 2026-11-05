@@ -674,12 +674,14 @@ enum UITestAccessibilityActions {
     }
 
     static func safeAreaFrame() throws -> Data {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let activeWindows = scenes.filter { $0.activationState == .foregroundActive }
+            .flatMap(\.windows)
+        let normalWindows = scenes.flatMap(\.windows).filter {
+            !$0.isHidden && $0.windowLevel == .normal
+        }
         guard
-            let window = UIApplication.shared.connectedScenes.compactMap({
-                $0 as? UIWindowScene
-            })
-            .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows).first(
-                where: \.isKeyWindow),
+            let window = activeWindows.first(where: \.isKeyWindow) ?? normalWindows.last,
             let scene = window.windowScene
         else { throw CocoaError(.coderInvalidValue) }
         let frame = window.convert(

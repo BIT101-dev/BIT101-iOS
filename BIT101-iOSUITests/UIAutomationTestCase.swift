@@ -36,6 +36,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     }
     @MainActor
     override func tearDown() async throws {
+        continueAfterFailure = true
         defer { if let idleTimeout { _ = UITestIdleBudget.exchange(idleTimeout) } }
         if testRun?.totalFailureCount == 0 {
             UITestSnapshotReader.measure("teardown.scroll") { checkScrollContainers() }
@@ -234,10 +235,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         let alert = app.native.alerts.firstMatch
         guard alert.exists else { return }
         let close = alert.buttons["知道了"]
-        assertUI(close.waitForExistence(timeout: 5), "提示应展示明确的“知道了”关闭动作。")
+        assertUI(
+            close.exists || close.waitForExistence(timeout: 5), "提示应展示明确的“知道了”关闭动作。")
         close.tap()
         UITestSnapshotReader.invalidate()
-        assertUI(waitUntil(NSPredicate { _, _ in !alert.exists }, on: app), "关闭提示应恢复页面交互。")
+        let dismissed = NSPredicate { _, _ in
+            !alert.exists
+                && self.app.alerts.firstMatch.attributes(renderedOnly: true)?["exists"] as? Bool
+                    != true
+        }
+        assertUI(waitUntil(dismissed, on: app), "关闭提示应恢复页面交互。")
     }
 
     @MainActor
@@ -481,25 +488,38 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         ).firstMatch.label
         let key = "\(selectedPage):\(timestamp.label):\(largeText):\(viewport)"
         guard !checkedRefreshRows.contains(key) else { return }
-        let nativeText = app.native.staticTexts["app.refresh-status.timestamp"].firstMatch
         let actionID =
             app.buttons["score.query"].exists ? "score.query" : "app.refresh-status.action"
-        let action = app.native.buttons[actionID].firstMatch
-        guard action.exists, action.isEnabled else { return }
-        let cell = app.native.cells.containing(.button, identifier: actionID).firstMatch
-        guard cell.exists else { return }
+        func refreshCellFrame(in state: (any XCUIElementSnapshot)?) -> CGRect? {
+            state?.snapshots(matching: .cell).first {
+                $0.firstSnapshot { $0.elementType == .button && $0.identifier == actionID } != nil
+            }?.frame
+        }
+        guard let root = try? app.snapshot(),
+            let textSnapshot = root.firstSnapshot(where: {
+                $0.elementType == .staticText && $0.identifier == "app.refresh-status.timestamp"
+            }),
+            let action = root.firstSnapshot(where: {
+                $0.elementType == .button && $0.identifier == actionID
+            }), action.isEnabled,
+            var cellFrame = refreshCellFrame(in: root)
+        else { return }
+        let textFrame = textSnapshot.frame
         if !largeText {
-            let expected = max(44, nativeText.frame.height) + 8
+            let expected = max(44, textFrame.height) + 8
             let settled = NSPredicate { _, _ in
-                abs(cell.frame.height - expected) <= 1
+                if let updated = refreshCellFrame(in: try? self.app.snapshot()) {
+                    cellFrame = updated
+                }
+                return abs(cellFrame.height - expected) <= 1
             }
             assertUI(
                 waitUntil(settled, on: app, timeout: 5),
-                "更新时间行应遵循统一行高：实际 \(cell.frame)，文字 \(nativeText.frame)，预期 \(expected)。")
+                "更新时间行应遵循统一行高：实际 \(cellFrame)，文字 \(textFrame)，预期 \(expected)。")
         }
         assertUI(
-            cell.frame.insetBy(dx: 0, dy: 3).contains(nativeText.frame),
-            "更新时间文字应完整落在行内容区域：行 \(cell.frame)，文字 \(nativeText.frame)。")
+            cellFrame.insetBy(dx: 0, dy: 3).contains(textFrame),
+            "更新时间文字应完整落在行内容区域：行 \(cellFrame)，文字 \(textFrame)。")
         checkScheduleGeometry()
         checkedRefreshRows.insert(key)
     }
@@ -534,106 +554,6 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             let details = UITestControlClient.request(["command": "preview-page", "details": "1"])
         else { return }
         print("UI preview diagnostics: \(details)")
-    }
-
-    @MainActor
-    func renderedLeadingTextInset(_ text: XCUIElement, in cell: XCUIElement) throws -> CGFloat {
-        let screenshot = try XCTUnwrap(app.screenshot().image.cgImage)
-        let window = app.windows.firstMatch.frame
-        let scale = CGFloat(screenshot.width) / window.width
-        let rectangle = CGRect(
-            x: (cell.frame.minX - window.minX) * scale,
-            y: (text.frame.minY - window.minY) * scale, width: cell.frame.width * scale,
-            height: text.frame.height * scale
-        ).integral
-        let glyphs = try XCTUnwrap(screenshot.cropping(to: rectangle))
-        let width = glyphs.width
-        let height = glyphs.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let column = try pixels.withUnsafeMutableBytes { bytes -> Int in
-            let context = try XCTUnwrap(
-                CGContext(
-                    data: bytes.baseAddress, width: width, height: height,
-                    bitsPerComponent: 8, bytesPerRow: width * 4,
-                    space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
-            let background = (0..<3).reduce(0) { $0 + Int(bytes[height / 2 * width * 4 + $1]) }
-            return try XCTUnwrap(
-                (0..<width).first { x in
-                    (0..<height).contains { y in
-                        let brightness = (0..<3).reduce(0) {
-                            $0 + Int(bytes[(y * width + x) * 4 + $1])
-                        }
-                        return abs(brightness - background) > 3 * 50
-                    }
-                })
-        }
-        return CGFloat(column) / scale
-    }
-
-    @MainActor
-    func assertInteractiveLabelUsesPrimaryColor(_ title: String) {
-        let label = app.staticTexts[title]
-        reveal(
-            app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch,
-            description: "交互行")
-        assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")
-        guard let screenshot = app.screenshot().image.cgImage else {
-            assertUI(false, "标题颜色验收应获取截图像素。")
-            return
-        }
-        let window = app.windows.firstMatch.frame
-        let scale = CGFloat(screenshot.width) / window.width
-        let bounds = label.frame
-        let rectangle = CGRect(
-            x: (bounds.minX - window.minX) * scale, y: (bounds.minY - window.minY) * scale,
-            width: bounds.width * scale, height: bounds.height * scale
-        ).integral
-        guard let glyphs = screenshot.cropping(to: rectangle) else {
-            assertUI(false, "左侧标题应位于可见截图中：\(title)")
-            return
-        }
-        let width = glyphs.width
-        let height = glyphs.height
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let colored = pixels.withUnsafeMutableBytes { bytes -> Int in
-            guard
-                let context = CGContext(
-                    data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            else {
-                assertUI(false, "标题颜色验收应创建像素绘制上下文。")
-                return 0
-            }
-            context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return stride(from: 0, to: bytes.count, by: 4).filter { offset in
-                let channels = [Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2])]
-                return max(channels[0], max(channels[1], channels[2]))
-                    - min(channels[0], min(channels[1], channels[2])) > 50
-            }.count
-        }
-        assertUI(colored < 10, "\(title)的左侧字形应使用系统主文字色，当前彩色像素：\(colored)。")
-    }
-
-    @MainActor
-    @nonobjc func focusedAccessibilitySnapshot(
-        _ application: UIElement,
-        matching terms: [String]
-    ) -> String {
-        focusedAccessibilitySnapshot(application.native.debugDescription, matching: terms)
-    }
-
-    @nonobjc func focusedAccessibilitySnapshot(_ description: String, matching terms: [String])
-        -> String
-    {
-        let lines = description.split(separator: "\n")
-        var seen = Set<Substring>()
-        let matches = terms.flatMap { term in
-            lines.filter { $0.contains(term) && seen.insert($0).inserted }
-        }.prefix(24)
-        return matches.isEmpty ? "界面元素树中未检索到目标文案。" : matches.joined(separator: " | ")
     }
     @MainActor
     func configureApp(

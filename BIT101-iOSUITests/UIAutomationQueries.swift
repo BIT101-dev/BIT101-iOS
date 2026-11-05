@@ -55,7 +55,7 @@ extension UIAutomationTestCase {
             checkSideToolbar(labels)
             return
         }
-        let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+        let navigation = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).frame }
             .reduce(CGRect.null) { $0.union($1) }
         for label in labels {
             let button = app.native.buttons.matching(NSPredicate(format: "label == %@", label))
@@ -105,14 +105,14 @@ extension UIAutomationTestCase {
     }
 
     func revealBrowserAction(_ label: String) -> UIElement {
-        if !app.native.buttons[label].exists {
+        let button = app.native.buttons[label]
+        if !button.exists {
             let overflow = app.native.buttons["BottomOverflowBarButtonItem"]
             assertUI(overflow.exists && overflow.isHittable, "折叠操作应提供系统更多菜单：\(label)。")
             overflow.press(forDuration: 0.01)
         }
         assertUI(
-            app.native.buttons[label].waitForExistence(timeout: 5)
-                && app.native.buttons[label].isEnabled,
+            (button.exists || button.waitForExistence(timeout: 5)) && button.isEnabled,
             "当前操作应可触达：\(label)。")
         return app.buttons[label]
     }
@@ -123,44 +123,65 @@ extension UIAutomationTestCase {
 
     func checkScheduleGeometry() {
         let schedule = app.mainTab("日程")
-        guard schedule.exists, schedule.isSelected else { return }
-        let window = app.native.windows.firstMatch.frame
+        guard schedule.exists, schedule.isSelected, let root = try? app.snapshot() else { return }
+        let window = root.frame
         let traits = windowTraits()
-        let grid = app.native.descendants(matching: .any)["schedule.calendar"]
-        if grid.exists && app.sectionTab("课表").isSelected {
+        if let grid = root.firstSnapshot(where: { $0.identifier == "schedule.calendar" }),
+            app.sectionTab("课表").isSelected
+        {
             let available = app.scrollGestureFrame(in: window) ?? window
-            let days = grid.buttons.matching(
-                NSPredicate(format: "label MATCHES %@", "第-?[0-9]+周，周[一二三四五六七]，.*"))
-            for day in days.allElementsBoundByIndex {
+            for day in grid.snapshots(matching: .button)
+            where day.label.range(
+                of: "^第-?[0-9]+周，周[一二三四五六七]，.*", options: .regularExpression) != nil
+            {
                 assertUI(
                     day.frame.minX >= available.minX && day.frame.maxX <= available.maxX,
                     "课表日期列应完整位于正文宽度内：日期 \(day.frame)，正文 \(available)。")
             }
-            let bar = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).native.frame }
+            let bar = ["日程", "地图", "话廊", "成绩", "我的"].map { app.mainTab($0).frame }
                 .reduce(CGRect.null) { $0.union($1) }
             let hasBottomBar = bar.width > bar.height && bar.minY > window.midY
-            let cell = app.native.cells.containing(.button, identifier: "schedule.add-content")
-                .firstMatch
-            func renderedCalendarFrame() -> CGRect { cell.exists ? cell.frame : grid.frame }
+            func renderedCalendarFrame(in state: any XCUIElementSnapshot) -> CGRect {
+                if let cell = state.snapshots(matching: .cell).first(where: {
+                    $0.firstSnapshot {
+                        $0.elementType == .button && $0.identifier == "schedule.add-content"
+                    } != nil
+                }) {
+                    return cell.frame
+                }
+                return state.firstSnapshot { $0.identifier == "schedule.calendar" }?.frame
+                    ?? grid.frame
+            }
+            var currentRoot = root
             let ready = NSPredicate { _, _ in
-                let gap = (hasBottomBar ? bar.minY : window.maxY) - renderedCalendarFrame().maxY
+                if let latest = try? self.app.snapshot() { currentRoot = latest }
+                let gap =
+                    (hasBottomBar ? bar.minY : window.maxY)
+                    - renderedCalendarFrame(in: currentRoot).maxY
                 return hasBottomBar ? gap >= 8 : abs(gap) <= 1
             }
             assertUI(
                 waitUntil(ready, on: app),
                 "课表底部应在当前字号布局完成后保留间距：\(grid.frame)，导航 \(bar)。")
-            let gap = (hasBottomBar ? bar.minY : window.maxY) - renderedCalendarFrame().maxY
+            let gap =
+                (hasBottomBar ? bar.minY : window.maxY)
+                - renderedCalendarFrame(in: currentRoot).maxY
             assertUI(
                 hasBottomBar ? gap >= 8 : abs(gap) <= 1,
                 "课表底部应按系统导航位置分配空间：课表 \(grid.frame)，导航 \(bar)，间隙 \(gap)。")
-            let action = app.native.buttons["schedule.add-content"]
+            let action = currentRoot.firstSnapshot {
+                $0.elementType == .button && $0.identifier == "schedule.add-content"
+            }
             let bottom = hasBottomBar ? bar.minY : window.maxY - CGFloat(traits["safeBottom"] ?? 0)
             assertUI(
-                action.exists && action.frame.maxY <= bottom + 0.5,
-                "课表操作应保持在系统可触达区域：按钮 \(action.frame)，底部界限 \(bottom)。")
+                action != nil && (action?.frame.maxY ?? .infinity) <= bottom + 0.5,
+                "课表操作应保持在系统可触达区域：按钮 \(action?.frame ?? .null)，底部界限 \(bottom)。")
         }
-        guard app.native.segmentedControls.buttons["空教室"].exists else { return }
-        let header = app.native.segmentedControls.firstMatch.frame
+        guard
+            let segmented = root.snapshots(matching: .segmentedControl).first,
+            segmented.snapshots(matching: .button).contains(where: { $0.label == "空教室" })
+        else { return }
+        let header = segmented.frame
         let top = CGFloat(traits["safeTop"] ?? 0)
         let side = (traits["safeLeading"] ?? 0) + (traits["safeTrailing"] ?? 0)
         let minimumTop = window.minY + (top == 0 && side > 0 ? 16 : top)
@@ -304,11 +325,19 @@ extension UIAutomationTestCase {
             assertUI(false, "返回操作应使用当前可见的导航栏。")
             return
         }
+        let hasPaneBack =
+            state.firstSnapshot {
+                $0.elementType == .button && $0.identifier == "app.pane.back"
+            } != nil
+        let hasBackButton =
+            state.firstSnapshot {
+                $0.elementType == .button && $0.identifier == "BackButton"
+            } != nil
         let paneBack = app.native.buttons["app.pane.back"]
         let button = UIElement(
-            paneBack.isHittable
+            hasPaneBack && paneBack.isHittable
                 ? paneBack
-                : app.native.buttons["BackButton"].exists
+                : hasBackButton && app.native.buttons["BackButton"].exists
                     ? app.native.buttons["BackButton"]
                     : app.native.navigationBars[bar.identifier].buttons.firstMatch)
         assertUI(button.isHittable, "当前导航栏的返回按钮应可交互。")
@@ -400,5 +429,102 @@ extension UIAutomationTestCase {
         }
         reveal(button, description: title)
         button.press(forDuration: 0.01)
+    }
+
+    func renderedLeadingTextInset(_ text: XCUIElement, in cell: XCUIElement) throws -> CGFloat {
+        let screenshot = try XCTUnwrap(app.screenshot().image.cgImage)
+        let window = app.windows.firstMatch.frame
+        let scale = CGFloat(screenshot.width) / window.width
+        let rectangle = CGRect(
+            x: (cell.frame.minX - window.minX) * scale,
+            y: (text.frame.minY - window.minY) * scale, width: cell.frame.width * scale,
+            height: text.frame.height * scale
+        ).integral
+        let glyphs = try XCTUnwrap(screenshot.cropping(to: rectangle))
+        let width = glyphs.width
+        let height = glyphs.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let column = try pixels.withUnsafeMutableBytes { bytes -> Int in
+            let context = try XCTUnwrap(
+                CGContext(
+                    data: bytes.baseAddress, width: width, height: height,
+                    bitsPerComponent: 8, bytesPerRow: width * 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let background = (0..<3).reduce(0) { $0 + Int(bytes[height / 2 * width * 4 + $1]) }
+            return try XCTUnwrap(
+                (0..<width).first { x in
+                    (0..<height).contains { y in
+                        let brightness = (0..<3).reduce(0) {
+                            $0 + Int(bytes[(y * width + x) * 4 + $1])
+                        }
+                        return abs(brightness - background) > 3 * 50
+                    }
+                })
+        }
+        return CGFloat(column) / scale
+    }
+
+    func assertInteractiveLabelUsesPrimaryColor(_ title: String) {
+        let label = app.staticTexts[title]
+        reveal(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch,
+            description: "交互行")
+        assertUI(label.appears(timeout: 5), "交互行应展示左侧标题：\(title)")
+        guard let screenshot = app.screenshot().image.cgImage else {
+            assertUI(false, "标题颜色验收应获取截图像素。")
+            return
+        }
+        let window = app.windows.firstMatch.frame
+        let scale = CGFloat(screenshot.width) / window.width
+        let bounds = label.frame
+        let rectangle = CGRect(
+            x: (bounds.minX - window.minX) * scale, y: (bounds.minY - window.minY) * scale,
+            width: bounds.width * scale, height: bounds.height * scale
+        ).integral
+        guard let glyphs = screenshot.cropping(to: rectangle) else {
+            assertUI(false, "左侧标题应位于可见截图中：\(title)")
+            return
+        }
+        let width = glyphs.width
+        let height = glyphs.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let colored = pixels.withUnsafeMutableBytes { bytes -> Int in
+            guard
+                let context = CGContext(
+                    data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else {
+                assertUI(false, "标题颜色验收应创建像素绘制上下文。")
+                return 0
+            }
+            context.draw(glyphs, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return stride(from: 0, to: bytes.count, by: 4).filter { offset in
+                let channels = [Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2])]
+                return max(channels[0], max(channels[1], channels[2]))
+                    - min(channels[0], min(channels[1], channels[2])) > 50
+            }.count
+        }
+        assertUI(colored < 10, "\(title)的左侧字形应使用系统主文字色，当前彩色像素：\(colored)。")
+    }
+
+    @nonobjc func focusedAccessibilitySnapshot(
+        _ application: UIElement,
+        matching terms: [String]
+    ) -> String {
+        focusedAccessibilitySnapshot(application.native.debugDescription, matching: terms)
+    }
+
+    @nonobjc nonisolated func focusedAccessibilitySnapshot(
+        _ description: String, matching terms: [String]
+    ) -> String {
+        let lines = description.split(separator: "\n")
+        var seen = Set<Substring>()
+        let matches = terms.flatMap { term in
+            lines.filter { $0.contains(term) && seen.insert($0).inserted }
+        }.prefix(24)
+        return matches.isEmpty ? "界面元素树中未检索到目标文案。" : matches.joined(separator: " | ")
     }
 }

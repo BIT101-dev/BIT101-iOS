@@ -268,9 +268,16 @@ final class UIElement: NSObject {
     private var capturedSnapshot: (any XCUIElementSnapshot)?
     private var capturedGeneration = -1
 
-    init(_ native: XCUIElement, path: [[String: String]]? = nil) {
+    init(
+        _ native: XCUIElement, path: [[String: String]]? = nil,
+        snapshot: (any XCUIElementSnapshot)? = nil
+    ) {
         self.native = native
         self.path = path
+        if let snapshot {
+            self.capturedSnapshot = snapshot
+            self.capturedGeneration = UITestSnapshotReader.generation
+        }
     }
 
     func attributes(renderedOnly: Bool = false) -> [String: Any]? {
@@ -660,11 +667,12 @@ final class UIElement: NSObject {
     var switches: UIElementQuery { descendants(matching: .switch) }
     var navigationBars: UIElementQuery { descendants(matching: .navigationBar) }
     func mainTab(_ title: String) -> UIElement {
-        let query = native.buttons.matching(
-            NSPredicate(format: "label IN %@", UITestMainNavigation.labels(title)))
-        guard query.firstMatch.exists else { return UIElement(query.firstMatch) }
+        let labels = UITestMainNavigation.labels(title)
+        let query = native.buttons.matching(NSPredicate(format: "label IN %@", labels))
         let deadline = Date().addingTimeInterval(5)
         repeat {
+            if let match = snapshotMainTab(for: labels, in: query) { return match }
+            guard query.firstMatch.exists else { return UIElement(query.firstMatch) }
             let map = native.buttons["地图"].firstMatch
             let mine = native.buttons["我的"].firstMatch
             if map.exists && mine.exists {
@@ -681,6 +689,28 @@ final class UIElement: NSObject {
         } while Date() < deadline
         XCTFail("主导航应沿同一行或列呈现：\(title)。")
         return UIElement(query.firstMatch)
+    }
+
+    private func snapshotMainTab(
+        for labels: [String], in query: XCUIElementQuery
+    ) -> UIElement? {
+        guard let root = try? snapshot() else { return nil }
+        let buttons = root.snapshots(matching: .button)
+        let matches = buttons.filter { labels.contains($0.label) }
+        if matches.isEmpty { return UIElement(query.firstMatch) }
+        guard let map = buttons.first(where: { $0.label == "地图" }),
+            let mine = buttons.first(where: { $0.label == "我的" })
+        else { return nil }
+        let reference = map.frame
+        let horizontal = abs(reference.midY - mine.frame.midY) <= 1
+        if matches.count == 1, let target = matches.first,
+            horizontal
+                ? abs(target.frame.midY - reference.midY) <= 1
+                : abs(target.frame.midX - reference.midX) <= 1
+        {
+            return UIElement(query.firstMatch, snapshot: target)
+        }
+        return matchingMainTabButton(in: query, reference: reference, horizontal: horizontal)
     }
 
     private func matchingMainTabButton(
@@ -703,7 +733,7 @@ final class UIElement: NSObject {
     func sectionTab(_ title: String) -> UIElement {
         let primaryTitle = ["课表": "日程 / DDL", "DDL": "日程 / DDL"][title] ?? title
         let primary = buttons.matching(NSPredicate(format: "label == %@", primaryTitle)).firstMatch
-        return primary.isHittable ? primary : segmentedControls.buttons[title]
+        return primary.exists && primary.isHittable ? primary : segmentedControls.buttons[title]
     }
     var segmentedControls: UIElementQuery { descendants(matching: .segmentedControl) }
     var collectionViews: UIElementQuery { descendants(matching: .collectionView) }
