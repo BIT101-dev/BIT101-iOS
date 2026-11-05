@@ -598,6 +598,9 @@ def main(root: Path) -> None:
     ):
         (root / ".build/static-audit" / name).unlink(missing_ok=True)
     self_test()
+    shutil.rmtree(root / "Scripts/__pycache__", ignore_errors=True)
+    for ds_store in (root / "Cloudflare/.DS_Store", root / ".DS_Store"):
+        ds_store.unlink(missing_ok=True)
     allowed_root_files = {
         ".build/extended-automation.lock",
         ".build/code-quality-report.txt",

@@ -17,6 +17,18 @@ nonisolated enum AppBuildEnvironment {
 nonisolated enum ErrorReportRedactor {
     private static let attributeValuePattern =
         #"(?i)(\b(?:value|content)\s*=\s*)(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|[^\s"'=<>`]+)"#
+    private static let htmlTagExpression = try? NSRegularExpression(
+        pattern: #"<([a-z][a-z0-9:_-]*)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)"#,
+        options: .caseInsensitive)
+    private static let htmlFieldExpression = try? NSRegularExpression(
+        pattern:
+            #"""
+            \b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"\#
+            '=<>`]+))
+            """#,
+        options: .caseInsensitive)
+    private static let htmlEntityExpression = try? NSRegularExpression(
+        pattern: #"&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?"#)
     private static let protectedNames = [
         "password", "passwd", "pwd", "cookie", "set-cookie", "authorization", "proxy-authorization",
         "token",
@@ -62,18 +74,7 @@ nonisolated enum ErrorReportRedactor {
     }
 
     private static func redactHTML(_ value: String) -> String {
-        guard
-            let tags = try? NSRegularExpression(
-                pattern: #"<([a-z][a-z0-9:_-]*)\b(?:[^>"']|"[^"]*(?:"|$)|'[^']*(?:'|$))*(?:>|$)"#,
-                options: .caseInsensitive),
-            let fields = try? NSRegularExpression(
-                pattern:
-                    #"""
-                    \b(?:id|name|type|property|http-equiv)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"\#
-                    '=<>`]+))
-                    """#,
-                options: .caseInsensitive)
-        else { return value }
+        guard let tags = htmlTagExpression, let fields = htmlFieldExpression else { return value }
         let voidTags = Set([
             "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
             "source", "track", "wbr",
@@ -142,10 +143,7 @@ nonisolated enum ErrorReportRedactor {
     }
 
     private static func decodedHTMLAttribute(_ value: String) -> String {
-        guard
-            let expression = try? NSRegularExpression(
-                pattern: #"&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));?"#)
-        else { return value }
+        guard let expression = htmlEntityExpression else { return value }
         var output = value
         for match in expression.matches(in: value, range: NSRange(value.startIndex..., in: value))
             .reversed()

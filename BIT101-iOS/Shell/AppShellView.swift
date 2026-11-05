@@ -380,7 +380,7 @@ struct AppShellView: View {
         case .schedule, .classroom:
             scheduleContent(showingClassrooms: destination == .classroom)
         case .scores, .courses:
-            ScoreRootView(
+            AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
                 requestedCourse: $requestedCourse,
                 selection: $scoreSurface, showingCourses: destination == .courses)
@@ -404,7 +404,7 @@ struct AppShellView: View {
             }
             .task { await scheduleViewModel.loadIfNeeded() }
         case .score:
-            ScoreRootView(
+            AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
                 requestedCourse: $requestedCourse, selection: $scoreSurface)
         case .gallery:

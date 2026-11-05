@@ -15,6 +15,10 @@ from functools import cache, lru_cache
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
+import sys
+
+sys.dont_write_bytecode = True
+
 from validation_inputs import includes_input, repository_input_names, is_worker_generated
 from validation_environment import environment_context, exchange_identity
 from urllib.parse import urlsplit

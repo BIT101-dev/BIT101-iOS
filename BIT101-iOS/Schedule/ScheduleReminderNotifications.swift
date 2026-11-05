@@ -20,7 +20,7 @@ enum ScheduleReminderNotificationDate {
     }
 }
 
-nonisolated enum ScheduleReminderNotificationAuthorizationState {
+nonisolated enum ScheduleReminderAuthorizationState {
     case allowed
     case notDetermined
     case denied
@@ -66,7 +66,7 @@ struct SystemScheduleReminderNotificationCenter: ScheduleReminderNotificationCen
     }
 }
 
-private struct ScheduleReminderNotificationReplacementError: LocalizedError {
+private struct ScheduleReminderReplacementError: LocalizedError {
     let original: Error
     let restorationFailures: Int
     var errorDescription: String? {
@@ -86,7 +86,7 @@ final class ScheduleReminderNotifications {
     }
     init(center: any ScheduleReminderNotificationCenter) { notificationCenter = center }
 
-    func authorizationState() async -> ScheduleReminderNotificationAuthorizationState {
+    func authorizationState() async -> ScheduleReminderAuthorizationState {
         let authorization = await notificationCenter.authorizationStatus()
         switch authorization {
         case .authorized, .provisional, .ephemeral: return .allowed
@@ -166,7 +166,7 @@ final class ScheduleReminderNotifications {
             }
             if !isCurrent() { notificationCenter.removePending(Array(attempted)) }
             if restorationFailures > 0 {
-                throw ScheduleReminderNotificationReplacementError(
+                throw ScheduleReminderReplacementError(
                     original: error, restorationFailures: restorationFailures)
             }
             throw error

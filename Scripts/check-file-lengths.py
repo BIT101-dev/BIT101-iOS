@@ -2,8 +2,13 @@
 """Enforce the repository's 1000-line limit on maintained text files."""
 
 from pathlib import Path
+import os
 import subprocess
+import sys
 import argparse
+
+sys.dont_write_bytecode = True
+
 from validation_inputs import repository_input_names
 from code_style_rules import style_findings
 
@@ -69,6 +74,9 @@ def main() -> int:
                 contents[name] = data.decode("utf-8")
             except UnicodeDecodeError:
                 continue
+        if os.environ.get("BIT101_STATIC_AUDIT_LOCK_HELD") == "1":
+            working = working_contents()
+            contents = {name: text for name, text in contents.items() if working.get(name) != text}
     else:
         contents = working_contents()
     assert length_findings({"source.swift": "line\n" * LIMIT}) == []

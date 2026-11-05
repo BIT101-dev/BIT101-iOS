@@ -4,489 +4,327 @@ import UIKit
 import XCTest
 import os
 
-nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
+nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
-    func testSideToolbarUsesSpaceAboveNavigation() throws {
-        app = configureApp(resetStorage: true, content: true, school: true, initialTab: "map")
-        try XCTSkipIf(
-            !windowUsesSideToolbar,
-            "侧栏工具验收使用带侧方系统安全区的竖屏窗口。")
-        checkSideToolbar(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
-        if app.native.buttons["导航到下一节课"].exists { checkSideToolbar(["导航到下一节课"]) }
-        captureBrowserScreenshot("地图侧栏工具")
-        app.mainTab("话廊").tapBriefly()
-        checkSideToolbar(["我的收藏", "消息", "发布话题", "搜索话廊"])
-        captureBrowserScreenshot("话题侧栏工具")
-        app.native.segmentedControls.buttons["文章"].press(forDuration: 0.01)
-        checkSideToolbar(["发布文章", "搜索文章"])
-        captureBrowserScreenshot("文章侧栏工具")
-        app.mainTab("日程").tapBriefly()
-        checkSideToolbar(["添加课表内容"])
-        checkScheduleGeometry()
-        tapHeader(app.sectionTab("DDL"))
-        checkSideToolbar(["添加待办"])
-        captureBrowserScreenshot("日程侧栏工具")
-    }
-    @MainActor
-    func testWeeklyHeaderKeepsItsCompactDateRow() {
-        app = configureApp(resetStorage: true, animations: true, school: true)
-        let date = app.native.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")
-        ).firstMatch
-        assertUI(
-            waitUntil(
-                NSPredicate { _, _ in date.exists && abs(date.frame.height - 26) <= 0.5 }, on: app),
-            "周次日期行应保留原来的 26 点高度：\(date.frame)。")
-        let week = app.native.buttons["第1周"]
-        assertUI(
-            week.exists && abs(week.frame.height - 44) <= 0.5 && week.isHittable,
-            "默认字号的周次刻度应保留紧凑的 44 点点击区域：\(week.frame)。")
-        checkScheduleGeometry()
-        app.mainTab("地图").tapBriefly()
-        app.mainTab("日程").tapBriefly()
-        checkScheduleGeometry()
-    }
-
-    @MainActor
-    func testDeadlineWidgetLinkOpensTheDDLSection() throws {
-        app = configureApp(resetStorage: true, ddlFixture: "sources")
-        defer { Self.endSharedSession() }
-        let application = try XCTUnwrap(app.native as? XCUIApplication)
-        application.open(try XCTUnwrap(URL(string: "bit101://schedule/ddl")))
-        UITestSnapshotReader.invalidate()
-        assertUI(
-            app.native.segmentedControls.buttons["DDL"].waitForExistence(timeout: 10),
-            "小组件链接应打开日程页面。")
-        assertUI(app.native.segmentedControls.buttons["DDL"].isSelected, "DDL 小组件链接应选中 DDL 分页。")
-        assertUI(app.staticTexts["课程中心测试作业"].appears(timeout: 5), "小组件入口应展示当前账号的待办。")
-        application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
-        UITestSnapshotReader.invalidate()
-        assertUI(app.native.segmentedControls.buttons["课表"].isSelected, "课表小组件链接应选中课表分页。")
-    }
-
-    @MainActor
-    func testDeadlineWidgetAppearsInSystemGallery() throws {
-        app = configureApp(resetStorage: true)
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        defer {
-            app.activate()
-            _ = waitUntil(NSPredicate { _, _ in self.app.state == .runningForeground }, on: app)
-        }
-        XCUIDevice.shared.press(.home)
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.82)).press(
-            forDuration: 2)
-        let edit = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Edit", "编辑"]))
-            .firstMatch
-        XCTAssertTrue(edit.waitForExistence(timeout: 5))
-        edit.tap()
-        let addWidget = springboard.buttons.matching(
-            NSPredicate(format: "label IN %@", ["Add Widget", "添加小组件"])
-        ).firstMatch
-        XCTAssertTrue(addWidget.waitForExistence(timeout: 5))
-        addWidget.tap()
-        let search = springboard.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 10))
-        search.tap()
-        search.typeText("BIT101")
-        let result = springboard.cells["BIT101"].firstMatch
-        XCTAssertTrue(result.waitForExistence(timeout: 5))
-        result.tap()
-        let preview = springboard.buttons["BIT101, DDL"].firstMatch
-        for _ in 0..<6 {
-            if preview.exists && preview.isHittable { break }
-            springboard.swipeLeft()
-        }
-        XCTAssertTrue(preview.waitForExistence(timeout: 5), "系统小组件库应展示 DDL 的真实扩展预览。")
-        var sizes: [CGSize] = []
-        for index in 0..<3 {
-            XCTAssertTrue(
-                preview.isHittable && !preview.frame.isEmpty
-                    && springboard.frame.contains(preview.frame), "DDL 应完整显示在当前尺寸预览中。")
-            sizes.append(preview.frame.size)
-            let screenshot = XCTAttachment(screenshot: springboard.screenshot())
-            screenshot.name = "界面截图：DDL 系统预览"
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
-            if index < 2 { springboard.swipeLeft() }
-        }
-        XCTAssertGreaterThan(sizes[1].width, sizes[0].width)
-        XCTAssertGreaterThan(sizes[2].height, sizes[1].height)
-    }
-
-    @MainActor
-    private func assertNativeControlParity(_ element: UIElement) throws {
-        XCTAssertTrue(element.appears(timeout: 5), "滚动恢复后应完成当前控件的无障碍挂载。")
-        let actual = try XCTUnwrap(element.attributes(), "渲染查询应提供当前控件状态。")
-        let expected = try element.native.snapshot()
-        XCTAssertEqual(actual["identifier"] as? String, expected.identifier)
-        XCTAssertEqual(actual["label"] as? String, expected.label)
-        XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
-        XCTAssertEqual(actual["enabled"] as? Bool, expected.isEnabled)
-        XCTAssertEqual(actual["selected"] as? Bool, expected.isSelected)
-        XCTAssertEqual(element.isHittable, element.native.isHittable)
-        let frame = try XCTUnwrap(actual["frame"] as? [Double])
-        for (value, reference) in zip(
-            frame,
-            [expected.frame.minX, expected.frame.minY, expected.frame.width, expected.frame.height])
-        {
-            XCTAssertEqual(value, Double(reference), accuracy: 0.5)
-        }
-    }
-
-    @MainActor
-    func testRefreshStatusRowsUseConsistentGeometry() throws {
-        for largeText in [false, true] {
-            app = configureApp(
-                resetStorage: !largeText, restartProcess: largeText,
-                accessibilityTextSize: largeText, content: true, school: true)
-            var samples: [(page: String, cell: CGRect, text: CGRect, action: CGRect)] = []
-            for page in ["课表", "DDL", "空教室", "成绩"] {
-                if page == "成绩" {
-                    app.mainTab(page).native.tap()
-                } else {
-                    app.native.segmentedControls.buttons[page].tap()
-                }
-                UITestSnapshotReader.invalidate()
-                let container =
-                    switch page {
-                    case "课表":
-                        UIElement(
-                            app.native.collectionViews.containing(
-                                .other, identifier: "schedule.refresh-status"
-                            ).firstMatch)
-                    case "DDL":
-                        app.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
-                    case "空教室": app.descendants(matching: .any)["schedule.section-surface"]
-                    default: app.descendants(matching: .any)["browser.master"]
-                    }
-                let actionID = page == "成绩" ? "score.query" : "app.refresh-status.action"
-                let action = container.native.buttons[actionID]
-                let timestamp = container.native.staticTexts["app.refresh-status.timestamp"]
-                    .firstMatch
-                let cell = container.native.cells.containing(.button, identifier: actionID)
-                    .firstMatch
-                assertUI(
-                    timestamp.waitForExistence(timeout: 5) && cell.exists,
-                    "\(page)应呈现更新时间行。")
-                assertUI(
-                    waitUntil(
-                        NSPredicate(format: "enabled == true"), on: container.buttons[actionID],
-                        timeout: 5),
-                    "\(page)刷新完成后应开放操作。")
-                for element in [
-                    container.buttons[actionID],
-                    container.staticTexts["app.refresh-status.timestamp"],
-                ] { try assertNativeControlParity(element) }
-                let frames = (
-                    page: page, cell: cell.frame, text: timestamp.frame, action: action.frame
-                )
-                samples.append(frames)
-                assertUI(
-                    frames.cell.height >= max(44, frames.text.height, frames.action.height) + 7,
-                    "\(page)行高应容纳点击区域、当前字体和上下边距。")
-                assertUI(
-                    frames.cell.insetBy(dx: 0, dy: 4).contains(frames.text),
-                    "\(page)更新时间文字应完整落在行内容区域。")
-            }
-            guard
-                let buttonAllowance = samples.map({ max(0, $0.cell.height - 8 - $0.action.height) })
-                    .min()
-            else {
-                XCTFail("四个数据页应提供布局样本。")
-                return
-            }
-            for sample in samples {
-                let expectedHeight =
-                    largeText
-                    ? max(44, sample.text.height, sample.action.height + buttonAllowance) + 8 : 52
-                XCTAssertEqual(
-                    sample.cell.height, expectedHeight, accuracy: 1,
-                    """
-                    \(sample.page)更新时间行应由文字、操作区和行边距决定高度：行 \(sample.cell)，文字 \(sample.text)，操作 \
-                    \(sample.action)，大字体 \(largeText)。
-                    """
-                )
-            }
-        }
-    }
-
-    @MainActor
-    func testRecurringSchedulesUseDisplayedWeek() {
-        app = configureApp(resetStorage: true)
-        let calendar = app.native.cells.containing(.button, identifier: "schedule.add-content")
-            .firstMatch
-        assertUI(calendar.appears(timeout: 5), "课表应完成布局。")
-        checkScheduleGeometry()
-        tap("下一周")
-        tap("下一周")
-        assertSelectedWeek(3)
-        app.buttons["schedule.add-content"].tapBriefly()
-        tap("添加课程")
-        app.buttons["schedule.course.weeks"].tapBriefly()
-        XCTAssertEqual(app.buttons["第3周"].value as? String, "已选择")
-        tap("完成")
-        tap("取消")
-        app.buttons["schedule.add-content"].tapBriefly()
-        tap("添加日程")
-        replaceText("每周活动", in: app.textFields["schedule.custom.title"])
-        dismissKeyboard()
-        app.buttons["schedule.custom.weeks"].tapBriefly()
-        XCTAssertEqual(app.buttons["第3周"].value as? String, "已选择")
-        tap("第4周")
-        tap("完成")
-        tap("确定")
-        let activity = app.buttons["自定义日程，每周活动"]
-        assertUI(activity.appears(timeout: 5), "添加后应显示当前周活动。")
-        tap("下一周")
-        assertUI(activity.appears(timeout: 5), "下一周应显示相同活动。")
-        activity.tapBriefly()
-        tap("编辑")
-        app.buttons["schedule.custom.weeks"].tapBriefly()
-        XCTAssertEqual(app.buttons["第3周"].value as? String, "已选择")
-        XCTAssertEqual(app.buttons["第4周"].value as? String, "已选择")
-        tap("第3周")
-        tap("第5周")
-        tap("完成")
-        tap("确定")
-        tap("上一周")
-        assertUI(activity.disappears(timeout: 5), "移出的周次应清除活动。")
-        app = configureApp(resetStorage: false, restartProcess: true)
-        tap("第5周")
-        assertUI(activity.appears(timeout: 5), "重新打开应保留多周日程。")
-        activity.tapBriefly()
-        tap("删除")
-        assertUI(activity.disappears(timeout: 5), "删除应移除整组日程。")
-        tap("上一周")
-        assertUI(activity.disappears(timeout: 5), "其余周次应同步移除。")
-    }
-
-    @MainActor
-    func testAccessibilityQueryParity() throws {
-        app = configureApp(resetStorage: true, account: nil, nativeInteraction: false)
-        XCTAssertEqual(app.frame, app.native.frame)
-        XCTAssertEqual(
-            app.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch.value
-                as? String,
-            app.native.descendants(matching: .any).matching(identifier: "ui-test.scene").firstMatch
-                .value as? String)
-        for element in [
-            app.textFields["login.student-id"], app.secureTextFields["login.password"],
-            app.buttons["login.submit"],
-        ] {
-            try assertNativeControlParity(element)
-        }
-        let submit = app.buttons["login.submit"]
-        func checkedDisabledControls() throws -> [String] {
-            let report = try XCTUnwrap(UITestControlClient.request(["command": "coverage"]))
-            let value = try JSONSerialization.jsonObject(with: Data(report.utf8)) as? [String: Any]
-            return try XCTUnwrap(value?["checkedDisabledControls"] as? [String])
-        }
-        let previousChecks = try checkedDisabledControls()
-        _ = submit.isEnabled
-        XCTAssertEqual(try checkedDisabledControls(), previousChecks, "状态读取应保持独立的断言库存。")
-        submit.assertDisabled("空凭据应禁用登录。")
-        XCTAssertEqual(
-            Set(try checkedDisabledControls()).subtracting(previousChecks).count, 1,
-            "成功的禁用断言应登记当前控件。")
-        XCTAssertTrue(
-            ["native", "input focus missing"].contains(
-                app.textFields["login.student-id"].insertText("待聚焦输入") ?? ""))
-        XCTAssertEqual(app.textFields["login.student-id"].value as? String, "", "输入写入应由当前实际焦点承接。")
-        replaceTextWithKeyboard("20230001", in: app.textFields["login.student-id"])
-        XCTAssertEqual(app.textFields["login.student-id"].insertText("20230002"), "entered")
-        XCTAssertEqual(app.textFields["login.student-id"].value as? String, "20230002")
-        XCTAssertEqual(app.textFields["login.student-id"].insertText("20230001"), "entered")
-        replaceTextWithKeyboard("fixture-password", in: app.secureTextFields["login.password"])
-        dismissKeyboard()
-        XCTAssertTrue(submit.isEnabled)
-        XCTAssertEqual(
-            UITestControlClient.request([
-                "command": "occlusion", "identifier": "login.submit", "enabled": "1",
-            ]), "covered")
-        UITestSnapshotReader.invalidate()
-        let cover = app.native.buttons["ui-test.occlusion"]
-        assertUI(
-            cover.waitForExistence(timeout: 5)
-                && cover.frame.contains(CGPoint(x: submit.frame.midX, y: submit.frame.midY)),
-            "遮挡层应覆盖登录按钮。")
-        let query = try JSONSerialization.data(withJSONObject: [
-            ["type": "9"], ["predicate": "identifier == 'login.submit'"], ["first": "1"],
-        ])
-        XCTAssertEqual(
-            UITestControlClient.request([
-                "command": "query-activate", "query": String(decoding: query, as: UTF8.self),
-                "hittable": submit.isHittable ? "1" : "0",
-            ]), "native")
-        XCTAssertEqual(
-            UITestControlClient.request(["command": "occlusion", "enabled": "0"]), "cleared")
-        UITestSnapshotReader.invalidate()
-        XCTAssertTrue(submit.isHittable)
-        let studentID = app.textFields["login.student-id"]
-        let previous = studentID.value as? String
-        XCTAssertEqual(
-            UITestControlClient.request([
-                "command": "occlusion", "identifier": "login.student-id", "enabled": "1",
-            ]), "covered")
-        UITestSnapshotReader.invalidate()
-        assertUI(
-            cover.frame.contains(CGPoint(x: studentID.frame.midX, y: studentID.frame.midY)),
-            "遮挡层应覆盖输入位置。")
-        XCTAssertEqual(studentID.insertText("遮挡输入"), "native")
-        XCTAssertEqual(studentID.value as? String, previous)
-        XCTAssertEqual(
-            UITestControlClient.request(["command": "occlusion", "enabled": "0"]), "cleared")
-        UITestSnapshotReader.invalidate()
-        let missing = app.buttons["ui-test.missing-control"]
-        XCTAssertFalse(missing.exists)
-        XCTAssertFalse(missing.native.exists)
-        XCTAssertFalse(missing.isHittable)
-        for element in [
-            app.staticTexts.firstMatch,
-            app.descendants(matching: .any).matching(identifier: "login.student-id").firstMatch,
-        ] {
-            let actual = try XCTUnwrap(element.attributes())
-            let expected = try element.native.snapshot()
-            XCTAssertEqual(actual["identifier"] as? String, expected.identifier)
-            XCTAssertEqual(actual["label"] as? String, expected.label)
-            XCTAssertEqual(actual["elementType"] as? Int, Int(expected.elementType.rawValue))
-        }
-        app = configureApp(resetStorage: true)
-        app.buttons["下一周"].native.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        assertSelectedWeek(2)
-        XCTAssertTrue(app.buttons["第2周"].native.isSelected)
-        app.buttons["上一周"].tapBriefly()
-        assertSelectedWeek(1)
-        XCTAssertTrue(app.buttons["第1周"].native.isSelected)
-        let slider = app.descendants(matching: .any)["interaction.ScheduleInlineWeekSlider.scroll"]
-        let selected = try slider.selectedButtonIdentities().map { $0.0 + "\n" + $0.1 }.sorted()
-        let expectedSelected = try slider.native.snapshot().snapshots(matching: .button)
-            .filter(\.isSelected).map { $0.identifier + "\n" + $0.label }.sorted()
-        XCTAssertFalse(expectedSelected.isEmpty)
-        XCTAssertEqual(selected, expectedSelected)
-        app.buttons["schedule.add-content"].native.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        app.native.buttons["添加日程"].firstMatch.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        let title = app.textFields["schedule.custom.title"]
-        title.native.tap()
-        UITestSnapshotReader.invalidate()
-        replaceText("渲染查询输入", in: title)
-        XCTAssertEqual(title.native.value as? String, "渲染查询输入")
-        XCTAssertTrue(app.keyboards.firstMatch.native.exists)
-        dismissKeyboard()
-        XCTAssertTrue(app.keyboards.firstMatch.native.disappears(timeout: 5))
-        replaceTextWithKeyboard("字段绑定输入", in: title)
-        XCTAssertEqual(title.native.value as? String, "字段绑定输入")
-        dismissKeyboard()
-        XCTAssertTrue(app.keyboards.firstMatch.native.disappears(timeout: 5))
-        app.buttons["取消"].native.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        XCTAssertTrue(app.buttons["schedule.add-content"].native.exists)
-        app = configureApp(resetStorage: true, initialSettings: "gallery")
-        let row = app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏匿名内容"))
-            .firstMatch
-        let control = row.native.switches.firstMatch
-        let initial = control.value as? String
-        control.tap()
-        UITestSnapshotReader.invalidate()
-        XCTAssertNotEqual(control.value as? String, initial)
-        _ = toggle("隐藏匿名内容")
-        XCTAssertEqual(control.value as? String, initial)
-        app = configureApp(resetStorage: false, initialSettings: "gallery")
-        XCTAssertEqual(
-            app.switches.matching(NSPredicate(format: "label CONTAINS %@", "隐藏匿名内容")).firstMatch
-                .native.switches.firstMatch.value as? String, initial)
-        app.navigationBars["话廊设置"].buttons.firstMatch.native.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        XCTAssertTrue(app.buttons["settings.route.gallery"].appears(timeout: 5))
-        openSettings("gallery")
-        back()
-        XCTAssertTrue(app.buttons["settings.route.gallery"].appears(timeout: 5))
-        app = configureApp(resetStorage: true, initialTab: "gallery")
-        let alert = app.alerts["加载话廊失败"]
-        XCTAssertTrue(alert.appears(timeout: 5))
-        try assertNativeControlParity(alert.buttons["知道了"])
-        alert.buttons["知道了"].native.press(forDuration: 0.01)
-        UITestSnapshotReader.invalidate()
-        XCTAssertTrue(alert.disappears(timeout: 5))
-        XCTAssertFalse(alert.native.exists)
-    }
-
-    @MainActor
-    func testScheduleKeepsWeek() {
-        let device = XCUIDevice.shared
+    func testScheduleWeekButtonsAndSectionSwipes() {
         app = configureApp(resetStorage: true, school: true)
-        let traits = windowTraits()
-        let requiresPortrait =
-            traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
-            && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
-                || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue)
-        let isTablet = traits["idiom"] == UIUserInterfaceIdiom.pad.rawValue
-        defer { device.orient(to: .portrait) }
-        assertWeekCentered(1)
-        app.buttons["第3周"].tapBriefly()
-        assertSelectedWeek(3)
-        tap("schedule.add-content")
-        tap("添加课程")
-        let draft = app.textFields["课程名称"]
-        replaceText("旋转保留课程草稿", in: draft)
-        dismissKeyboard()
-        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
-            device.orient(to: orientation)
-            UITestSnapshotReader.invalidate()
-            assertUI(
-                draft.appears(timeout: 5) && draft.value as? String == "旋转保留课程草稿",
-                "旋转应保留课程编辑器及完整草稿。")
-        }
+        let outside = app.scrollViews["schedule.calendar.outside-events"]
+        assertUI(outside.appears(timeout: 5), "课间考试应提供课表展示入口。")
+        outside.swipeLeft()
+        assertUI(app.segmentedControls.buttons["课表"].isSelected, "日程条横滑应保留课表分栏。")
+        app.buttons["schedule.entry.exam-ui-outside-exam"].tapBriefly()
+        assertUI(app.navigationBars["考试详情"].appears(timeout: 5), "课间考试应打开详情。")
+        assertUI(app.staticTexts["时间：12:30-12:45"].exists, "考试详情应保留课间原始时间。")
         tap("取消")
-        tap("放弃输入")
-        for orientation in [UIDeviceOrientation.landscapeLeft, .landscapeRight, .portrait] {
-            device.orient(to: orientation)
-            UITestSnapshotReader.invalidate()
-            let add = app.buttons["schedule.add-content"]
+        tap("下一周")
+        assertSelectedWeek(2)
+        tap("上一周")
+        assertSelectedWeek(1)
+        tap("第3周")
+        assertSelectedWeek(3)
+        app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
+        assertUI(app.segmentedControls.buttons["DDL"].isSelected, "横滑应切换到 DDL。")
+        app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
+        assertUI(app.sectionTab("空教室").isSelected, "横滑应切换到空教室。")
+        closeAlertIfPresent()
+        app.descendants(matching: .any)["schedule.section-surface"].swipeRight()
+        assertUI(app.segmentedControls.buttons["DDL"].isSelected, "反向横滑应恢复 DDL。")
+        tapHeader(app.segmentedControls.buttons.element(boundBy: 0))
+        assertUI(app.buttons["schedule.add-content"].exists, "分栏切换应恢复课表交互。")
+    }
+
+    @MainActor
+    func testScheduleDayHolidayCancel() {
+        app = configureApp(resetStorage: true)
+        tap("第1周")
+        let day = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，"))
+            .firstMatch
+        assertUI(day.appears(timeout: 5), "每日表头应提供调整入口。")
+        day.tapBriefly()
+        assertUI(app.navigationBars["调休 / 放假"].appears(timeout: 5), "每日表头应打开日期调整。")
+        tapHeader(app.segmentedControls.buttons["放假"])
+        tap("确定")
+        assertUI(app.alerts["确认放假"].appears(timeout: 5), "放假应展示确认。")
+        app.alerts.buttons["取消"].tapBriefly()
+        tapHeader(app.segmentedControls.buttons["调至某天"])
+        assertUI(app.datePickers.firstMatch.exists, "调休应提供目标日期选择。")
+        tap("确定")
+        assertUI(app.alerts["确认调课"].appears(timeout: 5), "调休应展示确认。")
+        app.alerts.buttons["取消"].tapBriefly()
+        tap("取消")
+        assertUI(app.buttons["schedule.add-content"].exists, "取消日期调整应恢复课表。")
+    }
+
+    @MainActor
+    func testLinearScheduleTimelineScrollAndPinch() {
+        app = configureApp(resetStorage: true)
+        openSettings("calendar")
+        assertInteractiveLabelUsesPrimaryColor("时间轴")
+        choose("时间轴", option: "线性")
+        back()
+        app.mainTab("日程").tapBriefly()
+        let timeline = app.scrollViews["schedule.linear.timeline"]
+        assertUI(timeline.appears(timeout: 5), "线性模式应提供可缩放的时间轴。")
+        let canvas = app.buttons["schedule.blank-context-menu"]
+        XCTAssertEqual(
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "初始时间轴应与视口左界限对齐。")
+        let initial = timeline.value as? String
+        timeline.pinch(withScale: 1.5, velocity: 1)
+        assertUI(
+            waitUntil(NSPredicate(format: "value != %@", initial ?? ""), on: timeline, timeout: 5),
+            "双指展开应放大时间轴，当前值：\(String(describing: timeline.value))，\(timeline.label)。")
+        let enlarged = timeline.value as? String
+        XCTAssertEqual(
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "放大后的日期列应与视口左界限对齐。"
+        )
+        timeline.swipeUp()
+        timeline.swipeDown()
+        timeline.pinch(withScale: 0.8, velocity: -1)
+        assertUI(timeline.value as? String != enlarged, "双指收拢应缩小时间轴。")
+        XCTAssertEqual(
+            canvas.native.frame.minX, timeline.native.frame.minX, accuracy: 0.5, "缩小后的日期列应与视口左界限对齐。"
+        )
+        assertUI(timeline.isHittable, "缩放和滚动后时间轴应可交互。")
+        XCTAssertEqual(
+            UITestControlClient.request([
+                "command": "record", "identifier": "fabricated", "type": "9",
+                "instance": "fabricated", "action": "tap",
+            ]), "unobserved", "访问记录应对应已捕获的控件。")
+        guard let coverage = UITestControlClient.request(["command": "coverage"]),
+            let inventory = try? JSONSerialization.jsonObject(with: Data(coverage.utf8))
+                as? [String: Any],
+            let visits = inventory["visitedControls"] as? [[String: Any]]
+        else {
+            XCTFail("时间轴应提供实际交互库存。")
+            return
+        }
+        XCTAssertFalse((inventory["observedControls"] as? [String] ?? []).contains("fabricated"))
+        let actions = Set(
+            visits.filter { $0["identifier"] as? String == "schedule.linear.timeline" }
+                .flatMap { $0["actions"] as? [String] ?? [] })
+        XCTAssertTrue(actions.isSuperset(of: ["swipe", "pinch"]), "时间轴应分别保留滚动与捏合证据。")
+    }
+
+    @MainActor
+    func testMapCampusLayerPanAndZoomPersist() throws {
+        app = configureApp(resetStorage: true, initialTab: "map")
+        let layer = app.buttons["切换地图图层"]
+        assertUI(layer.appears(timeout: 5), "地图应提供图层入口。")
+        func camera() throws -> [String: Any] {
+            let snapshot = try XCTUnwrap(UITestControlClient.request(["command": "map-camera"]))
+            return try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(snapshot.utf8)) as? [String: Any])
+        }
+        let original = try XCTUnwrap(try camera()["configuration"] as? String)
+        layer.tapBriefly()
+        let changed = try XCTUnwrap(try camera()["configuration"] as? String)
+        assertUI(changed != original, "切换图层应改变原生地图配置。")
+        checkBrowserActionBounds(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
+        var longitude = try XCTUnwrap(try camera()["longitude"] as? Double)
+        for campus in ["中关村校区", "良乡校区", "珠海校区"] {
+            revealBrowserAction("切换到\(campus)").tapBriefly()
             assertUI(
                 waitUntil(
                     NSPredicate { _, _ in
-                        UITestSnapshotReader.invalidate()
-                        let window = self.app.native.windows.firstMatch.frame
-                        let followsRotation =
-                            !isTablet
-                            || (orientation.isLandscape
-                                ? window.width > window.height : window.height > window.width)
-                        return followsRotation && add.native.exists && add.native.isHittable
-                            && window.contains(add.native.frame)
-                    }, on: app, timeout: 10), "窗口旋转后课表操作入口保持可触达。")
-            if requiresPortrait {
-                assertUI(
-                    app.windows.firstMatch.frame.height > app.windows.firstMatch.frame.width,
-                    "紧凑手机窗口应保持竖屏：\(windowTraits())。")
-            }
-            assertSelectedWeek(3)
-            assertWeekCentered(3)
-            let calendar = app.buttons["schedule.blank-context-menu"]
-            assertUI(calendar.appears(timeout: 10), "窗口旋转后课表保持可见。")
-            let window = app.windows.firstMatch.frame
-            assertUI(
-                calendar.frame.height > add.frame.height && window.intersects(calendar.frame),
-                "窗口旋转后课表保留可用的内容区域。")
-            for title in ["日程", "地图", "成绩", "话廊", "我的"] {
-                let tab = app.mainTab(title)
-                assertUI(tab.exists && tab.native.isHittable, "窗口旋转后主导航保持可触达：\(title)。")
-            }
+                        (try? camera()["longitude"] as? Double).map { $0 != longitude } == true
+                    }, on: app), "校区切换应改变地图中心：\(campus)。")
+            longitude = try XCTUnwrap(try camera()["longitude"] as? Double)
+        }
+        let map = app.maps.firstMatch
+        assertUI(map.exists, "地图应暴露可交互的地图区域。")
+        let initialCamera = try camera()
+        XCTAssertEqual(initialCamera["scrollEnabled"] as? Bool, true, "原生地图应启用平移。")
+        XCTAssertEqual(initialCamera["zoomEnabled"] as? Bool, true, "原生地图应启用缩放。")
+        map.swipeLeft()
+        let pannedCamera = try camera()
+        XCTAssertNotEqual(
+            try XCTUnwrap(pannedCamera["longitude"] as? Double),
+            try XCTUnwrap(initialCamera["longitude"] as? Double), "向左滑动应改变地图中心经度。")
+        map.pinch(withScale: 1.5, velocity: 1)
+        let zoomedCamera = try camera()
+        XCTAssertLessThan(
+            try XCTUnwrap(zoomedCamera["distance"] as? Double),
+            try XCTUnwrap(pannedCamera["distance"] as? Double), "双指展开应拉近地图相机距离。")
+        layer.tapBriefly()
+        XCTAssertEqual(try camera()["configuration"] as? String, original, "平移和缩放后图层操作应继续生效。")
+        layer.tapBriefly()
+        XCTAssertEqual(try camera()["configuration"] as? String, changed, "图层操作应恢复已选择的配置。")
+        app = configureApp(resetStorage: false, initialTab: "map")
+        let restored = try camera()
+        assertUI(restored["configuration"] as? String == changed, "重新装载应保留图层设置。")
+        XCTAssertEqual(
+            try XCTUnwrap(restored["longitude"] as? Double),
+            try XCTUnwrap(initialCamera["longitude"] as? Double), accuracy: 0.0001, "重新装载应保留校区。")
+    }
+
+    @MainActor
+    func testCalendarSettingsPickersToggles() {
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
+        tap("时间表")
+        let editor = app.textViews.firstMatch
+        replaceTextWithKeyboard("invalid", in: editor)
+        dismissKeyboard()
+        tap("确定")
+        assertUI(app.alerts["设置失败"].appears(timeout: 5), "错误时间表应展示校验结果。")
+        closeAlertIfPresent()
+        replaceText("08:00,08:45\n09:00,09:45", in: editor)
+        dismissKeyboard()
+        tap("确定")
+        tap("时间表")
+        assertUI((editor.value as? String ?? "").contains("08:00"), "保存应恢复新时间表。")
+        replaceText("10:00,10:45", in: editor)
+        dismissKeyboard()
+        tap("取消")
+        tap("放弃输入")
+        tap("时间表")
+        assertUI((editor.value as? String ?? "").contains("08:00"), "取消应保留已保存时间表。")
+        tap("取消")
+        let cancelName = app.buttons["schedule.settings.primary-name"]
+        reveal(cancelName)
+        cancelName.tapBriefly()
+        replaceText("取消的名称", in: app.textFields["schedule.rename.name"])
+        dismissKeyboard()
+        tap("取消")
+        assertUI(!cancelName.label.contains("取消的名称"), "取消改名应保留课表名称。")
+        choose("时间轴", option: "线性")
+        choose("时间轴", option: "节次")
+        choose("课程显示方式", option: "全学期叠加")
+        choose("课程显示方式", option: "按周显示")
+        for option in ["名称", "地点", "名称和地点"] {
+            choose("显示内容", option: option)
+        }
+        let savedSwitches = Dictionary(
+            uniqueKeysWithValues: ["显示周六", "显示周日", "显示考试安排"].map { ($0, toggle($0)) })
+        let nameRow = app.buttons["schedule.settings.primary-name"]
+        reveal(nameRow, description: "课表名称")
+        nameRow.tapBriefly()
+        let name = app.textFields["schedule.rename.name"]
+        assertUI(name.appears(timeout: 5), "重命名应展示输入框。")
+        replaceText("测试课表名称", in: name)
+        tap("确定")
+        assertUI(textElement("测试课表名称").appears(timeout: 5), "重命名应更新设置行。")
+        app = configureApp(resetStorage: false)
+        assertUI(app.segmentedControls.buttons["测试课表名称"].exists, "重新装载应保留课表名称。")
+        openSettings("calendar")
+        for title in ["显示周六", "显示周日", "显示考试安排"] {
+            let control = app.switches.matching(NSPredicate(format: "label CONTAINS %@", title))
+                .firstMatch
+            reveal(control, description: title)
+            assertUI(control.value as? String == savedSwitches[title], "重新装载应保留开关：\(title)")
         }
     }
 
     @MainActor
-    private func assertWeekCentered(_ week: Int) {
-        let item = app.native.buttons["第\(week)周"]
-        let viewport = app.native.scrollViews["interaction.ScheduleInlineWeekSlider.scroll"]
+    func testCalendarOfflineTermFailureAndCancel() {
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
+        tap("当前学期")
+        assertUI(app.navigationBars["切换学期"].appears(timeout: 5), "当前学期应打开选择页。")
+        assertUI(app.alerts.firstMatch.appears(timeout: 5), "学校离线应展示学期加载失败。")
+        closeAlertIfPresent()
+        assertUI(app.staticTexts["学期列表尚未加载"].appears(timeout: 5), "失败后应展示学期列表的待加载状态。")
+        assertUI(
+            !app.descendants(matching: .activityIndicator).firstMatch.exists, "请求结束后应恢复空状态与重试入口。")
+        tap("重新加载")
+        assertUI(app.alerts.firstMatch.appears(timeout: 5), "重试应重新执行学期请求并反馈连接结果。")
+        closeAlertIfPresent()
+        back()
+        assertUI(app.buttons["schedule.settings.primary-name"].exists, "关闭失败提示并返回应恢复日程设置。")
+    }
+
+    @MainActor
+    func testScheduleCopyImportRenameCycle() throws {
+        app = configureApp(resetStorage: true, initialSettings: "calendar")
+        defer { Self.endSharedSession() }
+        tap("分享课表")
+        assertUI(app.alerts["当前课表为空"].appears(timeout: 5), "空课表分享应先提示确认。")
+        app.alerts["当前课表为空"].buttons["确定"].tapBriefly()
+        tap("复制到剪贴板")
+        assertUI(app.alerts["已复制"].appears(timeout: 5), "复制编码应展示成功提示。")
+        app.alerts["已复制"].buttons["知道了"].tapBriefly()
+        tap("取消")
+        tap("导入课表")
+        assertUI(app.alerts["导入分享课表提示"].appears(timeout: 5), "首次导入应展示说明。")
+        app.alerts["导入分享课表提示"].buttons["知道了"].tapBriefly()
+        tap("粘贴剪贴板")
+        let code = app.textViews["schedule.import.code"]
+        assertUI(!(code.value as? String ?? "").isEmpty, "粘贴应恢复刚导出的编码。")
+        tap("导入")
+        assertUI(app.alerts["导入成功"].appears(timeout: 5), "导入分享课表应展示成功结果。")
+        closeAlertIfPresent()
+        assertUI(code.disappears(timeout: 5), "导入完成应关闭编码页面并恢复课表设置。")
+        let shared = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "schedule.settings.shared.")
+        ).firstMatch
+        reveal(shared, description: "分享课表名称")
+        shared.tapBriefly()
+        replaceText("测试分享课表", in: app.textFields["schedule.rename.name"])
+        dismissKeyboard()
+        tap("确定")
+        assertUI(
+            waitUntil(NSPredicate(format: "label CONTAINS %@", "测试分享课表"), on: shared, timeout: 5),
+            "保存应更新分享课表名称。")
+        back()
+        app.mainTab("日程").tapBriefly()
+        let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
+        assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
+        app.swipeUp()
         assertUI(
             waitUntil(
-                NSPredicate { _, _ in
-                    item.exists && viewport.exists && viewport.frame.width > 0
-                        && abs(item.frame.midX - viewport.frame.midX) <= 1
-                }, on: app, timeout: 5), "首屏及旋转后选中周应与滚动视口居中对齐。")
+                NSPredicate(format: "label == %@", "课表"),
+                on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
+            "向上滑动应从分享课表循环到主课表。")
+        app.swipeDown()
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", "测试分享课表"),
+                on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向下滑动应恢复分享课表。")
+        let application = try XCTUnwrap(app.native as? XCUIApplication)
+        application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
+        application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = nil
+        application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
+        UITestSnapshotReader.invalidate()
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", "课表"),
+                on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
+            "自己的课表小组件应从分享分身返回主课表。")
+        openSettings("calendar")
+        reveal(shared, description: "分享课表名称")
+        checkScrollContainers(force: true)
+        shared.swipeLeft()
+        let delete = app.buttons["删除"]
+        assertUI(delete.native.waitForExistence(timeout: 5), "左滑应显示删除操作。")
+        delete.tapBriefly()
+        assertUI(shared.disappears(timeout: 5), "删除操作应移除分享课表。")
+    }
+
+    @MainActor
+    func testDdlSettingsWheelSaveCancel() {
+        app = configureApp(resetStorage: true)
+        openSettings("ddl")
+        tap("变色天数")
+        let wheel = app.pickerWheels.firstMatch
+        assertUI(wheel.appears(timeout: 5), "变色天数应使用滚轮选择。")
+        wheel.adjust(toPickerWheelValue: "7 天")
+        tap("完成")
+        assertUI(wheel.disappears(timeout: 5), "保存变色天数应收起滚轮。")
+        tap("滞留天数")
+        app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "10 天")
+        tap("取消")
+        assertUI(wheel.disappears(timeout: 5), "取消滞留天数应收起滚轮。")
+        tap("滞留天数")
+        assertUI(app.pickerWheels.firstMatch.value as? String != "10 天", "取消应保留原值。")
+        app.pickerWheels.firstMatch.adjust(toPickerWheelValue: "5 天")
+        tap("完成")
+        assertUI(wheel.disappears(timeout: 5), "保存滞留天数应收起滚轮。")
+        app = configureApp(resetStorage: false, initialSettings: "ddl")
+        tap("变色天数")
+        assertUI(app.pickerWheels.firstMatch.value as? String == "7 天", "重新装载应保留变色天数。")
+        tap("取消")
+        assertUI(wheel.disappears(timeout: 5), "取消变色天数应收起滚轮。")
+        tap("滞留天数")
+        assertUI(app.pickerWheels.firstMatch.value as? String == "5 天", "重新装载应保留滞留天数。")
+        tap("取消")
     }
 
 }

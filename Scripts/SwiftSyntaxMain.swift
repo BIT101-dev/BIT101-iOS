@@ -4,7 +4,7 @@ import SwiftParser
 import SwiftSyntax
 
 @main
-enum SwiftSyntaxIndexer {
+enum SwiftSyntaxMain {
     static func main() throws {
         let inputData = FileHandle.standardInput.readDataToEndOfFile()
         let input = try JSONDecoder().decode(Input.self, from: inputData)

@@ -7,6 +7,7 @@ from code_style_rules import (
     emoji_findings,
     line_findings,
     python_findings,
+    swift_file_type_findings,
     swift_findings,
     style_findings,
     tree_findings,
@@ -75,6 +76,10 @@ def self_test() -> None:
         ),
         "custom.swift": (f"class Delegate {{func {long_name}(_ app: Any) {{}} }}"),
         "elif.swift": "func run() { if a {} else if b {} else if c {} else if d {} }",
+        "published.swift": "final class Model: ObservableObject { @Published var count = 0 }",
+        "badType.swift": "struct lowerType {}",
+        "badFunc.swift": "func UpperFunc() {}",
+        "badVar.swift": "struct Item { let UpperValue: Int = 1 }",
     }
     facts = swift_syntax_index_sources(sources)
     for name, source in sources.items():
@@ -86,8 +91,21 @@ def self_test() -> None:
                 "five.swift",
                 "closure.swift",
                 "custom.swift",
+                "published.swift",
+                "badType.swift",
+                "badFunc.swift",
+                "badVar.swift",
             }
         ), (name, failures)
+
+    pair = swift_syntax_index_sources(
+        {"Alpha.swift": "struct Beta {}", "Beta.swift": "struct Alpha {}"}
+    )
+    assert len(swift_file_type_findings(pair)) == 2
+    valid_pair = swift_syntax_index_sources(
+        {"Alpha.swift": "struct Alpha {}", "Beta.swift": "struct Beta {}"}
+    )
+    assert swift_file_type_findings(valid_pair) == []
 
     conditional = "if a: pass\nelif b: pass\nelif c: pass\nelif d: pass\nelif e: pass"
     assert python_findings("file.py", conditional) == []

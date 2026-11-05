@@ -24,8 +24,8 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 成绩与课程入口共享分区选择与课程路由，各自沿原生浏览分栏呈现。
-struct ScoreRootView: View {
-    private let scene: ScoreRootScene
+struct AppScoreSurfaceView: View {
+    private let scene: AppScoreSurfaceScene
     private let identity: ObjectIdentifier
 
     init(
@@ -34,7 +34,7 @@ struct ScoreRootView: View {
         selection: Binding<ScoreSurface>? = nil,
         showingCourses: Bool? = nil
     ) {
-        scene = ScoreRootScene(
+        scene = AppScoreSurfaceScene(
             courses: courses, transcriptService: transcriptService,
             requestedCourse: requestedCourse,
             selection: selection, showingCourses: showingCourses)
@@ -44,7 +44,7 @@ struct ScoreRootView: View {
     var body: some View { scene.id(identity) }
 }
 
-private struct ScoreRootScene: View {
+private struct AppScoreSurfaceScene: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
     @Environment(ScoreViewModel.self) private var scoreViewModel: ScoreViewModel

@@ -95,7 +95,7 @@ private nonisolated struct ActivityEndingReport: Sendable {
 @MainActor
 final class ScheduleLiveActivityManager {
 
-    typealias NotificationAuthorizationState = ScheduleReminderNotificationAuthorizationState
+    typealias NotificationAuthorizationState = ScheduleReminderAuthorizationState
 
     private let logger = Logger(subsystem: "BIT101", category: "ScheduleLiveActivity")
     private let context: ScheduleReminderContext
@@ -688,7 +688,7 @@ final class ScheduleLiveActivityManager {
 @MainActor
 final class ScheduleLiveActivityManager {
 
-    typealias NotificationAuthorizationState = ScheduleReminderNotificationAuthorizationState
+    typealias NotificationAuthorizationState = ScheduleReminderAuthorizationState
 
     init(context: ScheduleReminderContext) {}
 

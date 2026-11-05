@@ -70,10 +70,8 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     {
         switch content {
         case .courses(let courses, let firstDay, let timeTable, let week):
-            let drafts = ScheduleSystemCalendarEventBuilder.makeDrafts(
-                courses: courses, firstDay: firstDay, timeTable: timeTable)
-            guard let week else { return drafts }
-            return drafts.filter { $0.markerID.hasSuffix("-w\(week)") }
+            return ScheduleSystemCalendarEventBuilder.makeDrafts(
+                courses: courses, firstDay: firstDay, timeTable: timeTable, targetWeek: week)
         case .exam(let exam):
             guard let draft = ScheduleSystemCalendarEventBuilder.makeDraft(for: exam) else {
                 throw ScheduleSystemCalendarError.invalidEntry("考试时间数据无法生成系统日历事件。")
@@ -93,7 +91,8 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
     static func makeDrafts(
         courses: [CourseRecord],
         firstDay: Date,
-        timeTable: [TimeSlot]
+        timeTable: [TimeSlot],
+        targetWeek: Int? = nil
     ) -> [ScheduleSystemCalendarEventDraft] {
         let slots = Dictionary(
             timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -109,6 +108,7 @@ nonisolated enum ScheduleSystemCalendarEventBuilder {
             guard (1...7).contains(course.weekday) else { return [] }
 
             return course.weeks.compactMap { week in
+                if let targetWeek, targetWeek != week { return nil }
                 guard ScheduleCourseConstraints.isValidWeek(week) else { return nil }
                 let weekOffset = ScheduleWeekCodec.weekOffset(forWeekNumber: week)
                 let dayOffset = weekOffset * 7 + (course.weekday - 1)
@@ -674,41 +674,16 @@ actor ScheduleSystemCalendarManager {
 
         do {
             return try ScheduleSystemCalendarTransaction.run(reset: eventStore.reset) {
-                var eventsByIdentifier = collectBatchEvents(from: batches)
+                let importedEvents = events(forTerm: nil, batches: batches)
+                guard !importedEvents.isEmpty else { return .noOp }
 
-                // 本地批次记录缺失时，专用日历中的事件 URL 仍可用于识别 BIT101 事件。
-                if let calendar = existingBIT101Calendar() {
-                    let lowerBound =
-                        ScheduleSharedDateCodec.calendar.date(
-                            byAdding: .year,
-                            value: -10,
-                            to: Date()
-                        ) ?? Date.distantPast
-                    let upperBound =
-                        ScheduleSharedDateCodec.calendar.date(
-                            byAdding: .year,
-                            value: 10,
-                            to: Date()
-                        ) ?? Date.distantFuture
-                    for event in taggedEvents(
-                        calendars: [calendar],
-                        startDate: lowerBound,
-                        endDate: upperBound,
-                        term: nil
-                    ) {
-                        eventsByIdentifier[event.eventIdentifier] = event
-                    }
-                }
-
-                guard !eventsByIdentifier.isEmpty else { return .noOp }
-
-                for event in eventsByIdentifier.values {
+                for event in importedEvents {
                     try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
                 try Task.checkCancellation()
                 try eventStore.commit()
                 saveBatches([])
-                return .changed(eventsByIdentifier.count)
+                return .changed(importedEvents.count)
             }
         } catch {
             if let calendarError = error as? EKError, Self.isCalendarPermissionError(calendarError)
@@ -717,31 +692,6 @@ actor ScheduleSystemCalendarManager {
             }
             throw error
         }
-    }
-
-    private func collectBatchEvents(
-        from batches: [ImportedBatch]
-    ) -> [String: EKEvent] {
-        var eventsByIdentifier: [String: EKEvent] = [:]
-        for batch in batches {
-            for identifier in batch.eventIdentifiers {
-                if let event = eventStore.event(withIdentifier: identifier),
-                    isBIT101Event(event)
-                {
-                    eventsByIdentifier[identifier] = event
-                }
-            }
-            let calendars = calendarForBatch(batch).map { [$0] }
-            for event in taggedEvents(
-                calendars: calendars,
-                startDate: batch.startDate,
-                endDate: batch.endDate,
-                term: nil
-            ) {
-                eventsByIdentifier[event.eventIdentifier] = event
-            }
-        }
-        return eventsByIdentifier
     }
 
     private func requireFullAccess() async throws {

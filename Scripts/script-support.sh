@@ -2,6 +2,7 @@
 
 # 真机脚本共用设备快照，优先选择已连接设备，并提供同一设备的两种标识。
 export BIT101_SCRIPTS_DIR="${${(%):-%x}:A:h}"
+export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONOPTIMIZE
 if command -v brew >/dev/null 2>&1; then
   bit101_python_prefix="$(brew --prefix)/opt/python@3"

@@ -429,7 +429,7 @@ run_tests() {
   fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
   local inventory_label="$MODE · 完整库存"
-  if (( ${#TEST_SELECTIONS[@]} > 0 )); then \
+  if [[ "$validation_scope" == selected ]]; then \
     inventory_label="$MODE · 定向复测 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
   echo "[$test_action] $inventory_label"
   local verbosity_args=(-quiet)

@@ -16,6 +16,16 @@ EMOJI = regex.compile(
 BANNED_WORDS = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因".split()
 BANNED_EXEMPT = {"AGENTS.md", "Scripts/code_style_rules.py"}
 CODE_SUFFIXES = {".swift", ".py", ".sh", ".js"}
+UPPER_CAMEL = re.compile(r"^_?[A-Z][A-Za-z0-9_]*$")
+LOWER_CAMEL = re.compile(r"^_?[a-z][A-Za-z0-9_]*$")
+LEGACY_OBSERVATION_TOKENS = (
+    "ObservableObject",
+    "Published",
+    "StateObject",
+    "ObservedObject",
+    "EnvironmentObject",
+    "environmentObject",
+)
 
 
 def is_code(name: str) -> bool:
@@ -113,14 +123,62 @@ def python_findings(name: str, source: str, base_line: int = 0) -> list[str]:
 def swift_findings(name: str, source: str, facts: dict) -> list[str]:
     findings = []
     data = source.encode()
+    identifiers = set(facts.get("identifiers", []))
+    for token in LEGACY_OBSERVATION_TOKENS:
+        if token in identifiers:
+            findings.append(
+                issue(name, 1, f"包含旧版响应式标识 {token}；请统一使用 @Observable 与 @Environment")
+            )
+    for declaration in facts.get("declarations", []):
+        if declaration["kind"] == "extension":
+            continue
+        value = declaration["name"].strip("`")
+        findings.extend(check_name(name, 1, value))
+        if not UPPER_CAMEL.match(value):
+            findings.append(issue(name, 1, f"类型名 {value} 需使用 UpperCamelCase"))
     for function in facts.get("functionRanges", []):
         value = function["name"].strip("`")
         line = data[: function["start"]].count(b"\n") + 1
         findings.extend(check_name(name, line, value))
+        if (
+            value[:1].isalpha()
+            and not value.startswith(("init", "subscript"))
+            and not LOWER_CAMEL.match(value)
+        ):
+            findings.append(issue(name, line, f"函数名 {value} 需使用 lowerCamelCase"))
+    for variable in facts.get("typedVariables", []):
+        value = variable["name"].lstrip("$").strip("`")
+        if not value or value == "_":
+            continue
+        findings.extend(check_name(name, 1, value))
+        if not LOWER_CAMEL.match(value):
+            findings.append(issue(name, 1, f"属性或变量名 {value} 需使用 lowerCamelCase"))
     for level in facts["styleNesting"]:
         line = data[: level["start"]].count(b"\n") + 1
         findings.extend(check_depth(name, line, level["depth"]))
     return findings
+
+
+def swift_file_type_findings(facts: dict[str, dict]) -> list[str]:
+    declared_or_extended: dict[str, set[str]] = {}
+    type_owners: dict[str, list[str]] = {}
+    for name, file_facts in facts.items():
+        top_names: set[str] = set()
+        for item in file_facts.get("declarations", []):
+            if item.get("scope"):
+                continue
+            base = item["name"].strip("`").split(".", 1)[0]
+            top_names.add(base)
+            if item["kind"] != "extension" and not item.get("isFilePrivate"):
+                type_owners.setdefault(base, []).append(name)
+        declared_or_extended[name] = top_names
+    return [
+        issue(name, 1, f"主类型 {stem} 定义在 {type_owners[stem][0]}；文件名需与主类型一致")
+        for name, top_names in declared_or_extended.items()
+        if (stem := Path(name).stem) != "Package"
+        and stem not in top_names
+        and stem in type_owners
+    ]
 
 
 def shell_tokens(source: str) -> str:
@@ -248,7 +306,7 @@ def style_findings(contents: dict[str, str]) -> list[str]:
         finding
         for name, source in contents.items()
         for finding in emoji_findings(name, source) + banned_word_findings(name, source)
-    ]
+    ] + swift_file_type_findings(facts)
     for name, source in sources.items():
         findings.extend(line_findings(name, source))
         suffix = Path(name).suffix
