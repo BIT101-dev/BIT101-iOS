@@ -505,17 +505,21 @@ struct FeatureCompositionTests {
     ) async throws {
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
         let controller = UIHostingController(
             rootView: Group {
                 if navigation { NavigationStack { view } } else { view }
-            })
+            }.environment(\.scenePhase, .active))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
         }
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
         window.layoutIfNeeded()
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
@@ -572,28 +576,48 @@ struct FeatureCompositionTests {
             requestedPaperID: Binding(get: { requestedPaperID }, set: { requestedPaperID = $0 }))
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: NavigationStack { view })
+        let controller = UIHostingController(
+            rootView: NavigationStack { view }.environment(\.scenePhase, .active))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
         }
         func webViews(in view: UIView) -> [WKWebView] {
             (view as? WKWebView).map { [$0] } ?? view.subviews.flatMap { webViews(in: $0) }
         }
-        try await waitForTestEvent { paperAppearances > 0 }
+        func flushWindow() {
+            if !window.isKeyWindow { window.makeKeyAndVisible() }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002))
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            window.layoutIfNeeded()
+        }
+        flushWindow()
+        try await waitForTestEvent {
+            flushWindow()
+            return paperAppearances > 0
+        }
         requestedPaperID = nil
         #expect(webViews(in: controller.view).isEmpty)
         var snapshot = dependencies.preferences.snapshot
         snapshot.galleryUseWebView = true
         dependencies.preferences.apply(snapshot)
-        try await waitForTestEvent { webViews(in: controller.view).count == 1 }
+        try await waitForTestEvent {
+            flushWindow()
+            return webViews(in: controller.view).count == 1
+        }
         webViews(in: controller.view).forEach { $0.stopLoading() }
         snapshot.galleryUseWebView = false
         dependencies.preferences.apply(snapshot)
-        try await waitForTestEvent { webViews(in: controller.view).isEmpty }
+        try await waitForTestEvent {
+            flushWindow()
+            return webViews(in: controller.view).isEmpty
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -870,17 +894,26 @@ struct FeatureCompositionTests {
     ) async throws {
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
-        let controller = UIHostingController(rootView: NavigationStack { first })
+        let controller = UIHostingController(
+            rootView: NavigationStack { first }.environment(\.scenePhase, .active))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
             window.isHidden = true
             window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
         }
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        window.layoutIfNeeded()
         try await firstTransport.waitForRequest(count: initialRequests)
         let firstCount = firstTransport.requests.count
-        controller.rootView = NavigationStack { second }
+        controller.rootView = NavigationStack { second }.environment(\.scenePhase, .active)
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        window.layoutIfNeeded()
         try await secondTransport.waitForRequest(count: initialRequests)
         #expect(firstTransport.requests.count == firstCount)
         #expect(secondTransport.requests.count > 0)
