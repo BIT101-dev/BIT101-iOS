@@ -6,6 +6,7 @@ import re
 from functools import cache
 from pathlib import Path
 from swift_source_index import (
+    FACTS_BY_SOURCE,
     canonical_type_scope,
     expected_argument_types,
     swift_syntax_index_sources,
@@ -329,6 +330,8 @@ def local_resource_source(source: str, path: str, call_context=None) -> str:
     if not any(re.search(r"\b" + name + r"\b", code) for name in resources):
         return source
     facts = resource_facts(source)
+    if not any(node["value"] in resources for node in facts["scopedIdentifiers"]):
+        return source
     types = (call_context or SwiftBindingTypes({path: facts})).types
     identities = {namespace + "." + ".".join(owner) for namespace, owner in types.records}
     declared = {
@@ -427,8 +430,12 @@ def normalized_resource_source(source: str) -> str:
 
 
 @cache
+@cache
 def resource_facts(source: str) -> dict:
-    return swift_syntax_index_sources({"resource-source": source})["resource-source"]
+    return (
+        FACTS_BY_SOURCE.get(source)
+        or swift_syntax_index_sources({"resource-source": source})["resource-source"]
+    )
 
 
 @cache

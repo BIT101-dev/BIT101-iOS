@@ -121,7 +121,7 @@ extension ScheduleService {
         )
     }
 
-    /// 通过新版 bit-login challenge 获取教学中心的 WebVPN Cookie。
+    /// 确保教学中心会话可用，优先本机认证并在需要时回退。
     func ensureTeachingAuth(force: Bool = false) async throws {
         let owner = credentials.schoolSessionIdentity
         let username = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)

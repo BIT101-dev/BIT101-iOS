@@ -545,7 +545,7 @@ final class PaperSearchViewModel: PaperCollectionViewModel {
         }
     }
 
-    func toggleCommentLike(_ comment: CommunityComment) async {
+    func likeComment(_ comment: CommunityComment) async {
         guard comment.isViewerAuthenticated else { return }
         guard !commentState.likesNeedingReview.contains(comment.id) else {
             alert = AppAlert(

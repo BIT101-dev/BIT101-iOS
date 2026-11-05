@@ -115,8 +115,10 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     {
         guard storageOperations.begin() else { throw CancellationError() }
         defer { storageOperations.finish() }
-        return try await Self.storage.loadPublication(
-            store: self, kind: kind, session: publicationSession(owner: owner))
+        let session = try publicationSession(owner: owner)
+        return try await Self.storage.run {
+            try self.loadPublication(kind: kind, session: session)
+        }
     }
 
     @MainActor
@@ -125,23 +127,25 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     {
         guard storageOperations.begin() else { throw CancellationError() }
         defer { storageOperations.finish() }
-        return try await Self.storage.beginPublication(
-            store: self, content: content, session: publicationSession(owner: owner))
+        let session = try publicationSession(owner: owner)
+        return try await Self.storage.run {
+            try self.beginPublication(content, session: session)
+        }
     }
 
     @MainActor
     public func finishPublication(_ expected: ComposerPublicationAttempt) async throws -> Bool {
         guard storageOperations.begin() else { throw CancellationError() }
         defer { storageOperations.finish() }
-        return try await Self.storage.finishPublication(store: self, expected: expected)
+        return try await Self.storage.run { try self.removePublication(expected) }
     }
 
     @MainActor
     public func resetReviewedPublications(owner: String) async throws {
         guard storageOperations.begin() else { throw CancellationError() }
         defer { storageOperations.finish() }
-        try await Self.storage.resetPublications(
-            store: self, session: publicationSession(owner: owner))
+        let session = try publicationSession(owner: owner)
+        try await Self.storage.run { try self.resetPublications(session: session) }
     }
 
     private var publicationMaximumBytes: Int {
@@ -247,14 +251,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     public func savePaper(_ snapshot: PaperComposerDraftSnapshot) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await Self.storage.savePaper(store: self, snapshot, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.persistPaper(snapshot, session: session) }
     }
 
     @MainActor
     public func loadPaperDrafts() async -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]> {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await Self.storage.loadPaperDrafts(store: self, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.loadPaperDrafts(session: session) }
     }
 
     @MainActor
@@ -263,8 +269,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     > {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await Self.storage.loadPaper(
-            store: self, paperID: paperID, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.loadPaper(paperID: paperID, session: session) }
     }
 
     @MainActor
@@ -275,7 +281,7 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
                 return false
             }
             defer { self.storageOperations.finish() }
-            return await Self.storage.recoverPaperDrafts(store: self, session: session)
+            return await Self.storage.run { self.recoverPaperDrafts(session: session) }
         }
     }
 
@@ -290,8 +296,9 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
         return { @MainActor in
             guard self.storageOperations.begin() else { return false }
             defer { self.storageOperations.finish() }
-            return await Self.storage.removePaper(
-                store: self, paperID: snapshot.paperID, captured: snapshot, session: session)
+            return await Self.storage.run {
+                self.removePaper(paperID: snapshot.paperID, captured: snapshot, session: session)
+            }
         }
     }
 
@@ -439,14 +446,16 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     public func saveGallery(_ snapshot: GalleryComposerDraftSnapshot) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await Self.storage.saveGallery(store: self, snapshot, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.persistGallery(snapshot, session: session) }
     }
 
     @MainActor
     public func loadGallery() async -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot> {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await Self.storage.loadGallery(store: self, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.loadGallery(session: session) }
     }
 
     @discardableResult
@@ -488,7 +497,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     public func saveSuggestion(_ snapshot: DeveloperSuggestionDraftSnapshot) async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await Self.storage.saveSuggestion(store: self, snapshot, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.persistSuggestion(snapshot, session: session) }
     }
 
     @MainActor
@@ -496,7 +506,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     {
         guard storageOperations.begin() else { return .missing }
         defer { storageOperations.finish() }
-        return await Self.storage.loadSuggestion(store: self, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.loadSuggestion(session: session) }
     }
 
     @discardableResult
@@ -668,7 +679,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     public func removeGallery() async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await Self.storage.removeGallery(store: self, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.remove(filename: "gallery.json", session: session) }
     }
 
     /// Capture cleanup for the saved revision owned by a submission.
@@ -687,13 +699,18 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
         guard storageOperations.begin() else { return { false } }
         defer { storageOperations.finish() }
         let session = currentSession()
-        let metadata = await Self.storage.cleanupMetadata(
-            store: self, filename: filename, session: session)
+        let metadata = await Self.storage.run {
+            self.cleanupMetadata(filename: filename, session: session)
+        }
         return { @MainActor in
             guard self.storageOperations.begin() else { return false }
             defer { self.storageOperations.finish() }
-            return await Self.storage.removeMatching(
-                store: self, filename: filename, session: session, metadata: metadata)
+            return await Self.storage.run {
+                let current = self.cleanupMetadata(filename: filename, session: session)
+                guard metadata.readable, current.readable else { return false }
+                guard let captured = metadata.data, current.data == captured else { return true }
+                return self.remove(filename: filename, session: session)
+            }
         }
     }
 
@@ -702,7 +719,8 @@ public nonisolated final class ComposerDraftStore: GalleryComposerDraftStoring,
     public func removeSuggestion() async -> Bool {
         guard storageOperations.begin() else { return false }
         defer { storageOperations.finish() }
-        return await Self.storage.removeSuggestion(store: self, session: currentSession())
+        let session = currentSession()
+        return await Self.storage.run { self.remove(filename: "suggestion.json", session: session) }
     }
 
     private func write<T: Encodable>(_ value: T, to fileURL: URL) throws {
@@ -887,98 +905,7 @@ private actor ComposerDraftStorage {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor { executor.asUnownedSerialExecutor() }
 
-    func loadPublication(
-        store: ComposerDraftStore, kind: ComposerPublicationKind, session: AppStorageSession
-    ) throws -> ComposerPublicationAttempt? {
-        try store.loadPublication(kind: kind, session: session)
-    }
-    func beginPublication(
-        store: ComposerDraftStore, content: ComposerPublicationContent, session: AppStorageSession
-    ) throws -> ComposerPublicationStart {
-        try store.beginPublication(content, session: session)
-    }
-    func finishPublication(store: ComposerDraftStore, expected: ComposerPublicationAttempt) throws
-        -> Bool
-    {
-        try store.removePublication(expected)
-    }
-    func resetPublications(store: ComposerDraftStore, session: AppStorageSession) throws {
-        try store.resetPublications(session: session)
-    }
-
-    func savePaper(
-        store: ComposerDraftStore, _ snapshot: PaperComposerDraftSnapshot,
-        session: AppStorageSession
-    ) -> Bool {
-        store.persistPaper(snapshot, session: session)
-    }
-    func loadPaper(store: ComposerDraftStore, paperID: Int?, session: AppStorageSession)
-        -> ComposerDraftLoadResult<PaperComposerDraftSnapshot>
-    {
-        store.loadPaper(paperID: paperID, session: session)
-    }
-    func loadPaperDrafts(store: ComposerDraftStore, session: AppStorageSession)
-        -> ComposerDraftLoadResult<[PaperComposerDraftSnapshot]>
-    {
-        store.loadPaperDrafts(session: session)
-    }
-    func recoverPaperDrafts(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
-        store.recoverPaperDrafts(session: session)
-    }
-    func removePaper(
-        store: ComposerDraftStore, paperID: Int?, captured: PaperComposerDraftSnapshot?,
-        session: AppStorageSession
-    ) -> Bool {
-        store.removePaper(paperID: paperID, captured: captured, session: session)
-    }
-
-    func saveGallery(
-        store: ComposerDraftStore, _ snapshot: GalleryComposerDraftSnapshot,
-        session: AppStorageSession
-    ) -> Bool {
-        store.persistGallery(snapshot, session: session)
-    }
-
-    func loadGallery(store: ComposerDraftStore, session: AppStorageSession)
-        -> ComposerDraftLoadResult<GalleryComposerDraftSnapshot>
-    {
-        store.loadGallery(session: session)
-    }
-
-    func saveSuggestion(
-        store: ComposerDraftStore, _ snapshot: DeveloperSuggestionDraftSnapshot,
-        session: AppStorageSession
-    ) -> Bool {
-        store.persistSuggestion(snapshot, session: session)
-    }
-
-    func loadSuggestion(store: ComposerDraftStore, session: AppStorageSession)
-        -> ComposerDraftLoadResult<DeveloperSuggestionDraftSnapshot>
-    {
-        store.loadSuggestion(session: session)
-    }
-
-    func cleanupMetadata(store: ComposerDraftStore, filename: String, session: AppStorageSession)
-        -> (data: Data?, readable: Bool)
-    {
-        store.cleanupMetadata(filename: filename, session: session)
-    }
-
-    func removeMatching(
-        store: ComposerDraftStore, filename: String, session: AppStorageSession,
-        metadata: (data: Data?, readable: Bool)
-    ) -> Bool {
-        let current = store.cleanupMetadata(filename: filename, session: session)
-        guard metadata.readable, current.readable else { return false }
-        guard let captured = metadata.data, current.data == captured else { return true }
-        return store.remove(filename: filename, session: session)
-    }
-
-    func removeGallery(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
-        store.remove(filename: "gallery.json", session: session)
-    }
-
-    func removeSuggestion(store: ComposerDraftStore, session: AppStorageSession) -> Bool {
-        store.remove(filename: "suggestion.json", session: session)
+    func run<Value: Sendable>(_ operation: @Sendable () throws -> Value) rethrows -> Value {
+        try operation()
     }
 }

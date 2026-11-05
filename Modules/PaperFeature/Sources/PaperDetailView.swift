@@ -101,7 +101,7 @@ private struct PaperDetailViewScene: View {
                     },
                     onLikeComment: { comment in
                         viewModel.pendingOperations.enqueue {
-                            await viewModel.toggleCommentLike(comment)
+                            await viewModel.likeComment(comment)
                         }
                     },
                     onOpenImage: { index, images in

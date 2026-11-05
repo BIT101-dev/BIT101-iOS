@@ -1,10 +1,7 @@
 import Foundation
 import ScheduleDomain
 import StorageCore
-
-#if canImport(os)
 import os
-#endif
 
 public actor ScheduleCloudSyncManager {
     private typealias CloudAccountContext = ScheduleCloudAccount
@@ -48,9 +45,7 @@ public actor ScheduleCloudSyncManager {
     }
 
     private let recordType = "ScheduleCacheSyncRecord"
-    #if canImport(os)
     private let logger = Logger(subsystem: "BIT101", category: "ScheduleCloudSync")
-    #endif
     private let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -85,12 +80,7 @@ public actor ScheduleCloudSyncManager {
 
     public func reconcileAfterEnabling() async {
         logDebug("reconcile after enabling")
-        guard let localState = await currentLocalCloudState() else { return }
-        await reconcile(
-            localCache: localState.cache,
-            account: localState.account,
-            allowCloudApply: true
-        )
+        await refreshFromCloudIfNeeded()
     }
 
     public func pushLatestCache() async {
@@ -127,7 +117,7 @@ public actor ScheduleCloudSyncManager {
             } catch {
                 await publishStatus(
                     .failed(error.localizedDescription), for: pendingLocalCache.account)
-                logError("push latest local cache failed: \(describe(error))")
+                logError("push latest local cache failed: \(error.localizedDescription)")
             }
         }
     }
@@ -286,7 +276,7 @@ public actor ScheduleCloudSyncManager {
                     )
                 } catch {
                     await publishStatus(.failed(error.localizedDescription), for: account)
-                    logError("reconcile local upload failed: \(describe(error))")
+                    logError("reconcile local upload failed: \(error.localizedDescription)")
                 }
             case .noChange:
                 logDebug("reconcile: timestamps match")
@@ -299,7 +289,7 @@ public actor ScheduleCloudSyncManager {
                         )
                     } catch {
                         await publishStatus(.failed(error.localizedDescription), for: account)
-                        logError("legacy payload migration failed: \(describe(error))")
+                        logError("legacy payload migration failed: \(error.localizedDescription)")
                     }
                 }
             }
@@ -321,15 +311,16 @@ public actor ScheduleCloudSyncManager {
                     )
                 } catch {
                     await publishStatus(.failed(error.localizedDescription), for: account)
-                    logError("initial upload after unknownItem failed: \(describe(error))")
+                    logError(
+                        "initial upload after unknownItem failed: \(error.localizedDescription)")
                 }
             } else {
                 await publishStatus(.failed(error.localizedDescription), for: account)
-                logError("reconcile cloud error: \(describe(error))")
+                logError("reconcile cloud error: \(error.localizedDescription)")
             }
         } catch {
             await publishStatus(.failed(error.localizedDescription), for: account)
-            logError("reconcile failed: \(describe(error))")
+            logError("reconcile failed: \(error.localizedDescription)")
         }
     }
 
@@ -441,7 +432,11 @@ public actor ScheduleCloudSyncManager {
         } catch {
             await publishStatus(.failed(error.localizedDescription), for: conflict.account)
             logError(
-                "cloud conflict resolution could not verify the remote version: \(describe(error))")
+                """
+                cloud conflict resolution could not verify the remote version: \
+                \(error.localizedDescription)
+                """
+            )
             promptedConflictSignatures.remove(signature)
             return
         }
@@ -500,7 +495,7 @@ public actor ScheduleCloudSyncManager {
         } catch {
             promptedConflictSignatures.remove(signature)
             await publishStatus(.failed(error.localizedDescription), for: conflict.account)
-            logError("cloud conflict resolution failed: \(describe(error))")
+            logError("cloud conflict resolution failed: \(error.localizedDescription)")
         }
     }
 
@@ -795,7 +790,7 @@ public actor ScheduleCloudSyncManager {
             return available
         } catch {
             await publishStatus(.failed(error.localizedDescription), for: account)
-            logError("cloud account status query failed: \(describe(error))")
+            logError("cloud account status query failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -929,25 +924,14 @@ public actor ScheduleCloudSyncManager {
     }
 
     private func debugDate(_ date: Date) -> String {
-        if date == .distantPast {
-            return "distantPast"
-        }
-        return ISO8601DateFormatter().string(from: date)
-    }
-
-    private func describe(_ error: Error) -> String {
-        return error.localizedDescription
+        date == .distantPast ? "distantPast" : date.ISO8601Format()
     }
 
     private func logDebug(_ message: String) {
-        #if canImport(os)
         logger.debug("\(message, privacy: .private)")
-        #endif
     }
 
     private func logError(_ message: String) {
-        #if canImport(os)
         logger.error("\(message, privacy: .private)")
-        #endif
     }
 }

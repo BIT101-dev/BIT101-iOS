@@ -396,6 +396,10 @@ class SwiftBindingTypes:
         return owner + tuple(f"@{path}:{start}" for start in node.get("lexicalScope", []))
 
     def replacing_source(self, path, facts):
+        if self.index.get(path) is facts or (
+            path in self.index and self.index[path].get("source") == facts.get("source")
+        ):
+            return self
         return SwiftBindingTypes({**self.index, path: facts}, self.types)
 
     def canonical_type(self, value, scope, path):

@@ -9,10 +9,7 @@ import SwiftUI
 import WidgetKit
 
 private nonisolated enum WidgetSnapshotStorage {
-    static let store = ScheduleExternalSnapshotStore(
-        files: AppFileSystem.files,
-        containerURL: AppFileSystem.files.appGroupContainerURL(
-            identifier: ScheduleSharedContainer.identifier))
+    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files)
 }
 
 private struct DeadlineWidgetEntry: TimelineEntry {

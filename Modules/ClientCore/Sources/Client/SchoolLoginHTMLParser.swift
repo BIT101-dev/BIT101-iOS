@@ -21,7 +21,7 @@ public nonisolated enum SchoolLoginHTMLParser {
     /// CAS 表单省略 action 时沿当前文档提交，保留 service 与 execution 上下文。
     public static func loginFormAction(html: String, documentURL: URL) -> URL? {
         let action =
-            attribute(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#)
+            value(in: html, pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']*)["'][^>]*>"#)
             ?? ""
         let decoded = decodeHTML(action).trimmingCharacters(in: .whitespacesAndNewlines)
         guard
@@ -65,7 +65,7 @@ public nonisolated enum SchoolLoginHTMLParser {
         }
 
         let action =
-            attribute(
+            value(
                 in: form,
                 pattern: #"<form\b[^>]*\saction\s*=\s*["']([^"']+)["'][^>]*>"#
             ) ?? ""
@@ -106,15 +106,11 @@ public nonisolated enum SchoolLoginHTMLParser {
         return String(html[captureRange])
     }
 
-    private static func attribute(in html: String, pattern: String) -> String? {
-        value(in: html, pattern: pattern)
-    }
+    private static let secondFactorFormRegex = try? NSRegularExpression(
+        pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive])
 
     private static func secondFactorForm(in html: String) -> String? {
-        guard
-            let regex = try? NSRegularExpression(
-                pattern: #"<form\b[^>]*>[\s\S]*?</form\s*>"#, options: [.caseInsensitive])
-        else { return nil }
+        guard let regex = secondFactorFormRegex else { return nil }
         let forms = regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).compactMap
         { match in
             Range(match.range, in: html).map { String(html[$0]) }
@@ -161,7 +157,7 @@ public nonisolated enum SchoolLoginHTMLParser {
             #"<[^>]*\svalue\s*=\s*["']([^"']+)["'][^>]*\sid\s*=\s*["']"# + escapedID + #"["']"#,
         ]
         for pattern in valuePatterns {
-            guard let rawValue = attribute(in: html, pattern: pattern) else { continue }
+            guard let rawValue = value(in: html, pattern: pattern) else { continue }
             let normalized = decodeHTML(rawValue).trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty {
                 return normalized

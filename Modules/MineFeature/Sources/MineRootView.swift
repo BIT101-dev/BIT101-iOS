@@ -109,12 +109,7 @@ private struct MineRootViewScene: View {
                 case .followers:
                     MineUserListView(
                         title: "我的粉丝",
-                        users: viewModel.followerState.items,
-                        status: viewModel.followerState.status,
-                        needsRefresh: viewModel.followerState.needsRefresh,
-                        nextPage: viewModel.followerState.nextPage,
-                        isLoadingMore: viewModel.followerState.isLoadingMore,
-                        loadMoreError: viewModel.followerState.loadMoreError,
+                        state: viewModel.followerState,
                         onRefresh: { await viewModel.refreshFollowers() },
                         onLoadMore: { user in
                             await viewModel.loadMoreFollowersIfNeeded(currentUser: user)
@@ -124,12 +119,7 @@ private struct MineRootViewScene: View {
                 case .followings:
                     MineUserListView(
                         title: "我的关注",
-                        users: viewModel.followingState.items,
-                        status: viewModel.followingState.status,
-                        needsRefresh: viewModel.followingState.needsRefresh,
-                        nextPage: viewModel.followingState.nextPage,
-                        isLoadingMore: viewModel.followingState.isLoadingMore,
-                        loadMoreError: viewModel.followingState.loadMoreError,
+                        state: viewModel.followingState,
                         onRefresh: { await viewModel.refreshFollowings() },
                         onLoadMore: { user in
                             await viewModel.loadMoreFollowings(currentUser: user)
@@ -138,12 +128,7 @@ private struct MineRootViewScene: View {
                     )
                 case .posters:
                     MinePosterListView(
-                        posters: viewModel.posterState.items,
-                        status: viewModel.posterState.status,
-                        needsRefresh: viewModel.posterState.needsRefresh,
-                        nextPage: viewModel.posterState.nextPage,
-                        isLoadingMore: viewModel.posterState.isLoadingMore,
-                        loadMoreError: viewModel.posterState.loadMoreError,
+                        state: viewModel.posterState,
                         onRefresh: { await viewModel.refreshPosters() },
                         onLoadMore: { poster in
                             await viewModel.loadMorePostersIfNeeded(currentPoster: poster)
@@ -592,17 +577,18 @@ private struct MineUserListView: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(MineDependencies.self) private var dependencies
     let title: String
-    let users: [CommunityUser]
-    let status: MineLoadStatus
-    let needsRefresh: Bool
-    let nextPage: Int
-    let isLoadingMore: Bool
-    let loadMoreError: String?
+    let state: MinePagedState<CommunityUser>
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityUser?) async -> Void
     let onOpenUser: (CommunityUser) -> Void
     @State private var isRefreshRequested = false
     @State private var pendingOperations = CommunityDetailTasks()
+    private var users: [CommunityUser] { state.items }
+    private var status: MineLoadStatus { state.status }
+    private var needsRefresh: Bool { state.needsRefresh }
+    private var nextPage: Int { state.nextPage }
+    private var isLoadingMore: Bool { state.isLoadingMore }
+    private var loadMoreError: String? { state.loadMoreError }
 
     private func userRow(_ user: CommunityUser) -> some View {
         Button {
@@ -722,12 +708,7 @@ private struct MinePosterListView: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(MineDependencies.self) private var dependencies
     @Environment(CommunityPosterDestination.self) private var destinations
-    let posters: [CommunityPoster]
-    let status: MineLoadStatus
-    let needsRefresh: Bool
-    let nextPage: Int
-    let isLoadingMore: Bool
-    let loadMoreError: String?
+    let state: MinePagedState<CommunityPoster>
     let onRefresh: () async -> Void
     let onLoadMore: (CommunityPoster?) async -> Void
     @State private var selectedPoster: CommunityPoster?
@@ -738,6 +719,12 @@ private struct MinePosterListView: View {
     @State private var deletingPosterIDs: Set<Int> = []
     @State private var isRefreshRequested = false
     @State private var pendingOperations = CommunityDetailTasks()
+    private var posters: [CommunityPoster] { state.items }
+    private var status: MineLoadStatus { state.status }
+    private var needsRefresh: Bool { state.needsRefresh }
+    private var nextPage: Int { state.nextPage }
+    private var isLoadingMore: Bool { state.isLoadingMore }
+    private var loadMoreError: String? { state.loadMoreError }
 
     /// 当前真正可展示的帖子列表。
     ///

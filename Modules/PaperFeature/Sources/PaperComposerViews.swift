@@ -441,10 +441,10 @@ final class PaperComposerViewModel {
     func refreshPublicationReview(drafts: any ComposerPublicationStoring) async {
         guard editingPaper == nil, isCurrentOwner else { return }
         do {
-            let pending = try await drafts.loadPublication(
+            let reviewState = try await drafts.loadReviewState(
                 kind: .paper, owner: owner.accountIdentifier)
             guard isCurrentOwner else { return }
-            publicationReview = pending.map(ComposerPublicationReviewState.pending) ?? .ready
+            publicationReview = reviewState
         } catch {
             guard isCurrentOwner, !TaskCancellation.matches(error) else { return }
             publicationReview = .requiresRecovery
@@ -457,12 +457,7 @@ final class PaperComposerViewModel {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            switch publicationReview {
-            case .ready: return
-            case .pending(let attempt): _ = try await drafts.finishPublication(attempt)
-            case .requiresRecovery:
-                try await drafts.resetReviewedPublications(owner: owner.accountIdentifier)
-            }
+            try await drafts.confirmReview(publicationReview, owner: owner.accountIdentifier)
             await refreshPublicationReview(drafts: drafts)
         } catch {
             guard isCurrentOwner, !TaskCancellation.matches(error) else { return }

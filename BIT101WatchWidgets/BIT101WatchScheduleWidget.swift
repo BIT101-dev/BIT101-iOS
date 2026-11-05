@@ -5,22 +5,15 @@ import StorageCore
 import SwiftUI
 import WidgetKit
 
-/// 镜像同步前使用的提示文案。
 private nonisolated enum WidgetSnapshotStorage {
-    static let store = ScheduleExternalSnapshotStore(
-        files: AppFileSystem.files,
-        containerURL: AppFileSystem.files.appGroupContainerURL(
-            identifier: ScheduleSharedContainer.identifier))
+    static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files)
 }
 
 /// Apple Watch complication 的时间线条目。
 private struct WatchScheduleEntry: TimelineEntry {
     let date: Date
     let nextOccurrence: ScheduleExternalOccurrence?
-    let status: WatchScheduleEntryStatus
-    var message: String? {
-        nextOccurrence == nil ? status.message : nil
-    }
+    let contentState: ScheduleExternalContentState
 }
 
 /// Apple Watch complication 使用的展示摘要。
@@ -51,60 +44,34 @@ private struct WatchScheduleDisplaySummary {
     }
 }
 
-private enum WatchScheduleEntryStatus {
-    case sync
-    case unavailable
-    case invalid
-    case loggedOut
-    case rest
-
-    init(contentState: ScheduleExternalContentState) {
-        switch contentState {
-        case .missing: self = .sync
-        case .unavailable: self = .unavailable
-        case .invalid: self = .invalid
-        case .loggedOut: self = .loggedOut
-        case .rest, .ready: self = .rest
-        }
-    }
-
-    var message: String {
+extension ScheduleExternalContentState {
+    fileprivate var watchMessage: String {
         switch self {
-        case .sync: "打开手机 App 同步课表"
+        case .missing: "打开手机 App 同步课表"
         case .unavailable: "课表读取失败，请重试"
         case .invalid: "请在手机上重新同步课表"
         case .loggedOut: "请先登录"
-        case .rest: "暂无后续日程"
+        case .rest, .ready: "暂无后续日程"
         }
     }
 
-    var circularText: String {
+    fileprivate var watchCircularText: String {
         switch self {
-        case .sync:
-            return "同步"
-        case .unavailable:
-            return "重试"
-        case .invalid:
-            return "重同步"
-        case .loggedOut:
-            return "登录"
-        case .rest:
-            return "无课"
+        case .missing: "同步"
+        case .unavailable: "重试"
+        case .invalid: "重同步"
+        case .loggedOut: "登录"
+        case .rest, .ready: "无课"
         }
     }
 
-    var cornerText: String {
+    fileprivate var watchCornerText: String {
         switch self {
-        case .sync:
-            return "待同步"
-        case .unavailable:
-            return "重试"
-        case .invalid:
-            return "需同步"
-        case .loggedOut:
-            return "未登录"
-        case .rest:
-            return "无课"
+        case .missing: "待同步"
+        case .unavailable: "重试"
+        case .invalid: "需同步"
+        case .loggedOut: "未登录"
+        case .rest, .ready: "无课"
         }
     }
 }
@@ -131,7 +98,7 @@ private struct WatchScheduleProvider: TimelineProvider {
                 endDate: now.addingTimeInterval(110 * 60),
                 displayUntilDate: now.addingTimeInterval(110 * 60)
             ),
-            status: .rest
+            contentState: .ready
         )
     }
 
@@ -169,17 +136,11 @@ private struct WatchScheduleProvider: TimelineProvider {
     private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
         -> WatchScheduleEntry
     {
-        guard case .ready = resolved.contentState else {
-            return WatchScheduleEntry(
-                date: now,
-                nextOccurrence: nil,
-                status: WatchScheduleEntryStatus(contentState: resolved.contentState)
-            )
-        }
-        return WatchScheduleEntry(
+        WatchScheduleEntry(
             date: now,
-            nextOccurrence: resolved.upcomingOccurrences.first(where: { $0.startDate > now }),
-            status: .rest
+            nextOccurrence: resolved.contentState == .ready
+                ? resolved.upcomingOccurrences.first(where: { $0.startDate > now }) : nil,
+            contentState: resolved.contentState
         )
     }
 }
@@ -243,7 +204,7 @@ private struct WatchScheduleCircularView: View {
             }
             .multilineTextAlignment(.center)
         } else {
-            Text(entry.status.circularText)
+            Text(entry.contentState.watchCircularText)
                 .font(AppDesignSystem.Typography.footnoteEmphasis)
                 .multilineTextAlignment(.center)
         }
@@ -264,7 +225,7 @@ private struct WatchScheduleCornerView: View {
                     Text("\(summary.dateText) \(summary.rangeText)")
                 }
         } else {
-            Text(entry.status.cornerText)
+            Text(entry.contentState.watchCornerText)
                 .font(AppDesignSystem.Typography.footnoteEmphasis)
                 .lineLimit(1)
                 .minimumScaleFactor(AppDesignSystem.External.Scale.watchCornerStatus)
@@ -279,7 +240,7 @@ private struct WatchScheduleInlineView: View {
         if let summary = entry.displaySummary {
             Text(summary.inlineText)
         } else {
-            Text(entry.status.message)
+            Text(entry.contentState.watchMessage)
         }
     }
 }
@@ -323,10 +284,10 @@ private struct WatchScheduleRectangularView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
-                Text(entry.status.message)
+                Text(entry.contentState.watchMessage)
                     .font(AppDesignSystem.Typography.title)
                     .fixedSize(horizontal: false, vertical: true)
-                if case .sync = entry.status {
+                if case .missing = entry.contentState {
                     Text("先打开手机 App。")
                         .font(AppDesignSystem.Typography.caption)
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)

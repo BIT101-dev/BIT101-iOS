@@ -252,21 +252,8 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         execution_index,
         matching_execution_entries,
     )
-
-    syntax_index, call_can_execute = execution_index(syntax_index), snapshot_execution_checker()
     from validation_compilation import active_swift_source, source_architectures, source_platforms
 
-    active_sources = {
-        path: [
-            active_swift_source(
-                facts["source"], "restore", platform=platform, architecture=architecture, path=path
-            ).encode()
-            for platform in source_platforms(path)
-            for architecture in source_architectures(platform, facts["source"])
-        ]
-        for path, facts in syntax_index.items()
-        if "#" in facts.get("source", "")
-    }
     errors: list[str] = []
     forbidden_identifiers = (
         "SchoolDataRefreshCoordinator",
@@ -290,6 +277,27 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     if owner_has_call(syntax_index, "ScoreListPage", "bootstrapIfNeeded"):
         errors.append("ScoreListPage: 成绩页的学校查询须由用户操作触发")
+
+    syntax_index = {
+        path: facts
+        for path, facts in syntax_index.items()
+        if not any(
+            Path(path).is_relative_to(ROOT / root)
+            for root in ("ModuleTests", "BIT101-iOSTests", "BIT101-iOSUITests")
+        )
+    }
+    syntax_index, call_can_execute = execution_index(syntax_index), snapshot_execution_checker()
+    active_sources = {
+        path: [
+            active_swift_source(
+                facts["source"], "restore", platform=platform, architecture=architecture, path=path
+            ).encode()
+            for platform in source_platforms(path)
+            for architecture in source_architectures(platform, facts["source"])
+        ]
+        for path, facts in syntax_index.items()
+        if "#" in facts.get("source", "")
+    }
 
     school_protocols = {
         "ScheduleCourseServicing",
@@ -392,6 +400,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         facts, result = syntax_index[path], []
         calls = {(call["start"], call["value"]): call for call in facts["calls"]}
         for invocation in facts.get("invocations", []):
+            if not invocation.get("closureArguments") and not any(
+                re.fullmatch(r"(?:[\w?$]+\.)*\w+", argument)
+                for argument in invocation.get("arguments", [])
+            ):
+                continue
             call = calls.get((invocation["start"], invocation.get("calledExpression")))
             if call is None or not call_can_execute(facts, call):
                 continue

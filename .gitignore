@@ -7,8 +7,9 @@ xcuserdata/
 __pycache__/
 node_modules/
 .wrangler/
+.ruff_cache/
+.swiftpm/
 .generated-emergency-update.json
-.git.backup-*/
 TODO.md
 
 BIT101-iOS.xcodeproj/xcuserdata/

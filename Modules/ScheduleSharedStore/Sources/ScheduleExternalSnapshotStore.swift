@@ -38,6 +38,18 @@ public nonisolated struct ScheduleExternalSnapshotStore: Sendable {
         self.notificationCenter = notificationCenter
     }
 
+    public init(
+        files: any AppFileService,
+        groupIdentifier: String = ScheduleSharedContainer.identifier,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.init(
+            files: files,
+            containerURL: files.appGroupContainerURL(identifier: groupIdentifier),
+            notificationCenter: notificationCenter
+        )
+    }
+
     @discardableResult
     public func save(_ snapshot: ScheduleExternalSnapshot) -> Bool {
         do {

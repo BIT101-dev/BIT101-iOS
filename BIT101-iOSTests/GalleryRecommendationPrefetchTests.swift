@@ -230,7 +230,7 @@ struct GalleryRecommendationPrefetchTests {
         func toggle() async {
             if comment {
                 if paper {
-                    await article.toggleCommentLike(original)
+                    await article.likeComment(original)
                 } else {
                     await gallery.likeComment(original)
                 }
@@ -543,7 +543,7 @@ struct GalleryRecommendationPrefetchTests {
         try await waitForTestEvent { !(pendingRead == nil) }
         let liking = Task {
             if paper {
-                await article.toggleCommentLike(child)
+                await article.likeComment(child)
             } else {
                 await model.likeComment(child)
             }

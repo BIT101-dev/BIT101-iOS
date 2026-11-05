@@ -621,6 +621,8 @@ def main(root: Path) -> None:
         products = root / relative / "Build/Products"
         if products.is_dir():
             prune_stale_xctestrun(products)
+    for stale in (root / "build/DeviceInstall/Build/Products").glob("*.xctestrun"):
+        stale.unlink(missing_ok=True)
     allowed_root_files = {
         ".build/extended-automation.lock",
         ".build/code-quality-report.txt",

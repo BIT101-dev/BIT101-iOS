@@ -325,10 +325,10 @@ nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
 
     private func refreshPublicationReview(_ operation: Int) async {
         do {
-            let pending = try await drafts.loadPublication(
+            let reviewState = try await drafts.loadReviewState(
                 kind: .gallery, owner: owner.accountIdentifier)
             guard isCurrent(operation) else { return }
-            publicationReview = pending.map(ComposerPublicationReviewState.pending) ?? .ready
+            publicationReview = reviewState
         } catch {
             guard isCurrent(operation), !TaskCancellation.matches(error) else { return }
             publicationReview = .requiresRecovery
@@ -342,13 +342,8 @@ nonisolated struct GalleryCustomTagDraft: Identifiable, Sendable {
         isSavingDraft = true
         let task = Task { [self] in
             do {
-                switch publicationReview {
-                case .ready: return true
-                case .pending(let attempt):
-                    _ = try await drafts.finishPublication(attempt)
-                case .requiresRecovery:
-                    try await drafts.resetReviewedPublications(owner: owner.accountIdentifier)
-                }
+                try await drafts.confirmReview(
+                    publicationReview, owner: owner.accountIdentifier)
                 guard isCurrent(operation) else { return false }
                 await refreshPublicationReview(operation)
                 return !publicationReview.needsReview

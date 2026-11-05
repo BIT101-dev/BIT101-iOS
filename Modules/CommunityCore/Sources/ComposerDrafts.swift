@@ -260,6 +260,29 @@ public protocol ComposerPublicationStoring: Sendable {
     func resetReviewedPublications(owner: String) async throws
 }
 
+extension ComposerPublicationStoring {
+    public func loadReviewState(kind: ComposerPublicationKind, owner: String) async throws
+        -> ComposerPublicationReviewState
+    {
+        try await loadPublication(kind: kind, owner: owner)
+            .map(ComposerPublicationReviewState.pending) ?? .ready
+    }
+
+    public func confirmReview(
+        _ state: ComposerPublicationReviewState,
+        owner: String
+    ) async throws {
+        switch state {
+        case .ready:
+            return
+        case .pending(let attempt):
+            _ = try await finishPublication(attempt)
+        case .requiresRecovery:
+            try await resetReviewedPublications(owner: owner)
+        }
+    }
+}
+
 public nonisolated enum ComposerPublicationReviewState: Sendable {
     case ready
     case pending(ComposerPublicationAttempt)

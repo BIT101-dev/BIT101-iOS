@@ -36,13 +36,13 @@ public struct CommunityCreateCommentRequest: Encodable {
     }
 }
 
-public enum CommunityAuthentication {
+public nonisolated enum CommunityAuthentication: Sendable {
     case required
     case optional
     case none
 }
 
-public enum CommunityRetryPolicy {
+public nonisolated enum CommunityRetryPolicy: Sendable {
     case never
     case afterCredentialRefresh
 }

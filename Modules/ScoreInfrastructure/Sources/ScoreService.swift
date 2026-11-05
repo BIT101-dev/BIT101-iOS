@@ -207,7 +207,7 @@ public struct ScoreService {
         return current
     }
 
-    /// 向 bit-login 的 `jwb_cjd` 服务申请由学校实时生成的可信成绩单。
+    /// 获取由学校实时生成的可信成绩单，优先本机直连并在需要时回退。
     public func fetchTrustedPages(onPage: TrustedTranscriptPageDelivery?) async throws
         -> TrustedTranscriptPages
     {

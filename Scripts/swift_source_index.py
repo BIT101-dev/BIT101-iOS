@@ -20,6 +20,7 @@ if not __debug__:
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FACTS_CACHE = ROOT / ".build/static-audit/source-facts.sqlite"
+FACTS_BY_SOURCE: dict[str, dict] = {}
 REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
 
 
@@ -297,6 +298,7 @@ def swift_syntax_index_sources(
     index = _materialize_facts(index)
     _resolve_tests(index)
     for name, source in sources.items():
+        FACTS_BY_SOURCE[source] = index[name]
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
     return index
 
@@ -387,6 +389,8 @@ def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> di
     )
     for name, source in sources.items():
         index[name]["source"] = source
+        if resolve_tests:
+            FACTS_BY_SOURCE[source] = index[name]
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
     return index
 
