@@ -365,7 +365,7 @@ struct CourseDetailTests {
         service.suspendRequests = true
         let viewModel = model(service)
         let entry = Task { await viewModel.bootstrapIfNeeded() }
-        try await waitForTestEvent { !(service.enteredRequests.count < 2) }
+        try await waitForTestEvent { service.enteredRequests.count >= 2 }
         entry.cancel()
         await entry.value
         #expect(service.cancelledRequests == ["body", "comments"])

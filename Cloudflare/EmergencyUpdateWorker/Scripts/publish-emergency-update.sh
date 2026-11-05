@@ -40,8 +40,9 @@ TITLE="$2"
 MESSAGE="$3"
 
 OUTPUT="$ROOT_DIR/.generated-emergency-update.json"
+trap 'rm -f "$OUTPUT"' EXIT
 NOTICE_ID="$(python3 - "$OUTPUT" "$MAXIMUM_BUILD" "$TITLE" "$MESSAGE" <<'PY'
-from hashlib import sha256
+from base64 import urlsafe_b64encode
 import json
 import sys
 
@@ -56,9 +57,11 @@ payload = {
 }
 payload["notice_id"] = (
     "notice-"
-    + sha256(
+    + urlsafe_b64encode(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    )
+    .decode()
+    .rstrip("=")
 )
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(payload, stream, ensure_ascii=False, indent=2)

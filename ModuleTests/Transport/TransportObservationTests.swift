@@ -136,7 +136,7 @@ extension ScheduleInfrastructureTests {
             try await client.send(
                 URLRequest(url: AppURL.required("https://example.invalid/context")))
         }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         observer.generation = 1
         transport.pending?.resume()
         _ = try await task.value
@@ -154,7 +154,7 @@ extension ScheduleInfrastructureTests {
             credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
             teachingCenterState: state, transport: transport)
         let task = Task { try await service.ensureTeachingAuth() }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         if change == 0 { credentials.currentStudentID = "school-b" }
         if change == 1 { credentials.generation += 1 }
         if change == 2 { task.cancel() }
@@ -256,7 +256,7 @@ extension ScheduleInfrastructureTests {
                 }
             }
             try await waitForTestEvent {
-                !(stage == "input" ? input == nil : transport.pending == nil)
+                stage == "input" ? input != nil : transport.pending != nil
             }
             let count = transport.requests.count
             if change == 0 { credentials.currentStudentID = "school-b" }

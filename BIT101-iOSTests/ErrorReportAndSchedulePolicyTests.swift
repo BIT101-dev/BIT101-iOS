@@ -607,7 +607,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                     return step.title + "：通过"
                 })
             let work = Task { await runner.run() }
-            try await waitForTestEvent { !(waiting == nil || runner.completedCount < 4) }
+            try await waitForTestEvent { waiting != nil && runner.completedCount >= 4 }
             switch interruption {
             case "account":
                 owner = .init(
@@ -810,7 +810,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             }
             model.prepareRetry()
             let retry = Task { await model.applyIfNeeded() }
-            try await waitForTestEvent { !(service.pending == nil) }
+            try await waitForTestEvent { service.pending != nil }
             retry.cancel()
             service.pending?.resume()
             await retry.value

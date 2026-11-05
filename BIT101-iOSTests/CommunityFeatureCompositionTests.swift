@@ -78,7 +78,7 @@ extension FeatureCompositionTests {
             .environment(surrounding).environment(media())
         ) {
             if selectedLoads == 0 { await withCheckedContinuation { continuation = $0 } }
-            try await waitForTestEvent { !(!selected.isCacheWritable) }
+            try await waitForTestEvent { selected.isCacheWritable }
             #expect(selected.courseState.courses.map(\.id) == [course.id])
             #expect(selected.selectedSection == section)
         }

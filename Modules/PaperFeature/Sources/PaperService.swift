@@ -13,9 +13,9 @@ public enum PaperServiceError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return CommunitySessionRestorationError.credentialsRejected.localizedDescription
+            return Self.notLoggedInDescription
         case .invalidResponse:
-            return "服务器返回了无法识别的数据。"
+            return Self.invalidResponseDescription
         case .missingPaper:
             return "文章已删除或暂时无法访问。"
         }
@@ -26,9 +26,9 @@ extension PaperServiceError: CommunityAPIServiceError {
     public static var communityNotLoggedIn: Self { .notLoggedIn }
     public static var communityInvalidResponse: Self { .invalidResponse }
     public static func communityResourceFailure(path: String, message: String?) -> Self? {
-        let parts = path.split(separator: "/")
-        return parts.count == 2 && parts[0] == "papers" && Int(parts[1]) != nil
-            && message == "文章不存在Orz" ? .missingPaper : nil
+        matchesResourceFailure(
+            path: path, resource: "papers", message: message, expectedMessage: "文章不存在Orz"
+        ) ? .missingPaper : nil
     }
 }
 

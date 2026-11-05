@@ -450,7 +450,7 @@ struct AccountProfileMutationTests {
                 return !fails
             } catch { return fails && (error as? URLError)?.code == .timedOut }
         }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         #expect(mutation.isUpdating && mutation.isBusy)
         #expect(mutation.start { writes.append("overlap") } == false)
         try await mutation.perform { writes.append("duplicate") }

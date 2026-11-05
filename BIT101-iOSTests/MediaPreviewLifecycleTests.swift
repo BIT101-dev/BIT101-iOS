@@ -49,7 +49,7 @@ extension MediaDependencyTests {
         let loader = CachedRemoteImageLoader()
         let url = AppURL.required("https://example.invalid/old.png")
         let download = Task { await loader.load(url: url, media: media) }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         await media.clearCaches()
         transport.pending?.resume()
         await download.value
@@ -58,7 +58,7 @@ extension MediaDependencyTests {
         #expect(
             files.totalRegularFileSize(at: try #require(files.directoryURL(.cachesDirectory))) == 0)
         let retry = Task { await loader.load(url: url, media: media) }
-        try await waitForTestEvent { !(transport.requests < 2) }
+        try await waitForTestEvent { transport.requests >= 2 }
         transport.pending?.resume()
         await retry.value
         #expect(loader.image?.size.width == 2)
@@ -74,7 +74,7 @@ extension MediaDependencyTests {
         let old = Task {
             await loader.load(url: AppURL.required("https://example.invalid/old.png"), media: media)
         }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         await loader.load(url: AppURL.required("https://example.invalid/new.png"), media: media)
         #expect(loader.image?.size.width == 2)
         transport.pending?.resume(throwing: URLError(.timedOut))
@@ -89,7 +89,7 @@ extension MediaDependencyTests {
         let media = environment(files: files, previewFiles: files, transport: transport)
         let url = AppURL.required("https://example.invalid/old.png")
         let first = Task { try await media.images.file(for: url) }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         let second = Task { try await media.images.file(for: url) }
         try await waitForTestEvent(isolation: media.images) { $0.waitingConsumerCount >= 2 }
         first.cancel()
@@ -106,11 +106,11 @@ extension MediaDependencyTests {
         let download = Task {
             try await media.images.file(for: AppURL.required("https://example.invalid/old.png"))
         }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         await media.clearCaches()
         if case .success = await download.result { Issue.record("缓存清理应终止既有下载") }
         transport.pending?.resume()
-        try await waitForTestEvent { !(transport.finished == 0) }
+        try await waitForTestEvent { transport.finished != 0 }
         #expect(await media.images.waitingConsumerCount == 0)
         #expect(files.totalRegularFileSize(at: files.temporaryDirectoryURL) == 0)
     }
@@ -212,13 +212,13 @@ extension MediaDependencyTests {
         let coordinator = RemoteAnimatedImage.Coordinator(media: media)
         let url = AppURL.required("https://example.invalid/motion.gif")
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
-        try await waitForTestEvent { !(view.image == nil) }
+        try await waitForTestEvent { view.image != nil }
         #expect(view.image?.images != nil)
         coordinator.load(url: url, into: view, media: media, reduceMotion: true)
-        try await waitForTestEvent { !(view.image == nil) }
+        try await waitForTestEvent { view.image != nil }
         #expect(view.image?.images == nil)
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
-        try await waitForTestEvent { !(view.image == nil) }
+        try await waitForTestEvent { view.image != nil }
         #expect(view.image?.images != nil && transport.requests == 1)
         coordinator.cancel(imageView: view)
     }

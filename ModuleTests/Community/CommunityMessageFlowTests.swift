@@ -183,10 +183,10 @@ extension CommunityDependencyBoundaryTests {
         let details = SuspendedMessageDetails()
         let messages = try RecordingMessageService.messages([1, 2])
         let first = Task { await model.openMessage(messages[0], in: .comment, using: details) }
-        try await waitForTestEvent { !(details.pending[1] == nil) }
+        try await waitForTestEvent { details.pending[1] != nil }
         if boundary == "replacement" {
             let second = Task { await model.openMessage(messages[1], in: .comment, using: details) }
-            try await waitForTestEvent { !(details.pending[2] == nil) }
+            try await waitForTestEvent { details.pending[2] != nil }
             details.pending.removeValue(forKey: 2)?.resume(returning: details.poster(2))
             await second.value
         } else if boundary == "cancel" {
@@ -242,7 +242,7 @@ extension CommunityDependencyBoundaryTests {
         let lookup = CourseEvaluationResolver(
             service: service,
             waitForDeadline: { _ in
-                while !entered.withLock({ $0 }) { try await Task.sleep(for: .milliseconds(1)) }
+                try await waitForTestEvent { entered.withLock { $0 } }
             })
         let task = Task { try await lookup.resolve(courseName: "name", courseNumber: "number") }
         defer { task.cancel() }
@@ -293,7 +293,7 @@ extension CommunityDependencyBoundaryTests {
         store.unread = 0
         let model = GalleryMessageViewModel(service: service, readStore: store)
         let old = Task { await model.refreshUnreadCounts() }
-        try await waitForTestEvent { !(service.pending == nil) }
+        try await waitForTestEvent { service.pending != nil }
         service.delay = false
         switch boundary {
         case "newer": await model.refreshUnreadCounts()

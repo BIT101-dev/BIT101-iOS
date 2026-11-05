@@ -577,7 +577,7 @@ struct ScheduleRepositoryBoundaryTests {
         let refresh = Task { await model.refreshLexueCalendarURL() }
         try await service.waitUntilStarted()
         service.continuation?.resume(returning: "https://lexue.bit.edu.cn/calendar/owned.ics")
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         #expect(model.notice == nil && model.isSyncingDDL)
         if stage == "accountChanged" {
             session = AppStorageSession(accountIdentifier: "subscription-next")

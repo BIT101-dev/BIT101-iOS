@@ -30,7 +30,6 @@ DERIVED_ROOT_NAMES = (
     ".build/release-network-smoke",
     ".build/icloud-cross-device-smoke/Phone",
     ".build/icloud-cross-device-smoke/Mac",
-    ".build/extended-automation/out",
 )
 BUILD_DATABASE_RELATIVES = (
     "Build/Intermediates.noindex/XCBuildData/build.db",
@@ -85,7 +84,6 @@ fixed_children = {
         "release",
         "debug.yaml",
         "release.yaml",
-        "out",
         "manifest.pif",
         "workspace-state.json",
         "module-events.jsonl",
@@ -456,7 +454,6 @@ def cache_space_report(root: Path) -> dict:
             size(name)
             for name in (
                 ".build/extended-automation/Build",
-                ".build/extended-automation/out",
                 "build/DeviceInstall",
                 ".build/release-network-smoke/Build",
                 ".build/icloud-cross-device-smoke/Phone/Build",
@@ -615,6 +612,7 @@ def main(root: Path) -> None:
         (root / ".build/static-audit" / name).unlink(missing_ok=True)
     self_test()
     shutil.rmtree(root / "Scripts/__pycache__", ignore_errors=True)
+    shutil.rmtree(root / ".build/extended-automation/out", ignore_errors=True)
     for folder in ("", "Cloudflare", "BIT101-iOS", "Modules", "Scripts", "docs"):
         (root / folder / ".DS_Store").unlink(missing_ok=True)
     for relative in DERIVED_ROOT_NAMES:

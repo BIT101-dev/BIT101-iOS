@@ -33,18 +33,16 @@ from ci_cache_evidence import (
     cache_self_test as cache_self_test,
     repository as repository,
     api_pages as api_pages,
+    ROOT as ROOT,
+    REPORT as REPORT,
+    REQUIRED_JOBS as REQUIRED_JOBS,
+    CACHE_FLAVORS as CACHE_FLAVORS,
+    CACHE_ROOT as CACHE_ROOT,
+    CACHE_STORE as CACHE_STORE,
+    CACHE_METADATA as CACHE_METADATA,
+    CACHE_TOOLS as CACHE_TOOLS,
+    RESULT_FILE as RESULT_FILE,
 )
-
-
-ROOT = Path(__file__).resolve().parents[1]
-REPORT = ROOT / ".build/extended-automation/validation-evidence.json"
-REQUIRED_JOBS = {"validation-plan", "static-audit", "release-build", "catalyst-tests", "ios-tests"}
-CACHE_FLAVORS = {"release-build", "catalyst-tests", "simulator-app"}
-CACHE_ROOT = ROOT / ".build/compiler-cache"
-CACHE_STORE = "CompilationCache.noindex"
-CACHE_METADATA = "compilation-cache.json"
-CACHE_TOOLS = frozenset({"swift-syntax-indexer", "swift-syntax-indexer-inputs.json"})
-RESULT_FILE = ROOT / ".build/extended-automation/ci-validation-result.json"
 
 
 @cache

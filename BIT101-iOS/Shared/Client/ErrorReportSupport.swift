@@ -193,21 +193,21 @@ nonisolated enum ErrorReportRedactor {
             """
     )
 
-    private static let protectedExpressions:
-        [(json: NSRegularExpression, keyValue: NSRegularExpression)] =
-            protectedNames.compactMap { name in
-                let escaped = NSRegularExpression.escapedPattern(for: name)
-                let jsonPattern = "(?i)(\"\(escaped)\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")"
-                let keyValuePattern =
-                    #"""
-                    (?i)(\b[\w$-]*\#(escaped)[\w$-]*(?:["']\]?)?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*(?:"\#
-                    |$)|'(?:\\.|[^'\\])*(?:'|$)|[^&\r\n,;]+)
-                    """#
-                guard let json = try? NSRegularExpression(pattern: jsonPattern),
-                    let keyValue = try? NSRegularExpression(pattern: keyValuePattern)
-                else { return nil }
-                return (json, keyValue)
-            }
+    private static let protectedNamePattern = protectedNames
+        .map(NSRegularExpression.escapedPattern(for:))
+        .joined(separator: "|")
+
+    private static let protectedJSONExpression = try? NSRegularExpression(
+        pattern: "(?i)(\"(?:\(protectedNamePattern))\"\\s*:\\s*\")(?:\\\\.|[^\"\\\\])*(\")"
+    )
+
+    private static let protectedKeyValueExpression = try? NSRegularExpression(
+        pattern:
+            #"""
+            (?i)(\b[\w$-]*(?:\#(protectedNamePattern))[\w$-]*(?:["']\]?)?\s*[=:]\s*)(?:"(?:\\.|[^"\
+            \\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^&\r\n,;]+)
+            """#
+    )
 
     private static let identityExpressions:
         [(expression: NSRegularExpression, replacement: String)] =
@@ -344,10 +344,8 @@ nonisolated enum ErrorReportRedactor {
             in: redactHTML(redactURLs(structured, credentials: credentials)),
             with: "$1[REDACTED]"
         )
-        for pair in protectedExpressions {
-            output = replace(pair.json, in: output, with: "$1[REDACTED]$2")
-            output = replace(pair.keyValue, in: output, with: "$1[REDACTED]")
-        }
+        output = replace(protectedJSONExpression, in: output, with: "$1[REDACTED]$2")
+        output = replace(protectedKeyValueExpression, in: output, with: "$1[REDACTED]")
         return redactCredentials(output, credentials: credentials)
     }
 

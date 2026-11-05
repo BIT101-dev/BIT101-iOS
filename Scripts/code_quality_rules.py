@@ -824,7 +824,7 @@ def extension_dependency_findings(project: dict) -> list[str]:
         children = {objects[dependency].get("target") for dependency in dependencies}
         if targets.get(child) is None or targets[child] not in children:
             errors.append(f"project.pbxproj: {parent} 必须通过 target 依赖编译 {child}")
-        if not (parent == "BIT101-iOS"):
+        if parent != "BIT101-iOS":
             continue
         for dependency in dependencies:
             edge = objects[dependency]

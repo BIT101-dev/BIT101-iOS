@@ -113,7 +113,7 @@ struct ScheduleCalendarTransactionTests {
             defaultsDomain: "BIT101Tests.calendar-permission", currentIdentity: { state.identity },
             requestAccess: { await withCheckedContinuation { state.resume = $0 } })
         let task = Task { try await manager.deleteAllImportedEvents() }
-        try await waitForTestEvent { !(state.resume == nil) }
+        try await waitForTestEvent { state.resume != nil }
         if cancel {
             task.cancel()
         } else {

@@ -67,7 +67,7 @@ extension MediaDependencyTests {
             }
         }
         try await waitForTestEvent {
-            !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads)
+            transport.requests.count >= MediaDownloadCoordinator.maximumConcurrentDownloads
         }
         let queued = (MediaDownloadCoordinator.maximumConcurrentDownloads..<8).map { index in
             Task {
@@ -77,9 +77,9 @@ extension MediaDependencyTests {
             }
         }
         let tasks = started + queued
-        try await waitForTestEvent { !(coordinator.waitingConsumerCount < tasks.count) }
+        try await waitForTestEvent { coordinator.waitingConsumerCount >= tasks.count }
         try await waitForTestEvent {
-            !(transport.requests.count < MediaDownloadCoordinator.maximumConcurrentDownloads)
+            transport.requests.count >= MediaDownloadCoordinator.maximumConcurrentDownloads
         }
         #expect(transport.active == MediaDownloadCoordinator.maximumConcurrentDownloads)
         tasks[7].cancel()

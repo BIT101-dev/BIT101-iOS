@@ -204,7 +204,7 @@ extension LoginStorageTests {
         var pending: CheckedContinuation<Void, Never>?
         transport.beforeResponse = { await withCheckedContinuation { pending = $0 } }
         let operation = Task { await model.verify() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         model.studentID = "C"
         pending?.resume()
         await operation.value

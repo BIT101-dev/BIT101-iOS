@@ -350,7 +350,7 @@ def _read_cached_facts(cache_path: Path, requested: dict[str, str], context: str
             row = database.execute(
                 "SELECT content FROM facts WHERE path = ? AND context = ?", (path, context)
             ).fetchone()
-            if not (row):
+            if not row:
                 continue
             try:
                 facts = json.loads(row[0])

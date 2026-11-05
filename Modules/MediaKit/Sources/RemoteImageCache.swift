@@ -232,13 +232,15 @@ actor ImageCacheDiskQuota {
 
     func enforce(force: Bool = false, protecting protectedURLs: Set<URL> = []) async {
         let now = Date()
-        for url in protectedURLs {
-            let key = files.canonicalFileURL(url)
-            if let metadata = inventory[key] {
-                inventory[key] = .init(url: key, size: metadata.size, modificationDate: now)
+        guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else {
+            for url in protectedURLs {
+                let key = files.canonicalFileURL(url)
+                if let metadata = inventory[key] {
+                    inventory[key] = .init(url: key, size: metadata.size, modificationDate: now)
+                }
             }
+            return
         }
-        guard force || now.timeIntervalSince(lastPruneDate) >= pruneInterval else { return }
         lastPruneDate = now
         inventory = [:]
         inventoryBytes = 0

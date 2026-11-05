@@ -73,7 +73,7 @@ struct ExtendedLoginTests {
         let model = LoginViewModel(service: service)
         model.password = "secret"
         let first = Task { await model.login() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         service.loginResult = .failure(URLError(.timedOut))
         await model.login()
         #expect(service.loginCalls.count == 1 && model.isSubmitting)
@@ -92,7 +92,7 @@ struct ExtendedLoginTests {
         let model = LoginViewModel(service: service)
         model.password = "secret"
         let task = Task { await model.login() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         service.savedStudentID = "B"
         service.hasCachedSession = true
         service.changes.send(())

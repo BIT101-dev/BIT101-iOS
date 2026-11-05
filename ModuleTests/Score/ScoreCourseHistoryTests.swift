@@ -118,10 +118,10 @@ extension ScoreFeatureTests {
         }
         let first = Task { await model.restoreCachedDataIfNeeded() }
         defer { first.cancel() }
-        try await waitForTestEvent { !(reads.pending.count < 1) }
+        try await waitForTestEvent { reads.pending.count >= 1 }
         let second = Task { await model.restoreCachedDataIfNeeded() }
         defer { second.cancel() }
-        try await waitForTestEvent { !(reads.pending.count < 2) }
+        try await waitForTestEvent { reads.pending.count >= 2 }
         reads.pending[1]?.resume(returning: [
             "新学期": [course("new-1", term: "新学期"), course("new-2", term: "新学期")]
         ])
@@ -199,7 +199,7 @@ extension ScoreFeatureTests {
             cache.pending?.resume(returning: previous)
             cache.pending = nil
         }
-        try await waitForTestEvent { !(cache.pending == nil) }
+        try await waitForTestEvent { cache.pending != nil }
         await model.refresh()
         cache.pending?.resume(returning: previous)
         cache.pending = nil

@@ -204,14 +204,14 @@ struct CommunityDependencyBoundaryTests {
             suggestion
             ? await store.captureSuggestionCleanup() : await store.captureGalleryCleanup()
         let pending = Task { await save() }
-        try await waitForTestEvent { !(!started.withLock({ $0 })) }
+        try await waitForTestEvent { started.withLock { $0 } }
         var cleanupStarted = false
         let cleanup = Task { @MainActor in
             cleanupStarted = true
             await operations.suspendAndDrain()
             return files.removeContents(of: root)
         }
-        try await waitForTestEvent { !(!cleanupStarted) }
+        try await waitForTestEvent { cleanupStarted }
         #expect(await save() == false)
         gate.signal()
         let saved = await pending.value
@@ -344,7 +344,7 @@ struct CommunityDependencyBoundaryTests {
         }
         service.suspendedOrder = .newest
         let pending = searching ? search.enqueueSearch() : list.enqueueRefresh()
-        try await waitForTestEvent { !(!service.enteredOrders.contains(.newest)) }
+        try await waitForTestEvent { service.enteredOrders.contains(.newest) }
         if searching { search.cancelSearchOperations() } else { list.cancelRefreshOperations() }
         await pending.value
         let state = searching ? search.state : list.state
@@ -433,7 +433,7 @@ struct CommunityDependencyBoundaryTests {
         let search = PaperSearchViewModel(service: service)
         search.searchText = "功能验收"
         let first = searching ? search.enqueueSearch() : list.enqueueRefresh()
-        try await waitForTestEvent { !(!service.enteredOrders.contains(.newest)) }
+        try await waitForTestEvent { service.enteredOrders.contains(.newest) }
         if closing {
             if searching { search.cancelSearchOperations() } else { list.cancelRefreshOperations() }
         } else {
@@ -474,9 +474,9 @@ struct CommunityDependencyBoundaryTests {
                 following: true, follower: true, followingNum: 4, followerNum: 5)
         }
         let following = Task { await model.followUser() }
-        try await waitForTestEvent { !(pendingFollow == nil) }
+        try await waitForTestEvent { pendingFollow != nil }
         let refresh = Task { await model.refreshProfile() }
-        try await waitForTestEvent { !(pendingRead == nil) }
+        try await waitForTestEvent { pendingRead != nil }
         if followFinishesFirst {
             pendingFollow?.resume()
             await following.value

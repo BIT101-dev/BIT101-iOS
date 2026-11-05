@@ -28,9 +28,9 @@ public enum GalleryServiceError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notLoggedIn:
-            return CommunitySessionRestorationError.credentialsRejected.localizedDescription
+            return Self.notLoggedInDescription
         case .invalidResponse:
-            return "服务器返回了无法识别的数据。"
+            return Self.invalidResponseDescription
         case .missingPoster:
             return "帖子已删除或暂时无法访问。"
         case .uploadFailed:
@@ -43,9 +43,9 @@ extension GalleryServiceError: CommunityAPIServiceError {
     public static var communityNotLoggedIn: Self { .notLoggedIn }
     public static var communityInvalidResponse: Self { .invalidResponse }
     public static func communityResourceFailure(path: String, message: String?) -> Self? {
-        let parts = path.split(separator: "/")
-        return parts.count == 2 && parts[0] == "posters" && Int(parts[1]) != nil
-            && message == "帖子不存在Orz" ? .missingPoster : nil
+        matchesResourceFailure(
+            path: path, resource: "posters", message: message, expectedMessage: "帖子不存在Orz"
+        ) ? .missingPoster : nil
     }
 }
 

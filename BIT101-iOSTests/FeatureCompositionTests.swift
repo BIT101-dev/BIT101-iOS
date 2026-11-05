@@ -305,7 +305,7 @@ struct FeatureCompositionTests {
             )
             .environment(\.appDiagnosticAlert, { notice = $0.message })
         ) {
-            try await waitForTestEvent { !(viewModel.filteredRows.isEmpty) }
+            try await waitForTestEvent { !viewModel.filteredRows.isEmpty }
             #expect(viewModel.filteredRows.first?.courseName == "composition-score")
             viewModel.alert = .informational(title: "成绩已是最新", message: "本次获取结果与本地成绩完全一致。")
             try await waitForTestEvent { notice != nil }
@@ -333,11 +333,11 @@ struct FeatureCompositionTests {
             window.isHidden = true
             window.rootViewController = nil
         }
-        try await waitForTestEvent { !(first.schoolRequests == 0) }
+        try await waitForTestEvent { first.schoolRequests != 0 }
         controller.rootView = NavigationStack {
             TrustedTranscriptDestination(service: second).environment(selectedMedia)
         }
-        try await waitForTestEvent { !(second.schoolRequests == 0) }
+        try await waitForTestEvent { second.schoolRequests != 0 }
         #expect(first.schoolRequests == 1)
         #expect(second.schoolRequests == 1)
         #expect(first.transcriptServiceIdentity != second.transcriptServiceIdentity)
@@ -675,13 +675,13 @@ struct FeatureCompositionTests {
                 PaperTabs(route: routes, dependencies: dependencies, media: media()),
                 navigation: false
             ) {
-                try await waitForTestEvent { !(service.pending == nil || service.pages.count < 2) }
+                try await waitForTestEvent { service.pending != nil && service.pages.count >= 2 }
                 phase = "切出文章"
                 routes.selection = 1
                 try await waitForTestEvent { routes.otherAppeared && routes.paperDisappeared }
                 phase = "返回文章"
                 routes.selection = 0
-                try await waitForTestEvent { !(service.previewRequests < 2) }
+                try await waitForTestEvent { service.previewRequests >= 2 }
                 service.pending?.resume(
                     returning: PaperPreviewMetadata(
                         authorName: "迟到的作者", avatarURL: nil, isAnonymous: false))
@@ -748,7 +748,7 @@ struct FeatureCompositionTests {
                 returning: .init(items: [], nextSourcePage: 1, canLoadMore: false))
             service.pending = nil
         }
-        try await waitForTestEvent { !(service.pending == nil) }
+        try await waitForTestEvent { service.pending != nil }
         model.cancelPendingOperations()
         #expect(model.state(for: .newest).nextPage == previous.nextPage)
         #expect(model.state(for: .newest).canLoadMore == previous.canLoadMore)

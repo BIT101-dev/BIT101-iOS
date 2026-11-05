@@ -660,7 +660,7 @@ extension GalleryRecommendationPrefetchTests {
         model.title = "标题"
         model.intro = "简介"
         let task = Task { await model.submit(service: service, drafts: drafts) }
-        try await waitForTestEvent { !(service.pending == nil) }
+        try await waitForTestEvent { service.pending != nil }
         #expect(model.isSubmitting)
         #expect(await model.submit(service: service, drafts: drafts) == false)
         task.cancel()

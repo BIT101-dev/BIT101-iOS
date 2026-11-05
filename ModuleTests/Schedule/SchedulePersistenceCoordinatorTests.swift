@@ -26,7 +26,7 @@ struct SchedulePersistenceCoordinatorTests {
                 return true
             }
         }
-        try await waitForTestEvent { !(!started) }
+        try await waitForTestEvent { started }
         let oldGeneration = generation
         let queued = Task {
             await coordinator.perform(isCurrent: { generation == oldGeneration }) {
@@ -61,7 +61,7 @@ struct SchedulePersistenceCoordinatorTests {
                 return true
             }
         }
-        try await waitForTestEvent { !(!started) }
+        try await waitForTestEvent { started }
         let queued = Task {
             await coordinator.perform(isCurrent: { true }) {
                 writes.append(2)

@@ -202,11 +202,7 @@ private struct PaperDetailViewScene: View {
     }
 
     private var contentBlocks: [PaperContentBlock] {
-        let blocks = viewModel.contentBlocks
-        if blocks.isEmpty, let paper = viewModel.paper, !paper.content.isEmpty {
-            return PaperContentRenderer.blocks(from: paper.content)
-        }
-        return blocks
+        viewModel.contentBlocks
     }
 
     private var headerLikeAccessibilityLabel: String {

@@ -344,7 +344,7 @@ struct MineLifecycleTests {
             return [listPoster(3)]
         }
         let updating = Task { await refresh() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         await more(1)
         #expect(service.pages == [0, 0])
         pending?.resume(returning: [listPoster(2)])
@@ -373,7 +373,7 @@ struct MineLifecycleTests {
         var pending: CheckedContinuation<[CommunityUser], Never>?
         service.users = { _ in await withCheckedContinuation { pending = $0 } }
         let pagination = Task { await more() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         service.users = { _ in throw CancellationError() }
         await refresh()
         #expect((followers ? model.followerState : model.followingState).isLoadingMore == false)

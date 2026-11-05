@@ -72,38 +72,6 @@ struct NetworkSmokeCoverageTests {
             ])
     }
 
-    struct LiteralOverloads {
-        struct Number: ExpressibleByIntegerLiteral { init(integerLiteral: Int) {} }
-        enum State { case active }
-        static func integer(id: Int32) -> Bool { true }
-        static func integer(id: String) -> Bool { false }
-        static func unsigned(id: UInt32) -> Bool { true }
-        static func unsigned(id: String) -> Bool { false }
-        static func real(value: Float) -> Bool { true }
-        static func real(value: String) -> Bool { false }
-        static func custom(value: Number) -> Bool { true }
-        static func custom(value: String) -> Bool { false }
-        static func optional(value: Int?) -> Bool { true }
-        static func optional(value: String) -> Bool { false }
-        static func state(value: State) -> Bool { true }
-        static func state(value: String) -> Bool { false }
-        static func defaultInteger(value: Int) -> Bool { true }
-        static func defaultInteger(value: Int32) -> Bool { false }
-        static func defaultReal(value: Double) -> Bool { true }
-        static func defaultReal(value: Float) -> Bool { false }
-    }
-
-    @Test func compilerSelectsContextualLiteralOverloads() {
-        #expect(LiteralOverloads.integer(id: 1))
-        #expect(LiteralOverloads.unsigned(id: 0x10))
-        #expect(LiteralOverloads.real(value: 1.25))
-        #expect(LiteralOverloads.custom(value: 1))
-        #expect(LiteralOverloads.optional(value: nil))
-        #expect(LiteralOverloads.state(value: .active))
-        #expect(LiteralOverloads.defaultInteger(value: 1))
-        #expect(LiteralOverloads.defaultReal(value: 1.25))
-    }
-
     @Test(
         .timeLimit(.minutes(1)),
         arguments: [

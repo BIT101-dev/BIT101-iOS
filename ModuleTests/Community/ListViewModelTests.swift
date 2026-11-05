@@ -168,7 +168,7 @@ struct CourseListViewModelTests {
         let model = CourseListViewModel(service: service)
         model.applyPreparedSearch(query: "old", items: [old])
         let refresh = Task { await model.search(for: "fresh") }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         await model.loadMoreIfNeeded(currentCourse: old)
         #expect(model.state.items == [old] && service.requests.count == 1)
         pending?.resume(returning: [fresh])
@@ -402,7 +402,7 @@ struct GalleryPaginationTests {
         try await gate.waitUntilRequested()
         model.cancelPendingOperations()
         gate.finish([listPoster(1)])
-        try await waitForTestEvent { !(!finished) }
+        try await waitForTestEvent { finished }
         #expect(cancelled)
         #expect(model.state(for: feed).status == .idle)
         #expect(model.state(for: feed).posters.isEmpty)
@@ -458,7 +458,7 @@ struct GalleryPaginationTests {
         coordinator = nil
         #expect(released == nil)
         gate.finish([])
-        try await waitForTestEvent { !(!finished) }
+        try await waitForTestEvent { finished }
         #expect(cancelled)
     }
 

@@ -298,7 +298,7 @@ struct LoginStorageTests {
         let model = LoginViewModel(service: service)
         #expect(model.screenState == .signedIn(studentID: "A"))
         let check = Task { try await service.checkLogin() }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         transport.pending?.resume()
         await #expect(throws: CommunitySessionRestorationError.self) { try await check.value }
         #expect(
@@ -325,7 +325,7 @@ struct LoginStorageTests {
             storage: storage,
             apiClient: BIT101APIClient(httpClient: http, noRedirectHTTPClient: http))
         let old = Task { try await service.checkLogin() }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         try storage.saveLoginState(
             studentID: "A", password: "fixture", fakeCookie: "renewed-cookie")
         #expect(storage.communityCredentials.identity == identity)
@@ -450,7 +450,7 @@ struct LoginStorageTests {
             storage: storage,
             apiClient: BIT101APIClient(httpClient: client, noRedirectHTTPClient: client))
         let task = Task { try await service.restoreSchoolSession() }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         storage.clearSession()
         try storage.saveLoginState(
             studentID: "account-a", password: "fixture-password", fakeCookie: "fixture-next")

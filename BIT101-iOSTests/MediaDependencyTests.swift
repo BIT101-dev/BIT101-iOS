@@ -175,7 +175,7 @@ struct MediaDependencyTests {
             transport.pending = nil
         }
         try await waitForAsyncTestEvent { await media.images.waitingConsumerCount == 2 }
-        try await waitForTestEvent { !(transport.pending == nil) }
+        try await waitForTestEvent { transport.pending != nil }
         #expect(transport.requests == 1)
         cancelled.cancel()
         await cancelled.value
@@ -285,7 +285,7 @@ struct MediaDependencyTests {
         let loader = CachedRemoteImageLoader()
         let old = Task { await loader.load(url: url, media: first) }
         if delayed {
-            try await waitForTestEvent { !(oldTransport.pending == nil) }
+            try await waitForTestEvent { oldTransport.pending != nil }
         } else {
             await old.value
             #expect(loader.image?.size.width == 1)
@@ -317,12 +317,12 @@ struct MediaDependencyTests {
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/old.png")
         coordinator.load(url: url, into: view, media: first)
-        try await waitForTestEvent { !(oldTransport.pending == nil) }
+        try await waitForTestEvent { oldTransport.pending != nil }
         coordinator.load(url: url, into: view, media: second)
-        try await waitForTestEvent { !(view.image == nil) }
+        try await waitForTestEvent { view.image != nil }
         #expect(view.image?.size.width == 2)
         oldTransport.pending?.resume(throwing: URLError(.timedOut))
-        try await waitForTestEvent { !(oldTransport.finished == 0) }
+        try await waitForTestEvent { oldTransport.finished != 0 }
         await Task.yield()
         #expect(view.image?.size.width == 2)
         #expect(newTransport.requests == 1)
@@ -347,7 +347,7 @@ struct MediaDependencyTests {
         let view = UIImageView()
         let url = AppURL.required("https://example.invalid/retry.png")
         coordinator.load(url: url, into: view, media: media)
-        try await waitForTestEvent { !(transport.requests == 0) }
+        try await waitForTestEvent { transport.requests != 0 }
         try await waitForTestEvent(isolation: media.images) { $0.waitingConsumerCount == 0 }
         #expect(view.image == nil)
         coordinator.load(url: url, into: view, media: media, budgetGeneration: 1)
@@ -364,7 +364,7 @@ struct MediaDependencyTests {
                     retryGeneration: media.imageRetryGeneration))
         coordinator.load(
             url: url, into: view, media: media, retryGeneration: media.imageRetryGeneration)
-        try await waitForTestEvent { !(view.image == nil) }
+        try await waitForTestEvent { view.image != nil }
         #expect(view.image?.size.width == (failure == "gif" ? 1 : 2) && transport.requests == 2)
         media.retryFailedImages()
         coordinator.load(

@@ -448,7 +448,7 @@ struct GalleryRecommendationPrefetchTests {
             return []
         }
         let oldPage = Task { await next(comment) }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         #expect(state().isLoadingMore)
         if changesOrder {
             if paper {
@@ -489,7 +489,7 @@ struct GalleryRecommendationPrefetchTests {
             if fails { throw URLError(.timedOut) }
         }
         let deletion = Task { await model.deletePaper() }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         #expect(model.isDeletingPaper && service.paperDeleteCalls == 1)
         #expect(await model.deletePaper() == false)
         #expect(model.isDeletingPaper && service.paperDeleteCalls == 1)
@@ -540,7 +540,7 @@ struct GalleryRecommendationPrefetchTests {
         }
         service.likeGate = { await withCheckedContinuation { pendingLike = $0 } }
         let reading = Task { await refresh() }
-        try await waitForTestEvent { !(pendingRead == nil) }
+        try await waitForTestEvent { pendingRead != nil }
         let liking = Task {
             if paper {
                 await article.likeComment(child)
@@ -548,7 +548,7 @@ struct GalleryRecommendationPrefetchTests {
                 await model.likeComment(child)
             }
         }
-        try await waitForTestEvent { !(pendingLike == nil) }
+        try await waitForTestEvent { pendingLike != nil }
         if likeFinishesFirst {
             pendingLike?.resume()
             await liking.value
@@ -589,8 +589,8 @@ struct GalleryRecommendationPrefetchTests {
         }
         let entry = Task { await refresh() }
         try await waitForTestEvent {
-            !(service.enteredRequests != expected
-                || service.completedRequests.count != 2 - expected.count)
+            service.enteredRequests == expected
+                && service.completedRequests.count == 2 - expected.count
         }
         entry.cancel()
         await entry.value
@@ -638,7 +638,7 @@ struct GalleryRecommendationPrefetchTests {
             if paper { await article.likePaper() } else { await gallery.likePoster() }
         }
         let mutation = likeStartsFirst ? Task { await like() } : nil
-        if likeStartsFirst { try await waitForTestEvent { !(pendingLike == nil) } }
+        if likeStartsFirst { try await waitForTestEvent { pendingLike != nil } }
         let refresh = Task {
             if paper { await article.refreshAll() } else { await gallery.refreshAll() }
         }

@@ -569,7 +569,7 @@ struct AppLocalDataOwnershipTests {
                 }
             }
         }
-        try await waitForTestEvent { !(actions.pending == nil) }
+        try await waitForTestEvent { actions.pending != nil }
         #expect(service.isCleaning && !loggedOut)
         let previous = actions.events
         #expect(

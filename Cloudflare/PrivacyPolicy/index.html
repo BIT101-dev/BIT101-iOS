@@ -7,6 +7,9 @@
   <link rel="apple-touch-icon" href="https://open.aihelpme.dev/share-icon.jpg" />
   <title>BIT101 隐私政策</title>
   <style>
+    :root {
+      color-scheme: light dark;
+    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
       line-height: 1.6;
@@ -14,6 +17,7 @@
       margin: 40px auto;
       padding: 0 16px;
       color: #333;
+      background-color: #fff;
     }
     h1, h2 {
       color: #111;
@@ -35,6 +39,21 @@
     .date {
       color: #666;
       font-size: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      body {
+        color: #e5e5ea;
+        background-color: #1c1c1e;
+      }
+      h1, h2, h3 {
+        color: #f2f2f7;
+      }
+      .date {
+        color: #98989d;
+      }
+      a {
+        color: #0a84ff;
+      }
     }
   </style>
 </head>
@@ -95,7 +114,7 @@
     <li>北京理工大学统一身份认证、教务和乐学等学校服务；</li>
     <li>BIT101 登录、社区、图片和内容服务；</li>
     <li>Apple 的 iCloud、MapKit、系统日历、通知和 App Store 服务。</li>
-    <li>Cloudflare Workers 与 KV：仅在您主动提交错误报告时接收和保存相关报告。</li>
+    <li>Cloudflare Workers、Durable Objects 与 KV：用于紧急更新通知读取，并在您主动提交错误报告或开发者建议时接收、投递和保存相关内容。</li>
   </ul>
   <p>除实现功能、获得您的明确授权或法律法规要求外，我们不会出售、出租或向无关第三方披露您的个人信息。</p>
 

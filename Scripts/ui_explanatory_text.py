@@ -1,7 +1,7 @@
 """Write permanent source-text review candidates to their fixed report."""
 
 from pathlib import Path
-from swift_source_index import swift_syntax_index
+from swift_source_index import FACTS_BY_SOURCE, swift_syntax_index
 
 
 def extract_candidate_expressions(call: dict, facts: dict, name: str, label: str) -> list[str]:
@@ -53,7 +53,12 @@ def write_report(root: Path) -> None:
     paths = sorted(
         path for source_root in production_roots for path in source_root.rglob("*.swift")
     )
-    index = swift_syntax_index(paths)
+    sources = {str(path): path.read_text(encoding="utf-8") for path in paths}
+    index = (
+        {name: FACTS_BY_SOURCE[source] for name, source in sources.items()}
+        if all(source in FACTS_BY_SOURCE for source in sources.values())
+        else swift_syntax_index(paths)
+    )
     for path in paths:
         facts = index[str(path)]
         source = facts["source"].encode("utf-8")

@@ -117,7 +117,7 @@ struct ScheduleRepositoryReconciliationTests {
             pending?.resume()
             pending = nil
         }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         #expect(repository.isResolvingPersistenceConflict)
         await repository.resolveStorageConflict(.useCloud)
         pauseRead = false
@@ -207,7 +207,7 @@ struct ScheduleRepositoryReconciliationTests {
             pending?.resume()
             pending = nil
         }
-        try await waitForTestEvent { !(pending == nil) }
+        try await waitForTestEvent { pending != nil }
         var remote = initial
         remote.primaryScheduleTitle = "同步标题"
         remote.cloudSyncBaselineRecordTag = "remote"

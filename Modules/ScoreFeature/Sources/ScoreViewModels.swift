@@ -21,25 +21,25 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     /// 页面加载状态。
     private(set) var state: ScoreLoadState = .idle
     /// 当前可选学期列表。
-    private(set) var availableTerms: [String] = []
+    var availableTerms: [String] = []
     /// 按实际成绩动态生成的课程性质列表。
-    private(set) var availableCourseTypes: [String] = []
+    var availableCourseTypes: [String] = []
     /// 当前选中的学期集合。
-    private(set) var selectedTerms: Set<String> = [] {
+    var selectedTerms: Set<String> = [] {
         didSet { invalidateProjection() }
     }
     /// 当前选中的课程性质集合。
-    private(set) var selectedCourseTypes: Set<String> = [] {
+    var selectedCourseTypes: Set<String> = [] {
         didSet { invalidateProjection() }
     }
     private(set) var allowsDiagnostics = true
     private(set) var failureCause: (any Error)?
     /// 当前成绩列表排序索引。
-    private(set) var sortIndex: ScoreSortIndex = .courseName {
+    var sortIndex: ScoreSortIndex = .courseName {
         didSet { visibleProjection = nil }
     }
     /// 当前成绩列表排序方向。
-    private(set) var sortOrder: ScoreSortOrder = .ascending {
+    var sortOrder: ScoreSortOrder = .ascending {
         didSet { visibleProjection = nil }
     }
     /// 是否正在同步基础成绩列表。
@@ -54,7 +54,7 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     /// 最近一次成功写入成绩缓存的时间；刷新失败时保留该时间。
     private(set) var lastUpdatedAt: Date?
     /// 已缓存课表可确认的未出分课程；对应学期课表缺失时返回 nil。
-    private(set) var pendingCourses: [ScoreCourseSummary]?
+    var pendingCourses: [ScoreCourseSummary]?
     /// 当前等待用户输入图形或短信验证码的短期认证挑战。
     private(set) var verificationChallenge: BITLoginAuthenticationChallenge? {
         didSet {
@@ -69,7 +69,7 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     private(set) var verificationError: String?
     private(set) var isSubmittingVerificationCode = false
     var alert: AppAlert?
-    private(set) var needsStorageRecovery = false
+    var needsStorageRecovery = false
     private(set) var isRecoveringStorage = false
     var isStorageRecoveryPresented = false
     @ObservationIgnored private var recoverySession: AppStorageSession?
@@ -87,17 +87,17 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     @ObservationIgnored private var activeRequestID: UUID?
     @ObservationIgnored private var cancelActiveRequest: (() -> Void)?
     @ObservationIgnored private var didRestoreCachedRows = false
-    @ObservationIgnored private var didInitializeTermSelection = false
-    @ObservationIgnored private var didInitializeCourseTypeSelection = false
-    @ObservationIgnored private var isSynchronizingScoreFields = false
+    @ObservationIgnored var didInitializeTermSelection = false
+    @ObservationIgnored var didInitializeCourseTypeSelection = false
+    @ObservationIgnored var isSynchronizingScoreFields = false
     /// 初始化时读取一次已持久化的筛选快照。
     private let cacheStore: any ScoreCaching
-    private let preferenceStore: any ScoreFilterPreferencesStoring
-    @ObservationIgnored private var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
+    let preferenceStore: any ScoreFilterPreferencesStoring
+    @ObservationIgnored var preferenceSnapshot: ScoreFilterPreferenceSnapshot?
     @ObservationIgnored private var preferenceObserver: AnyCancellable?
     @ObservationIgnored private var scoreCacheObserver: AnyCancellable?
     @ObservationIgnored private var scheduleCacheObserver: AnyCancellable?
-    @ObservationIgnored private var cachedCoursesByTerm: [String: [ScoreCourseSummary]] = [:]
+    @ObservationIgnored var cachedCoursesByTerm: [String: [ScoreCourseSummary]] = [:]
 
     public init(
         service: any ScoreListServicing,
@@ -586,7 +586,7 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     /// 根据本机已缓存的同学期课表，估算仍未出分的去重课程数。
     ///
     /// 对应学期缓存缺失时返回 `nil`，页面据此区分未知状态与 0。
-    private func calculatePendingCourses() -> [ScoreCourseSummary]? {
+    func calculatePendingCourses() -> [ScoreCourseSummary]? {
         let scoreTerms = selectedTerms
         guard !scoreTerms.isEmpty else { return nil }
 
@@ -792,123 +792,6 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
         synchronizeFilters(previousTerms: previousTerms, previousTypes: previousTypes)
         pendingCourses = calculatePendingCourses()
         state = .loaded
-    }
-
-    private func updateFilterOptions() {
-        availableTerms = uniqueFilterValues(
-            from: rows.map(\.term) + Array(cachedCoursesByTerm.keys).sorted())
-        availableCourseTypes = uniqueFilterValues(
-            from: rows.map(\.courseType)
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-    }
-
-    /// 刷新可选项后，同步修正当前筛选集合。
-    ///
-    /// 首次进入时恢复本地偏好；后续刷新时把当前筛选限制在现有选项范围内。
-    private func synchronizeFilters(previousTerms: Set<String>, previousTypes: Set<String>) {
-        let originalTerms = selectedTerms
-        let previousCourseTypes = selectedCourseTypes
-        let termSet = Set(availableTerms)
-        let typeSet = Set(availableCourseTypes)
-
-        if !didInitializeTermSelection, !termSet.isEmpty {
-            if let persistedTerms = preferenceSnapshot?.selectedTerms {
-                selectedTerms = restoredFilterSelection(persistedTerms, options: termSet)
-            } else {
-                selectedTerms = termSet
-            }
-            didInitializeTermSelection = true
-        } else if didInitializeTermSelection, !termSet.isEmpty {
-            selectedTerms =
-                !previousTerms.isEmpty && selectedTerms == previousTerms
-                ? termSet : selectedTerms.intersection(termSet)
-        }
-
-        if !didInitializeCourseTypeSelection, !typeSet.isEmpty {
-            if let persistedCourseTypes = preferenceSnapshot?.selectedCourseTypes {
-                selectedCourseTypes = restoredFilterSelection(
-                    persistedCourseTypes, options: typeSet)
-            } else {
-                selectedCourseTypes = typeSet
-            }
-            didInitializeCourseTypeSelection = true
-        } else if didInitializeCourseTypeSelection, !typeSet.isEmpty {
-            selectedCourseTypes =
-                !previousTypes.isEmpty && selectedCourseTypes == previousTypes
-                ? typeSet : selectedCourseTypes.intersection(typeSet)
-        }
-
-        if originalTerms != selectedTerms || previousCourseTypes != selectedCourseTypes {
-            persistFilterPreferences()
-        }
-    }
-
-    /// iCloud 拉取完成后立即更新已存在的成绩页面。
-    private func applyStoredFilters() {
-        preferenceSnapshot = preferenceStore.load()
-        updateFilterRecovery()
-        guard let preferenceSnapshot else { return }
-
-        restoreSortPreferences()
-        if didInitializeTermSelection {
-            selectedTerms = restoredFilterSelection(
-                preferenceSnapshot.selectedTerms, options: Set(availableTerms))
-        }
-        if didInitializeCourseTypeSelection {
-            selectedCourseTypes = restoredFilterSelection(
-                preferenceSnapshot.selectedCourseTypes, options: Set(availableCourseTypes))
-        }
-        pendingCourses = calculatePendingCourses()
-    }
-
-    private func matchesSelectedCourseType(_ value: String) -> Bool {
-        availableCourseTypes.isEmpty || selectedCourseTypes.count == availableCourseTypes.count
-            || selectedCourseTypes.contains(normalizedFilterValue(value))
-    }
-
-    private func restoredFilterSelection(_ values: [String], options: Set<String>) -> Set<String> {
-        let selection = Set(values).intersection(options)
-        return selection.isEmpty && !values.isEmpty ? options : selection
-    }
-
-    private func restoreSortPreferences() {
-        sortIndex =
-            preferenceSnapshot?.sortIndex.flatMap(ScoreSortIndex.init(rawValue:)) ?? .courseName
-        sortOrder =
-            preferenceSnapshot?.sortOrder.flatMap(ScoreSortOrder.init(rawValue:)) ?? .ascending
-    }
-
-    /// 保存当前筛选结果到本地偏好。
-    private func persistFilterPreferences() {
-        guard !isSynchronizingScoreFields else { return }
-        if preferenceStore.hasUnreadableSnapshot {
-            needsStorageRecovery = true
-            return
-        }
-        guard
-            preferenceSnapshot != nil
-                || (didInitializeTermSelection
-                    && (didInitializeCourseTypeSelection || !rows.isEmpty))
-        else { return }
-        let saved = preferenceStore.save(
-            selectedTerms: didInitializeTermSelection
-                ? selectedTerms : Set(preferenceSnapshot?.selectedTerms ?? []),
-            selectedCourseTypes: didInitializeCourseTypeSelection
-                ? selectedCourseTypes : Set(preferenceSnapshot?.selectedCourseTypes ?? []),
-            sortIndex: sortIndex,
-            sortOrder: sortOrder
-        )
-        if !saved {
-            needsStorageRecovery = true
-            alert = AppAlert(
-                title: "筛选偏好保存受阻", message: "当前筛选与排序在本次使用中生效。原始偏好数据已保留，可通过“恢复成绩存储”重建本账号的成绩与筛选。")
-        }
-    }
-
-    private func updateFilterRecovery() {
-        if preferenceStore.hasUnreadableSnapshot {
-            needsStorageRecovery = true
-        }
     }
 
     func requestStorageRecovery() {

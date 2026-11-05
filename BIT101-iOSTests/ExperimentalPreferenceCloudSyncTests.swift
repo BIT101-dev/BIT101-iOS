@@ -149,7 +149,7 @@ struct ExperimentalPreferenceCloudSyncTests {
                         updatedAt: Date.distantFuture, payload: old)), forKey: recordKey)
         }
         let task = sync.refreshFromCloudIfNeeded()
-        try await waitForTestEvent { !(remoteApply ? cache.apply == nil : cache.read == nil) }
+        try await waitForTestEvent { remoteApply ? cache.apply != nil : cache.read != nil }
         cache.payload = ScoreCacheSyncPayload(
             rows: [ScoreRow(index: 0, headers: ["成绩"], values: ["95"])],
             updatedAt: Date(), detailedUpdatedAt: nil)

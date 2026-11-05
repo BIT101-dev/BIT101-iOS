@@ -99,7 +99,20 @@ public protocol CommunityAPIServiceError: Error {
 }
 
 extension CommunityAPIServiceError {
+    public nonisolated static var notLoggedInDescription: String {
+        CommunitySessionRestorationError.credentialsRejected.localizedDescription
+    }
+    public nonisolated static var invalidResponseDescription: String {
+        "服务器返回了无法识别的数据。"
+    }
     public static func communityResourceFailure(path: String, message: String?) -> Self? { nil }
+    public nonisolated static func matchesResourceFailure(
+        path: String, resource: Substring, message: String?, expectedMessage: String
+    ) -> Bool {
+        let parts = path.split(separator: "/")
+        return parts.count == 2 && parts[0] == resource && Int(parts[1]) != nil
+            && message == expectedMessage
+    }
 }
 
 private enum CommunityCredentialRefreshContext {

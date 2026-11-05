@@ -398,7 +398,7 @@ extension GalleryStateContractTests {
         let model = GalleryReportViewModel(service: service)
         await model.loadReportTypes()
         let task = Task { await model.submit(objectID: "poster1") }
-        try await waitForTestEvent { !(service.pending == nil) }
+        try await waitForTestEvent { service.pending != nil }
         #expect(await model.submit(objectID: "poster1") == false && service.submissions == 1)
         model.cancel()
         service.pending?.resume()

@@ -223,7 +223,7 @@ def main(
                         pattern,
                     )
 
-        if not (relative_source not in PLAIN_LIST_EXCEPTIONS):
+        if relative_source in PLAIN_LIST_EXCEPTIONS:
             continue
         for node in pattern_nodes(facts, DIRECT_PLAIN_LIST_STYLE):
             pattern_source = mask_literals_and_comments(node["value"])

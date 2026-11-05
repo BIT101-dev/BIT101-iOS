@@ -163,7 +163,7 @@ struct AppUpdateCheckerTests {
             await prompts.enqueueAndWait(queued)
             completed += 1
         }
-        try await waitForTestEvent { !(!activeStarted || !queuedStarted) }
+        try await waitForTestEvent { activeStarted && queuedStarted }
         prompts.accountDidChange(
             to: CommunitySessionIdentity(accountIdentifier: "second", generation: 2))
         await activeWaiter.value
@@ -239,7 +239,7 @@ struct AppUpdateCheckerTests {
         coordinator.enqueue(prompt("second"))
         #expect(coordinator.activePrompt == nil)
         coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
-        try await waitForTestEvent { !(coordinator.activePrompt == nil) }
+        try await waitForTestEvent { coordinator.activePrompt != nil }
         #expect(coordinator.activePrompt?.id == "second")
         coordinator.alertPresentationChanged(isPresented: false, promptID: "first")
         coordinator.perform(first, promptID: "first")

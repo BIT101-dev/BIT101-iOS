@@ -12,7 +12,7 @@ struct NetworkSmokeSMSPromptTests {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
-        try await waitForTestEvent { !(prompt.request == nil) }
+        try await waitForTestEvent { prompt.request != nil }
         do {
             _ = try await prompt.requestCode(
                 SchoolSMSCodeRequest(maskedPhone: "", purpose: "webvpn"))
@@ -28,7 +28,7 @@ struct NetworkSmokeSMSPromptTests {
         let prompt = ReleaseNetworkSmokeSMSPrompt()
         let request = SchoolSMSCodeRequest(maskedPhone: "138****0000", purpose: "jwb")
         let waiting = Task { try await prompt.requestCode(request) }
-        try await waitForTestEvent { !(prompt.request == nil) }
+        try await waitForTestEvent { prompt.request != nil }
         waiting.cancel()
         do {
             _ = try await waiting.value
@@ -36,7 +36,7 @@ struct NetworkSmokeSMSPromptTests {
         } catch { #expect(TaskCancellation.matches(error)) }
         #expect(prompt.request == nil)
         let next = Task { try await prompt.requestCode(request) }
-        try await waitForTestEvent { !(prompt.request == nil) }
+        try await waitForTestEvent { prompt.request != nil }
         prompt.submit("654321")
         #expect(try await next.value == "654321")
         #expect(prompt.request == nil)

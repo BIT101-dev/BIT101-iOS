@@ -845,11 +845,13 @@ private struct ScheduleWidgetEntryView: View {
         switch entry.contentState {
         case .loggedOut:
             return "请登录"
+        case .missing:
+            return "同步"
         case .unavailable:
             return "重试"
         case .invalid:
             return "重同步"
-        case .missing, .rest, .ready:
+        case .rest, .ready:
             return "无课"
         }
     }
