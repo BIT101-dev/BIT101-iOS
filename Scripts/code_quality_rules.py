@@ -377,6 +377,82 @@ def enclosing_functions(functions: list[dict], start: int) -> list[dict]:
     return result
 
 
+_FILE_WRITE_METHODS = {
+    "removeItem",
+    "writeData",
+    "createDirectory",
+    "moveItem",
+    "copyItem",
+    "replaceItemAt",
+    "setPrivateFileProtection",
+    "setBackupExcluded",
+    "setModificationDate",
+    "write",
+}
+_DATA_WRITER_TYPES = {
+    "Data",
+    "String",
+    "NSData",
+    "NSMutableData",
+    "NSString",
+    "NSMutableString",
+    "FileWrapper",
+    "NSFileWrapper",
+    "FileHandle",
+    "NSFileHandle",
+}
+
+
+def _is_direct_file_write_call(call: dict, path: str, name: str, types, bindings) -> bool:
+    if name not in _FILE_WRITE_METHODS:
+        return False
+    kind = bindings.receiver_type(call, path)
+    kind = re.sub(r"\bany\s+|\s+", "", kind) if kind else None
+    if kind is None:
+        receiver_name = call["calledExpression"].rsplit(".", 1)[0]
+        if (
+            receiver_name in {"FileManager.default", "Foundation.FileManager.default"}
+            and types.resolve(path, receiver_name.removesuffix(".default"), call["scope"]) is None
+        ):
+            kind = "Foundation.FileManager"
+    receiver_types = bindings.receiver_components(call, path) | {kind}
+    owner_types = {
+        owner
+        for item in receiver_types
+        if (owner := types.resolve(path, item or "", call["scope"]))
+    }
+    bases = {
+        types.terminal_name(types.paths[owner], base, owner[1][:-1])
+        for owner in owner_types
+        for base in types.bases(owner)
+    }
+    service = bool(
+        (receiver_types | bases)
+        & {"AppFileService", "StorageCore.AppFileService", "StorageCore.LocalAppFileService"}
+    )
+    manager = kind in {"FileManager", "Foundation.FileManager"}
+    writer = (kind or "").removeprefix("Foundation.") in _DATA_WRITER_TYPES
+    return (
+        (service or manager)
+        and name != "write"
+        or writer
+        and name == "write"
+        and bool({"to", "contentsOf"}.intersection(call.get("argumentLabels", [])))
+    )
+
+
+def _local_file_write_candidates(facts, path, name, call, types, methods, callable_keys):
+    from swift_source_index import matching_functions
+
+    candidates = [
+        (path, function)
+        for function in matching_functions(facts, name, call)
+        if function.get("isThrowing") or (path, function["start"]) in callable_keys
+    ]
+    owner = ".".join(types.function_scope(path, call["scope"]))
+    return candidates + methods.get((owner, name), [])
+
+
 def file_write_calls(index: dict) -> dict[str, set[int]]:
     from swift_type_index import (
         SwiftTypeIndex,
@@ -389,8 +465,14 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
     from network_capability_rules import matching_api_calls
 
     index = callable_effect_index(index)
-    types, resolve = SwiftTypeIndex(index), receiver_resolver(index)
+    types = SwiftTypeIndex(index)
     bindings = SwiftBindingTypes(index, types)
+    resolve = receiver_resolver(index, types=types, binding_types=bindings)
+    callable_keys = {
+        (path, alias["start"])
+        for path, facts in index.items()
+        for alias in facts.get("callableRanges", [])
+    }
     methods, functions, calls = {}, {}, {}
     writes = {path: set() for path in index}
     for path, facts in index.items():
@@ -398,120 +480,50 @@ def file_write_calls(index: dict) -> dict[str, set[int]]:
             key = (path, function["start"])
             functions[key] = function
             owner = ".".join(types.function_scope(path, function["scope"]))
-            if not function.get("lexicalScope"):
+            if not function.get("lexicalScope") and (
+                function.get("isThrowing") or key in callable_keys
+            ):
                 methods.setdefault((owner, function["name"]), []).append((path, function))
+    method_names = {method_name for _, method_name in methods}
     edges, owners = {}, {}
     for path, facts in index.items():
         for call in facts.get("invocations", []):
             key = (path, call["start"])
             calls[key] = call
             name = call["calledExpression"].rsplit(".", 1)[-1]
-            kind = bindings.receiver_type(call, path)
-            kind = re.sub(r"\bany\s+|\s+", "", kind) if kind else None
-            if kind is None:
-                receiver_name = call["calledExpression"].rsplit(".", 1)[0]
-                if (
-                    receiver_name in {"FileManager.default", "Foundation.FileManager.default"}
-                    and types.resolve(path, receiver_name.removesuffix(".default"), call["scope"])
-                    is None
-                ):
-                    kind = "Foundation.FileManager"
-            receiver_types = bindings.receiver_components(call, path) | {kind}
-            owner_types = {
-                owner
-                for name in receiver_types
-                if (owner := types.resolve(path, name or "", call["scope"]))
-            }
-            bases = {
-                types.terminal_name(types.paths[owner], base, owner[1][:-1])
-                for owner in owner_types
-                for base in types.bases(owner)
-            }
-            service = bool(
-                (receiver_types | bases)
-                & {
-                    "AppFileService",
-                    "StorageCore.AppFileService",
-                    "StorageCore.LocalAppFileService",
-                }
-            )
-            manager = kind in {"FileManager", "Foundation.FileManager"}
-            writer = kind in {
-                "Data",
-                "String",
-                "NSData",
-                "NSMutableData",
-                "NSString",
-                "NSMutableString",
-                "FileWrapper",
-                "NSFileWrapper",
-                "FileHandle",
-                "NSFileHandle",
-            } or (kind or "").removeprefix("Foundation.") in {
-                "Data",
-                "String",
-                "NSData",
-                "NSMutableData",
-                "NSString",
-                "NSMutableString",
-                "FileWrapper",
-                "NSFileWrapper",
-                "FileHandle",
-                "NSFileHandle",
-            }
-            if (
-                (service or manager)
-                and name
-                in {
-                    "removeItem",
-                    "writeData",
-                    "createDirectory",
-                    "moveItem",
-                    "copyItem",
-                    "replaceItemAt",
-                    "setPrivateFileProtection",
-                    "setBackupExcluded",
-                    "setModificationDate",
-                }
-                or writer
-                and name == "write"
-                and {"to", "contentsOf"}.intersection(call.get("argumentLabels", []))
-            ):
+            if _is_direct_file_write_call(call, path, name, types, bindings):
                 writes[path].add(call["start"])
             enclosing = enclosing_functions(facts.get("functionRanges", []), call["start"])
             if enclosing:
                 owner = max(enclosing, key=lambda function: function["start"])
                 owners[key] = (path, owner["start"])
-            receiver = resolve(dict(call, path=path))
+            receiver = resolve(dict(call, path=path)) if name in method_names else None
             candidates = list(methods.get((receiver, name), [])) if receiver else []
             if "." not in call["calledExpression"].removeprefix("self."):
-                candidates += [
-                    (path, function) for function in matching_functions(facts, name, call)
-                ]
-                owner = ".".join(types.function_scope(path, call["scope"]))
-                candidates += methods.get((owner, name), [])
+                candidates += _local_file_write_candidates(
+                    facts, path, name, call, types, methods, callable_keys
+                )
             unique = {
                 (source, function["start"]): (source, function) for source, function in candidates
             }
-            edges[key] = {
-                (source, function["start"])
-                for source, function in matching_api_calls(
-                    index,
-                    list(unique.values()),
-                    dict(call, path=path),
-                    types=types,
-                    conservative=True,
-                )
-            }
+            edges[key] = (
+                {
+                    (source, function["start"])
+                    for source, function in matching_api_calls(
+                        index,
+                        list(unique.values()),
+                        dict(call, path=path),
+                        types=types,
+                        conservative=True,
+                    )
+                }
+                if unique
+                else set()
+            )
             if "." not in call["calledExpression"].removeprefix("self."):
                 edges[key].update(
                     (path, alias["start"]) for alias in visible_callable_ranges(facts, name, call)
                 )
-    callable_keys = {
-        (path, alias["start"])
-        for path, facts in index.items()
-        for alias in facts.get("callableRanges", [])
-    }
     affected = set()
     changed = True
     while changed:

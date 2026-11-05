@@ -478,6 +478,9 @@ def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[st
         return block_outcomes(facts, branch, conditions, bounds, nested=nested)
 
     identity = branch["start"]
+    outcome_key = ("outcomes", identity)
+    if outcome_key in conditions:
+        return conditions[outcome_key]
     if identity not in conditions:
         conditions[identity] = branch_condition(facts, branch)
     value = conditions[identity]
@@ -492,26 +495,37 @@ def control_flow_outcomes(facts: dict, branch: dict, conditions: dict) -> set[st
             )
             if index in entries:
                 result |= following
-        return result - {"break"} | (normal if "break" in result or not entries else set())
+        resolved = result - {"break"} | (normal if "break" in result or not entries else set())
+        conditions[outcome_key] = resolved
+        return resolved
     if kind == "guard":
-        return (
+        resolved = (
             normal
             if value is True
             else outcomes(branch.get("elseRange")) | (normal if value is None else set())
         )
+        conditions[outcome_key] = resolved
+        return resolved
     body = outcomes(branch.get("thenRange"))
     if kind == "do":
         alternatives = set().union(*(outcomes(bounds) for bounds in branch.get("branchRanges", [])))
-        return body | alternatives
+        resolved = body | alternatives
+        conditions[outcome_key] = resolved
+        return resolved
     if kind in {"while", "repeat"}:
         if kind == "while" and value is False:
+            conditions[outcome_key] = normal
             return normal
         exits = "break" in body or value is not True and bool({"normal", "continue"} & body)
-        return body - {"normal", "break", "continue"} | (
+        resolved = body - {"normal", "break", "continue"} | (
             normal if exits or kind == "while" and value is None else set()
         )
+        conditions[outcome_key] = resolved
+        return resolved
     alternative = outcomes(branch.get("elseRange"))
-    return body if value is True else alternative if value is False else body | alternative
+    resolved = body if value is True else alternative if value is False else body | alternative
+    conditions[outcome_key] = resolved
+    return resolved
 
 
 def collection_count(facts: dict, location: dict, source=None, seen=frozenset()):
@@ -569,14 +583,28 @@ def is_empty_iteration(facts: dict, branch: dict, folding: bool) -> bool:
     return empty
 
 
-def call_can_execute(facts: dict, call: dict) -> bool:
+_EXCLUDED_FLOW_CACHE = {}
+
+
+def _excluded_flow_ranges(facts: dict):
+    key = (
+        id(facts),
+        id(facts.get("controlFlow")),
+        id(facts.get("expressionFlow")),
+        id(facts.get("bindings")),
+        facts.get("constantFoldingAllowed"),
+    )
+    cached = _EXCLUDED_FLOW_CACHE.get(key)
+    if cached is not None and cached[0] is facts:
+        return cached[1], cached[2]
+    if len(_EXCLUDED_FLOW_CACHE) > 2048:
+        _EXCLUDED_FLOW_CACHE.clear()
     conditions = {}
     folding = constant_folding_allowed(facts)
+    unconditional = []
+    hoistable = []
     for branch in facts.get("expressionFlow", []):
-        if not any(
-            bounds and bounds[0] <= call["start"] < bounds[1]
-            for bounds in (branch.get("thenRange"), branch.get("elseRange"))
-        ):
+        if not (branch.get("thenRange") or branch.get("elseRange")):
             continue
         value = branch_condition(facts, branch)
         excluded = (
@@ -586,41 +614,25 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             if value is False
             else None
         )
-        if excluded and excluded[0] <= call["start"] < excluded[1]:
-            return False
-
-    def hoisted(bounds, branch):
-        return any(
-            function["start"] >= bounds[0]
-            and function["start"] <= call["start"] < function["end"]
-            and function.get("lexicalScope", []) == branch.get("lexicalScope", [])
-            for function in facts.get("functionRanges", [])
-        )
-
+        if excluded:
+            unconditional.append((excluded[0], excluded[1]))
     for branch in facts.get("controlFlow", []):
         dead = branch.get("deadRange")
-        if dead and dead[0] <= call["start"] < dead[1]:
-            if not hoisted(dead, branch):
-                return False
+        if dead:
+            hoistable.append((dead[0], dead[1], branch.get("lexicalScope", [])))
         body = branch.get("thenRange")
-        if body and body[0] <= call["start"] < body[1]:
-            if is_empty_iteration(facts, branch, folding):
-                return False
-        if branch.get("switchSubject") is not None and any(
-            bounds[0] <= call["start"] < bounds[1] for bounds in branch.get("branchRanges", [])
-        ):
+        if body and is_empty_iteration(facts, branch, folding):
+            unconditional.append((body[0], body[1]))
+        if branch.get("switchSubject") is not None and branch.get("branchRanges"):
             reachable = switch_entries(facts, branch)
             for index, bounds in enumerate(branch.get("branchRanges", [])):
                 if index in reachable and "fallthrough" in block_outcomes(
                     facts, branch, conditions, bounds, nested=False
                 ):
                     reachable.add(index + 1)
-                if bounds[0] <= call["start"] < bounds[1] and index not in reachable:
-                    return False
-        if not any(
-            bounds and bounds[0] <= call["start"] < bounds[1]
-            for bounds in (body, branch.get("elseRange"), branch.get("followingRange"))
-        ):
+                if index not in reachable:
+                    unconditional.append((bounds[0], bounds[1]))
+        if not (body or branch.get("elseRange") or branch.get("followingRange")):
             continue
         if branch["start"] not in conditions:
             conditions[branch["start"]] = branch_condition(facts, branch)
@@ -632,14 +644,29 @@ def call_can_execute(facts: dict, call: dict) -> bool:
             if value is False and not branch["value"].startswith("repeat")
             else None
         )
-        if excluded and excluded[0] <= call["start"] < excluded[1]:
-            return False
+        if excluded:
+            unconditional.append((excluded[0], excluded[1]))
         following = branch.get("followingRange")
-        if (
-            following
-            and following[0] <= call["start"] < following[1]
-            and not hoisted(following, branch)
-            and not {"normal", "labeled-jump"} & control_flow_outcomes(facts, branch, conditions)
+        if following and not {"normal", "labeled-jump"} & control_flow_outcomes(
+            facts, branch, conditions
+        ):
+            hoistable.append((following[0], following[1], branch.get("lexicalScope", [])))
+    _EXCLUDED_FLOW_CACHE[key] = (facts, unconditional, hoistable)
+    return unconditional, hoistable
+
+
+def call_can_execute(facts: dict, call: dict) -> bool:
+    unconditional, hoistable = _excluded_flow_ranges(facts)
+    start = call["start"]
+    for lower, upper in unconditional:
+        if lower <= start < upper:
+            return False
+    for lower, upper, lexical in hoistable:
+        if lower <= start < upper and not any(
+            function["start"] >= lower
+            and function["start"] <= start < function["end"]
+            and function.get("lexicalScope", []) == lexical
+            for function in facts.get("functionRanges", [])
         ):
             return False
     return True

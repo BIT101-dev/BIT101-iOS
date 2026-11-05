@@ -522,7 +522,9 @@ def adapter_call_roles(index: dict[str, dict]) -> dict:
     )
 
     index = execution_index(callable_effect_index(index))
-    types, resolve_receiver = SwiftBindingTypes(index).types, receiver_resolver(index)
+    bindings = SwiftBindingTypes(index)
+    types = bindings.types
+    resolve_receiver = receiver_resolver(index, types=types, binding_types=bindings)
     nodes, by_name, active = {}, {}, {}
     for path, facts in index.items():
         roles = adapter_roles(index, path)

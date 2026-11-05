@@ -17,7 +17,8 @@ def fixture_resource_findings(path: Path, facts: dict) -> list[str]:
     from network_capability_rules import matching_api_calls
 
     index = {str(path): facts}
-    types, resolve = SwiftTypeIndex(index), receiver_resolver(index)
+    types = SwiftTypeIndex(index)
+    resolve = receiver_resolver(index, types=types)
 
     def system_name(name, reference):
         return (

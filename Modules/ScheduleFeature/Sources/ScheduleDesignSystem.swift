@@ -8,8 +8,9 @@ extension AppDesignSystem {
         public static let tabAccent = Color.indigo
 
         static func refreshStatusRowHeight(contentHeight: CGFloat) -> CGFloat {
-            max(contentHeight, AppDesignSystem.Size.Control.touchTarget)
-                + 2 * AppDesignSystem.Spacing.tiny
+            max(
+                contentHeight + 2 * AppDesignSystem.Spacing.tiny,
+                AppDesignSystem.Size.Control.refreshStatusRowHeight)
         }
 
         public static let ddlNumericPickerHeight: CGFloat = 240

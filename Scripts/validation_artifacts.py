@@ -613,6 +613,7 @@ def main(root: Path) -> None:
     self_test()
     shutil.rmtree(root / "Scripts/__pycache__", ignore_errors=True)
     shutil.rmtree(root / ".build/extended-automation/out", ignore_errors=True)
+    shutil.rmtree(root / ".wrangler", ignore_errors=True)
     for folder in ("", "Cloudflare", "BIT101-iOS", "Modules", "Scripts", "docs"):
         (root / folder / ".DS_Store").unlink(missing_ok=True)
     for relative in DERIVED_ROOT_NAMES:
@@ -642,7 +643,7 @@ def main(root: Path) -> None:
         violations.append("SwiftPM 构建产物应统一保存到 .build/extended-automation")
     for relative, names in fixed_children.items():
         folder = root / relative
-        if not (folder.exists()):
+        if not folder.exists():
             continue
         for child in committed_children(folder):
             if not artifact_name_allowed(relative, child.name):

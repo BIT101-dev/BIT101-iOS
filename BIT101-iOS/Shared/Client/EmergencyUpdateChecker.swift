@@ -5,13 +5,7 @@ nonisolated enum EmergencyUpdateURLPolicy {
     static let endpointHost = "update.aihelpme.dev"
 
     static func acceptsHTTPS(_ url: URL, host: String) -> Bool {
-        guard url.scheme?.lowercased() == "https",
-            url.host?.lowercased() == host,
-            url.port == nil || url.port == 443,
-            url.user == nil,
-            url.password == nil
-        else { return false }
-        return true
+        AppURL.isSameOrigin(url, as: URL(string: "https://\(host)"))
     }
 }
 

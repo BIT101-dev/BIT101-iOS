@@ -218,7 +218,18 @@ enum UITestAccessibilityActions {
         let children: [Element]
         let scroll: UIScrollView?
 
-        var descendants: [Element] { children.flatMap { [$0] + $0.descendants } }
+        var descendants: [Element] {
+            var result: [Element] = []
+            appendDescendants(into: &result)
+            return result
+        }
+
+        private func appendDescendants(into result: inout [Element]) {
+            for child in children {
+                result.append(child)
+                child.appendDescendants(into: &result)
+            }
+        }
     }
 
     static func read(_ parameters: [String: String]) throws -> Data {

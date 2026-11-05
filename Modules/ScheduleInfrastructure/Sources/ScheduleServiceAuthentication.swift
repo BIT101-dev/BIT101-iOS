@@ -121,7 +121,7 @@ extension ScheduleService {
         )
     }
 
-    /// 确保教学中心会话可用，优先本机认证并在需要时回退。
+    /// 确保教学中心会话可用，必要时刷新认证状态。
     func ensureTeachingAuth(force: Bool = false) async throws {
         let owner = credentials.schoolSessionIdentity
         let username = credentials.currentStudentID.trimmingCharacters(in: .whitespacesAndNewlines)

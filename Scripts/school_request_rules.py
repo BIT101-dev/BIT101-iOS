@@ -108,8 +108,10 @@ def _parameter_observed_eager(
 ) -> bool:
     name = parameter.get("name", parameter["label"])
     calls = execution_calls.get((path, tuple(function["scope"]), name), [])
-    deferred = facts.get("callableRanges", []) + callback_ranges[path][0]
     executed = callback_ranges[path][2]
+    if not calls and not executed:
+        return False
+    deferred = facts.get("callableRanges", []) + callback_ranges[path][0]
     references = _find_parameter_references(facts, function, name, executed)
     candidates = [call for _, call in calls] + references
     body_start = function.get("bodyStart", function["start"])
@@ -383,8 +385,12 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         for function in facts.get(category, [])
     }
     callback_declarations_by_name = {}
+    initializers_by_owner = {}
     for function in callback_declarations:
         callback_declarations_by_name.setdefault(function["name"], []).append(function)
+        if function["name"] == "init":
+            fn_scope = types.function_scope(function_paths[id(function)], function["scope"])
+            initializers_by_owner.setdefault(fn_scope, []).append(function)
     execution_calls = {}
     for path, facts in syntax_index.items():
         for call in facts["calls"]:
@@ -437,16 +443,25 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             receiver_id = type_ids.get(receiver)
             receiver_owner = (receiver_id[0],) + receiver_id[1] if receiver_id else None
             method = value.rsplit(".", 1)[-1]
-            lookup_key = "init" if method[:1].isupper() else method
-            candidate_functions = callback_declarations_by_name.get(lookup_key, [])
-            var_scope = variable_scope(path, call)
-            declarations = [
-                fn
-                for fn in candidate_functions
-                if _matches_callback_function(
-                    fn, method, owner, receiver, receiver_owner, var_scope, function_paths, types
-                )
-            ]
+            if method[:1].isupper():
+                declarations = list(initializers_by_owner.get(owner, ()))
+            else:
+                candidate_functions = callback_declarations_by_name.get(method, [])
+                var_scope = variable_scope(path, call)
+                declarations = [
+                    fn
+                    for fn in candidate_functions
+                    if _matches_callback_function(
+                        fn,
+                        method,
+                        owner,
+                        receiver,
+                        receiver_owner,
+                        var_scope,
+                        function_paths,
+                        types,
+                    )
+                ]
             result.append((invocation, owner, escaping, declarations))
         return result
 
@@ -669,7 +684,6 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
 
     def possible_targets(call):
         name = call["value"].rsplit(".", 1)[-1]
-        candidates = functions.get(name, [])
         if name[:1].isupper():
             if id(call) not in call_ids:
                 return []
@@ -681,6 +695,9 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
             identity = type_ids.get(constructed)
             owner = (identity[0],) + identity[1] if identity else None
             return [entry for entry in functions.get("init", []) if entry[0][0] == owner]
+        candidates = functions.get(name, [])
+        if not candidates:
+            return []
         receiver = receiver_type(call)
         if receiver:
             identity = type_ids.get(receiver)
@@ -743,9 +760,11 @@ def automatic_school_fetch_findings(syntax_index: dict[str, dict]) -> list[str]:
         )
 
     def targets(call):
+        entries = possible_targets(call)
+        if not entries:
+            return []
         path = reference_paths[id(call)]
         invocation = invocations.get((path, call["start"], call["value"]))
-        entries = possible_targets(call)
         if (
             invocation is None
             and not any(start <= call["start"] < end for start, end in callback_ranges[path][2])

@@ -11,30 +11,28 @@ from swift_scope_facts import (
     visible_variables as visible_variables,
 )
 from swift_constant_values import (
-    _custom_constant_symbols as _custom_constant_symbols,
-    block_outcomes as block_outcomes,
-    branch_condition as branch_condition,
-    branch_value as branch_value,
-    call_can_execute as call_can_execute,
-    collection_count as collection_count,
-    constant_boolean as constant_boolean,
-    constant_folding_allowed as constant_folding_allowed,
-    constant_value as constant_value,
-    control_flow_outcomes as control_flow_outcomes,
-    custom_constant_symbols as custom_constant_symbols,
-    is_empty_iteration as is_empty_iteration,
-    pattern_match_value as pattern_match_value,
-    string_literal_value as string_literal_value,
-    switch_entries as switch_entries,
+    _custom_constant_symbols,
+    block_outcomes,
+    branch_condition,
+    branch_value,
+    call_can_execute,
+    collection_count,
+    constant_boolean,
+    constant_folding_allowed,
+    constant_value,
+    control_flow_outcomes,
+    custom_constant_symbols,
+    is_empty_iteration,
+    pattern_match_value,
+    string_literal_value,
+    switch_entries,
 )
 
 
 def matches_variadic_labels(parameter: dict, labels: list[str]) -> bool:
-    for index, label in enumerate(labels):
-        expected = parameter["label"] if index == 0 else ""
-        if label != expected:
-            return False
-    return True
+    return all(
+        label == (parameter["label"] if index == 0 else "") for index, label in enumerate(labels)
+    )
 
 
 def argument_parameter_bindings(parameters: list[dict], labels: list[str]) -> list[list[dict]]:
@@ -95,8 +93,10 @@ class SwiftTypeIndex:
                 if "type" in node:
                     self.aliases[key] = node["type"]
         self.exported_by_owner = {}
+        self.exported_by_module = {}
         for key in self.exported:
             self.exported_by_owner.setdefault(key[1], []).append(key)
+            self.exported_by_module.setdefault(key[0], []).append(key)
         self.nominal_records = frozenset(self.records)
         self._resolutions = None
         for path, facts in index.items():
@@ -113,7 +113,11 @@ class SwiftTypeIndex:
                 for base in node["inheritedTypes"]:
                     self.inheritance_paths[key, re.sub(r"\s+", "", base)] = path
                 self.paths.setdefault(key, path)
+        self.records_by_namespace = {}
+        for key in self.records:
+            self.records_by_namespace.setdefault(key[0], []).append(key)
         self._bases = {}
+        self._conformances = {}
         self._resolutions = {}
         self._function_scopes = {}
         self.enum_cases = {}
@@ -199,20 +203,9 @@ class SwiftTypeIndex:
             return True
         terminal = self.terminal_name(path, returned, scope).split("<", 1)[0]
         if terminal in {
-            "View",
-            "SwiftUI.View",
-            "AnyView",
-            "SwiftUI.AnyView",
-            "EmptyView",
-            "SwiftUI.EmptyView",
-            "TupleView",
-            "SwiftUI.TupleView",
-            "Text",
-            "SwiftUI.Text",
-            "Image",
-            "SwiftUI.Image",
-            "Color",
-            "SwiftUI.Color",
+            "View", "SwiftUI.View", "AnyView", "SwiftUI.AnyView", "EmptyView", "SwiftUI.EmptyView",
+            "TupleView", "SwiftUI.TupleView", "Text", "SwiftUI.Text", "Image", "SwiftUI.Image",
+            "Color", "SwiftUI.Color",
         }:
             return True
         target = self.resolve(path, returned, scope)
@@ -221,15 +214,15 @@ class SwiftTypeIndex:
         )
 
     def conformances(self, path: str):
+        if path in self._conformances:
+            return self._conformances[path]
         module = self.units[path]
         result = {}
-        for key in self.records:
-            namespace, owner = key
-            if (
-                namespace in {module, module + "@" + path}
-                and self.resolve(path, ".".join(owner), aliases=False) == key
-            ):
-                result[owner] = self.bases(key)
+        for namespace in (module, module + "@" + path):
+            for key in self.records_by_namespace.get(namespace, ()):
+                owner = key[1]
+                if self.resolve(path, ".".join(owner), aliases=False) == key:
+                    result[owner] = self.bases(key)
         imported = set(self.index[path].get("imports", []))
         candidates = {}
         for key in self.exported:
@@ -240,6 +233,7 @@ class SwiftTypeIndex:
         for owner, keys in candidates.items():
             if owner not in result and len(keys) == 1:
                 result[owner] = self.bases(keys[0])
+        self._conformances[path] = result
         return result
 
     def inheritance_distance(self, actual: str, expected: str):
@@ -611,9 +605,11 @@ class SwiftBindingTypes:
         return any(((owner[0],) + owner[1], name) in self.accessors for owner in owners if owner)
 
 
-def receiver_resolver(index: dict, *, follow_parameters: bool = False):
-    types = SwiftTypeIndex(index)
-    binding_types = SwiftBindingTypes(index, types)
+def receiver_resolver(
+    index: dict, *, follow_parameters: bool = False, types=None, binding_types=None
+):
+    types = types or SwiftTypeIndex(index)
+    binding_types = binding_types or SwiftBindingTypes(index, types)
     variables, factories, invocations_by_name = {}, {}, {}
     protocols = {
         types.resolve(path, ".".join(node["scope"] + [node["name"]]), aliases=False)
@@ -898,6 +894,16 @@ def collection_callable_ranges(facts: dict) -> list[dict]:
 
 
 def visible_callable_ranges(facts: dict, name: str, call: dict) -> list[dict]:
+    candidates = [
+        alias
+        for alias in facts.get("callableRanges", [])
+        if alias["name"] == name
+        and call["scope"][: len(alias["scope"])] == alias["scope"]
+        and call.get("lexicalScope", [])[: len(alias["lexicalScope"])] == alias["lexicalScope"]
+        and (not alias["lexicalScope"] or alias["start"] <= call["start"])
+    ]
+    if not any(alias.get("collectionBindingStart") for alias in candidates):
+        return candidates
     variables = dict(
         facts,
         typedVariables=[
@@ -909,31 +915,30 @@ def visible_callable_ranges(facts: dict, name: str, call: dict) -> list[dict]:
     visible = visible_variables(variables, call, name)
     return [
         alias
-        for alias in facts.get("callableRanges", [])
-        if alias["name"] == name
-        and call["scope"][: len(alias["scope"])] == alias["scope"]
-        and call.get("lexicalScope", [])[: len(alias["lexicalScope"])] == alias["lexicalScope"]
-        and (not alias["lexicalScope"] or alias["start"] <= call["start"])
-        and (
-            not alias.get("collectionBindingStart")
-            or visible
-            and visible[-1]["start"] == alias["collectionBindingStart"]
-        )
+        for alias in candidates
+        if not alias.get("collectionBindingStart")
+        or visible
+        and visible[-1]["start"] == alias["collectionBindingStart"]
     ]
 
 
 def implicit_callable_index(index: dict[str, dict]) -> dict[str, dict]:
     """把函数式对象的调用连接到其 callAsFunction 方法。"""
+    has_call_as_function = any(
+        fn["name"] == "callAsFunction" and not fn.get("lexicalScope")
+        for facts in index.values()
+        for fn in facts.get("functionRanges", [])
+    )
+    if not has_call_as_function:
+        return index
     types = SwiftTypeIndex(index)
     owners = {
-        ".".join(types.function_scope(path, function["scope"]))
+        ".".join(types.function_scope(path, fn["scope"]))
         for path, facts in index.items()
-        for function in facts.get("functionRanges", [])
-        if function["name"] == "callAsFunction" and not function.get("lexicalScope")
+        for fn in facts.get("functionRanges", [])
+        if fn["name"] == "callAsFunction" and not fn.get("lexicalScope")
     }
-    if not owners:
-        return index
-    resolve, result = receiver_resolver(index), {}
+    resolve, result = receiver_resolver(index, types=types), {}
     for path, facts in index.items():
         calls = []
         for call in facts.get("invocations", []):

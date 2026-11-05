@@ -416,7 +416,8 @@ def platform_smoke_calls(
     )
     from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
 
-    types, resolve_receiver = SwiftTypeIndex(index), receiver_resolver(index)
+    types = SwiftTypeIndex(index)
+    resolve_receiver = receiver_resolver(index, types=types)
     execution_cache = {}
 
     def call_can_execute(facts, call):

@@ -181,7 +181,8 @@ def autoclosure_index(index: dict) -> dict:
     }
     if not names:
         return index
-    types, receiver = SwiftTypeIndex(index), receiver_resolver(index)
+    types = SwiftTypeIndex(index)
+    receiver = receiver_resolver(index, types=types)
     result = {}
     for path, facts in index.items():
         calls, closures = [], list(facts.get("inlineClosureRanges", []))

@@ -9,7 +9,7 @@ nonisolated enum BIT101AppStore {
         "https://apps.apple.com/cn/app/bit101/id6761147125")
 
     static func acceptsUpdateURL(_ url: URL) -> Bool {
-        EmergencyUpdateURLPolicy.acceptsHTTPS(url, host: "apps.apple.com")
+        AppURL.isSameOrigin(url, as: Self.url)
             && url.pathComponents.contains("id6761147125")
     }
 }

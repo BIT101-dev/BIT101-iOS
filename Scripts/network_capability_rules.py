@@ -109,7 +109,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
 
     types = SwiftTypeIndex(index)
     binding_types = SwiftBindingTypes(index, types)
-    resolve_receiver = receiver_resolver(index)
+    resolve_receiver = receiver_resolver(index, types=types, binding_types=binding_types)
     network_owners = set(NETWORK_CAPABILITIES)
     dependencies = {}
     protocols = {

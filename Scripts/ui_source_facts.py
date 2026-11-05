@@ -840,9 +840,8 @@ class ViewHelperGraph:
 
     def ranges(self, origin):
         if origin not in self.results:
-            reachable = set().union(
-                *(self.seeds(path) for path in self.index if origin is None or path == origin)
-            )
+            paths = self.index if origin is None else ((origin,) if origin in self.index else ())
+            reachable = set().union(*(self.seeds(path) for path in paths))
             pending = list(reachable)
             while pending:
                 for target in self.successors(pending.pop()) - reachable:
@@ -874,7 +873,7 @@ def view_transport_findings(index: dict) -> list[str]:
 
     types = SwiftTypeIndex(index)
     bindings = SwiftBindingTypes(index, types)
-    resolve = receiver_resolver(index)
+    resolve = receiver_resolver(index, types=types, binding_types=bindings)
     errors = []
     helpers = view_helper_ranges(index, types)
     for path, facts in index.items():
