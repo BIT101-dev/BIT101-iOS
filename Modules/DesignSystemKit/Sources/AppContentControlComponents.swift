@@ -447,7 +447,15 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             pan.view?.removeGestureRecognizer(pan)
-            if window != nil { superview?.addGestureRecognizer(pan) }
+            guard window != nil else { return }
+            var responder: UIResponder? = next
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    controller.view.addGestureRecognizer(pan)
+                    break
+                }
+                responder = current.next
+            }
         }
 
         func gestureRecognizer(
