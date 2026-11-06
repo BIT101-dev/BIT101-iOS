@@ -107,13 +107,10 @@ public enum AppContentColumn: Equatable { case leading, trailing }
 
 public struct AppPairedPages<First: View, Second: View>: View {
     @Environment(\.appWindowLayout) private var layout
-    @Environment(\.appPageIsVisible) private var isVisible
     private let showsFirst: Bool
     private let pairsInLandscape: Bool
     private let first: First
     private let second: Second
-    @State private var hasShownFirst: Bool
-    @State private var hasShownSecond: Bool
     public init(
         showsFirst: Bool, pairsInLandscape: Bool = true,
         @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second
@@ -122,8 +119,6 @@ public struct AppPairedPages<First: View, Second: View>: View {
         self.first = first()
         self.second = second()
         self.pairsInLandscape = pairsInLandscape
-        _hasShownFirst = State(initialValue: showsFirst)
-        _hasShownSecond = State(initialValue: !showsFirst)
     }
     public var body: some View {
         let isPaired = pairsInLandscape && layout.isLandscape
@@ -139,37 +134,23 @@ public struct AppPairedPages<First: View, Second: View>: View {
                 ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.none))
                 : AnyLayout(ZStackLayout(alignment: .leading))
             arrangement {
-                if hasShownFirst || firstVisible {
-                    pane(first, visible: firstVisible)
-                        .frame(width: firstWidth)
-                        .offset(x: isPaired || showsFirst ? 0 : -proxy.size.width)
-                        .transition(.move(edge: .leading))
-                        .environment(\.appContentColumn, isPaired ? .leading : nil)
-                }
+                pane(first, visible: firstVisible)
+                    .frame(width: firstWidth)
+                    .environment(\.appContentColumn, isPaired ? .leading : nil)
                 if isPaired { Divider() }
-                if hasShownSecond || secondVisible {
-                    pane(second, visible: secondVisible)
-                        .frame(width: isPaired ? nil : proxy.size.width)
-                        .offset(x: isPaired || !showsFirst ? 0 : proxy.size.width)
-                        .transition(.move(edge: .trailing))
-                        .environment(\.appContentColumn, isPaired ? .trailing : nil)
-                }
+                pane(second, visible: secondVisible)
+                    .frame(width: isPaired ? nil : proxy.size.width)
+                    .environment(\.appContentColumn, isPaired ? .trailing : nil)
             }
             .clipShape(pageColumnClip)
         }
-        .onChange(of: firstVisible, initial: true) { _, visible in
-            if visible { hasShownFirst = true }
-        }
-        .onChange(of: secondVisible, initial: true) { _, visible in
-            if visible { hasShownSecond = true }
-        }
     }
     private func pane(_ content: some View, visible: Bool) -> some View {
-        content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
-            .environment(\.appPageIsVisible, visible && isVisible)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipShape(pageColumnClip)
-            .allowsHitTesting(visible).accessibilityHidden(!visible)
+        AppRetainedPage(isVisible: visible) {
+            content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(pageColumnClip)
+        }
     }
     private var pageColumnClip: AppPageColumnClip {
         AppPageColumnClip(
@@ -177,6 +158,48 @@ public struct AppPairedPages<First: View, Second: View>: View {
                 + layout.safeAreaInsets.bottom)
     }
 
+}
+
+/// 页面首次访问后保留视图与滚动状态，以统一的淡入淡出切换可见性。
+public struct AppRetainedPage<Content: View>: View {
+    @Environment(\.appPageIsVisible) private var parentIsVisible
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hasShown: Bool
+    private let isVisible: Bool
+    private let content: Content
+
+    public init(isVisible: Bool, @ViewBuilder content: () -> Content) {
+        self.isVisible = isVisible
+        self.content = content()
+        _hasShown = State(initialValue: false)
+    }
+
+    public var body: some View {
+        Group {
+            if hasShown || (parentIsVisible && isVisible) {
+                content
+                    .environment(\.appPageIsVisible, parentIsVisible && isVisible)
+                    .opacity(isVisible ? 1 : 0)
+                    .allowsHitTesting(isVisible)
+                    .accessibilityHidden(!isVisible)
+                    .appPageTransition()
+                    .transformPreference(AppHorizontalControlFramesKey.self) { frames in
+                        if !isVisible || !parentIsVisible { frames = [] }
+                    }
+            }
+        }
+        .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: isVisible)
+        .onChange(of: parentIsVisible && isVisible, initial: true) { _, visible in
+            if visible { hasShown = true }
+        }
+    }
+}
+
+extension View {
+    /// 分区和课表内容统一使用系统淡入淡出。
+    public func appPageTransition() -> some View {
+        transition(.opacity)
+    }
 }
 
 /// 保留分栏宽度，并允许底部绘制延伸至当前窗口。

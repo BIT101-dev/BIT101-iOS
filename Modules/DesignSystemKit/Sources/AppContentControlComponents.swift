@@ -86,6 +86,7 @@ public struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
             content
         }
         .pickerStyle(.segmented)
+        .transaction { $0.animation = nil }
         .frame(maxWidth: .infinity)
         .appSelectionFeedback(trigger: selection)
         .accessibilityIdentifier("ui.app-segmented-picker.value")

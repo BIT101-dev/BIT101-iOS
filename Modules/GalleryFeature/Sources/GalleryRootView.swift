@@ -119,7 +119,6 @@ private struct GalleryRootViewScene: View {
     private var surfaceSelection: Binding<GallerySurface> {
         Binding(get: { selectedSurface }, set: { selectedSurface = $0 })
     }
-    @State private var isShowingNativePaperRoute = false
 
     init(
         dependencies: GalleryDependencies,
@@ -160,15 +159,9 @@ private struct GalleryRootViewScene: View {
 
     private var content: some View {
         Group {
-            if appSettings.galleryUseWebView && !isShowingNativePaperRoute
-                && selectedContent == nil
-            {
-                GalleryWebContentView()
-            } else if !includesPaperSurface {
-                galleryContent
-            } else {
+            if includesPaperSurface {
                 AppPairedPages(showsFirst: selectedSurface == .gallery, pairsInLandscape: false) {
-                    galleryContent
+                    topicSurface
                 } second: {
                     destinations.papers(
                         $requestedPaperID,
@@ -176,15 +169,13 @@ private struct GalleryRootViewScene: View {
                     )
                 }
                 .accessibilityIdentifier("gallery.surfaces")
+            } else {
+                topicSurface
             }
         }
         .task(id: requestedPaperID) {
             guard requestedPaperID != nil else { return }
-            isShowingNativePaperRoute = true
             selectedSurface = .paper
-        }
-        .onChange(of: selectedSurface) { _, newSurface in
-            if includesPaperSurface { isShowingNativePaperRoute = newSurface == .paper }
         }
         .task(id: requestedPosterID) {
             openRequestedPoster()
@@ -197,7 +188,6 @@ private struct GalleryRootViewScene: View {
         }
         .onChange(of: appSettings.snapshot) { previous, settings in
             if previous.galleryUseWebView != settings.galleryUseWebView {
-                isShowingNativePaperRoute = false
                 selectedContent = nil
                 selectedSurface = .gallery
             }
@@ -211,6 +201,15 @@ private struct GalleryRootViewScene: View {
                 viewModel.selectedFeed = .recommend
             }
             viewModel.contentPreferencesChanged()
+        }
+    }
+
+    @ViewBuilder
+    private var topicSurface: some View {
+        if appSettings.galleryUseWebView && selectedContent == nil {
+            GalleryWebContentView()
+        } else {
+            galleryContent
         }
     }
 
@@ -336,7 +335,6 @@ private struct GalleryRootViewScene: View {
                 GallerySubscriptionsView(service: dependencies.subscriptions) { kind, id in
                     if kind == "paper" {
                         isShowingSubscriptions = false
-                        isShowingNativePaperRoute = true
                         selectedSurface = .paper
                         requestedPaperID = id
                     } else if kind == "course" {

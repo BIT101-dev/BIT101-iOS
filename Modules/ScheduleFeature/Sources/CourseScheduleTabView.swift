@@ -297,6 +297,8 @@ struct CourseScheduleTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .id(activeSchedule.id)
+        .appPageTransition()
         .frame(height: height)
         .appBrowserFloatingActions(
             bottomInset: layout.usesBottomTabBar ? 0 : layout.safeAreaInsets.bottom

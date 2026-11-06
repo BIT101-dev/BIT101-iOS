@@ -202,7 +202,7 @@ extension UIAutomationTestCase {
         let header = app.native.segmentedControls.firstMatch
         guard
             let list = app.native.collectionViews.allElementsBoundByIndex.first(where: {
-                $0.frame.width > 0
+                $0.isHittable
             })
         else {
             assertUI(false, "当前分区应提供可见的原生列表。")
@@ -236,7 +236,8 @@ extension UIAutomationTestCase {
 
     var supportsLandscapeWindow: Bool {
         let traits = windowTraits()
-        return !(traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+        return
+            !(traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
                 || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue))
     }

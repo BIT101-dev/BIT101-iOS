@@ -136,12 +136,13 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     @objc func testPaperSortSurvivesSwitchingTopics() {
         app = configureApp(
-            resetStorage: true, content: true, pagination: true, initialTab: "gallery")
+            resetStorage: true, content: true, animations: true, pagination: true,
+            initialTab: "gallery")
         tapHeader(app.sectionTab("文章"))
         assertUI(app.sectionTab("文章").isSelected, "顶部选择应切换至文章分区。")
         assertUI(
-            app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "最新")).count
-                == 1,
+            app.segmentedControls.buttons.matching(NSPredicate(format: "label == %@", "最新"))
+                .allElementsBoundByIndex.filter(\.isHittable).count == 1,
             "文章页面应展示当前分区的排序控件。")
         assertUI(app.mainTab("日程").isHittable, "分区容器应保留 App 底部导航。")
         for title in ["高赞", "热评"] {

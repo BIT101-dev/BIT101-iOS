@@ -37,6 +37,7 @@ public struct ScheduleRootView: View {
         isPageVisible && displayedSection == viewModel.selectedSection
     }
     @Bindable private var viewModel: ScheduleViewModel
+    @State private var lastCourseSection: ScheduleSection = .courses
     @State private var courseTabResetSignal = 0
     @State private var horizontalControlFrames: [CGRect] = []
 
@@ -54,74 +55,18 @@ public struct ScheduleRootView: View {
     /// 日程主页主体。
     public var body: some View {
         TimelineView(.everyMinute) { context in
-            Group {
-                if displayedSection == .classroom {
-                    content
-                } else {
+            ZStack {
+                AppRetainedPage(isVisible: displayedSection != .classroom) {
                     rootNavigationStack
+                }
+                AppRetainedPage(isVisible: displayedSection == .classroom) {
+                    content(showingClassroom: true)
                 }
             }
             .environment(\.scheduleCurrentDate, context.date)
         }
         .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
-    }
-
-    private var navigationContentTopPadding: CGFloat {
-        expandedNavigation ? layout.contentTopInset : AppDesignSystem.Spacing.none
-    }
-
-    private var rootNavigationStack: some View {
-        NavigationStack {
-            content
-                .padding(.top, navigationContentTopPadding)
-                .appBrowserNavigationBar()
-                .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private var content: some View {
-        GeometryReader { proxy in
-            ZStack {
-                if displayedSection == .classroom {
-                    FreeClassroomTabView(viewModel: viewModel.classroom)
-                        .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
-                } else {
-                    pairedPages
-                        .padding(.bottom, missingBottomTabBarInset(for: proxy))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .contentShape(Rectangle())
-            .onPreferenceChange(AppHorizontalControlFramesKey.self) {
-                horizontalControlFrames = $0
-            }
-            .appPageSwitch(
-                excluding: horizontalControlFrames,
-                onStep: switchSection
-            )
-            .appAccessibilitySurface()
-            .accessibilityIdentifier("schedule.section-surface")
-        }
-        .background(AppDesignSystem.Palette.Background.grouped)
-        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            if !expandedNavigation && displayedSection != .classroom {
-                sectionTabs.padding(.top, layout.contentTopInset)
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: AppDesignSystem.Spacing.none) {
-            // 课表自行布局上下间隙，列表分栏沿用公共底部间隙。
-            Color.clear
-                .frame(
-                    height: displayedSection == .courses
-                        ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny)
-        }
-        .allowsHitTesting(!viewModel.isLoadingCache)
-        .overlay {
-            if viewModel.isLoadingCache {
-                AppLoadingState(title: "正在读取日程").background(.regularMaterial)
-            }
-        }
         .task {
             await viewModel.loadIfNeeded()
         }
@@ -167,6 +112,61 @@ public struct ScheduleRootView: View {
             viewModel: viewModel.ddl,
             isEnabled: isCurrentSectionVisible && displayedSection != .classroom
         )
+        .environment(viewModel)
+        .environment(viewModel.ddl)
+        .onChange(of: displayedSection, initial: true) { _, section in
+            if section != .classroom { lastCourseSection = section }
+        }
+    }
+
+    private var navigationContentTopPadding: CGFloat {
+        expandedNavigation ? layout.contentTopInset : AppDesignSystem.Spacing.none
+    }
+
+    private var rootNavigationStack: some View {
+        NavigationStack {
+            content(showingClassroom: false)
+                .padding(.top, navigationContentTopPadding)
+                .appBrowserNavigationBar()
+                .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func content(showingClassroom: Bool) -> some View {
+        GeometryReader { proxy in
+            ZStack {
+                if showingClassroom {
+                    FreeClassroomTabView(viewModel: viewModel.classroom)
+                        .appBrowserHeader(isPresented: !expandedNavigation) { sectionTabs }
+                } else {
+                    pairedPages
+                        .padding(.bottom, missingBottomTabBarInset(for: proxy))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .contentShape(Rectangle())
+            .onPreferenceChange(AppHorizontalControlFramesKey.self) {
+                horizontalControlFrames = $0
+            }
+            .appPageSwitch(
+                excluding: horizontalControlFrames,
+                onStep: switchSection
+            )
+            .appAccessibilitySurface()
+            .accessibilityIdentifier("schedule.section-surface")
+        }
+        .background(AppDesignSystem.Palette.Background.grouped)
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+            if !expandedNavigation && !showingClassroom {
+                sectionTabs.padding(.top, layout.contentTopInset)
+            }
+        }
+        .allowsHitTesting(!viewModel.isLoadingCache)
+        .overlay {
+            if viewModel.isLoadingCache {
+                AppLoadingState(title: "正在读取日程").background(.regularMaterial)
+            }
+        }
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if viewModel.hasPersistenceConflict {
                 SchedulePersistenceConflictView(repository: viewModel.repository)
@@ -178,36 +178,41 @@ public struct ScheduleRootView: View {
                     .background(AppDesignSystem.Palette.Background.grouped)
             }
         }
-        .environment(viewModel)
-        .environment(viewModel.ddl)
     }
 
     private var pairedPages: some View {
-        AppPairedPages(showsFirst: displayedSection == .courses) {
-            CourseScheduleTabView(
-                viewModel: viewModel, resetSignal: courseTabResetSignal,
-                destinations: destinations)
+        AppPairedPages(
+            showsFirst: (displayedSection == .classroom ? lastCourseSection : displayedSection)
+                == .courses
+        ) {
+            coursePage
         } second: {
-            DDLScheduleTabView(viewModel: viewModel.ddl)
-                .safeAreaPadding(
-                    .bottom,
-                    layout.usesBottomTabBar
-                        ? AppDesignSystem.Spacing.none
-                        : layout.safeAreaInsets.bottom)
+            ddlPage
         }
         .ignoresSafeArea(.container, edges: layout.usesBottomTabBar ? [] : .bottom)
     }
 
+    private var coursePage: some View {
+        CourseScheduleTabView(
+            viewModel: viewModel, resetSignal: courseTabResetSignal,
+            destinations: destinations)
+    }
+
+    private var ddlPage: some View {
+        DDLScheduleTabView(viewModel: viewModel.ddl)
+            .safeAreaPadding(
+                .bottom,
+                layout.usesBottomTabBar
+                    ? AppDesignSystem.Spacing.none : layout.safeAreaInsets.bottom)
+    }
+
     private func missingBottomTabBarInset(for proxy: GeometryProxy) -> CGFloat {
-        guard layout.usesBottomTabBar, displayedSection != .classroom, layout.size.height > 0
+        guard layout.usesBottomTabBar, layout.size.height > 0
         else {
             return AppDesignSystem.Spacing.none
         }
-        let sectionBottomInset =
-            displayedSection == .courses
-            ? AppDesignSystem.Spacing.none : AppDesignSystem.Spacing.tiny
         let actualBottomInset =
-            layout.size.height - proxy.frame(in: .global).maxY - sectionBottomInset
+            layout.size.height - proxy.frame(in: .global).maxY
         return max(layout.safeAreaInsets.bottom + 49 - actualBottomInset, 0)
     }
 

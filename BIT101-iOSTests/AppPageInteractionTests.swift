@@ -140,12 +140,81 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
             let target = showsFirst ? red : blue
             try await waitForTestEvent {
                 let current = try colors()
-                sawBothPages = sawBothPages || current == [red, blue]
+                sawBothPages =
+                    sawBothPages
+                    || (current[0] == current[1] && current[0][0] > 10 && current[0][2] > 10)
                 return current == [target, target]
             }
-            XCTAssertTrue(sawBothPages, "两个方向都应呈现新旧页面同时移动的中间帧。")
+            XCTAssertTrue(sawBothPages, "两个方向都应呈现整页均匀淡入淡出的中间帧。")
         }
     }
+    @MainActor
+    func testVisitedPagesKeepScrollViews() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let store = PageScrollStore()
+        let controller = UIHostingController(
+            rootView: AppPairedPages(showsFirst: true) {
+                PageScrollProbe(store: store, key: "first")
+            } second: {
+                PageScrollProbe(store: store, key: "second")
+            }.appWindowLayout())
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        try await waitForTestEvent { store.views["first"] != nil }
+        let first = try XCTUnwrap(store.views["first"])
+        XCTAssertNil(store.views["second"])
+        first.contentOffset.y = 120
+        for showsFirst in [false, true, false, true] {
+            controller.rootView = AppPairedPages(showsFirst: showsFirst) {
+                PageScrollProbe(store: store, key: "first")
+            } second: {
+                PageScrollProbe(store: store, key: "second")
+            }.appWindowLayout()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            try await waitForTestEvent { store.views["second"] != nil }
+            XCTAssertTrue(store.views["first"] === first)
+            XCTAssertEqual(first.contentOffset.y, 120)
+            XCTAssertEqual(store.created, ["first": 1, "second": 1])
+            XCTAssertEqual(store.removed, 0)
+        }
+    }
+
+    @MainActor
+    func testSegmentedPickerKeepsNativeControl() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let selection = PageSelection()
+        let controller = UIHostingController(rootView: PickerFixture(selection: selection))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        func segmentedControl(in view: UIView) -> UISegmentedControl? {
+            if let control = view as? UISegmentedControl { return control }
+            return view.subviews.lazy.compactMap { segmentedControl(in: $0) }.first
+        }
+        try await waitForTestEvent { segmentedControl(in: controller.view) != nil }
+        let control = try XCTUnwrap(segmentedControl(in: controller.view))
+        let frame = control.frame
+        withAnimation(.linear(duration: 0.4)) { selection.showsFirst = false }
+        try await waitForTestEvent { control.titleForSegment(at: 0) == "分享课表" }
+        XCTAssertTrue(segmentedControl(in: controller.view) === control)
+        XCTAssertEqual(control.numberOfSegments, 3)
+        XCTAssertEqual(control.frame, frame)
+        XCTAssertEqual(control.alpha, 1)
+        XCTAssertEqual(control.layer.presentation()?.opacity ?? 1, 1)
+    }
+
 }
 
 @MainActor
@@ -161,6 +230,42 @@ private struct PageFixture: View {
             Color(uiColor: .red).ignoresSafeArea(.container, edges: .bottom)
         } second: {
             Color(uiColor: .blue).ignoresSafeArea(.container, edges: .bottom)
+        }
+        .appWindowLayout()
+    }
+}
+
+@MainActor
+private final class PageScrollStore {
+    var views: [String: UIScrollView] = [:]
+    var created: [String: Int] = [:]
+    var removed = 0
+}
+
+private struct PageScrollProbe: UIViewRepresentable {
+    let store: PageScrollStore
+    let key: String
+    func makeUIView(context: Context) -> UIScrollView {
+        let view = UIScrollView()
+        view.contentSize = CGSize(width: 100, height: 2000)
+        store.views[key] = view
+        store.created[key, default: 0] += 1
+        return view
+    }
+    func updateUIView(_ uiView: UIScrollView, context: Context) {}
+    func makeCoordinator() -> PageScrollStore { store }
+    static func dismantleUIView(_ uiView: UIScrollView, coordinator: PageScrollStore) {
+        coordinator.removed += 1
+    }
+}
+
+private struct PickerFixture: View {
+    let selection: PageSelection
+    var body: some View {
+        AppSegmentedPicker(title: "日程模块", selection: .constant(0)) {
+            Text(selection.showsFirst ? "课表" : "分享课表").tag(0)
+            Text("DDL").tag(1)
+            Text("空教室").tag(2)
         }
         .appWindowLayout()
     }

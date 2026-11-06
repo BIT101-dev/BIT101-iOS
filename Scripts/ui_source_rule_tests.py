@@ -241,6 +241,8 @@ struct AppFixedColumnItem {}
 
 
 def source_boundary_findings() -> list[str]:
+    page_transition_self_test()
+    design_page_component_self_test()
     facts, findings, visual_facts, wrapped_calls = verify_control_source_rules()
     row_source = verify_visual_source_rules(facts, findings, visual_facts, wrapped_calls)
     verify_row_source_rules(findings, row_source)
@@ -602,3 +604,74 @@ def verify_row_source_rules(findings, row_source):
         findings.append(
             f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串界限应报告 11 项，实际 {len(row_findings)} 项"
         )
+
+
+def page_transition_self_test():
+    from ui_rules import page_transition_findings
+
+    samples = {
+        ("retained.swift"): (
+            "struct Page: View { var body: some View { AppPairedPages(showsFirst: true) "
+            '{ Text("A") } second: { Text("B") } } }'
+        ),
+        ("custom.swift"): (
+            'struct Page: View { var body: some View { Text("A").appPageSwitch { _ in }.'
+            "transition(.move(edge: .leading)) } }"
+        ),
+        ("manual.swift"): (
+            'struct Page: View { var body: some View { if selected { Text("A") } else { '
+            'Text("B") } } }'
+        ),
+        ("comment.swift"): (
+            "// AppPairedPages(showsFirst: true)\nstruct Page: View { var body: some Vie"
+            'w { Text("A") } }'
+        ),
+    }
+    facts = swift_syntax_index_sources(samples)
+    owner = "BIT101-iOS/Shell/AppAcademicDestinations.swift"
+    assert page_transition_findings(owner, facts["retained.swift"]) == []
+    assert page_transition_findings(owner, facts["manual.swift"])
+    assert page_transition_findings(owner, facts["comment.swift"])
+    assert page_transition_findings("Modules/Feature/Sources/Page.swift", facts["custom.swift"])
+    assert (
+        page_transition_findings(("Modules/Feature/Sources/Page.swift"), facts[("manual.swift")])
+        == []
+    )
+
+
+def design_page_component_self_test():
+    from ui_rules import design_page_component_findings
+
+    samples = {
+        ("fade.swift"): (
+            "extension View { func appPageTransition() -> some View { transition(.opacity) } }"
+        ),
+        ("move.swift"): (
+            "extension View { func appPageTransition() -> some View { transition(.move(e"
+            "dge: .leading)) } }"
+        ),
+        ("offset.swift"): (
+            'struct AppPairedPages: View { var body: some View { Text("A").offset(x: 30) } }'
+        ),
+        ("picker.swift"): (
+            'struct AppSegmentedPicker: View { var body: some View { Picker("A") {}.tran'
+            "saction { $0.animation = nil } } }"
+        ),
+        ("animated-picker.swift"): (
+            'struct AppSegmentedPicker: View { var body: some View { Picker("A") {} } }'
+        ),
+    }
+    samples[("motion.swift")] = samples[("fade.swift")] + (
+        '\nstruct AppRetainedPage: View { var body: some View { Text("A").animation(AppDes'
+        "ignSystem.Motion.transition(reduceMotion: false), value: visible) } }"
+    )
+    samples["offset.swift"] = samples["fade.swift"] + "\n" + samples["offset.swift"]
+    facts = swift_syntax_index_sources(samples)
+    layout = "Modules/DesignSystemKit/Sources/AppLayoutComponents.swift"
+    picker = "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift"
+    assert design_page_component_findings(layout, facts["fade.swift"]) == []
+    assert design_page_component_findings(layout, facts["motion.swift"]) == []
+    assert design_page_component_findings(layout, facts["move.swift"])
+    assert design_page_component_findings(layout, facts["offset.swift"])
+    assert design_page_component_findings(picker, facts["picker.swift"]) == []
+    assert design_page_component_findings(picker, facts["animated-picker.swift"])

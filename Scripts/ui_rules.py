@@ -756,3 +756,76 @@ from ui_native_interactions import (
     native_interaction_inventory,
     native_runtime_controls,
 )
+
+
+PAGE_CONTAINER_OWNERS = {
+    "BIT101-iOS/Shell/AppAcademicDestinations.swift": "AppPairedPages",
+    "Modules/GalleryFeature/Sources/GalleryRootView.swift": "AppPairedPages",
+    "Modules/ScheduleFeature/Sources/ScheduleRootView.swift": "AppRetainedPage",
+}
+
+
+def page_transition_findings(relative: str, facts: dict) -> list[str]:
+    calls = {call_name(call["calledExpression"]) for call in facts.get("invocations", [])}
+    errors = design_page_component_findings(relative, facts)
+    expected = PAGE_CONTAINER_OWNERS.get(relative)
+    if expected and expected not in calls:
+        errors.append(f"{relative}: 分区页面需要使用 {expected} 保留页面并统一切换动画")
+    owns_pages = expected or calls.intersection(
+        {("appPageSwitch"), ("AppPairedPages"), ("AppRetainedPage")}
+    )
+    if owns_pages and not relative.startswith("Modules/DesignSystemKit/"):
+        for call in facts.get("invocations", []):
+            name = call_name(call["calledExpression"])
+            if is_custom_page_animation(call):
+                errors.append(
+                    f"{relative}:{call.get('line', 1)}: 分区切换应使用设计系统页面组件，统一淡入淡出；局部 {name} 会造成动画差异"
+                )
+    return errors
+
+
+def check_page_transitions(errors: list[str], syntax: dict[str, dict]) -> None:
+    for path, facts in syntax.items():
+        relative = str(Path(path).relative_to(ROOT))
+        errors.extend(page_transition_findings(relative, facts))
+
+
+def design_page_component_findings(relative: str, facts: dict) -> list[str]:
+    errors = []
+    invocations = facts.get("invocations", [])
+    if relative == "Modules/DesignSystemKit/Sources/AppLayoutComponents.swift":
+        functions = [
+            row
+            for row in facts.get(("functionRanges"), [])
+            if row[("name")] == ("appPageTransition")
+        ]
+        transitions = [
+            call
+            for call in invocations
+            if call_name(call["calledExpression"]) == "transition"
+            and any(row["bodyStart"] <= call["start"] < row["end"] for row in functions)
+        ]
+        if len(transitions) != 1 or transitions[0]["arguments"] != [".opacity"]:
+            errors.append(f"{relative}: 共享页面切换必须保持系统 opacity 过渡")
+        for call in invocations:
+            if set(call.get(("scope"), [])).intersection(
+                {("AppPairedPages"), ("AppRetainedPage")}
+            ) and is_custom_page_animation(call):
+                errors.append(f"{relative}: 页面容器统一调用 appPageTransition，保持淡入淡出")
+    if relative == "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift":
+        isolated = any(
+            "AppSegmentedPicker" in call.get("scope", [])
+            and call_name(call["calledExpression"]) == "transaction"
+            and re.search(r"\.animation\s*=\s*nil", mask_literals_and_comments(call["value"]))
+            for call in invocations
+        )
+        if not isolated:
+            errors.append(f"{relative}: 系统分段栏需要隔离页面动画事务，保持控件与标题稳定")
+    return errors
+
+
+def is_custom_page_animation(call: dict) -> bool:
+    name = call_name(call["calledExpression"])
+    return name in {"transition", "offset", "scaleEffect"} and not (
+        name == "transition" and call["calledExpression"].startswith("AppDesignSystem.Motion.")
+    )

@@ -40,6 +40,7 @@ from ui_rules import (
     check_haptic_consistency,
     check_interactive_list_colors,
     check_page_theme_consistency,
+    check_page_transitions,
     check_registered_visual_contracts,
     check_ui_test_inventory,
     is_registered_cgfloat_contract,
@@ -121,6 +122,7 @@ def main(
     check_fonts(errors, syntax)
     check_design_token_boundaries(errors, syntax)
     check_page_theme_consistency(errors, syntax)
+    check_page_transitions(errors, syntax)
     check_contextual_component_colors(errors, syntax)
     check_interactive_list_colors(errors, syntax)
     check_registered_visual_contracts(errors)
