@@ -274,8 +274,44 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         pageQuery = nil
     }
 
+    func useInitialContent(from previous: PaperCollectionViewModel) {
+        guard !hasBootstrapped, state.items.isEmpty, !previous.state.items.isEmpty else { return }
+        state = previous.state
+        state.status = .idle
+        state.isLoadingMore = false
+        state.paginationError = nil
+        previewMetadataByPaperID = previous.previewMetadataByPaperID
+        previewFailedIDs = previous.previewFailedIDs
+        pageQuery = previous.pageQuery
+    }
+
     private var trimmedSearchText: String? {
         normalizedPaperSearchText(searchText)
+    }
+}
+
+@MainActor
+@Observable final class PaperSortFeeds {
+    let models: [PaperListViewModel]
+    private(set) var current: PaperListViewModel
+
+    init(service: any PaperListServicing) {
+        let newest = PaperListViewModel(service: service)
+        current = newest
+        models = PaperSortOrder.allCases.map { order in
+            if order == .newest { return newest }
+            let model = PaperListViewModel(service: service)
+            model.selectedOrder = order
+            return model
+        }
+    }
+
+    func select(_ order: PaperSortOrder) {
+        guard let next = models.first(where: { $0.selectedOrder == order }), next !== current else {
+            return
+        }
+        next.useInitialContent(from: current)
+        current = next
     }
 }
 

@@ -368,6 +368,21 @@ extension UIAutomationTestCase {
     }
 
     @MainActor
+    func visibleSegment(_ title: String) -> UIElement {
+        let candidates = app.segmentedControls.buttons.matching(
+            NSPredicate(format: "label == %@", title))
+        return candidates.allElementsBoundByIndex.first(where: \.isHittable)
+            ?? candidates.firstMatch
+    }
+
+    @MainActor
+    func visiblePaperFeed() -> UIElement {
+        let candidates = app.scrollViews.matching(identifier: "paper.sort-surface")
+        return candidates.allElementsBoundByIndex.first(where: \.isHittable)
+            ?? candidates.firstMatch
+    }
+
+    @MainActor
     func textElement(_ text: String) -> UIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text))
             .firstMatch

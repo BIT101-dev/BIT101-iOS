@@ -352,7 +352,7 @@ struct AppShellView: View {
         switch destination {
         case .topics: galleryContent(includesPaperSurface: false)
         case .papers:
-            destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
+            destinations.papers.papers($requestedPaperID)
                 .appBrowserHeader(isPresented: !usesExpandedNavigation) {
                     GallerySurfacePicker(selection: $gallerySurface)
                 }

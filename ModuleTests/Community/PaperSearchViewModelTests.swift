@@ -99,6 +99,38 @@ struct PaperSearchViewModelTests {
         #expect(service.metadataRequests == 2)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func sortFeedsRetainResultsAndRecover() async throws {
+        let newestPaper = PaperSummary(
+            id: 1, title: "newest", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
+        let likedPaper = PaperSummary(
+            id: 2, title: "liked", intro: "", likeNum: 10, commentNum: 0, updateTime: "")
+        let service = ServiceStub(result: .success([newestPaper]))
+        let feeds = PaperSortFeeds(service: service)
+        let newest = feeds.current
+        await newest.bootstrapIfNeeded()
+        feeds.select(.like)
+        let liked = feeds.current
+        #expect(liked !== newest && liked.state.items == [newestPaper])
+        #expect(liked.selectedOrder == .like && liked.state.status == .idle)
+        service.result = .failure(URLError(.timedOut))
+        await liked.bootstrapIfNeeded()
+        #expect(liked.state.items == [newestPaper] && liked.needsRefresh)
+        #expect(liked.displayedQueryDescription == "全部文章 · 最新")
+        service.result = .success([likedPaper])
+        await liked.refresh()
+        #expect(liked.state.items == [likedPaper] && liked.displayedQueryDescription == nil)
+        let requestCount = service.requests.count
+        feeds.select(.newest)
+        #expect(feeds.current === newest && newest.state.items == [newestPaper])
+        await feeds.current.bootstrapIfNeeded()
+        feeds.select(.like)
+        #expect(feeds.current === liked && liked.state.items == [likedPaper])
+        await feeds.current.bootstrapIfNeeded()
+        #expect(service.requests.count == requestCount)
+        #expect(feeds.models.count == PaperSortOrder.allCases.count)
+    }
+
     private final class ServiceStub: PaperListServicing {
         private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
         private(set) var metadataRequests = 0

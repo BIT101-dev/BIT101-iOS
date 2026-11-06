@@ -134,7 +134,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     }
 
     @MainActor
-    @objc func testPaperSortSurvivesSwitchingTopics() {
+    @objc func testPaperSortSurvivesSwitchingTopics() throws {
         app = configureApp(
             resetStorage: true, content: true, animations: true, pagination: true,
             initialTab: "gallery")
@@ -145,18 +145,51 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
                 .allElementsBoundByIndex.filter(\.isHittable).count == 1,
             "文章页面应展示当前分区的排序控件。")
         assertUI(app.mainTab("日程").isHittable, "分区容器应保留 App 底部导航。")
+        var feed: UIElement { visiblePaperFeed() }
+        feed.swipeRight()
+        assertUI(app.sectionTab("文章").isSelected, "文章首项向外滑动应停留文章。")
+        assertUI(visibleSegment("最新").isSelected, "文章首项应保持最新排序。")
+        var positions: [String: CGFloat] = [:]
         for title in ["高赞", "热评"] {
-            tapHeader(app.segmentedControls.buttons[title])
-            assertUI(app.segmentedControls.buttons[title].isSelected, "文章应选中\(title)。")
-            let article = textElement("分页文章 10")
+            tapHeader(visibleSegment(title))
+            assertUI(visibleSegment(title).isSelected, "文章应选中\(title)。")
+            let article = feed.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "分页文章 10")
+            ).firstMatch
             reveal(article)
             let position = article.frame.minY
+            positions[title] = position
             tapHeader(app.sectionTab("话题"))
             tapHeader(app.sectionTab("文章"))
-            assertUI(app.segmentedControls.buttons[title].isSelected, "返回文章应保留\(title)排序。")
+            assertUI(visibleSegment(title).isSelected, "返回文章应保留\(title)排序。")
             assertUI(article.isHittable, "返回文章应保留当前阅读条目。")
             assertUI(abs(article.frame.minY - position) < 2, "返回文章应保留滚动位置。")
         }
+        feed.swipeLeft()
+        assertUI(app.sectionTab("文章").isSelected, "文章末项向外滑动应停留文章。")
+        assertUI(visibleSegment("热评").isSelected, "文章末项应保持热评排序。")
+        var article: UIElement {
+            feed.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "分页文章 10")
+            ).firstMatch
+        }
+        let position = try XCTUnwrap(positions["高赞"])
+        feed.swipeRight()
+        assertUI(visibleSegment("高赞").isSelected, "文章滑动应切回高赞。")
+        assertUI(article.isHittable, "返回已访问排序应保留阅读条目。")
+        assertUI(abs(article.frame.minY - position) < 2, "排序之间应分别保留滚动位置。")
+        feed.swipeLeft()
+        assertUI(visibleSegment("热评").isSelected, "文章滑动应恢复热评。")
+        tapHeader(app.sectionTab("话题"))
+        let topics = app.descendants(matching: .any)["gallery.feed-surface"]
+        tapHeader(visibleSegment("关注"))
+        topics.swipeRight()
+        assertUI(app.sectionTab("话题").isSelected, "话题首项向外滑动应停留话题。")
+        assertUI(visibleSegment("关注").isSelected, "话题首项应保持关注分类。")
+        tapHeader(visibleSegment("最热"))
+        topics.swipeLeft()
+        assertUI(app.sectionTab("话题").isSelected, "话题末项向外滑动应停留话题。")
+        assertUI(visibleSegment("最热").isSelected, "话题末项应保持最热分类。")
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "界面截图"
         screenshot.lifetime = .keepAlways
@@ -166,32 +199,32 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
     @MainActor
     @objc func testGalleryFeed() {
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
-        assertUI(!app.segmentedControls.buttons["机器人"].exists, "隐藏机器人时顶部分栏应同步隐藏。")
+        assertUI(!visibleSegment("机器人").exists, "隐藏机器人时顶部分栏应同步隐藏。")
         openSettings("gallery")
         _ = toggle("隐藏机器人帖子")
         back()
         app.mainTab("话廊").tapBriefly()
         for title in ["关注", "最新", "最热", "机器人", "推荐"] {
-            tapHeader(app.segmentedControls.buttons[title])
-            assertUI(app.segmentedControls.buttons[title].isSelected, "话题分类应选中：\(title)。")
+            tapHeader(visibleSegment(title))
+            assertUI(visibleSegment(title).isSelected, "话题分类应选中：\(title)。")
         }
-        tapHeader(app.segmentedControls.buttons["机器人"])
+        tapHeader(visibleSegment("机器人"))
         openSettings("gallery")
         _ = toggle("隐藏机器人帖子")
         back()
         app.mainTab("话廊").tapBriefly()
         assertUI(
-            !app.segmentedControls.buttons["机器人"].exists
-                && app.segmentedControls.buttons["推荐"].isSelected,
+            !visibleSegment("机器人").exists
+                && visibleSegment("推荐").isSelected,
             "隐藏当前机器人分栏应选中推荐。")
         pullToRefresh()
         assertUI(textElement("自动化测试话题").exists, "话题列表刷新应保留服务结果。")
-        assertUI(app.segmentedControls.buttons["推荐"].isSelected, "竖向刷新应保留话题分类。")
+        assertUI(visibleSegment("推荐").isSelected, "竖向刷新应保留话题分类。")
         let feed = app.descendants(matching: .any)["gallery.feed-surface"]
         feed.swipeLeft()
-        assertUI(app.segmentedControls.buttons["最新"].isSelected, "话题横滑应切换分类。")
+        assertUI(visibleSegment("最新").isSelected, "话题横滑应切换分类。")
         feed.swipeRight()
-        assertUI(app.segmentedControls.buttons["推荐"].isSelected, "反向横滑应恢复分类。")
+        assertUI(visibleSegment("推荐").isSelected, "反向横滑应恢复分类。")
         tap("消息")
         assertUI(textElement("自动化测试消息").appears(timeout: 5), "消息面板应完成首屏加载。")
         pullToRefresh()
@@ -244,30 +277,34 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         pullToRefresh()
         assertUI(textElement("自动化测试文章").exists, "文章列表刷新应恢复数据。")
         for title in ["最新", "高赞", "热评"] {
-            tapHeader(app.segmentedControls.buttons[title])
-            assertUI(app.segmentedControls.buttons[title].isSelected, "文章排序应更新选中项。")
+            tapHeader(visibleSegment(title))
+            assertUI(visibleSegment(title).isSelected, "文章排序应更新选中项。")
         }
-        tapHeader(app.segmentedControls.buttons["最新"])
-        let paper = app.descendants(matching: .any)["paper.sort-surface"]
+        tapHeader(visibleSegment("最新"))
+        var paper: UIElement { visiblePaperFeed() }
         paper.swipeLeft()
-        assertUI(app.segmentedControls.buttons["高赞"].isSelected, "文章横滑应切换点赞排序。")
+        assertUI(visibleSegment("高赞").isSelected, "文章横滑应切换点赞排序。")
         paper.swipeLeft()
-        assertUI(app.segmentedControls.buttons["热评"].isSelected, "连续横滑应切换评论排序。")
+        assertUI(visibleSegment("热评").isSelected, "连续横滑应切换评论排序。")
         paper.swipeRight()
-        assertUI(app.segmentedControls.buttons["高赞"].isSelected, "反向横滑应恢复文章排序。")
+        assertUI(visibleSegment("高赞").isSelected, "反向横滑应恢复文章排序。")
         paper.swipeRight()
-        assertUI(app.segmentedControls.buttons["最新"].isSelected, "反向横滑应返回首个文章排序。")
+        assertUI(visibleSegment("最新").isSelected, "反向横滑应返回首个文章排序。")
         paper.swipeRight()
-        assertUI(app.sectionTab("话题").isSelected, "文章首个排序向外横滑应切换话题。")
-        tapHeader(app.segmentedControls.buttons["关注"])
+        assertUI(app.sectionTab("文章").isSelected, "文章首个排序向外横滑应保持文章。")
+        tapHeader(app.sectionTab("话题"))
+        tapHeader(visibleSegment("关注"))
         feed.swipeRight()
-        assertUI(app.sectionTab("文章").isSelected, "话题首个分类向外横滑应切换文章。")
-        tapHeader(app.segmentedControls.buttons["热评"])
+        assertUI(app.sectionTab("话题").isSelected, "话题首个分类向外横滑应保持话题。")
+        tapHeader(app.sectionTab("文章"))
+        tapHeader(visibleSegment("热评"))
         paper.swipeLeft()
-        assertUI(app.sectionTab("话题").isSelected, "文章末尾排序向外横滑应切换话题。")
-        tapHeader(app.segmentedControls.buttons["最热"])
+        assertUI(app.sectionTab("文章").isSelected, "文章末尾排序向外横滑应保持文章。")
+        tapHeader(app.sectionTab("话题"))
+        tapHeader(visibleSegment("最热"))
         feed.swipeLeft()
-        assertUI(app.sectionTab("文章").isSelected, "话题末尾分类向外横滑应切换文章。")
+        assertUI(app.sectionTab("话题").isSelected, "话题末尾分类向外横滑应保持话题。")
+        tapHeader(app.sectionTab("文章"))
         tap("搜索文章")
         let paperSearch = app.textFields.firstMatch
         replaceText("文章\n", in: paperSearch)

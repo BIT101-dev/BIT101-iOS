@@ -34,10 +34,10 @@ public struct CommunityPosterRequest {
 
 @MainActor
 public struct CommunityPaperDestination {
-    public let papers: (Binding<Int?>, @escaping () -> Void) -> AnyView
+    public let papers: (Binding<Int?>) -> AnyView
     public let detail: (Int) -> AnyView
     public init(
-        papers: @escaping (Binding<Int?>, @escaping () -> Void) -> AnyView,
+        papers: @escaping (Binding<Int?>) -> AnyView,
         detail: @escaping (Int) -> AnyView
     ) {
         self.papers = papers

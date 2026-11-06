@@ -762,6 +762,7 @@ PAGE_CONTAINER_OWNERS = {
     "BIT101-iOS/Shell/AppAcademicDestinations.swift": "AppPairedPages",
     "Modules/GalleryFeature/Sources/GalleryRootView.swift": "AppPairedPages",
     "Modules/ScheduleFeature/Sources/ScheduleRootView.swift": "AppRetainedPage",
+    "Modules/PaperFeature/Sources/PaperRootView.swift": "AppRetainedPage",
 }
 
 

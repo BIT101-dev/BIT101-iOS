@@ -16,12 +16,10 @@ public struct PaperRootView: View {
     public init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
-        requestedPaperID: Binding<Int?> = .constant(nil),
-        onShowFeed: @escaping () -> Void = {}
+        requestedPaperID: Binding<Int?> = .constant(nil)
     ) {
         scene = PaperRootViewScene(
-            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
-            onShowFeed: onShowFeed)
+            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -31,29 +29,25 @@ public struct PaperRootView: View {
 }
 
 private struct PaperRootViewScene: View {
-    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
-    @State private var viewModel: PaperListViewModel
+    @State private var feeds: PaperSortFeeds
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
-    @State private var currentTopPaperID: Int?
     @Binding var requestedPaperID: Int?
-    private let onShowFeed: () -> Void
+    private var viewModel: PaperListViewModel { feeds.current }
 
     init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
-        requestedPaperID: Binding<Int?> = .constant(nil),
-        onShowFeed: @escaping () -> Void = {}
+        requestedPaperID: Binding<Int?> = .constant(nil)
     ) {
         self.dependencies = dependencies
         self.media = media
         _requestedPaperID = requestedPaperID
-        _viewModel = State(initialValue: PaperListViewModel(service: dependencies.list))
-        self.onShowFeed = onShowFeed
+        _feeds = State(initialValue: PaperSortFeeds(service: dependencies.list))
     }
 
     var body: some View {
@@ -81,16 +75,13 @@ private struct PaperRootViewScene: View {
                 PaperSearchView(dependencies: dependencies, media: media)
             }
         }
-        .task {
-            await viewModel.bootstrapIfNeeded()
-            viewModel.retryFailedPreviews()
+        .task(id: viewModel.selectedOrder) {
+            let model = viewModel
+            if model.needsRefresh { await model.refresh() } else { await model.bootstrapIfNeeded() }
+            model.retryFailedPreviews()
         }
         .task(id: requestedPaperID) {
             consumePaperLink(requestedPaperID)
-        }
-        .onChange(of: viewModel.selectedOrder) { oldValue, newValue in
-            guard oldValue != newValue else { return }
-            viewModel.enqueueRefresh()
         }
         .communityReadRecovery(
             networkPath: dependencies.networkPath,
@@ -103,10 +94,88 @@ private struct PaperRootViewScene: View {
             }
             viewModel.retryFailedPreviews()
         }
-        .onDisappear { viewModel.cancelRefreshOperations() }
-        .diagnosticAlert(item: $viewModel.alert)
+        .onDisappear { feeds.models.forEach { $0.cancelRefreshOperations() } }
+        .diagnosticAlert(item: Binding(get: { viewModel.alert }, set: { viewModel.alert = $0 }))
         .environment(dependencies).environment(media)
     }
+
+    private var content: some View {
+        ZStack {
+            AppDesignSystem.Palette.Background.grouped
+                .ignoresSafeArea(edges: .bottom)
+            ForEach(feeds.models, id: \.selectedOrder) { model in
+                AppRetainedPage(isVisible: model === viewModel) {
+                    PaperFeedPage(
+                        viewModel: model, selectedPaper: $selectedPaper, onStep: switchSortOrder)
+                }
+            }
+        }
+        .appBrowserActions {
+            AppFloatingActionButton(
+                systemImage: "square.and.pencil", accessibilityLabel: "发布文章"
+            ) {
+                isShowingComposer = true
+            }
+
+            AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
+                isShowingSearch = true
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
+            AppTopSegmentedPicker(
+                title: "文章排序",
+                selection: Binding(get: { viewModel.selectedOrder }, set: feeds.select),
+                variant: .stacked
+            ) {
+                ForEach(PaperSortOrder.allCases) { order in
+                    Text(order.title).tag(order)
+                }
+            }
+        }
+
+    }
+
+    private func consumePaperLink(_ paperID: Int?) {
+        guard let paperID else { return }
+        selectedPaper = PaperSummary(
+            id: paperID,
+            title: "文章",
+            intro: "",
+            likeNum: 0,
+            commentNum: 0,
+            updateTime: ""
+        )
+        requestedPaperID = nil
+    }
+
+    /// 发文成功后统一切回默认列表条件，并重新拉文章列表。
+    @MainActor
+    private func handleComposerCreated() {
+        feeds.select(.newest)
+        viewModel.enqueueRefresh()
+    }
+
+    private func switchSortOrder(step: Int) {
+        let allOrders = PaperSortOrder.allCases
+        guard let currentIndex = allOrders.firstIndex(of: viewModel.selectedOrder) else {
+            return
+        }
+        let nextIndex = currentIndex + step
+        guard allOrders.indices.contains(nextIndex) else { return }
+
+        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+            feeds.select(allOrders[nextIndex])
+        }
+    }
+}
+
+private struct PaperFeedPage: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
+    @Environment(\.appPageIsVisible) private var isVisible
+    @Bindable var viewModel: PaperListViewModel
+    @Binding var selectedPaper: PaperSummary?
+    let onStep: (Int) -> Void
+    @State private var currentTopPaperID: Int?
 
     @ViewBuilder
     private func failureStateView(message: String) -> some View {
@@ -146,10 +215,12 @@ private struct PaperRootViewScene: View {
             )
         }
         .id(paper.id)
-        .task(id: viewModel.previewGeneration) {
+        .task(id: isVisible ? viewModel.previewGeneration : nil) {
+            guard isVisible else { return }
             await viewModel.loadPreviewMetadata(for: paper)
         }
-        .task(id: paperPaginationTaskId()) {
+        .task(id: isVisible ? paperPaginationTaskId() : nil) {
+            guard isVisible else { return }
             await viewModel.loadMoreIfNeeded(currentPaper: paper)
         }
     }
@@ -208,96 +279,27 @@ private struct PaperRootViewScene: View {
         }
     }
 
-    private var content: some View {
-        ZStack(alignment: .bottomTrailing) {
-            AppDesignSystem.Palette.Background.grouped
-                .ignoresSafeArea(edges: .bottom)
-
-            ScrollView {
-                LazyVStack(spacing: AppDesignSystem.Spacing.none) {
-                    CommunityResultsContext(viewModel.displayedQueryDescription)
-                    paperFeedContent
-                }
-            }
-            .scrollPosition(
-                id: Binding(
-                    get: { currentTopPaperID },
-                    set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top
-            )
-            .refreshable {
-                interactionEvidence?("interaction.PaperRootViewScene.refreshable", "refresh")
-
-                await viewModel.enqueueRefresh().value
-            }
-            .appPageSwitch(onStep: switchSortOrder)
-            .accessibilityIdentifier("paper.sort-surface")
-
-        }
-        .appBrowserActions {
-            AppFloatingActionButton(
-                systemImage: "square.and.pencil", accessibilityLabel: "发布文章"
-            ) {
-                isShowingComposer = true
-            }
-
-            AppFloatingActionButton(systemImage: "magnifyingglass", accessibilityLabel: "搜索文章") {
-                isShowingSearch = true
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: AppDesignSystem.Spacing.none) {
+                CommunityResultsContext(
+                    viewModel.needsRefresh ? viewModel.displayedQueryDescription : nil)
+                paperFeedContent
             }
         }
-        .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
-            AppTopSegmentedPicker(
-                title: "文章排序",
-                selection: $viewModel.selectedOrder,
-                variant: .stacked
-            ) {
-                ForEach(PaperSortOrder.allCases) { order in
-                    Text(order.title).tag(order)
-                }
-            }
-        }
-
-    }
-
-    private func consumePaperLink(_ paperID: Int?) {
-        guard let paperID else { return }
-        selectedPaper = PaperSummary(
-            id: paperID,
-            title: "文章",
-            intro: "",
-            likeNum: 0,
-            commentNum: 0,
-            updateTime: ""
+        .scrollPosition(
+            id: Binding(
+                get: { currentTopPaperID },
+                set: { if let value = $0 { currentTopPaperID = value } }), anchor: .top
         )
-        requestedPaperID = nil
-    }
+        .refreshable {
+            interactionEvidence?("interaction.PaperFeedPage.refreshable", "refresh")
 
-    /// 发文成功后统一切回默认列表条件，并重新拉文章列表。
-    @MainActor
-    private func handleComposerCreated() {
-        viewModel.selectedOrder = .newest
-        viewModel.enqueueRefresh()
-    }
-
-    private func switchSortOrder(step: Int) {
-        let allOrders = PaperSortOrder.allCases
-        guard let currentIndex = allOrders.firstIndex(of: viewModel.selectedOrder) else {
-            return
+            await viewModel.enqueueRefresh().value
         }
-        let lastIndex = allOrders.index(before: allOrders.endIndex)
+        .appPageSwitch(onStep: onStep)
+        .accessibilityIdentifier("paper.sort-surface")
 
-        if (currentIndex == 0 && step == -1) || (currentIndex == lastIndex && step == 1) {
-            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
-                onShowFeed()
-            }
-            return
-        }
-
-        let nextIndex = currentIndex + step
-        guard allOrders.indices.contains(nextIndex) else { return }
-
-        withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
-            viewModel.selectedOrder = allOrders[nextIndex]
-        }
     }
 }
 

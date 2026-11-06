@@ -379,8 +379,12 @@
     "controls": {"UIAction":1},
     "tests": ["CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare"]
   },
+  "Modules/PaperFeature/Sources/PaperRootView.swift:PaperFeedPage": {
+    "controls": {"AppEmptyState":1,"AppFailureState":1,"CommunityPaginationFooter":1,"ScrollView":1,"refreshable":1},
+    "tests": ["CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare","CommunityInteractionUITests/testStableRowsPaginateAgain","CommunityRecoveryUITests/testCommunityPaginationRetriesVisibleTail","InteractionCoverageUITests/testGalleryFeed","InteractionCoverageUITests/testPaperSortSurvivesSwitchingTopics","CommunityEditingRecoveryUITests/testFailedPaperSortKeepsDisplayedVisible"]
+  },
   "Modules/PaperFeature/Sources/PaperRootView.swift:PaperRootViewScene": {
-    "controls": {"AppEmptyState":1,"AppFailureState":1,"AppFloatingActionButton":2,"CommunityPaginationFooter":1,"ScrollView":1,"refreshable":1},
+    "controls": {"AppFloatingActionButton":2},
     "tests": ["CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare","CommunityInteractionUITests/testStableRowsPaginateAgain","CommunityRecoveryUITests/testCommunityPaginationRetriesVisibleTail","InteractionCoverageUITests/testGalleryFeed","InteractionCoverageUITests/testPaperSortSurvivesSwitchingTopics"]
   },
   "Modules/PaperFeature/Sources/PaperSearchViews.swift:PaperSearchScene": {

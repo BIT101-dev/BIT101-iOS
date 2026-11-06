@@ -460,7 +460,7 @@ struct CommunityRecoveryCompositionTests {
             networkPath: path)
         let view = GalleryMessagesView(
             papers: .init(
-                papers: { _, _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }
+                papers: { _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }
             ),
             courses: .init { _ in AnyView(Text("course")) }, viewModel: model
         )
