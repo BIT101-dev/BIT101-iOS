@@ -328,7 +328,7 @@ if [[ "$MODE" == "modules" ]]; then
   if $BUILD_ONLY; then
     echo "[编译] 模块消费者 · macOS 原生 Release"
     bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块编译" \
-      xcrun swift test list --enable-code-coverage -Xswiftc -enable-testing \
+      xcrun swift test --quiet --skip '.*' --enable-code-coverage -Xswiftc -enable-testing \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release

@@ -650,7 +650,7 @@ xcrun() {
         ("run-extended-tests.sh", ["build", "ui"], 0, "BIT101-iOS-UIAutomation", ""),
         ("run-extended-tests.sh", ["build", "network-smoke"], 0, "RELEASE_NETWORK_SMOKE", ""),
         ("run-extended-tests.sh", ["build", "icloud-smoke"], 0, "ICLOUD_CROSS_DEVICE_SMOKE", ""),
-        ("run-extended-tests.sh", ["build", "modules"], 0, "swift test list", ""),
+        ("run-extended-tests.sh", ["build", "modules"], 0, "swift test --quiet --skip .*", ""),
         ("run-extended-tests.sh", ["build", "catalyst"], 0, "variant=Mac Catalyst", ""),
         (
             "run-extended-tests.sh",
