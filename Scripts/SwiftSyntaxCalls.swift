@@ -254,7 +254,8 @@ extension FactVisitor {
         if [
             "onTapGesture", "onLongPressGesture", "onAppear", "onDisappear", "onChange",
             "onReceive", "task", "refreshable", "onSubmit", "onDelete", "onMove",
-            "alert", "confirmationDialog",
+            "alert", "confirmationDialog", "Menu", "overlay", "background", "toolbar",
+            "appBrowserFloatingActions", "appSideToolbarActions",
         ].contains(calledName) {
             excludeRenderedContent(node.trailingClosure)
             for closure in node.additionalTrailingClosures {

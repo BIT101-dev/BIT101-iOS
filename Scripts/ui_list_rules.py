@@ -56,7 +56,13 @@ def is_interactive_list_row(row: dict, facts: dict) -> bool:
         symbols = {
             item["value"]
             for item in facts.get("scopedIdentifiers", [])
-            if item["scope"] == row["scope"] and start <= item["start"] < end
+            if item["scope"] == row["scope"]
+            and start <= item["start"] < end
+            and not any(
+                excluded["scope"] == row["scope"]
+                and excluded["start"] <= item["start"] < excluded["end"]
+                for excluded in facts.get("nonRenderedRanges", [])
+            )
         }
         for helper in helpers:
             if helper["name"] in symbols and helper["name"] not in reachable:

@@ -543,6 +543,17 @@ struct AppFixedColumnItem {}
         'floatingButton }\n    }\n    private var helperRows: some View { Button("计算属性行") {} }\n  '
         '  private var floatingButton: some View { Button("浮动按钮") {} }\n}\n'
     )
+    row_source = row_source.replace(
+        "            helperRows",
+        "            helperRows\n            calendarSurface",
+    ).replace(
+        "    private var helperRows:",
+        '    private var calendarSurface: some View { Text("课表")'
+        ".appBrowserFloatingActions { addActions } }\n"
+        '    private var addActions: some View { Menu { Button("新增") {} }'
+        ' label: { Text("加号") } }\n'
+        "    private var helperRows:",
+    )
     row_path = ROOT / ".build/static-audit/row-color-self-test.swift"
     row_syntax = swift_syntax_index_sources({str(row_path): row_source})
     row_findings = interactive_list_row_findings(row_path, row_syntax[str(row_path)], row_syntax)

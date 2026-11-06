@@ -143,10 +143,6 @@
     "controls": {"AppDetailCircleButton":2,"AppDetailShareLink":1,"AppEmptyState":1,"AppFailureState":1,"Button":2,"ScrollView":1,"refreshable":1},
     "tests": ["CommunityEditingRecoveryUITests/testCourseCommentsRecover","CommunityInteractionUITests/testCourseCommentPublishSearch","CommunityInteractionUITests/testExternalLinksAbout","ScheduleNavigationUITests/testCourseHistoryChartSelection","ScheduleNavigationUITests/testCourseScheduleAcademicRoute"]
   },
-  "Modules/CourseFeature/Sources/CourseRootView.swift:CourseBrowserPage": {
-    "controls": {"simultaneousGesture":1},
-    "tests": ["LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","ScheduleNavigationUITests/testCourseHistoryChartSelection"]
-  },
   "Modules/CourseFeature/Sources/CourseRootView.swift:CourseEvaluationLinkScene": {
     "controls": {"Button":2},
     "tests": ["CommunityInteractionUITests/testCourseCommentPublishSearch","CommunityRecoveryUITests/testCourseLookupFailureKeepsSearchIdentity"]
@@ -195,6 +191,10 @@
     "controls": {"Button":1,"Picker":1,"TextField":1,"onSubmit":1},
     "tests": ["InteractionCoverageUITests/testGalleryFeed"]
   },
+  "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift:AppPageSwitchInput.InputView": {
+    "controls": {"UIPanGestureRecognizer":1},
+    "tests": ["LoginAndScheduleUITests/testPageSwipesCancelRowOpening"]
+  },
   "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift:AppSegmentedPicker": {
     "controls": {"Picker":1},
     "tests": ["LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
@@ -202,10 +202,6 @@
   "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift:AppTopSegmentedPicker": {
     "controls": {"AppSegmentedPicker":1},
     "tests": ["LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
-  },
-  "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift:global": {
-    "controls": {"DragGesture":1},
-    "tests": ["InteractionCoverageUITests/testGalleryFeed"]
   },
   "Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppBrowserLayout": {
     "controls": {"AppEmptyState":1},
@@ -284,7 +280,7 @@
     "tests": ["InteractionCoverageUITests/testCommunityCommentLikesRepliesSorts","InteractionCoverageUITests/testGalleryFeed"]
   },
   "Modules/GalleryFeature/Sources/GalleryMessagesView.swift:GalleryMessagesView": {
-    "controls": {"AppEmptyState":1,"AppFailureState":1,"Button":6,"CommunityPaginationFooter":1,"List":1,"refreshable":1,"simultaneousGesture":1},
+    "controls": {"AppEmptyState":1,"AppFailureState":1,"Button":6,"CommunityPaginationFooter":1,"List":1,"refreshable":1},
     "tests": ["CommunityRecoveryUITests/testMessagePaginationRetriesAtVisibleTail","CommunityRecoveryUITests/testMessageReadStorageKeepsAvailable","CommunityRecoveryUITests/testMessages","InteractionCoverageUITests/testCommunityCommentLikesRepliesSorts","InteractionCoverageUITests/testGalleryFeed"]
   },
   "Modules/GalleryFeature/Sources/GalleryPosterActionViews.swift:GalleryReportSheet": {
@@ -300,7 +296,7 @@
     "tests": ["CommunityRecoveryUITests/testPosterDeepLinkKeepsTarget"]
   },
   "Modules/GalleryFeature/Sources/GalleryRootView.swift:GalleryRootViewScene": {
-    "controls": {"AppFloatingActionButton":4,"simultaneousGesture":1},
+    "controls": {"AppFloatingActionButton":4},
     "tests": ["CommunityInteractionUITests/testPosterSubscriptionsPersist","InteractionCoverageUITests/testCommunityCommentLikesRepliesSorts","InteractionCoverageUITests/testGalleryFeed","InteractionCoverageUITests/testPaperSortSurvivesSwitchingTopics"]
   },
   "Modules/GalleryFeature/Sources/GallerySearchView.swift:GallerySearchView": {
@@ -384,7 +380,7 @@
     "tests": ["CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare"]
   },
   "Modules/PaperFeature/Sources/PaperRootView.swift:PaperRootViewScene": {
-    "controls": {"AppEmptyState":1,"AppFailureState":1,"AppFloatingActionButton":2,"CommunityPaginationFooter":1,"ScrollView":1,"refreshable":1,"simultaneousGesture":1},
+    "controls": {"AppEmptyState":1,"AppFailureState":1,"AppFloatingActionButton":2,"CommunityPaginationFooter":1,"ScrollView":1,"refreshable":1},
     "tests": ["CommunityInteractionUITests/testPaperImagePreviewCommentsSortAndShare","CommunityInteractionUITests/testStableRowsPaginateAgain","CommunityRecoveryUITests/testCommunityPaginationRetriesVisibleTail","InteractionCoverageUITests/testGalleryFeed","InteractionCoverageUITests/testPaperSortSurvivesSwitchingTopics"]
   },
   "Modules/PaperFeature/Sources/PaperSearchViews.swift:PaperSearchScene": {
@@ -404,7 +400,7 @@
     "tests": ["CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleLayoutUITests/testScheduleKeepsWeek"]
   },
   "Modules/ScheduleFeature/Sources/CourseScheduleTabView.swift:CourseScheduleTabView": {
-    "controls": {"AppEmptyState":1,"AppFloatingActionButton":1,"Button":2,"List":2,"simultaneousGesture":1},
+    "controls": {"AppEmptyState":1,"Button":2,"List":2,"Menu":1,"simultaneousGesture":1},
     "tests": ["CalendarInteractionUITests/testCourseAndExamSystemCalendarActions","CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails","InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleCopyImportRenameCycle","LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes","ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetail","ScheduleLayoutUITests/testAccessibilityQueryParity","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleNavigationUITests/testEmptyShareAndImportGuideCancel","ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations","ServiceInteractionUITests/testSchoolSmsCourseSyncValidationCancel"]
   },
   "Modules/ScheduleFeature/Sources/CourseScheduleTabViewActions.swift:CourseScheduleTabView": {
@@ -516,7 +512,7 @@
     "tests": ["ScheduleConflictUITests/testKeepLocalConflictContentPersists","ScheduleConflictUITests/testUseSyncedConflictContentPersists"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView": {
-    "controls": {"AppSegmentedPicker":1,"AppVerificationSheet":1,"DragGesture":1,"simultaneousGesture":1},
+    "controls": {"AppSegmentedPicker":1,"AppVerificationSheet":1},
     "tests": ["LandscapeLayoutUITests/testClassroomSmsUsesNativeDestination","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification": {
@@ -568,7 +564,7 @@
     "tests": ["ScoreInteractionUITests/testScoreDetailFollowsDetailedRefresh","ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancel"]
   },
   "Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreListPage": {
-    "controls": {"AppBrowserListRow":6,"AppEmptyState":2,"AppFailureState":1,"AppVerificationSheet":1,"Button":3,"List":1,"simultaneousGesture":1},
+    "controls": {"AppBrowserListRow":6,"AppEmptyState":2,"AppFailureState":1,"AppVerificationSheet":1,"Button":3,"List":1},
     "tests": ["LandscapeLayoutUITests/testAcademicBrowsersKeepTheSharedChrome","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleNavigationUITests/testCourseHistoryChartSelection","ScoreInteractionUITests/testScoreDetailFollowsDetailedRefresh","ScoreInteractionUITests/testScoreIndividualFiltersRefreshCancel","ScoreInteractionUITests/testScoreStorageRecoveryConfirmation","ScoreInteractionUITests/testTrustedTranscriptKeepsAvailablePages","ScoreInteractionUITests/testTrustedTranscriptSmsRetryPreview"]
   },
   "Modules/ScoreFeature/Sources/ScoreRootView.swift:ScoreRefreshStatusRow": {

@@ -411,6 +411,7 @@ extension View {
 
 private struct AppPageSwitchInput: UIViewRepresentable {
     @Environment(\.appPageIsVisible) private var isVisible
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let controlFrames: [CGRect]
     let minimumY: CGFloat
     let onStep: (Int) -> Void
@@ -421,6 +422,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         view.controlFrames = controlFrames
         view.minimumY = minimumY
         view.onStep = onStep
+        view.interactionEvidence = interactionEvidence
         view.pan.isEnabled = isVisible
     }
 
@@ -429,6 +431,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
     }
 
     final class InputView: UIView, UIGestureRecognizerDelegate {
+        var interactionEvidence: ((String, String) -> Void)?
         var controlFrames: [CGRect] = []
         var minimumY: CGFloat = -.infinity
         var onStep: (Int) -> Void = { _ in }
@@ -467,6 +470,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
             guard pan.state == .ended else { return }
             let translation = pan.translation(in: self)
             guard abs(translation.x) >= 56 else { return }
+            interactionEvidence?("interaction.AppPageSwitchInput.pan", "pan")
             onStep(translation.x < 0 ? 1 : -1)
         }
     }

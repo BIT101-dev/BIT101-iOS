@@ -67,6 +67,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行检查�
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails` | 添加日程、保存、重新装载恢复 |
 | `ScheduleEditingUITests/testCustomSchedulesAreIsolatedAccounts` | 退出、改账号登录、账号日程隔离 |
 | `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击 |
+| `LoginAndScheduleUITests/testPageSwipesCancelRowOpening` | 从 DDL 作业、课程和话题正文起滑切页，取消条目点击，课表加号保持右侧 |
 | `ScheduleLayoutUITests/testScheduleKeepsWeek` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
 | `ScheduleLayoutUITests/testWeeklyHeaderKeepsItsCompactDateRow` | 26 点日期行及 44 点周次触控高度 |
 | `ScheduleLayoutUITests/testSideToolbarUsesSpaceAboveNavigation` | 地图、话题、文章、课表及 DDL 的原生侧方工具栏边缘、竖向排列，以及系统更多菜单中的完整标题与可触达状态 |

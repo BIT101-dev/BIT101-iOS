@@ -147,7 +147,7 @@ struct GalleryMessagesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(messageSwitchGesture)
+        .appHorizontalPageSwitch(onStep: switchType)
         .appAccessibilitySurface()
         .accessibilityIdentifier("gallery.message-surface")
         .navigationTitle("消息")
@@ -247,11 +247,6 @@ struct GalleryMessagesView: View {
         default:
             return false
         }
-    }
-
-    /// 消息分类左右切换手势。
-    private var messageSwitchGesture: some Gesture {
-        horizontalSwitchGesture(onStep: switchType)
     }
 
     /// 顶部分段标题；有未读时在标题右侧追加计数。
