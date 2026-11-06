@@ -10,9 +10,9 @@ from pathlib import Path
 LINE_LIMIT = 100
 NAME_LIMIT = 42
 DEPTH_LIMIT = 4
-EMOJI = regex.compile(
-    r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3"
-)
+EMOJI = regex.compile(r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3")
+
+
 def _load_banned_words() -> list[str]:
     agents = Path(__file__).resolve().parents[1] / "AGENTS.md"
     words = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因 门禁 基线 冒烟 探针".split()
@@ -139,7 +139,9 @@ def swift_findings(name: str, source: str, facts: dict) -> list[str]:
     for token in LEGACY_OBSERVATION_TOKENS:
         if token in identifiers:
             findings.append(
-                issue(name, 1, f"包含旧版响应式标识 {token}；请统一使用 @Observable 与 @Environment")
+                issue(
+                    name, 1, f"包含旧版响应式标识 {token}；请统一使用 @Observable 与 @Environment"
+                )
             )
     for declaration in facts.get("declarations", []):
         if declaration["kind"] == "extension":
@@ -187,9 +189,7 @@ def swift_file_type_findings(facts: dict[str, dict]) -> list[str]:
     return [
         issue(name, 1, f"主类型 {stem} 定义在 {type_owners[stem][0]}；文件名需与主类型一致")
         for name, top_names in declared_or_extended.items()
-        if (stem := Path(name).stem) != "Package"
-        and stem not in top_names
-        and stem in type_owners
+        if (stem := Path(name).stem) != "Package" and stem not in top_names and stem in type_owners
     ]
 
 
@@ -313,7 +313,7 @@ def style_findings(contents: dict[str, str]) -> list[str]:
 
     sources = {name: text for name, text in contents.items() if is_code(name)}
     swift = {name: text for name, text in sources.items() if name.endswith(".swift")}
-    facts = swift_syntax_index_sources(swift) if swift else {}
+    facts = swift_syntax_index_sources(swift, resolve_tests=False) if swift else {}
     findings = [
         finding
         for name, source in contents.items()

@@ -346,6 +346,42 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testPageSwitchObservesContentTouches() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(
+            rootView: Button("条目") {}.frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .appHorizontalPageSwitch { _ in })
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        func pagePan(in view: UIView) -> UIPanGestureRecognizer? {
+            if let pan = view.gestureRecognizers?.first(where: { $0.name == "app.page-switch" })
+                as? UIPanGestureRecognizer
+            {
+                return pan
+            }
+            return view.subviews.lazy.compactMap { pagePan(in: $0) }.first
+        }
+        try await waitForTestEvent {
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            return pagePan(in: controller.view) != nil
+        }
+        let pan = try XCTUnwrap(pagePan(in: controller.view))
+        let surface = try XCTUnwrap(pan.view)
+        let point = CGPoint(x: controller.view.bounds.midX, y: controller.view.bounds.midY)
+        let recipient = try XCTUnwrap(controller.view.hitTest(point, with: nil))
+        XCTAssertTrue(recipient.isDescendant(of: surface), "切页识别器应覆盖条目的实际触摸视图。")
+        XCTAssertTrue(pan.cancelsTouchesInView)
+    }
+
+    @MainActor
     func testVerifyAutoFillCapturesCode() async throws {
         executionTimeAllowance = 60
         let deadline = ContinuousClock.now.advanced(by: .seconds(executionTimeAllowance))

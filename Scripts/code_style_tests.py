@@ -20,11 +20,21 @@ def self_test() -> None:
 
     format_self_test()
 
+    from unittest.mock import patch
+
+    with patch("swift_source_index._resolve_tests", side_effect=AssertionError("测试归属解析")):
+        assert style_findings({"Sample.swift": "struct Sample {}\n"}) == []
+
     assert emoji_findings("text.md", "中文 ABC 123 # * → ±") == []
     assert style_findings({"README.md": chr(0x1F600)})
     for text in (
-        "\U0001f600", "\U0001f44d\U0001f3fd", "\U0001f1e8\U0001f1f3",
-        "1\ufe0f\u20e3", "*\u20e3", "\u2764\ufe0f", "\U0001f469\u200d\U0001f4bb",
+        "\U0001f600",
+        "\U0001f44d\U0001f3fd",
+        "\U0001f1e8\U0001f1f3",
+        "1\ufe0f\u20e3",
+        "*\u20e3",
+        "\u2764\ufe0f",
+        "\U0001f469\u200d\U0001f4bb",
     ):
         assert emoji_findings("text.md", "title\n" + text) == [
             "text.md:2: 包含 Emoji；请使用文字或 SF Symbol"

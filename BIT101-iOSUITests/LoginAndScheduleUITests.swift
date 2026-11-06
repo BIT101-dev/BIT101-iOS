@@ -61,7 +61,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(poster.appears(timeout: 5), "话廊应展示测试话题。")
         poster.swipeLeft()
         assertUI(!app.segmentedControls.buttons["最新"].isSelected, "从话题正文起滑应切换分区。")
-        assertUI(!app.navigationBars["话题详情"].exists, "翻页应取消话题点击。")
+        assertUI(!app.navigationBars["帖子详情"].exists, "翻页应取消话题点击。")
     }
 
     @MainActor

@@ -265,11 +265,11 @@ def swift_syntax_index(files: list[Path]) -> dict[str, dict]:
 
 
 def swift_syntax_index_sources(
-    sources: dict[str, str], *, cache_context: str | None = None
+    sources: dict[str, str], *, cache_context: str | None = None, resolve_tests: bool = True
 ) -> dict[str, dict]:
     cache_name = os.environ.get("BIT101_SOURCE_FACTS_CACHE", str(DEFAULT_FACTS_CACHE))
     if not cache_name:
-        return _index_sources(sources)
+        return _index_sources(sources, resolve_tests=resolve_tests)
     from validation_inputs import SWIFT_ROOTS
 
     eligible = {}
@@ -282,7 +282,7 @@ def swift_syntax_index_sources(
         if context is not None:
             eligible[name] = (str(path), context)
     if not eligible:
-        return _index_sources(sources)
+        return _index_sources(sources, resolve_tests=resolve_tests)
     grouped = {}
     for name, (path, context) in eligible.items():
         grouped.setdefault(context, {})[path] = sources[name]
@@ -296,7 +296,8 @@ def swift_syntax_index_sources(
     if missing:
         index.update(_index_sources(missing, resolve_tests=False))
     index = _materialize_facts(index)
-    _resolve_tests(index)
+    if resolve_tests:
+        _resolve_tests(index)
     for name, source in sources.items():
         FACTS_BY_SOURCE[source] = index[name]
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
@@ -432,9 +433,7 @@ def scan_swift_string_literal(
     while index < len(source):
         if source.startswith(escape + "(", index):
             if keep_literals:
-                result[index : index + len(escape) + 1] = source[
-                    index : index + len(escape) + 1
-                ]
+                result[index : index + len(escape) + 1] = source[index : index + len(escape) + 1]
             index = code_fn(index + len(escape) + 1, interpolation=True)
         elif source.startswith(escape, index):
             end = min(len(source), index + len(escape) + 1)
@@ -443,9 +442,7 @@ def scan_swift_string_literal(
             index = end
         elif source.startswith(closing, index):
             if keep_literals:
-                result[index : index + len(closing)] = source[
-                    index : index + len(closing)
-                ]
+                result[index : index + len(closing)] = source[index : index + len(closing)]
             index += len(closing)
             break
         else:
@@ -505,9 +502,7 @@ def swift_code(source: str, keep_comments: bool = False, keep_literals: bool = F
                 continue
             match = string_start.match(source, index)
             if match:
-                index = scan_swift_string_literal(
-                    source, index, match, keep_literals, result, code
-                )
+                index = scan_swift_string_literal(source, index, match, keep_literals, result, code)
                 continue
             if interpolation and source[index] == "(":
                 depth += 1
@@ -694,9 +689,7 @@ def compilation_type_context(index: dict, path: str | None = None) -> tuple:
 
 def resolve_variable_type(facts, call, var_name, owner, properties):
     for binding in facts["bindings"]:
-        value = re.match(
-            re.escape(var_name) + r"\s*=\s*([\w.]+)\s*\(", binding["value"]
-        )
+        value = re.match(re.escape(var_name) + r"\s*=\s*([\w.]+)\s*\(", binding["value"])
         binding_lexical = binding.get("lexicalScope", [])
         if (
             value

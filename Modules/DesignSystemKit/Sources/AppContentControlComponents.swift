@@ -437,6 +437,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         var onStep: (Int) -> Void = { _ in }
         lazy var pan: UIPanGestureRecognizer = {
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
+            recognizer.name = "app.page-switch"
             recognizer.maximumNumberOfTouches = 1
             recognizer.cancelsTouchesInView = true
             recognizer.delegate = self
