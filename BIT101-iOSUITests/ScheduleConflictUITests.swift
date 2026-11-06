@@ -146,7 +146,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         }
         app = configureApp(resetStorage: true, content: true, initialTab: "gallery")
         for surface in ["话题", "文章", "话题", "文章"] {
-            app.native.segmentedControls.buttons[surface].press(forDuration: 0.01)
+            visibleSegment(surface).native.press(forDuration: 0.01)
             assertCompactNavigation(requiresSections: true)
             let search = surface == "话题" ? "搜索话廊" : "搜索文章"
             assertUI(app.native.buttons[search].isHittable, "切换内容应保留当前页面的操作入口。")
@@ -272,7 +272,7 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         if !supportsLandscapeWindow {
             app.buttons["ui.score-list-page.排序"].tapBriefly()
             let scoreNavigation = app.native.navigationBars["成绩排序"]
-            let backButton = app.buttons["app.pane.back"]
+            let backButton = UIElement(scoreNavigation.buttons["BackButton"])
             assertUI(
                 scoreNavigation.waitForExistence(timeout: 5) && backButton.exists,
                 "详情页应提供返回入口。")

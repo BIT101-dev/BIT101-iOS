@@ -372,7 +372,7 @@ nonisolated final class CalendarInteractionUITests: UIAutomationTestCase {
         back()
         app.mainTab("日程").tapBriefly()
         tapHeader(app.segmentedControls.buttons["DDL"])
-        let assignment = app.staticTexts["课程中心测试作业"]
+        let assignment = app.buttons["ddl.open.eclass:23"]
         reveal(assignment)
         assertUI(textElement("刷新后的学校详情").appears(timeout: 5), "学校刷新应更新详情正文。")
         assignment.tapBriefly()
