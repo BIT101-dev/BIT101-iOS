@@ -11,7 +11,7 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
         let controller = UIHostingController(
-            rootView: AppPairedPages(showsFirst: true) {
+            rootView: AppPairedPages(showsFirst: true, pairsInLandscape: false) {
                 Color(uiColor: .red).ignoresSafeArea(.container, edges: .bottom)
             } second: {
                 Color(uiColor: .blue)
@@ -154,7 +154,7 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let store = PageScrollStore()
         let controller = UIHostingController(
-            rootView: AppPairedPages(showsFirst: true) {
+            rootView: AppPairedPages(showsFirst: true, pairsInLandscape: false) {
                 PageScrollProbe(store: store, key: "first")
             } second: {
                 PageScrollProbe(store: store, key: "second")
@@ -171,7 +171,7 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
         XCTAssertNil(store.views["second"])
         first.contentOffset.y = 120
         for showsFirst in [false, true, false, true] {
-            controller.rootView = AppPairedPages(showsFirst: showsFirst) {
+            controller.rootView = AppPairedPages(showsFirst: showsFirst, pairsInLandscape: false) {
                 PageScrollProbe(store: store, key: "first")
             } second: {
                 PageScrollProbe(store: store, key: "second")
@@ -226,7 +226,7 @@ private final class PageSelection {
 private struct PageFixture: View {
     let selection: PageSelection
     var body: some View {
-        AppPairedPages(showsFirst: selection.showsFirst) {
+        AppPairedPages(showsFirst: selection.showsFirst, pairsInLandscape: false) {
             Color(uiColor: .red).ignoresSafeArea(.container, edges: .bottom)
         } second: {
             Color(uiColor: .blue).ignoresSafeArea(.container, edges: .bottom)
