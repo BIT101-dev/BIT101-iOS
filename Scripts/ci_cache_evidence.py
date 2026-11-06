@@ -652,6 +652,36 @@ def cache_self_test() -> None:
     artifact = dict(
         id=1, name="compilation-cache-simulator-app", expired=False, workflow_run={"id": 1}
     )
+    verify_cache_evidence_ancestry(artifact, identity, module, payload, trusted)
+
+
+def repository() -> str:
+    value = (
+        os.getenv("GITHUB_REPOSITORY")
+        or subprocess.check_output(
+            ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    )
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", value):
+        raise ValueError("证据交换需要有效 GitHub 仓库身份。")
+    return value
+
+
+def api_pages(endpoint: str) -> list[dict]:
+    return json.loads(
+        subprocess.check_output(
+            ["gh", "api", "--paginate", "--slurp", endpoint], cwd=ROOT, text=True
+        )
+    )
+
+
+def verify_cache_evidence_ancestry(artifact, identity, module, payload, trusted):
+    import io
+    from unittest.mock import patch
+    from contextlib import redirect_stdout
+
     for change, ancestor, accepted in [
         ({}, 0, True),
         ({"event": "workflow_dispatch"}, 0, True),
@@ -809,25 +839,3 @@ def cache_self_test() -> None:
                 assert failure.stderr == error and "(HTTP 404)" not in error
             else:
                 assert "(HTTP 404)" in error
-
-
-def repository() -> str:
-    value = (
-        os.getenv("GITHUB_REPOSITORY")
-        or subprocess.check_output(
-            ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
-            cwd=ROOT,
-            text=True,
-        ).strip()
-    )
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", value):
-        raise ValueError("证据交换需要有效 GitHub 仓库身份。")
-    return value
-
-
-def api_pages(endpoint: str) -> list[dict]:
-    return json.loads(
-        subprocess.check_output(
-            ["gh", "api", "--paginate", "--slurp", endpoint], cwd=ROOT, text=True
-        )
-    )

@@ -165,64 +165,137 @@ extension ReleaseNetworkSmokeLifecycleTests {
                     id: 1, color: "", text: "", createTime: "", updateTime: "", deleteTime: nil)
             )
         }
+        private func createContent(
+            _ kind: CommunityWriteSmoke.Kind, _ text: String,
+            _ record: CommunityWriteSmoke.Operations.RecordImage,
+            _ submit: CommunityWriteSmoke.Operations.RecordSubmission
+        ) async throws -> Int {
+            if self.stage == "upload-poster" { throw URLError(.networkConnectionLost) }
+            if self.stage == "cancel-before-poster" { self.cancel?() }
+            if self.stage == "invalid-paper" && kind == .paper {
+                throw NSError(
+                    domain: "BIT101.Paper", code: 400,
+                    userInfo: [NSLocalizedDescriptionKey: "参数错误awa"])
+            }
+            if self.stage == "signed-out-paper" && kind == .paper {
+                throw PaperServiceError.notLoggedIn
+            }
+            if self.stage == "broken-image" { try record("fixture-image") }
+            try submit()
+            if self.stage == "unsent-poster" {
+                throw CommunityWriteSmoke.SubmissionNotSent(
+                    underlying: CancellationError())
+            }
+            self.nextID += 1
+            let id = self.nextID
+            self.contents[kind.rawValue + String(id)] = .init(
+                text: text, owned: true, liked: false,
+                imageMids: [self.stage == "broken-image" ? "wrong" : "fixture-image"],
+                anonymous: self.stage == "create-anonymous-" + kind.rawValue,
+                publicAccess: self.stage == "create-public-" + kind.rawValue,
+                title: self.stage == "create-title"
+                    ? "错误标题" : kind == .poster ? "功能验收" : text,
+                intro: self.stage == "create-intro" ? "错误摘要" : text,
+                tags: self.stage == "create-tags" ? ["错误标签"] : [],
+                claimID: self.stage == "create-claim" ? 1 : 0,
+                images: [
+                    .init(
+                        mid: "fixture-image", url: "https://fixture.invalid/image.jpg",
+                        lowUrl: "https://fixture.invalid/low.jpg")
+                ])
+            if self.stage == "persistent-find", kind == .paper, !self.injected {
+                self.injected = true
+                throw URLError(.networkConnectionLost)
+            }
+            if ["late-" + kind.rawValue, "hidden-" + kind.rawValue].contains(
+                self.stage), !self.injected
+            {
+                self.injected = true
+                if self.stage.hasPrefix("late-") {
+                    let key = kind.rawValue + String(id)
+                    self.delayedContents[key] = self.contents.removeValue(forKey: key)
+                }
+                throw URLError(.networkConnectionLost)
+            }
+            if self.stage == "lost-poster" && !self.injected {
+                self.injected = true
+                throw URLError(.networkConnectionLost)
+            }
+            return id
+        }
+
+        private func createComment(
+            _ destination: CommunityWriteSmoke.CommentDestination, _ text: String,
+            _: CommunityWriteSmoke.Operations.RecordImage,
+            _ submit: CommunityWriteSmoke.Operations.RecordSubmission
+        ) async throws -> CommunityComment {
+            let object = destination.object
+            if self.stage == "upload-comment" { throw URLError(.networkConnectionLost) }
+            if self.stage == "cancel-before-comment" { self.cancel?() }
+            try submit()
+            self.nextID += 1
+            @MainActor func makeComment(_ id: Int, readback: Bool = false)
+                -> CommunityComment
+            {
+                let reply = object.hasPrefix("comment")
+                let wrongRate =
+                    self.stage == "wrong-rating"
+                    || self.stage == "readback-rating" && readback
+                return CommunityComment(
+                    id: id, obj: object,
+                    images: [.init(mid: "fixture-image", url: "", lowUrl: "")],
+                    user: self.user,
+                    anonymous: self.stage == "anonymous-reply" && reply,
+                    createTime: "", updateTime: "", like: false, likeNum: 0,
+                    commentNum: 0, own: true,
+                    rate: object.hasPrefix("course") && !wrongRate ? 6 : 0,
+                    replyUser: self.makeUser(
+                        (self.stage == "wrong-reply-user" && reply
+                            || self.stage == "wrong-directed-user"
+                                && destination.replyUID != nil)
+                            ? 77 : destination.replyUID ?? 0),
+                    replyObj: (self.stage == "wrong-reply-object" && reply
+                        || self.stage == "wrong-directed-object"
+                            && destination.replyObjectID != nil)
+                        ? "comment77" : destination.replyObjectID ?? "", text: text,
+                    sub: [])
+            }
+            let value = makeComment(self.nextID)
+            self.rows[object, default: []].append(
+                makeComment(self.nextID, readback: true))
+            let createdKind =
+                destination.replyObjectID != nil
+                ? "directed" : object.hasPrefix("comment") ? "reply" : "comment"
+            if ["late-" + createdKind, "hidden-" + createdKind].contains(self.stage),
+                !self.injected
+            {
+                self.injected = true
+                self.delayedParent = object
+                if self.stage.hasPrefix("late-") {
+                    self.delayedRows[object] = self.rows.removeValue(forKey: object)
+                }
+                throw URLError(.networkConnectionLost)
+            }
+            if object.hasPrefix("comment") && !self.injected
+                && ["lost-reply", "cancelled"].contains(self.stage)
+            {
+                self.injected = true
+                self.cancel?()
+                throw CancellationError()
+            }
+            if self.stage == "duplicate-comments", object.hasPrefix("comment"),
+                let main = Int(object.dropFirst(7))
+            {
+                return makeComment(main)
+            }
+            return value
+        }
+
         var operations: CommunityWriteSmoke.Operations {
             .init(
                 identity: { .init(accountIdentifier: String(self.account)) },
                 account: { self.account }, course: { 1 },
-                create: { kind, text, record, submit in
-                    if self.stage == "upload-poster" { throw URLError(.networkConnectionLost) }
-                    if self.stage == "cancel-before-poster" { self.cancel?() }
-                    if self.stage == "invalid-paper" && kind == .paper {
-                        throw NSError(
-                            domain: "BIT101.Paper", code: 400,
-                            userInfo: [NSLocalizedDescriptionKey: "参数错误awa"])
-                    }
-                    if self.stage == "signed-out-paper" && kind == .paper {
-                        throw PaperServiceError.notLoggedIn
-                    }
-                    if self.stage == "broken-image" { try record("fixture-image") }
-                    try submit()
-                    if self.stage == "unsent-poster" {
-                        throw CommunityWriteSmoke.SubmissionNotSent(
-                            underlying: CancellationError())
-                    }
-                    self.nextID += 1
-                    let id = self.nextID
-                    self.contents[kind.rawValue + String(id)] = .init(
-                        text: text, owned: true, liked: false,
-                        imageMids: [self.stage == "broken-image" ? "wrong" : "fixture-image"],
-                        anonymous: self.stage == "create-anonymous-" + kind.rawValue,
-                        publicAccess: self.stage == "create-public-" + kind.rawValue,
-                        title: self.stage == "create-title"
-                            ? "错误标题" : kind == .poster ? "功能验收" : text,
-                        intro: self.stage == "create-intro" ? "错误摘要" : text,
-                        tags: self.stage == "create-tags" ? ["错误标签"] : [],
-                        claimID: self.stage == "create-claim" ? 1 : 0,
-                        images: [
-                            .init(
-                                mid: "fixture-image", url: "https://fixture.invalid/image.jpg",
-                                lowUrl: "https://fixture.invalid/low.jpg")
-                        ])
-                    if self.stage == "persistent-find", kind == .paper, !self.injected {
-                        self.injected = true
-                        throw URLError(.networkConnectionLost)
-                    }
-                    if ["late-" + kind.rawValue, "hidden-" + kind.rawValue].contains(
-                        self.stage), !self.injected
-                    {
-                        self.injected = true
-                        if self.stage.hasPrefix("late-") {
-                            let key = kind.rawValue + String(id)
-                            self.delayedContents[key] = self.contents.removeValue(forKey: key)
-                        }
-                        throw URLError(.networkConnectionLost)
-                    }
-                    if self.stage == "lost-poster" && !self.injected {
-                        self.injected = true
-                        throw URLError(.networkConnectionLost)
-                    }
-                    return id
-                },
+                create: createContent,
                 find: { kind, marker in
                     if self.stage == "persistent-find" && kind == .paper {
                         throw URLError(.timedOut)
@@ -286,68 +359,7 @@ extension ReleaseNetworkSmokeLifecycleTests {
                     }
                     return self.rows[parent] ?? []
                 },
-                comment: { destination, text, _, submit in
-                    let object = destination.object
-                    if self.stage == "upload-comment" { throw URLError(.networkConnectionLost) }
-                    if self.stage == "cancel-before-comment" { self.cancel?() }
-                    try submit()
-                    self.nextID += 1
-                    @MainActor func makeComment(_ id: Int, readback: Bool = false)
-                        -> CommunityComment
-                    {
-                        let reply = object.hasPrefix("comment")
-                        let wrongRate =
-                            self.stage == "wrong-rating"
-                            || self.stage == "readback-rating" && readback
-                        return CommunityComment(
-                            id: id, obj: object,
-                            images: [.init(mid: "fixture-image", url: "", lowUrl: "")],
-                            user: self.user,
-                            anonymous: self.stage == "anonymous-reply" && reply,
-                            createTime: "", updateTime: "", like: false, likeNum: 0,
-                            commentNum: 0, own: true,
-                            rate: object.hasPrefix("course") && !wrongRate ? 6 : 0,
-                            replyUser: self.makeUser(
-                                (self.stage == "wrong-reply-user" && reply
-                                    || self.stage == "wrong-directed-user"
-                                        && destination.replyUID != nil)
-                                    ? 77 : destination.replyUID ?? 0),
-                            replyObj: (self.stage == "wrong-reply-object" && reply
-                                || self.stage == "wrong-directed-object"
-                                    && destination.replyObjectID != nil)
-                                ? "comment77" : destination.replyObjectID ?? "", text: text,
-                            sub: [])
-                    }
-                    let value = makeComment(self.nextID)
-                    self.rows[object, default: []].append(
-                        makeComment(self.nextID, readback: true))
-                    let createdKind =
-                        destination.replyObjectID != nil
-                        ? "directed" : object.hasPrefix("comment") ? "reply" : "comment"
-                    if ["late-" + createdKind, "hidden-" + createdKind].contains(self.stage),
-                        !self.injected
-                    {
-                        self.injected = true
-                        self.delayedParent = object
-                        if self.stage.hasPrefix("late-") {
-                            self.delayedRows[object] = self.rows.removeValue(forKey: object)
-                        }
-                        throw URLError(.networkConnectionLost)
-                    }
-                    if object.hasPrefix("comment") && !self.injected
-                        && ["lost-reply", "cancelled"].contains(self.stage)
-                    {
-                        self.injected = true
-                        self.cancel?()
-                        throw CancellationError()
-                    }
-                    if self.stage == "duplicate-comments", object.hasPrefix("comment"),
-                        let main = Int(object.dropFirst(7))
-                    {
-                        return makeComment(main)
-                    }
-                    return value
-                },
+                comment: createComment,
                 deleteComment: { id in
                     try Task.checkCancellation()
                     self.commentDeletionRequests.append(id)

@@ -46,348 +46,9 @@ def captured_command(lines, status=7, *, ci=False, executable="fixture", argumen
 
 
 def log_output_boundary_findings() -> list[str]:
-    findings = []
-
-    class FullLog(RetainedLog):
-        worker = None
-
-        def write(self, value):
-            self.worker = int(value)
-            raise OSError(errno.ENOSPC, "No space left on device")
-
-    children = []
-    start_process = subprocess.Popen
-
-    def start(*args, **kwargs):
-        child = start_process(*args, **kwargs)
-        children.append(child)
-        return child
-
-    log = FullLog()
-    program = (
-        'import subprocess,sys,time; child=subprocess.Popen([sys.executable,"-c","import time; tim'
-        'e.sleep(30)"]); print(child.pid,flush=True); time.sleep(30)'
-    )
-    with (
-        patch.object(Path, "open", return_value=log),
-        patch.object(subprocess, "Popen", side_effect=start),
-    ):
-        try:
-            run_command(["/dev/null", "disk-full", sys.executable, "-c", program])
-        except OSError as error:
-            assert error.errno == errno.ENOSPC and children[0].poll() is not None
-            from workflow_processes import active_members
-
-            assert log.worker not in active_members({os.getpgrp()})
-        else:
-            raise AssertionError("日志写满后需要保留错误并完成构建进程回收")
-    retry = "    t = 3.50s Retrying failed scroll-to-visible with containing cell Cell\n"
-    output, raw = captured_command([retry], status=0)
-    assert "Retrying failed scroll-to-visible" not in output and raw == retry
-    script = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
-    function = (
-        "show_smoke_progress() {"
-        + script.split("show_smoke_progress() {", 1)[1].split("\n}", 1)[0]
-        + "\n}"
-    )
-    stages = [
-        "NETWORK_SMOKE_START name=school.session",
-        "NETWORK_SMOKE_SMS_REQUIRED purpose=成绩查询",
-        "NETWORK_SMOKE_PASS name=school.session elapsed=1",
-        "NETWORK_SMOKE_FAIL [score] fixture",
-        "NETWORK_SMOKE_AUTH_BLOCKED [score] fixture",
-    ]
-    fixture = "system noise\n" + "\n".join("timestamp " + stage for stage in stages) + "\n"
-    command = (
-        (
-            "set -euo pipefail\ntypeset -A shown_smoke_progress=()\nROOT_DIR=/fixture\nRUN_ID=fixt"
-            "ure\nCONSOLE_LOG=/dev/stdin\nsmoke_stream_offset=0\nsmoke_summary_seen=false\n"
-        )
-        + 'python3() { print -r -- "$SMOKE_FIXTURE"; }\n'
-        + function
-        + (
-            '\nshow_smoke_progress\nshow_smoke_progress\nprint -r -- "STATE:$smoke_stream_offset:$'
-            'smoke_summary_seen"\n'
-        )
-    )
-    result = subprocess.run(
-        ["zsh", "-c", command],
-        env=os.environ
-        | {
-            "SMOKE_FIXTURE": "\n".join(
-                [
-                    *stages,
-                    "NETWORK_SMOKE_SUMMARY run_id=fixture passed=1",
-                    "NETWORK_SMOKE_OFFSET 123",
-                ]
-            ),
-            "PATH": "/usr/bin:/bin",
-        },
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    output = result.stdout
-    assert output.splitlines() == [stages[1], *stages[3:], "STATE:123:true"], (
-        f"Smoke 进度需要保留认证、失败与完成状态：{output!r} · {result.stderr!r}"
-    )
-    from command_output import smoke_progress
-    from contextlib import nullcontext
-
-    stream = BytesIO(fixture.encode() + b"NETWORK_SMOKE_PASS name=delayed")
-    with patch.object(Path, "open", return_value=nullcontext(stream)):
-        markers, offset = smoke_progress(Path("/console.log"), 0)
-        assert markers == stages and offset == len(fixture.encode())
-        stream.seek(0, 2)
-        stream.write(b" elapsed=1\n")
-        markers, updated = smoke_progress(Path("/console.log"), offset)
-        assert markers == ["NETWORK_SMOKE_PASS name=delayed elapsed=1"] and updated == len(
-            stream.getvalue()
-        )
-        stream.seek(0, 2)
-        stream.write(b"NETWORK_SMOKE_SUMMARY run_id=fixture passed=2")
-        markers, final = smoke_progress(Path("/console.log"), updated, complete=True)
-        assert markers == ["NETWORK_SMOKE_SUMMARY run_id=fixture passed=2"] and final == len(
-            stream.getvalue()
-        )
-
-    def arriving_diagnostics():
-        yield "error: early compiler failure\n"
-        assert "error: early compiler failure" in sys.stdout.getvalue()
-        yield "warning: following diagnostic\n"
-
-    output, raw = captured_command(arriving_diagnostics())
-    assert (
-        output.count("error: early compiler failure") == 1
-        and "warning: following diagnostic" in raw
-    )
-    for count in (0, 1, OUTPUT_LINE_LIMIT, OUTPUT_LINE_LIMIT + 1, 1000):
-        rows = [f"row {index}\n" for index in range(count)]
-        output = StringIO()
-        with redirect_stdout(output):
-            show_report_lines(iter(rows), Path("/report.json"), "报告")
-        shown = output.getvalue()
-        assert len(shown.splitlines()) <= OUTPUT_LINE_LIMIT + 1
-        if count <= OUTPUT_LINE_LIMIT:
-            assert shown == "".join(rows)
-        else:
-            assert rows[0] in shown and rows[-1] in shown and "/report.json" in shown
-    output = StringIO()
-    with redirect_stdout(output):
-        show_report_lines(iter(["final"]), Path("/report.json"), "报告")
-    assert output.getvalue() == "final\n"
-    from command_output import character_limit
-
-    large = "error: 开始" + "x" * 1_048_576 + "结束\n"
-    with redirect_stdout(output := StringIO()):
-        show_report_lines(iter([large]), Path("/report.json"), "报告")
-    assert len(output.getvalue()) < character_limit() + 200
-    assert (
-        "开始" in output.getvalue()
-        and "结束" in output.getvalue()
-        and "/report.json" in output.getvalue()
-    )
-    for failed in (True, False):
-        with (
-            patch.object(Path, "open", return_value=RetainedLog(large)),
-            redirect_stdout(output := StringIO()),
-        ):
-            show_log(Path("/fixture/compiler.log"), failed)
-        assert len(output.getvalue()) < character_limit() + 200 and "结束" in output.getvalue()
-    output, raw = captured_command([large])
-    assert (
-        raw == large
-        and len(output) < character_limit() + 200
-        and "开始" in output
-        and "结束" in output
-    )
-    warning = (
-        "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency sc"
-        "an of Swift module\n"
-    )
-    output, raw = captured_command([warning], status=0, executable="xcodebuild")
-    assert warning in raw and output.count("\n") == 2 and "[完成]" in output
-    assert (
-        "[依赖扫描] 1 条提示" in output
-        and "CourseFeature → CommunityCore" in output
-        and "/dev/null" in output
-    )
-    output, raw = captured_command([warning] * 1000, status=0, executable="xcodebuild")
-    assert raw == warning * 1000 and output.count("\n") == 2 and "[依赖扫描] 1000 条提示" in output
-    for line in (
-        warning,
-        "[1/2] error: fixture compiler failure\n",
-        "[12/20] warning: fixture dependency issue\n",
-    ):
-        output, raw = captured_command([line], status=7, executable="xcodebuild")
-        assert line in output and line in raw
-        with (
-            patch.object(Path, "open", return_value=RetainedLog(line)),
-            redirect_stdout(output := StringIO()),
-        ):
-            show_log(Path("/fixture/compiler.log"), True)
-        assert line in output.getvalue()
-    cache_warning = "warning: failed to load CAS object: unknown object 'llvmcas://fixture'\n"
-    cache_missing = "warning: llvmcas://fixture: No such file or directory\n"
-    output, raw = captured_command(
-        [cache_warning, cache_missing] * 100, status=0, executable="xcodebuild"
-    )
-    assert raw == (cache_warning + cache_missing) * 100 and "[编译缓存] 200 条" in output
-    assert output.count("\n") == 2
-    output, raw = captured_command([cache_warning], status=7, executable="xcodebuild")
-    assert cache_warning in output and raw == cache_warning
-    temporary_bundle = Path("/fixture/cache/ResultBundle_failure.xcresult")
-    diagnostic_bundle = Path("/fixture/diagnostics/test-results.xcresult")
-    for status, (executable, arguments) in (
-        (status, command)
-        for status in (0, 7)
-        for command in (
-            ("xcodebuild", ()),
-            (
-                "script",
-                (
-                    "-q",
-                    "/dev/null",
-                    "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild",
-                ),
-            ),
-            ("xcrun", ("xcodebuild",)),
-        )
-    ):
-        with (
-            patch.dict(os.environ, BIT101_COMMAND_DIAGNOSTICS=str(diagnostic_bundle.parent)),
-            patch("tempfile.gettempdir", return_value="/fixture/cache"),
-            patch.object(Path, "resolve", lambda path: path),
-            patch.object(Path, "is_dir", return_value=True),
-            patch("shutil.move") as moved,
-            patch("shutil.rmtree") as removed,
-        ):
-            captured_command(
-                [f"Writing error result bundle to {temporary_bundle}\n"],
-                status,
-                executable=executable,
-                arguments=arguments,
-            )
-            assert (
-                moved.call_args.args == (str(temporary_bundle), str(diagnostic_bundle))
-                if status
-                else not moved.called
-            )
-            assert removed.call_args.args[0] == (diagnostic_bundle if status else temporary_bundle)
-    from test_results import report_test_results
-
-    exported = diagnostic_bundle.parent / "session.log"
-    with (
-        patch.object(
-            sys,
-            "argv",
-            ["diagnostics", "/fixture/test-results.xcresult", "", "diagnostics", str(SCRIPT_ROOT)],
-        ),
-        patch.object(Path, "is_file", return_value=True),
-        patch.object(Path, "exists", lambda path: path == diagnostic_bundle.parent),
-        patch("test_results.current_result_bundle", return_value=diagnostic_bundle),
-        patch.object(Path, "is_dir", lambda path: path == diagnostic_bundle),
-        patch.object(Path, "iterdir", return_value=[diagnostic_bundle, exported]),
-        patch.object(Path, "unlink") as unlinked,
-        patch.object(shutil, "rmtree") as removed,
-        patch.object(subprocess, "run") as export,
-        redirect_stdout(StringIO()),
-    ):
-        try:
-            report_test_results(sys.argv[1:])
-        except SystemExit as error:
-            assert error.code == 0
-        arguments = export.call_args.args[0]
-        assert arguments[arguments.index("--path") + 1] == str(diagnostic_bundle)
-        assert arguments[arguments.index("--output-path") + 1] == str(diagnostic_bundle.parent)
-        assert unlinked.call_count == 1 and not removed.called
-    logger = (
-        "ROOT_DIR="
-        + shlex.quote(str(SCRIPT_ROOT.parent))
-        + "\nsource "
-        + shlex.quote(str(SCRIPT_ROOT / "script-support.sh"))
-    )
-    command = (
-        logger
-        + "\nbit101_log_command /dev/null stdin-contract "
-        + shlex.quote(sys.executable)
-        + " - delegated-argument\n"
-    )
-    for status in (0, 7):
-        payload = (
-            f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-'
-            f'stdin-executed")\nraise SystemExit('
-            f"{status}"
-            f")\n"
-        )
-        result = subprocess.run(
-            ["zsh", "-c", command],
-            input=payload,
-            capture_output=True,
-            text=True,
-            env={**os.environ, "GITHUB_ACTIONS": "false"},
-        )
-        assert result.returncode == status and "delegated-stdin-executed" in result.stdout
-    peaks = []
-    program = (
-        "import resource, sys; from command_output import run_command; status=run_command(sys.argv"
-        '[1:]); print("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss); raise Sys'
-        "temExit(status)"
-    )
-    for lines in (1_000, 70_000):
-        result = subprocess.run(
-            [sys.executable, "-c", program, "/dev/null", "memory-contract", sys.executable, "-"],
-            input=f'for index in range({lines}): print("warning:", index, "x" * 256)\n',
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PYTHONPATH": str(SCRIPT_ROOT)},
-        )
-        peak = re.search(r"LOGGER_RSS (\d+)", result.stdout)
-        assert result.returncode == 0 and peak
-        peaks.append(int(peak[1]) * (1 if sys.platform == "darwin" else 1024))
-    assert peaks[1] - peaks[0] < (70_000 - 1_000) * 256 // 2
-    lines = [*(f"error: retained {index}\n" for index in range(100)), "UI control inventory: {}\n"]
-    output, raw = captured_command(lines, ci=True)
-    assert "error: retained 0\n" in output and "error: retained 99\n" in output
-    assert len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
-    assert "UI control inventory:" not in output and "UI control inventory:" in raw
-    repeated = ["error: repeated cause\n"] * 200
-    for ci in (False, True):
-        output, raw = captured_command(repeated, ci=ci)
-        assert (
-            output.count("error: repeated cause\n") == 1
-            and raw.count("error: repeated cause\n") == 200
-        )
-        assert "/dev/null" in output and len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
-        with (
-            patch.object(Path, "open", return_value=RetainedLog("".join(repeated))),
-            patch.dict(os.environ, GITHUB_ACTIONS="true" if ci else "false"),
-            redirect_stdout(shown := StringIO()),
-        ):
-            show_log(Path("/fixture/failure.log"), True)
-        assert shown.getvalue().count("error: repeated cause\n") == 1
-        assert (
-            "/fixture/failure.log" in shown.getvalue()
-            and len(shown.getvalue().splitlines()) <= OUTPUT_LINE_LIMIT + 1
-        )
-    output, _ = captured_command(
-        [
-            "error: image-retry-failed\n",
-            *("    t = 1.0s Checking existence of retry button\n" for _ in range(100)),
-        ]
-    )
-    assert "error: image-retry-failed" in output and "Checking existence" not in output
-    for prefix in ("progress", "warning:", "error:"):
-        output, raw = captured_command(
-            [
-                *(f"{prefix} {index}\n" for index in range(45)),
-                "error: late-root-cause\n",
-                "tail-context\n",
-            ]
-        )
-        assert "error: late-root-cause" in output and "error: late-root-cause" in raw
-        if prefix == "error:":
-            assert "error: 0\n" in output and "error: 44\n" in output
+    findings, shown = verify_compiler_output_filtering()
+    repeated = verify_result_warning_output()
+    verify_repeated_diagnostic_output(repeated, shown)
     return findings
 
 
@@ -555,3 +216,356 @@ def combined_audit_order_findings() -> list[str]:
         ):
             findings.append("组合审计应先报告源码结果，源码通过后完整运行检查器自测并传播失败。")
     return findings
+
+
+def verify_compiler_output_filtering():
+    findings = []
+
+    class FullLog(RetainedLog):
+        worker = None
+
+        def write(self, value):
+            self.worker = int(value)
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    children = []
+    start_process = subprocess.Popen
+
+    def start(*args, **kwargs):
+        child = start_process(*args, **kwargs)
+        children.append(child)
+        return child
+
+    log = FullLog()
+    program = (
+        'import subprocess,sys,time; child=subprocess.Popen([sys.executable,"-c","import time; tim'
+        'e.sleep(30)"]); print(child.pid,flush=True); time.sleep(30)'
+    )
+    with (
+        patch.object(Path, "open", return_value=log),
+        patch.object(subprocess, "Popen", side_effect=start),
+    ):
+        try:
+            run_command(["/dev/null", "disk-full", sys.executable, "-c", program])
+        except OSError as error:
+            assert error.errno == errno.ENOSPC and children[0].poll() is not None
+            from workflow_processes import active_members
+
+            assert log.worker not in active_members({os.getpgrp()})
+        else:
+            raise AssertionError("日志写满后需要保留错误并完成构建进程回收")
+    retry = "    t = 3.50s Retrying failed scroll-to-visible with containing cell Cell\n"
+    output, raw = captured_command([retry], status=0)
+    assert "Retrying failed scroll-to-visible" not in output and raw == retry
+    script = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
+    function = (
+        "show_smoke_progress() {"
+        + script.split("show_smoke_progress() {", 1)[1].split("\n}", 1)[0]
+        + "\n}"
+    )
+    stages = [
+        "NETWORK_SMOKE_START name=school.session",
+        "NETWORK_SMOKE_SMS_REQUIRED purpose=成绩查询",
+        "NETWORK_SMOKE_PASS name=school.session elapsed=1",
+        "NETWORK_SMOKE_FAIL [score] fixture",
+        "NETWORK_SMOKE_AUTH_BLOCKED [score] fixture",
+    ]
+    fixture = "system noise\n" + "\n".join("timestamp " + stage for stage in stages) + "\n"
+    command = (
+        (
+            "set -euo pipefail\ntypeset -A shown_smoke_progress=()\nROOT_DIR=/fixture\nRUN_ID=fixt"
+            "ure\nCONSOLE_LOG=/dev/stdin\nsmoke_stream_offset=0\nsmoke_summary_seen=false\n"
+        )
+        + 'python3() { print -r -- "$SMOKE_FIXTURE"; }\n'
+        + function
+        + (
+            '\nshow_smoke_progress\nshow_smoke_progress\nprint -r -- "STATE:$smoke_stream_offset:$'
+            'smoke_summary_seen"\n'
+        )
+    )
+    result = subprocess.run(
+        ["zsh", "-c", command],
+        env=os.environ
+        | {
+            "SMOKE_FIXTURE": "\n".join(
+                [
+                    *stages,
+                    "NETWORK_SMOKE_SUMMARY run_id=fixture passed=1",
+                    "NETWORK_SMOKE_OFFSET 123",
+                ]
+            ),
+            "PATH": "/usr/bin:/bin",
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout
+    assert output.splitlines() == [stages[1], *stages[3:], "STATE:123:true"], (
+        f"Smoke 进度需要保留认证、失败与完成状态：{output!r} · {result.stderr!r}"
+    )
+    from command_output import smoke_progress
+    from contextlib import nullcontext
+
+    stream = BytesIO(fixture.encode() + b"NETWORK_SMOKE_PASS name=delayed")
+    with patch.object(Path, "open", return_value=nullcontext(stream)):
+        markers, offset = smoke_progress(Path("/console.log"), 0)
+        assert markers == stages and offset == len(fixture.encode())
+        stream.seek(0, 2)
+        stream.write(b" elapsed=1\n")
+        markers, updated = smoke_progress(Path("/console.log"), offset)
+        assert markers == ["NETWORK_SMOKE_PASS name=delayed elapsed=1"] and updated == len(
+            stream.getvalue()
+        )
+        stream.seek(0, 2)
+        stream.write(b"NETWORK_SMOKE_SUMMARY run_id=fixture passed=2")
+        markers, final = smoke_progress(Path("/console.log"), updated, complete=True)
+        assert markers == ["NETWORK_SMOKE_SUMMARY run_id=fixture passed=2"] and final == len(
+            stream.getvalue()
+        )
+
+    def arriving_diagnostics():
+        yield "error: early compiler failure\n"
+        assert "error: early compiler failure" in sys.stdout.getvalue()
+        yield "warning: following diagnostic\n"
+
+    output, raw = captured_command(arriving_diagnostics())
+    assert (
+        output.count("error: early compiler failure") == 1
+        and "warning: following diagnostic" in raw
+    )
+    for count in (0, 1, OUTPUT_LINE_LIMIT, OUTPUT_LINE_LIMIT + 1, 1000):
+        rows = [f"row {index}\n" for index in range(count)]
+        output = StringIO()
+        with redirect_stdout(output):
+            show_report_lines(iter(rows), Path("/report.json"), "报告")
+        shown = output.getvalue()
+        assert len(shown.splitlines()) <= OUTPUT_LINE_LIMIT + 1
+        if count <= OUTPUT_LINE_LIMIT:
+            assert shown == "".join(rows)
+        else:
+            assert rows[0] in shown and rows[-1] in shown and "/report.json" in shown
+    output = StringIO()
+    with redirect_stdout(output):
+        show_report_lines(iter(["final"]), Path("/report.json"), "报告")
+    assert output.getvalue() == "final\n"
+    from command_output import character_limit
+
+    large = "error: 开始" + "x" * 1_048_576 + "结束\n"
+    with redirect_stdout(output := StringIO()):
+        show_report_lines(iter([large]), Path("/report.json"), "报告")
+    assert len(output.getvalue()) < character_limit() + 200
+    assert (
+        "开始" in output.getvalue()
+        and "结束" in output.getvalue()
+        and "/report.json" in output.getvalue()
+    )
+    for failed in (True, False):
+        with (
+            patch.object(Path, "open", return_value=RetainedLog(large)),
+            redirect_stdout(output := StringIO()),
+        ):
+            show_log(Path("/fixture/compiler.log"), failed)
+        assert len(output.getvalue()) < character_limit() + 200 and "结束" in output.getvalue()
+    output, raw = captured_command([large])
+    assert (
+        raw == large
+        and len(output) < character_limit() + 200
+        and "开始" in output
+        and "结束" in output
+    )
+    return findings, shown
+
+
+def verify_result_warning_output():
+    warning = (
+        "warning: 'CourseFeature' is missing a dependency on 'CommunityCore' because dependency sc"
+        "an of Swift module\n"
+    )
+    output, raw = captured_command([warning], status=0, executable="xcodebuild")
+    assert warning in raw and output.count("\n") == 2 and "[完成]" in output
+    assert (
+        "[依赖扫描] 1 条提示" in output
+        and "CourseFeature → CommunityCore" in output
+        and "/dev/null" in output
+    )
+    output, raw = captured_command([warning] * 1000, status=0, executable="xcodebuild")
+    assert raw == warning * 1000 and output.count("\n") == 2 and "[依赖扫描] 1000 条提示" in output
+    for line in (
+        warning,
+        "[1/2] error: fixture compiler failure\n",
+        "[12/20] warning: fixture dependency issue\n",
+    ):
+        output, raw = captured_command([line], status=7, executable="xcodebuild")
+        assert line in output and line in raw
+        with (
+            patch.object(Path, "open", return_value=RetainedLog(line)),
+            redirect_stdout(output := StringIO()),
+        ):
+            show_log(Path("/fixture/compiler.log"), True)
+        assert line in output.getvalue()
+    cache_warning = "warning: failed to load CAS object: unknown object 'llvmcas://fixture'\n"
+    cache_missing = "warning: llvmcas://fixture: No such file or directory\n"
+    output, raw = captured_command(
+        [cache_warning, cache_missing] * 100, status=0, executable="xcodebuild"
+    )
+    assert raw == (cache_warning + cache_missing) * 100 and "[编译缓存] 200 条" in output
+    assert output.count("\n") == 2
+    output, raw = captured_command([cache_warning], status=7, executable="xcodebuild")
+    assert cache_warning in output and raw == cache_warning
+    temporary_bundle = Path("/fixture/cache/ResultBundle_failure.xcresult")
+    diagnostic_bundle = Path("/fixture/diagnostics/test-results.xcresult")
+    for status, (executable, arguments) in (
+        (status, command)
+        for status in (0, 7)
+        for command in (
+            ("xcodebuild", ()),
+            (
+                "script",
+                (
+                    "-q",
+                    "/dev/null",
+                    "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild",
+                ),
+            ),
+            ("xcrun", ("xcodebuild",)),
+        )
+    ):
+        with (
+            patch.dict(os.environ, BIT101_COMMAND_DIAGNOSTICS=str(diagnostic_bundle.parent)),
+            patch("tempfile.gettempdir", return_value="/fixture/cache"),
+            patch.object(Path, "resolve", lambda path: path),
+            patch.object(Path, "is_dir", return_value=True),
+            patch("shutil.move") as moved,
+            patch("shutil.rmtree") as removed,
+        ):
+            captured_command(
+                [f"Writing error result bundle to {temporary_bundle}\n"],
+                status,
+                executable=executable,
+                arguments=arguments,
+            )
+            assert (
+                moved.call_args.args == (str(temporary_bundle), str(diagnostic_bundle))
+                if status
+                else not moved.called
+            )
+            assert removed.call_args.args[0] == (diagnostic_bundle if status else temporary_bundle)
+    from test_results import report_test_results
+
+    exported = diagnostic_bundle.parent / "session.log"
+    with (
+        patch.object(
+            sys,
+            "argv",
+            ["diagnostics", "/fixture/test-results.xcresult", "", "diagnostics", str(SCRIPT_ROOT)],
+        ),
+        patch.object(Path, "is_file", return_value=True),
+        patch.object(Path, "exists", lambda path: path == diagnostic_bundle.parent),
+        patch("test_results.current_result_bundle", return_value=diagnostic_bundle),
+        patch.object(Path, "is_dir", lambda path: path == diagnostic_bundle),
+        patch.object(Path, "iterdir", return_value=[diagnostic_bundle, exported]),
+        patch.object(Path, "unlink") as unlinked,
+        patch.object(shutil, "rmtree") as removed,
+        patch.object(subprocess, "run") as export,
+        redirect_stdout(StringIO()),
+    ):
+        try:
+            report_test_results(sys.argv[1:])
+        except SystemExit as error:
+            assert error.code == 0
+        arguments = export.call_args.args[0]
+        assert arguments[arguments.index("--path") + 1] == str(diagnostic_bundle)
+        assert arguments[arguments.index("--output-path") + 1] == str(diagnostic_bundle.parent)
+        assert unlinked.call_count == 1 and not removed.called
+    logger = (
+        "ROOT_DIR="
+        + shlex.quote(str(SCRIPT_ROOT.parent))
+        + "\nsource "
+        + shlex.quote(str(SCRIPT_ROOT / "script-support.sh"))
+    )
+    command = (
+        logger
+        + "\nbit101_log_command /dev/null stdin-contract "
+        + shlex.quote(sys.executable)
+        + " - delegated-argument\n"
+    )
+    for status in (0, 7):
+        payload = (
+            f'import sys\nassert sys.argv[1] == "delegated-argument"\nprint("warning: delegated-'
+            f'stdin-executed")\nraise SystemExit('
+            f"{status}"
+            f")\n"
+        )
+        result = subprocess.run(
+            ["zsh", "-c", command],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GITHUB_ACTIONS": "false"},
+        )
+        assert result.returncode == status and "delegated-stdin-executed" in result.stdout
+    peaks = []
+    program = (
+        "import resource, sys; from command_output import run_command; status=run_command(sys.argv"
+        '[1:]); print("LOGGER_RSS", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss); raise Sys'
+        "temExit(status)"
+    )
+    for lines in (1_000, 70_000):
+        result = subprocess.run(
+            [sys.executable, "-c", program, "/dev/null", "memory-contract", sys.executable, "-"],
+            input=f'for index in range({lines}): print("warning:", index, "x" * 256)\n',
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(SCRIPT_ROOT)},
+        )
+        peak = re.search(r"LOGGER_RSS (\d+)", result.stdout)
+        assert result.returncode == 0 and peak
+        peaks.append(int(peak[1]) * (1 if sys.platform == "darwin" else 1024))
+    assert peaks[1] - peaks[0] < (70_000 - 1_000) * 256 // 2
+    lines = [*(f"error: retained {index}\n" for index in range(100)), "UI control inventory: {}\n"]
+    output, raw = captured_command(lines, ci=True)
+    assert "error: retained 0\n" in output and "error: retained 99\n" in output
+    assert len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
+    assert "UI control inventory:" not in output and "UI control inventory:" in raw
+    repeated = ["error: repeated cause\n"] * 200
+    return repeated
+
+
+def verify_repeated_diagnostic_output(repeated, shown):
+    for ci in (False, True):
+        output, raw = captured_command(repeated, ci=ci)
+        assert (
+            output.count("error: repeated cause\n") == 1
+            and raw.count("error: repeated cause\n") == 200
+        )
+        assert "/dev/null" in output and len(output.splitlines()) <= OUTPUT_LINE_LIMIT + 2
+        with (
+            patch.object(Path, "open", return_value=RetainedLog("".join(repeated))),
+            patch.dict(os.environ, GITHUB_ACTIONS="true" if ci else "false"),
+            redirect_stdout(shown := StringIO()),
+        ):
+            show_log(Path("/fixture/failure.log"), True)
+        assert shown.getvalue().count("error: repeated cause\n") == 1
+        assert (
+            "/fixture/failure.log" in shown.getvalue()
+            and len(shown.getvalue().splitlines()) <= OUTPUT_LINE_LIMIT + 1
+        )
+    output, _ = captured_command(
+        [
+            "error: image-retry-failed\n",
+            *("    t = 1.0s Checking existence of retry button\n" for _ in range(100)),
+        ]
+    )
+    assert "error: image-retry-failed" in output and "Checking existence" not in output
+    for prefix in ("progress", "warning:", "error:"):
+        output, raw = captured_command(
+            [
+                *(f"{prefix} {index}\n" for index in range(45)),
+                "error: late-root-cause\n",
+                "tail-context\n",
+            ]
+        )
+        assert "error: late-root-cause" in output and "error: late-root-cause" in raw
+        if prefix == "error:":
+            assert "error: 0\n" in output and "error: 44\n" in output

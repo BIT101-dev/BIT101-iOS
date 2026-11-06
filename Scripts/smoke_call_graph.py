@@ -399,300 +399,433 @@ def _resolve_case_iterable_count(test: dict, scope: list[str], enum_index: dict)
 def platform_smoke_calls(
     index: dict, platform: str, root_route: str = "network"
 ) -> dict[str, list[dict]]:
-    from network_capability_rules import branch_value, execution_index
+    return _SmokeCallGraph(index, platform, root_route).collect()
 
-    bound_scope = "all" if root_route == "network" else "communityWrites"
-    index = execution_index(index)
-    from pathlib import Path
-    import re
-    from validation_compilation import source_platforms
-    from network_capability_rules import (
-        api_argument_bindings,
-        api_invocations,
-        call_can_execute as evaluate_call,
-        callback_body_ranges,
-        executed_callback_positions,
-        stored_callback_bindings,
-    )
-    from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
 
-    types = SwiftTypeIndex(index)
-    resolve_receiver = receiver_resolver(index, types=types)
-    execution_cache = {}
+class _SmokeCallGraph:
+    def __init__(self, index, platform, root_route):
+        self.index, self.platform, self.root_route = index, platform, root_route
+        self.contextual_facts = cache(self.contextual_facts)
+        self.parameter_executes = cache(self.parameter_executes)
 
-    def call_can_execute(facts, call):
-        identity = (id(facts), id(call))
-        if identity not in execution_cache:
-            execution_cache[identity] = (facts, call, evaluate_call(facts, call))
-        return execution_cache[identity][2]
+    def collect(self):
+        self.prepare()
+        self.index_nodes()
+        self.initialize_edges()
+        self.connect_calls()
+        self.resolve_callbacks()
+        self.prepare_context()
+        return self.reachable_calls()
 
-    units = {
-        compilation_unit(path)
-        for path, facts in index.items()
-        if any(
-            function["scope"] == ["ReleaseNetworkSmokeRunner"] and function["name"] == "run"
-            for function in facts.get("functionRanges", [])
+    def prepare(self):
+        from network_capability_rules import branch_value, execution_index
+
+        self.branch_value = branch_value
+
+        self.bound_scope = "all" if self.root_route == "network" else "communityWrites"
+        self.index = execution_index(self.index)
+        from pathlib import Path
+
+        self.Path = Path
+        import re
+
+        self.re = re
+        from validation_compilation import source_platforms
+
+        self.source_platforms = source_platforms
+        from network_capability_rules import (
+            api_argument_bindings,
+            api_invocations,
+            call_can_execute as evaluate_call,
+            callback_body_ranges,
+            executed_callback_positions,
+            stored_callback_bindings,
         )
-    }
-    files = {
-        path
-        for path in index
-        if platform in source_platforms(path)
-        and (compilation_unit(path) in units or "Modules" in Path(path).parts)
-    }
-    nodes, by_name, active_sources, callables, stored_callables = {}, {}, {}, set(), {}
-    for path, facts in index.items():
-        if path not in files:
-            continue
-        active = (
-            active_swift_source(facts["source"], "network", platform=platform, path=path).encode()
-            if "source" in facts
-            else None
-        )
-        active_sources[path] = active
-        closures = facts.get("callableRanges", []) + facts.get("inlineClosureRanges", [])
-        for function in (
-            facts.get("functionRanges", [])
-            + facts.get("accessorRanges", [])
-            + closures
-            + [node for node in facts.get("initializers", []) if node.get("isExplicitInitializer")]
-        ):
-            if active is not None and active[function["start"] : function["start"] + 1] in {
-                b" ",
-                b"\n",
-                b"\r",
-            }:
-                continue
-            key = (path, function["start"], function["end"])
-            nodes[key] = function
-            if function in closures:
-                callables.add(key)
-            name = ".".join([*function["scope"], function["name"]])
-            by_name.setdefault(name, set()).add(key)
-            by_name.setdefault(compilation_unit(path) + "." + name, set()).add(key)
-            by_name.setdefault(
-                ".".join([*types.function_scope(path, function["scope"]), function["name"]]), set()
-            ).add(key)
-    for (owner, name), bindings in stored_callback_bindings(index, types).items():
-        for path, closure, call in bindings:
-            key = (path, closure["start"], closure["end"])
-            if key not in nodes:
-                continue
-            parents = [
-                parent
-                for parent in nodes
-                if parent[0] == path and parent[1] <= call["start"] < parent[2]
-            ]
-            if not parents:
-                continue
-            stored_callables.setdefault(key, []).append(
-                (min(parents, key=lambda item: item[2] - item[1]), call)
-            )
-            by_name.setdefault(owner.split(".", 1)[1] + "." + name, set()).add(key)
-            by_name.setdefault(owner + "." + name, set()).add(key)
-    edges = {key: set() for key in nodes}
-    edge_calls = {}
 
-    def connect(caller, targets, call=None):
-        for target in targets:
-            edges[caller].add(target)
-            evidence = edge_calls.setdefault((caller, target), [])
-            if call not in evidence:
-                evidence.append(call)
+        self.api_argument_bindings = api_argument_bindings
+        self.api_invocations = api_invocations
+        self.callback_body_ranges = callback_body_ranges
+        self.evaluate_call = evaluate_call
+        self.executed_callback_positions = executed_callback_positions
+        self.stored_callback_bindings = stored_callback_bindings
+        from swift_type_index import SwiftTypeIndex, compilation_unit, receiver_resolver
 
-    calls = {key: [] for key in nodes}
-    callback_calls = []
-    constructed_types, implementation_edges, implementations = {}, {}, {}
-    for target in types.records:
-        for base in types.bases(target):
-            if protocol := types.resolve(types.paths[target], base, target[1][:-1]):
-                implementations.setdefault(".".join([protocol[0], *protocol[1]]), set()).add(target)
-    nodes_by_path = {path: [key for key in nodes if key[0] == path] for path in files}
-    for key, function in nodes.items():
-        if not (reference := function.get("referenceTarget")):
-            continue
-        owner = ".".join(function["scope"])
-        for target in {
-            reference,
-            owner + "." + reference.removeprefix("Self.").removeprefix("self."),
-        }:
-            connect(key, by_name.get(target, set()))
-    for path, facts in index.items():
-        if path not in files:
-            continue
-        active = active_sources[path]
-        for fact in api_invocations(facts):
-            if active is not None and active[fact["start"] : fact["start"] + 1] in {
-                b" ",
-                b"\n",
-                b"\r",
-            }:
-                continue
-            if not call_can_execute(facts, fact):
-                continue
-            containing = [key for key in nodes_by_path[path] if key[1] <= fact["start"] < key[2]]
-            if not containing:
-                continue
-            key = min(containing, key=lambda item: item[2] - item[1])
-            expression = fact.get("calledExpression", fact.get("value", "")).removeprefix("self.")
-            if not fact.get("isMemberRead"):
-                nominal = types.resolve(
-                    path,
-                    ".".join(fact["scope"])
-                    if expression == "Self"
-                    else expression.removesuffix(".init"),
-                    fact["scope"],
-                )
-                if nominal:
-                    constructed_types.setdefault(nominal, []).append((key, fact))
-            owner = ".".join(nodes[key]["scope"])
-            candidates = {expression, owner + "." + expression.removeprefix("Self.")}
-            constructor = types.resolve(path, expression.removesuffix(".init"), fact["scope"])
-            if constructor:
-                candidates.add(".".join([constructor[0], *constructor[1], "init"]))
-            callbacks = set()
-            if expression.startswith("dependencies."):
-                candidates.add("ReleaseNetworkSmokeDependencies." + expression.split(".", 1)[1])
-            if fact.get("receiverCall"):
-                candidates.add(fact["receiverCall"] + "." + expression.rsplit(".", 1)[-1])
-            if resolved := resolve_receiver(dict(fact, path=path)):
-                candidates.add(resolved + "." + expression.rsplit(".", 1)[-1])
-                _resolve_implementation_edges(
-                    resolved,
-                    expression,
-                    implementations,
-                    by_name,
-                    index,
-                    fact,
-                    path,
-                    key,
-                    types,
-                    nodes,
-                    implementation_edges,
-                )
-            project_call = False
-            for target in candidates:
-                matched = _process_candidate_target(
-                    target,
-                    by_name,
-                    compilation_unit,
-                    path,
-                    types,
-                    stored_callables,
-                    nodes,
-                    fact,
-                    key,
-                    callables,
-                    connect,
-                    index,
-                    callback_calls,
-                )
-                project_call = project_call or matched
-            callback_positions = executed_callback_positions(fact, project_call=project_call)
-            if expression in {
-                "runInParallel",
-                "probe",
-                "NetworkSmokePaging.batch",
-                "NetworkSmokePaging.arrayPage",
-                "NetworkSmokePaging.messages",
-            }:
-                callback_positions.update(range(len(fact.get("arguments", []))))
-                callback_positions.update(
-                    position for position, _, _ in fact.get("closureArguments", [])
-                )
-            for position, argument in enumerate(fact.get("arguments", [])):
-                if position in callback_positions:
-                    callbacks.update({argument, owner + "." + argument})
-            references = set()
-            connect(
-                key,
-                (
-                    (path, start, end)
-                    for start, end in callback_body_ranges(
-                        facts, fact, callback_positions, references=references
-                    )
-                    if (path, start, end) in nodes
-                ),
-                fact,
-            )
-            for target in callbacks:
-                connect(key, by_name.get(target, set()) - callables, fact)
-            if "calledExpression" in fact:
-                calls[key].append(dict(fact, path=path, executedCallbackReferences=references))
-    parameter_names = {
-        key: _key_parameter_names(key, nodes, nodes_by_path, callables) for key in nodes
-    }
-    executed_parameters = {
-        key: {
-            name
-            for name in parameter_names[key]
+        self.compilation_unit = compilation_unit
+
+        self.types = SwiftTypeIndex(self.index)
+        self.resolve_receiver = receiver_resolver(self.index, types=self.types)
+        self.execution_cache = {}
+        units = {
+            self.compilation_unit(path)
+            for path, facts in self.index.items()
             if any(
-                call["calledExpression"] == name
-                and not call.get("isMemberRead")
-                or name in call.get("executedCallbackReferences", set())
-                for call in calls[key]
+                function["scope"] == ["ReleaseNetworkSmokeRunner"] and function["name"] == "run"
+                for function in facts.get("functionRanges", [])
             )
         }
-        for key in nodes
-    }
-    callback_guards = {}
-    changed = True
-    while changed:
-        changed = False
-        for caller, targets in edges.items():
-            for target in targets & callables:
-                if not (
-                    caller[0] == target[0] and caller[1] <= target[1] and (target[2] <= caller[2])
-                ):
+        self.files = {
+            path
+            for path in self.index
+            if self.platform in self.source_platforms(path)
+            and (self.compilation_unit(path) in units or "Modules" in self.Path(path).parts)
+        }
+        self.nodes, self.by_name, self.active_sources, self.callables, self.stored_callables = (
+            {},
+            {},
+            {},
+            set(),
+            {},
+        )
+
+    def index_nodes(self):
+        for path, facts in self.index.items():
+            if path not in self.files:
+                continue
+            active = (
+                active_swift_source(
+                    facts[("source")], ("network"), platform=self.platform, path=path
+                ).encode()
+                if "source" in facts
+                else None
+            )
+            self.active_sources[path] = active
+            closures = facts.get("callableRanges", []) + facts.get("inlineClosureRanges", [])
+            for function in (
+                facts.get("functionRanges", [])
+                + facts.get("accessorRanges", [])
+                + closures
+                + [
+                    node
+                    for node in facts.get(("initializers"), [])
+                    if node.get(("isExplicitInitializer"))
+                ]
+            ):
+                if active is not None and active[function["start"] : function["start"] + 1] in {
+                    b" ",
+                    b"\n",
+                    b"\r",
+                }:
                     continue
-                additions = (
-                    executed_parameters[target]
-                    & parameter_names[caller] - executed_parameters[caller]
+                key = (path, function["start"], function["end"])
+                self.nodes[key] = function
+                if function in closures:
+                    self.callables.add(key)
+                name = ".".join([*function["scope"], function["name"]])
+                self.by_name.setdefault(name, set()).add(key)
+                self.by_name.setdefault(self.compilation_unit(path) + "." + name, set()).add(key)
+                self.by_name.setdefault(
+                    (".").join(
+                        [*self.types.function_scope(path, function[("scope")]), function[("name")]]
+                    ),
+                    set(),
+                ).add(key)
+        for (owner, name), bindings in self.stored_callback_bindings(
+            self.index, self.types
+        ).items():
+            for path, closure, call in bindings:
+                key = (path, closure["start"], closure["end"])
+                if key not in self.nodes:
+                    continue
+                parents = [
+                    parent
+                    for parent in self.nodes
+                    if parent[0] == path and parent[1] <= call["start"] < parent[2]
+                ]
+                if not parents:
+                    continue
+                self.stored_callables.setdefault(key, []).append(
+                    (min(parents, key=lambda item: item[2] - item[1]), call)
                 )
+                self.by_name.setdefault(owner.split(".", 1)[1] + "." + name, set()).add(key)
+                self.by_name.setdefault(owner + "." + name, set()).add(key)
+
+    def initialize_edges(self):
+        self.edges = {key: set() for key in self.nodes}
+        self.edge_calls = {}
+        self.calls = {key: [] for key in self.nodes}
+        self.callback_calls = []
+        self.constructed_types, self.implementation_edges, self.implementations = {}, {}, {}
+        for target in self.types.records:
+            for base in self.types.bases(target):
+                if protocol := self.types.resolve(self.types.paths[target], base, target[1][:-1]):
+                    self.implementations.setdefault(
+                        (".").join([protocol[0], *protocol[1]]), set()
+                    ).add(target)
+        self.nodes_by_path = {
+            path: [key for key in self.nodes if key[0] == path] for path in self.files
+        }
+        for key, function in self.nodes.items():
+            if not (reference := function.get("referenceTarget")):
+                continue
+            owner = ".".join(function["scope"])
+            for target in {
+                reference,
+                owner + "." + reference.removeprefix("Self.").removeprefix("self."),
+            }:
+                self.connect(key, self.by_name.get(target, set()))
+
+    def connect_calls(self):
+        for path, facts in self.index.items():
+            if path not in self.files:
+                continue
+            active = self.active_sources[path]
+            for fact in self.api_invocations(facts):
+                if active is not None and active[fact["start"] : fact["start"] + 1] in {
+                    b" ",
+                    b"\n",
+                    b"\r",
+                }:
+                    continue
+                if not self.call_can_execute(facts, fact):
+                    continue
+                containing = [
+                    key for key in self.nodes_by_path[path] if key[1] <= fact[("start")] < key[2]
+                ]
+                if not containing:
+                    continue
+                key = min(containing, key=lambda item: item[2] - item[1])
+                expression = fact.get(("calledExpression"), fact.get(("value"), (""))).removeprefix(
+                    ("self.")
+                )
+                if not fact.get("isMemberRead"):
+                    nominal = self.types.resolve(
+                        path,
+                        ".".join(fact["scope"])
+                        if expression == "Self"
+                        else expression.removesuffix(".init"),
+                        fact["scope"],
+                    )
+                    if nominal:
+                        self.constructed_types.setdefault(nominal, []).append((key, fact))
+                owner = ".".join(self.nodes[key]["scope"])
+                candidates = {expression, owner + "." + expression.removeprefix("Self.")}
+                constructor = self.types.resolve(
+                    path, expression.removesuffix((".init")), fact[("scope")]
+                )
+                if constructor:
+                    candidates.add(".".join([constructor[0], *constructor[1], "init"]))
+                callbacks = set()
+                if expression.startswith("dependencies."):
+                    candidates.add("ReleaseNetworkSmokeDependencies." + expression.split(".", 1)[1])
+                if fact.get("receiverCall"):
+                    candidates.add(fact["receiverCall"] + "." + expression.rsplit(".", 1)[-1])
+                if resolved := self.resolve_receiver(dict(fact, path=path)):
+                    candidates.add(resolved + "." + expression.rsplit(".", 1)[-1])
+                    _resolve_implementation_edges(
+                        resolved,
+                        expression,
+                        self.implementations,
+                        self.by_name,
+                        self.index,
+                        fact,
+                        path,
+                        key,
+                        self.types,
+                        self.nodes,
+                        self.implementation_edges,
+                    )
+                project_call = False
+                for target in candidates:
+                    matched = _process_candidate_target(
+                        target,
+                        self.by_name,
+                        self.compilation_unit,
+                        path,
+                        self.types,
+                        self.stored_callables,
+                        self.nodes,
+                        fact,
+                        key,
+                        self.callables,
+                        self.connect,
+                        self.index,
+                        self.callback_calls,
+                    )
+                    project_call = project_call or matched
+                callback_positions = self.executed_callback_positions(
+                    fact, project_call=project_call
+                )
+                if expression in {
+                    "runInParallel",
+                    "probe",
+                    "NetworkSmokePaging.batch",
+                    "NetworkSmokePaging.arrayPage",
+                    "NetworkSmokePaging.messages",
+                }:
+                    callback_positions.update(range(len(fact.get("arguments", []))))
+                    callback_positions.update(
+                        position for position, _, _ in fact.get("closureArguments", [])
+                    )
+                for position, argument in enumerate(fact.get("arguments", [])):
+                    if position in callback_positions:
+                        callbacks.update({argument, owner + "." + argument})
+                references = set()
+                self.connect(
+                    key,
+                    (
+                        (path, start, end)
+                        for start, end in self.callback_body_ranges(
+                            facts, fact, callback_positions, references=references
+                        )
+                        if (path, start, end) in self.nodes
+                    ),
+                    fact,
+                )
+                for target in callbacks:
+                    self.connect(key, self.by_name.get(target, set()) - self.callables, fact)
+                if "calledExpression" in fact:
+                    self.calls[key].append(
+                        dict(fact, path=path, executedCallbackReferences=references)
+                    )
+
+    def resolve_callbacks(self):
+        parameter_names = {
+            key: _key_parameter_names(key, self.nodes, self.nodes_by_path, self.callables)
+            for key in self.nodes
+        }
+        executed_parameters = {
+            key: {
+                name
+                for name in parameter_names[key]
+                if any(
+                    call["calledExpression"] == name
+                    and not call.get("isMemberRead")
+                    or name in call.get("executedCallbackReferences", set())
+                    for call in self.calls[key]
+                )
+            }
+            for key in self.nodes
+        }
+        self.callback_guards = {}
+        changed = True
+        while changed:
+            changed = False
+            for caller, targets in self.edges.items():
+                for target in targets & self.callables:
+                    if not (
+                        caller[0] == target[0]
+                        and caller[1] <= target[1]
+                        and (target[2] <= caller[2])
+                    ):
+                        continue
+                    additions = (
+                        executed_parameters[target]
+                        & parameter_names[caller] - executed_parameters[caller]
+                    )
+                    if additions:
+                        executed_parameters[caller].update(additions)
+                        changed = True
+            for caller, callee, call, bindings in self.callback_calls:
+                positions = {
+                    position
+                    for position, parameter in enumerate(bindings)
+                    if parameter.get("name") in executed_parameters[callee]
+                }
+                references = set()
+                self.callback_body_ranges(
+                    self.index[caller[0]], call, positions, references=references
+                )
+                additions = references & parameter_names[caller] - executed_parameters[caller]
                 if additions:
                     executed_parameters[caller].update(additions)
                     changed = True
-        for caller, callee, call, bindings in callback_calls:
-            positions = {
-                position
-                for position, parameter in enumerate(bindings)
-                if parameter.get("name") in executed_parameters[callee]
-            }
-            references = set()
-            callback_body_ranges(index[caller[0]], call, positions, references=references)
-            additions = references & parameter_names[caller] - executed_parameters[caller]
-            if additions:
-                executed_parameters[caller].update(additions)
+            if _propagate_callback_guards(
+                self.callback_calls,
+                executed_parameters,
+                self.index,
+                self.nodes,
+                self.callback_guards,
+                self.edges,
+                self.connect,
+            ):
                 changed = True
-        if _propagate_callback_guards(
-            callback_calls,
-            executed_parameters,
-            index,
-            nodes,
-            callback_guards,
-            edges,
-            connect,
-        ):
-            changed = True
 
-    @cache
-    def contextual_facts(key, context):
+    def prepare_context(self):
+        self.context_cache = {}
+        self.callback_calls_by_caller = {}
+        for row in self.callback_calls:
+            self.callback_calls_by_caller.setdefault(row[0], []).append(row)
+
+    def reachable_calls(self):
+        reached = {
+            (key, self.root_route, ((key[0], key[1], "scope", self.bound_scope),))
+            for key in self.by_name.get("ReleaseNetworkSmokeRunner.run", set())
+        }
+        changed = True
+        while changed:
+            additions = set()
+            for key, route, context in reached:
+                facts = self.contextual_facts(key, context)
+                targets = self.edges[key] | _resolve_implementation_targets(
+                    key,
+                    route,
+                    self.implementation_edges,
+                    self.constructed_types,
+                    reached,
+                    self.contextual_facts,
+                    self.call_can_execute,
+                )
+                for target in targets:
+                    additions |= _collect_target_additions(
+                        target,
+                        route,
+                        key,
+                        context,
+                        facts,
+                        self.nodes,
+                        self.stored_callables,
+                        reached,
+                        self.edge_calls,
+                        self.calls,
+                        self.callback_guards,
+                        self.contextual_facts,
+                        self.call_can_execute,
+                        self.target_context,
+                        self.parameter_executes,
+                    )
+            additions -= reached
+            changed = bool(additions)
+            reached.update(additions)
+        result = {"network": [], "community-writes": []}
+        for key, route, context in reached:
+            result[route].extend(
+                call
+                for call in self.calls[key]
+                if self.call_can_execute(self.contextual_facts(key, context), call)
+            )
+        return result
+
+    def call_can_execute(self, facts, call):
+        identity = (id(facts), id(call))
+        if identity not in self.execution_cache:
+            self.execution_cache[identity] = (facts, call, self.evaluate_call(facts, call))
+        return self.execution_cache[identity][2]
+
+    def connect(self, caller, targets, call=None):
+        for target in targets:
+            self.edges[caller].add(target)
+            evidence = self.edge_calls.setdefault((caller, target), [])
+            if call not in evidence:
+                evidence.append(call)
+
+    def contextual_facts(self, key, context):
         return dict(
-            index[key[0]],
+            self.index[key[0]],
             smokeScopeBindings={
                 (start, name): value for path, start, name, value in context if path == key[0]
             },
         )
 
-    context_cache = {}
-
-    def target_context(caller, target, context, call):
+    def target_context(self, caller, target, context, call):
         identity = (caller, target, context, id(call))
-        if identity not in context_cache:
-            context_cache[identity] = (call, evaluate_context(caller, target, context, call))
-        return context_cache[identity][1]
+        if identity not in self.context_cache:
+            self.context_cache[identity] = (
+                call,
+                self.evaluate_context(caller, target, context, call),
+            )
+        return self.context_cache[identity][1]
 
-    def evaluate_context(caller, target, context, call):
+    def evaluate_context(self, caller, target, context, call):
         retained = {
             entry
             for entry in context
@@ -700,20 +833,22 @@ def platform_smoke_calls(
             and entry[1] <= target[1]
             and any(
                 function["start"] == entry[1] and target[2] <= function["end"]
-                for function in index[target[0]].get("functionRanges", [])
+                for function in self.index[target[0]].get("functionRanges", [])
             )
         }
-        function = nodes[target]
+        function = self.nodes[target]
         bindings = (
-            api_argument_bindings(function, call)
-            if call is not None and target not in callables
+            self.api_argument_bindings(function, call)
+            if call is not None and target not in self.callables
             else []
         )
         for parameter in function.get("parameters", []):
-            kind = types.terminal_name(
+            kind = self.types.terminal_name(
                 target[0], parameter.get("type", ""), function["scope"]
             ).rsplit(".", 1)[-1]
-            if not re.fullmatch(r"NetworkSmokeScope|Bool|String|U?Int(?:8|16|32|64)?|Double", kind):
+            if not self.re.fullmatch(
+                ("NetworkSmokeScope|Bool|String|U?Int(?:8|16|32|64)?|Double"), kind
+            ):
                 continue
             position = (
                 next(
@@ -729,14 +864,14 @@ def platform_smoke_calls(
             )
             arguments = call.get("arguments", []) if call else []
             value = (
-                branch_value(contextual_facts(caller, context), call, arguments[position])
+                self.branch_value(self.contextual_facts(caller, context), call, arguments[position])
                 if position is not None and position < len(arguments)
                 else None
             )
             if position is None and (bounds := parameter.get("defaultExpressionRange")):
-                facts = contextual_facts(target, context)
+                facts = self.contextual_facts(target, context)
                 expression = facts["source"].encode()[bounds[0] : bounds[1]].decode()
-                value = branch_value(facts, dict(function, start=bounds[0]), expression)
+                value = self.branch_value(facts, dict(function, start=bounds[0]), expression)
             retained = {
                 entry
                 for entry in retained
@@ -746,98 +881,52 @@ def platform_smoke_calls(
                 retained.add((target[0], target[1], parameter["name"], value))
         return tuple(sorted(retained))
 
-    callback_calls_by_caller = {}
-    for row in callback_calls:
-        callback_calls_by_caller.setdefault(row[0], []).append(row)
+    def parameter_executes(self, key, context, name):
+        return self.parameter_reachable(key, context, name, set())
 
-    @cache
-    def parameter_executes(key, context, name):
-        return parameter_reachable(key, context, name, set())
-
-    def parameter_reachable(key, context, name, seen):
+    def parameter_reachable(self, key, context, name, seen):
         identity = (key, context, name)
         if identity in seen:
             return False
         seen.add(identity)
-        facts = contextual_facts(key, context)
+        facts = self.contextual_facts(key, context)
         if any(
-            call_can_execute(facts, call)
+            self.call_can_execute(facts, call)
             and (
                 call["calledExpression"] == name
                 and not call.get("isMemberRead")
                 or name in call.get("executedCallbackReferences", set())
             )
-            for call in calls[key]
+            for call in self.calls[key]
         ):
             return True
-        for target in edges[key] & callables:
+        for target in self.edges[key] & self.callables:
             if target[0] != key[0] or not key[1] <= target[1] < target[2] <= key[2]:
                 continue
             if any(
-                (call is None or call_can_execute(facts, call))
-                and parameter_reachable(
-                    target, target_context(key, target, context, call), name, seen
+                (call is None or self.call_can_execute(facts, call))
+                and self.parameter_reachable(
+                    target, self.target_context(key, target, context, call), name, seen
                 )
-                for call in edge_calls.get((key, target), [])
+                for call in self.edge_calls.get((key, target), [])
             ):
                 return True
-        for caller, callee, call, bindings in callback_calls_by_caller.get(key, []):
-            if not call_can_execute(facts, call):
+        for caller, callee, call, bindings in self.callback_calls_by_caller.get(key, []):
+            if not self.call_can_execute(facts, call):
                 continue
             for position, parameter in enumerate(bindings):
                 references = set()
-                callback_body_ranges(index[key[0]], call, {position}, references=references)
-                if name in references and parameter_reachable(
-                    callee, target_context(key, callee, context, call), parameter.get("name"), seen
+                self.callback_body_ranges(
+                    self.index[key[0]], call, {position}, references=references
+                )
+                if name in references and self.parameter_reachable(
+                    callee,
+                    self.target_context(key, callee, context, call),
+                    parameter.get(("name")),
+                    seen,
                 ):
                     return True
         return False
-
-    reached = {
-        (key, root_route, ((key[0], key[1], "scope", bound_scope),))
-        for key in by_name.get("ReleaseNetworkSmokeRunner.run", set())
-    }
-    changed = True
-    while changed:
-        additions = set()
-        for key, route, context in reached:
-            facts = contextual_facts(key, context)
-            targets = edges[key] | _resolve_implementation_targets(
-                key,
-                route,
-                implementation_edges,
-                constructed_types,
-                reached,
-                contextual_facts,
-                call_can_execute,
-            )
-            for target in targets:
-                additions |= _collect_target_additions(
-                    target,
-                    route,
-                    key,
-                    context,
-                    facts,
-                    nodes,
-                    stored_callables,
-                    reached,
-                    edge_calls,
-                    calls,
-                    callback_guards,
-                    contextual_facts,
-                    call_can_execute,
-                    target_context,
-                    parameter_executes,
-                )
-        additions -= reached
-        changed = bool(additions)
-        reached.update(additions)
-    result = {"network": [], "community-writes": []}
-    for key, route, context in reached:
-        result[route].extend(
-            call for call in calls[key] if call_can_execute(contextual_facts(key, context), call)
-        )
-    return result
 
 
 def smoke_receiver_resolver(index: dict):

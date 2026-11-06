@@ -42,6 +42,16 @@ def smoke_execution_self_test() -> None:
         ):
             return {call["calledExpression"] for call in reachable_smoke_calls(facts)["network"]}
 
+    verify_callback_execution(reached, sources)
+    protocol = verify_platform_and_task_execution(reached)
+    verify_literal_and_write_execution(protocol, reached, sources)
+    verify_iteration_execution(reached, sources)
+    verify_conditional_execution(reached, sources)
+    verify_initializer_execution(reached, sources)
+    verify_successor_execution(reached, sources)
+
+
+def verify_callback_execution(reached, sources):
     assert "mine.fetchMyInfo" in reached(sources)
     for body in (
         "[1].forEach { _ in BODY }",
@@ -141,6 +151,9 @@ def smoke_execution_self_test() -> None:
                 )
                 == expected
             ), (method, execution)
+
+
+def verify_platform_and_task_execution(reached):
     platform_sources = {
         "BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift": """
         struct ReleaseNetworkSmokeRunner {
@@ -258,6 +271,10 @@ def smoke_execution_self_test() -> None:
                 func build() { _ = Adapter { service.fetch() } }
             }""",
     }
+    return protocol
+
+
+def verify_literal_and_write_execution(protocol, reached, sources):
     assert "service.fetch" in reached(protocol)
     protocol["ReleaseNetworkSmoke.swift"] = protocol["ReleaseNetworkSmoke.swift"].replace(
         "build(); restorer.restore()", "restorer.restore()"
@@ -347,6 +364,9 @@ def smoke_execution_self_test() -> None:
         "dependencies.productionSessionProbe()", "let unused = dependencies.productionSessionProbe"
     )
     assert "mine.fetchMyInfo" not in reached(unused_reference)
+
+
+def verify_iteration_execution(reached, sources):
     for statement in ("if", "while"):
         for condition, expected in [
             ("false", False),
@@ -463,6 +483,11 @@ def smoke_execution_self_test() -> None:
             row for row in facts["invocations"] if row["calledExpression"] == "service.fetch"
         )
         assert call_can_execute(facts, call), declarations
+
+
+def verify_conditional_execution(reached, sources):
+    from network_capability_rules import call_can_execute, execution_index
+
     expressions = [
         ("false && service.fetch()", False),
         ("true && service.fetch()", True),
@@ -616,6 +641,11 @@ def smoke_execution_self_test() -> None:
             f"if {condition} {{ dependencies.productionSessionProbe() }}",
         )
         assert ("mine.fetchMyInfo" in reached(branch)) == expected, condition
+
+
+def verify_initializer_execution(reached, sources):
+    from network_capability_rules import call_can_execute, execution_index
+
     initializers = [
         ("let value = 1; let alias = value; if alias == 2", False),
         ("let value: Int = 1; let flag = value == 2; if flag", False),
@@ -713,6 +743,11 @@ def smoke_execution_self_test() -> None:
         "if condition { return }; dependencies.productionSessionProbe()",
     )
     assert "mine.fetchMyInfo" in reached(conditional)
+
+
+def verify_successor_execution(reached, sources):
+    from network_capability_rules import call_can_execute, execution_index
+
     successors = [
         ("guard false else { return }", False),
         ("guard true else { return }", True),

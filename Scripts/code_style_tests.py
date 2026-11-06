@@ -4,6 +4,7 @@ from code_style_rules import (
     BANNED_WORDS,
     banned_word_findings,
     check_name,
+    check_function_lines,
     emoji_findings,
     line_findings,
     python_findings,
@@ -19,6 +20,7 @@ def self_test() -> None:
     from code_format_tests import self_test as format_self_test
 
     format_self_test()
+    function_length_self_test()
 
     from unittest.mock import patch
 
@@ -120,3 +122,32 @@ def self_test() -> None:
     conditional = "if a: pass\nelif b: pass\nelif c: pass\nelif d: pass\nelif e: pass"
     assert python_findings("file.py", conditional) == []
     assert python_findings("file.py", 'value = "if ' + "{" * 8 + '"') == []
+
+
+def function_length_self_test() -> None:
+    from swift_source_index import swift_syntax_index_sources
+
+    assert check_function_lines("sample.py", 3, 200) == []
+    assert check_function_lines("sample.py", 3, 201) == ["sample.py:3: 函数体共 201 行，上限为 200"]
+    for count in (200, 201):
+        statements = count - 2
+        python = "async def sample():\n" + "    pass\n" * (count - 1)
+        assert bool(python_findings("sample.py", python)) == (count > 200)
+        for source, language in (
+            ("sample() {\n" + "true\n" * statements + "}", "shell"),
+            ("const sample = () => {\n" + "work();\n" * statements + "};", "javascript"),
+            ("class Sample { method() {\n" + "work();\n" * statements + "} }", "javascript"),
+        ):
+            assert bool(tree_findings("sample", source, language)) == (count > 200)
+        body = "\n" + "        work()\n" * statements + "    }"
+        for declaration in ("func sample() {", "init() {", "var value: Int {", "let value = {"):
+            source = "struct Sample {\n    " + declaration + body + "\n}"
+            facts = swift_syntax_index_sources({"Sample.swift": source}, resolve_tests=False)
+            findings = swift_findings("Sample.swift", source, facts["Sample.swift"])
+            assert bool(findings) == (count > 200), (declaration, count, findings)
+    nested = "def sample():\n    def child():\n" + "        pass\n" * 200
+    assert len(python_findings("sample.py", nested)) == 2
+
+    annotated = "@Test(arguments: [\n" + "0,\n" * 201 + "])\nfunc sample() { work() }"
+    facts = swift_syntax_index_sources({"Sample.swift": annotated}, resolve_tests=False)
+    assert swift_findings("Sample.swift", annotated, facts["Sample.swift"]) == []

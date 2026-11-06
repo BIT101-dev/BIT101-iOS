@@ -743,6 +743,19 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if resetStorage, let account {
             application.launchEnvironment["BIT101_UI_TEST_ACCOUNT"] = account
         }
+        return finishAppConfiguration(
+            application: application, previousProcess: previousProcess,
+            restarted: restartProcess || requiresConfigurationRestart,
+            account: account, initialSettings: initialSettings, initialTab: initialTab,
+            failureOnce: failureOnce, content: content, animations: animations)
+    }
+
+    @MainActor
+    private func finishAppConfiguration(
+        application: XCUIApplication, previousProcess: String?, restarted: Bool,
+        account: String?, initialSettings: String?, initialTab: String,
+        failureOnce: Bool, content: Bool, animations: Bool
+    ) -> UIElement {
         app = UIElement(application, path: [])
         UITestSnapshotReader.application = application
         UITestSnapshotReader.invalidate()
@@ -896,7 +909,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         if Self.sessionProcess == nil {
             let process = String(identity.prefix(while: { $0 != ":" }))
             assertUI(!process.isEmpty, "场景身份应包含 App 进程。")
-            if restartProcess || requiresConfigurationRestart {
+            if restarted {
                 assertUI(process != previousProcess, "冷启动应由新的 App 进程恢复会话与持久化数据。")
                 print("UI persistence App restart: \(previousProcess ?? "") -> \(process)")
             }

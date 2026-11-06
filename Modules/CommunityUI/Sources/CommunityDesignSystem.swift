@@ -25,6 +25,7 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
     let retryRevision: Int
     let retry: @MainActor () async -> Void
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appPageIsVisible) private var isPageVisible
     @State private var isVisible = false
     @State private var hasAppeared = false
     @State private var recoveryTask: Task<Void, Never>?
@@ -46,8 +47,8 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
                     recoveryTask = nil
                 }
             }
-            .task(id: scenePhase == .active && isEnabled) {
-                guard scenePhase == .active, isEnabled else { return }
+            .task(id: scenePhase == .active && isEnabled && isPageVisible) {
+                guard scenePhase == .active, isEnabled, isPageVisible else { return }
                 for await _ in networkPath.connectionRecoveries() {
                     guard !Task.isCancelled else { return }
                     recover()
@@ -55,12 +56,13 @@ private struct CommunityReadRecoveryModifier: ViewModifier {
             }
             .onChange(of: scenePhase) { recover() }
             .onChange(of: isEnabled) { recover() }
+            .onChange(of: isPageVisible) { recover() }
             .onChange(of: retryRevision) { recover() }
     }
     private func recover() {
         recoveryTask?.cancel()
         recoveryTask = nil
-        guard isVisible, isEnabled, scenePhase == .active,
+        guard isVisible, isPageVisible, isEnabled, scenePhase == .active,
             networkPath.snapshot.status == .connected
         else { return }
         recoveryTask = Task {

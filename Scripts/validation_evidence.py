@@ -288,6 +288,37 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
     return errors
 
 
+def record_test_summary(group, status, row, started_digest, run_id):
+    row["report"] = ".build/extended-automation/test-metrics.txt"
+    metrics = ROOT / row["report"]
+    if metrics.is_file():
+        text = metrics.read_text()
+        if status == 0 and not producing_run_matches(text, started_digest, run_id):
+            status = row["exitCode"] = 1
+            print("测试指标需要来自本次验证运行。", file=sys.stderr)
+        try:
+            row["summary"] = test_summary(text)
+            if group in {"all", "ui"} and status == 0:
+                from validation_performance import bundle_identity, BUNDLE, current_commit
+
+                row["resultBundleIdentity"] = bundle_identity(BUNDLE)
+                row["sourceCommit"] = current_commit()
+        except ValueError:
+            if status == 0:
+                raise
+    if group == "catalyst-release-runtime" and status == 0:
+        from validate_distribution import catalyst_application_identity
+
+        try:
+            row["application"] = catalyst_application_identity(
+                ROOT
+                / ".build/extended-automation/Build/Products/Release-maccatalyst/BIT101-iOS.app"
+            )
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
+            row["summary"]["passed"] = False
+    return status
+
+
 def record(group: str, status: int, scope: str, started_digest: str) -> int:
     from validation_provenance import source_snapshot
 
@@ -317,33 +348,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
         status = row["exitCode"] = 1
         print(f"{group} 需要完整执行环境身份。", file=sys.stderr)
     if group in TEST_GROUPS:
-        row["report"] = ".build/extended-automation/test-metrics.txt"
-        metrics = ROOT / row["report"]
-        if metrics.is_file():
-            text = metrics.read_text()
-            if status == 0 and not producing_run_matches(text, started_digest, run_id):
-                status = row["exitCode"] = 1
-                print("测试指标需要来自本次验证运行。", file=sys.stderr)
-            try:
-                row["summary"] = test_summary(text)
-                if group in {"all", "ui"} and status == 0:
-                    from validation_performance import bundle_identity, BUNDLE, current_commit
-
-                    row["resultBundleIdentity"] = bundle_identity(BUNDLE)
-                    row["sourceCommit"] = current_commit()
-            except ValueError:
-                if status == 0:
-                    raise
-        if group == "catalyst-release-runtime" and status == 0:
-            from validate_distribution import catalyst_application_identity
-
-            try:
-                row["application"] = catalyst_application_identity(
-                    ROOT
-                    / ".build/extended-automation/Build/Products/Release-maccatalyst/BIT101-iOS.app"
-                )
-            except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
-                row["summary"]["passed"] = False
+        status = record_test_summary(group, status, row, started_digest, run_id)
     elif group in NETWORK_GROUPS | {"icloud", "icloud-cleanup"}:
         row["report"] = (
             ".build/icloud-cross-device-smoke/report.json"

@@ -1,23 +1,3 @@
-#if BIT101_UI_TESTING || EXTENDED_AUTOMATION
-nonisolated enum UITestControlIdentity {
-    static func key(
-        scope: String, ancestors: [String], identifier: String, label: String, type: Int
-    ) -> String {
-        let control = identifier.isEmpty ? "\(type):\(label)" : identifier
-        var path = ancestors
-        while !identifier.isEmpty && path.last == identifier { path.removeLast() }
-        return ([scope] + path + [control]).map { "\($0.utf8.count):\($0)" }.joined(
-            separator: ":")
-    }
-}
-
-nonisolated enum UITestScrollGeometry {
-    static func visibleDistance(_ points: Double, scale: Double) -> Double {
-        max(0, (points * scale).rounded()) / scale
-    }
-}
-#endif
-
 #if BIT101_UI_TESTING
 import StorageCore
 import Foundation
@@ -63,7 +43,10 @@ enum UITestAccessibilityActions {
     static weak var occlusionView: UIView?
     private static var presentationGeneration = 0
 
-    static func invalidate() { cachedTree = nil; treeBuilt = false }
+    static func invalidate() {
+        cachedTree = nil
+        treeBuilt = false
+    }
 
     @discardableResult static func record(
         _ identifier: String, label: String = "", type: Int = 0, scope: String? = nil,
@@ -152,7 +135,9 @@ enum UITestAccessibilityActions {
             let captured = observations[instance],
             captured["identifier"] as? String == identifier, captured["type"] as? Int == type,
             captured["scope"] as? String == scope
-        { disabledChecked.insert(instance) }
+        {
+            disabledChecked.insert(instance)
+        }
     }
 
     static func identity(_ parameters: [String: String]) -> String {
@@ -175,7 +160,10 @@ enum UITestAccessibilityActions {
         return instances.count == 1 ? instances.first ?? "" : ""
     }
 
-    @discardableResult static func observe() -> String { _ = tree(); return currentScope }
+    @discardableResult static func observe() -> String {
+        _ = tree()
+        return currentScope
+    }
 
     static func coverage() throws -> Data {
         observe()
@@ -430,234 +418,12 @@ enum UITestAccessibilityActions {
         currentScope = ([scenario] + navigation + modal).joined(separator: " / ")
         var visited = Set<ObjectIdentifier>()
         var occurrenceFrames: [String: [CGRect]] = [:]
-        func make(
-            _ object: NSObject, scroll inherited: UIScrollView? = nil,
-            identityPath: [String] = []
-        ) -> Element? {
-            guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
-            if object is UIDatePicker || object is UIPickerView { return nil }
-            if object.accessibilityElementsHidden { return nil }
-            if let view = object as? UIView, view.isHidden || view.alpha == 0 { return nil }
-            let frame = object.accessibilityFrame
-            var scroll = inherited
-            if let view = object as? UIView {
-                var ancestor: UIView? = view
-                while let candidate = ancestor {
-                    if let container = candidate as? UIScrollView {
-                        scroll = container
-                        break
-                    }
-                    ancestor = candidate.superview
-                }
-            }
-            let accessible = object.isAccessibilityElement
-            let traits = object.accessibilityTraits
-            var inputView: UIView?
-            let type: Int
-            switch object {
-            case is UIWindow: type = 4
-            case is UINavigationBar: type = 21
-            case is UITabBar: type = 22
-            case is UIToolbar: type = 24
-            case is UITableView: type = 26
-            case is UICollectionView: type = 32
-            case is UISegmentedControl: type = 37
-            case is UISwitch: type = 40
-            case is UISlider: type = 33
-            case is UIStepper: type = 79
-            case let field as UITextField: type = field.isSecureTextEntry ? 50 : 49
-            case is UITextView: type = 52
-            case is UIScrollView: type = 46
-            default:
-                if accessible && traits.contains(.toggleButton) {
-                    type = 40
-                } else if accessible && traits.contains(.link) {
-                    type = 42
-                } else if accessible && traits.contains(.button) {
-                    type = 9
-                } else if accessible, !frame.isEmpty {
-                    let point = window.convert(
-                        CGPoint(x: frame.midX, y: frame.midY),
-                        from: window.screen.coordinateSpace)
-                    inputView = window.hitTest(point, with: nil)
-                    while let view = inputView, !(view is UITextField || view is UITextView) {
-                        inputView = view.superview
-                    }
-                    if let input = inputView as? UITextField {
-                        type = input.isSecureTextEntry ? 50 : 49
-                    } else if inputView is UITextView {
-                        type = 52
-                    } else {
-                        type = traits.contains(.staticText) ? 48 : 1
-                    }
-                } else {
-                    type = 1
-                }
-            }
-            var label = object.accessibilityLabel ?? ""
-            var id = identifier(of: object) ?? ""
-            if id == "course.browse" || id == "score.browse" || id == "schedule.variant-surface"
-                || id == "schedule.refresh-status"
-            {
-                recordCallback(
-                    id == "schedule.refresh-status" ? "schedule.variant-surface" : id,
-                    action: "swipe")
-                if id == "schedule.variant-surface" || id == "schedule.refresh-status" {
-                    recordCallback(
-                        "interaction.CourseScheduleTabView.refresh", action: "scroll-fit")
-                    recordCallback("interaction.CourseScheduleTabView.list", action: "scroll-fit")
-                }
-            } else if id.hasPrefix("gallery.comment-menu.") {
-                recordCallback(id, action: "press")
-            } else if id.hasPrefix("community.poster.card.")
-                || id == "ui.gallery-poster-detail-view-scene.profile"
-                || id == "ui.day-adjustment-sheet.cancel"
-            {
-                recordCallback(id, action: "tap")
-            } else if id.hasPrefix("ddl.event.") {
-                recordCallback(id, action: "accessibility")
-            } else if id == "ui.app-segmented-picker.value" {
-                recordCallback(id, action: "selection")
-            } else if id == "interaction.CourseSearchRow.onSubmit" {
-                recordCallback("在这里搜索课程哦", action: "input")
-            } else if id == "ui.ddl-settings-number-picker-sheet.done" {
-                recordCallback("ui.ddl-settings-number-picker-sheet.value", action: "selection")
-            } else if id == "ui.schedule-semester-start-date-picker-page.done" {
-                recordCallback(
-                    "ui.schedule-semester-start-date-picker-page.学期起始日期", action: "selection")
-            } else if id == "ui.course-live-activity-lead-minutes-picker-page.done" {
-                recordCallback("提前显示阈值", action: "selection")
-                recordCallback(
-                    "ui.course-live-activity-lead-minutes-picker-page.提前显示阈值", action: "selection")
-            }
-            if label == "向开发者分享错误信息" {
-                recordCallback("diagnostic.school-service", action: "tap")
-                recordCallback("ui.diagnostic-recovery-actions.update", action: "tap")
-            } else if label == "显示灵动岛提醒（实验性）" {
-                recordCallback("显示灵动岛提醒（实验性）", action: "tap")
-            }
-            if let bar = object as? UINavigationBar {
-                label = bar.topItem?.title ?? label
-                if id.isEmpty { id = label }
-            }
-            var value = object.accessibilityValue
-            var placeholder = ""
-            if let field = (object as? UITextField)
-                ?? (type == 49 || type == 50 ? inputView as? UITextField : nil)
-            {
-                value =
-                    field.isSecureTextEntry
-                    ? String(repeating: "•", count: field.text?.count ?? 0) : field.text
-                placeholder = field.placeholder ?? field.attributedPlaceholder?.string ?? ""
-                if label.isEmpty && !placeholder.isEmpty { label = placeholder }
-            } else if let field = (object as? UITextView)
-                ?? (type == 52 ? inputView as? UITextView : nil)
-            {
-                value = field.text
-            } else if let control = object as? UISwitch {
-                value = control.isOn ? "1" : "0"
-            }
-            let enabled =
-                !traits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
-            var selected =
-                traits.contains(.selected) || (object as? UIControl)?.isSelected == true
-            if type == 9 {
-                var container: Any? = object
-                var ancestors = Set<ObjectIdentifier>()
-                while let element = container as? NSObject,
-                    ancestors.insert(ObjectIdentifier(element)).inserted
-                {
-                    if let view = element as? UIView {
-                        if let segmented = view as? UISegmentedControl,
-                            segmented.selectedSegmentIndex >= 0,
-                            let title = segmented.titleForSegment(
-                                at: segmented.selectedSegmentIndex)
-                        {
-                            selected = label == title
-                        }
-                        container = view.superview
-                    } else {
-                        container = (element as? UIAccessibilityElement)?.accessibilityContainer
-                    }
-                }
-            }
-            var instance = ""
-            let scrollContainer = [26, 32, 46].contains(type) && !id.isEmpty
-            if scrollContainer
-                || accessible && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type)
-            {
-                if id.isEmpty && label.isEmpty {
-                    unidentified.insert("\(currentScope):\(type)")
-                } else {
-                    let key = UITestControlIdentity.key(
-                        scope: currentScope, ancestors: identityPath, identifier: id,
-                        label: label, type: type)
-                    var frames = occurrenceFrames[key, default: []]
-                    let ordinal = frames.firstIndex(of: frame) ?? frames.count
-                    if ordinal == frames.count {
-                        frames.append(frame)
-                        occurrenceFrames[key] = frames
-                    }
-                    instance = key + "#\(ordinal)"
-                    observations[instance] = [
-                        "identifier": id, "label": label, "type": type, "scope": currentScope,
-                    ]
-                    if enabled {
-                        observed.insert(instance)
-                        if scrollContainer {
-                            record(
-                                id, label: label, type: type, scope: currentScope,
-                                instance: instance, action: "scroll-fit")
-                        } else if id == "ui.app-cancel-editing-button.cancel"
-                            || id.hasPrefix("community.poster.card.")
-                            || (id.isEmpty && label.hasPrefix("第") && label.contains("周，"))
-                        {
-                            record(
-                                id, label: label, type: type, scope: currentScope,
-                                instance: instance, action: "tap")
-                        } else if id == "ui.app-segmented-picker.value"
-                            || (id.isEmpty && label.hasPrefix("声明"))
-                        {
-                            record(
-                                id, label: label, type: type, scope: currentScope,
-                                instance: instance, action: "selection")
-                        }
-                    } else {
-                        disabledObserved.insert(instance)
-                    }
-                }
-            }
-            var attributes: [String: Any] = [
-                "identifier": id, "label": label, "elementType": type, "scope": currentScope,
-                "instance": instance, "placeholderValue": placeholder, "exists": true,
-                "enabled": enabled, "selected": selected,
-                "frame": [
-                    Double(frame.minX), Double(frame.minY), Double(frame.width),
-                    Double(frame.height),
-                ],
-            ]
-            if let value { attributes["value"] = value }
-            let childIdentityPath = id.isEmpty ? identityPath : identityPath + [id]
-            var children: [Element] = []
-            let count = object.accessibilityElementCount()
-            if count != NSNotFound && count > 0
-                && !object.accessibilityTraits.contains(.adjustable)
-            {
-                for index in 0..<count {
-                    if let child = object.accessibilityElement(at: index) as? NSObject,
-                        let element = make(child, scroll: scroll, identityPath: childIdentityPath)
-                    { children.append(element) }
-                }
-            }
-            if let view = object as? UIView {
-                children += view.subviews.compactMap {
-                    make($0, scroll: scroll, identityPath: childIdentityPath)
-                }
-            }
-            return Element(
-                object: object, attributes: attributes, children: children, scroll: scroll)
-        }
-        guard var content = make(controller.view) else { return nil }
+        guard
+            var content = makeElement(
+                controller.view, window: window, visited: &visited,
+                occurrenceFrames: &occurrenceFrames
+            )
+        else { return nil }
         if let alert = controller as? UIAlertController {
             if alert.title == "放弃文章修改？" {
                 recordCallback("paper.editor.cancel-discard", action: "tap")
@@ -687,6 +453,205 @@ enum UITestAccessibilityActions {
                 Element(
                     object: window, attributes: windowAttributes, children: [content], scroll: nil)
             ], scroll: nil)
+    }
+
+    private static func makeElement(
+        _ object: NSObject, window: UIWindow, scroll inherited: UIScrollView? = nil,
+        identityPath: [String] = [], visited: inout Set<ObjectIdentifier>,
+        occurrenceFrames: inout [String: [CGRect]]
+    ) -> Element? {
+        guard visited.insert(ObjectIdentifier(object)).inserted else { return nil }
+        if object is UIDatePicker || object is UIPickerView { return nil }
+        if object.accessibilityElementsHidden { return nil }
+        if let view = object as? UIView, view.isHidden || view.alpha == 0 { return nil }
+        let frame = object.accessibilityFrame
+        var scroll = inherited
+        if let view = object as? UIView {
+            var ancestor: UIView? = view
+            while let candidate = ancestor {
+                if let container = candidate as? UIScrollView {
+                    scroll = container
+                    break
+                }
+                ancestor = candidate.superview
+            }
+        }
+        let accessible = object.isAccessibilityElement
+        let traits = object.accessibilityTraits
+        let (type, inputView) = elementType(
+            object, window: window, accessible: accessible, traits: traits, frame: frame)
+        var label = object.accessibilityLabel ?? ""
+        var id = identifier(of: object) ?? ""
+        recordElementCallbacks(identifier: id, label: label)
+        if let bar = object as? UINavigationBar {
+            label = bar.topItem?.title ?? label
+            if id.isEmpty { id = label }
+        }
+        var value = object.accessibilityValue
+        var placeholder = ""
+        if let field = (object as? UITextField)
+            ?? (type == 49 || type == 50 ? inputView as? UITextField : nil)
+        {
+            value =
+                field.isSecureTextEntry
+                ? String(repeating: "•", count: field.text?.count ?? 0) : field.text
+            placeholder = field.placeholder ?? field.attributedPlaceholder?.string ?? ""
+            if label.isEmpty && !placeholder.isEmpty { label = placeholder }
+        } else if let field = (object as? UITextView)
+            ?? (type == 52 ? inputView as? UITextView : nil)
+        {
+            value = field.text
+        } else if let control = object as? UISwitch {
+            value = control.isOn ? "1" : "0"
+        }
+        let enabled =
+            !traits.contains(.notEnabled) && (object as? UIControl)?.isEnabled != false
+        var selected =
+            traits.contains(.selected) || (object as? UIControl)?.isSelected == true
+        if type == 9 {
+            var container: Any? = object
+            var ancestors = Set<ObjectIdentifier>()
+            while let element = container as? NSObject,
+                ancestors.insert(ObjectIdentifier(element)).inserted
+            {
+                if let view = element as? UIView {
+                    if let segmented = view as? UISegmentedControl,
+                        segmented.selectedSegmentIndex >= 0,
+                        let title = segmented.titleForSegment(
+                            at: segmented.selectedSegmentIndex)
+                    {
+                        selected = label == title
+                    }
+                    container = view.superview
+                } else {
+                    container = (element as? UIAccessibilityElement)?.accessibilityContainer
+                }
+            }
+        }
+        var instance = ""
+        let scrollContainer = [26, 32, 46].contains(type) && !id.isEmpty
+        if scrollContainer
+            || accessible && [9, 33, 37, 40, 41, 42, 45, 49, 50, 52, 79].contains(type)
+        {
+            if id.isEmpty && label.isEmpty {
+                unidentified.insert("\(currentScope):\(type)")
+            } else {
+                let key = UITestControlIdentity.key(
+                    scope: currentScope, ancestors: identityPath, identifier: id,
+                    label: label, type: type)
+                var frames = occurrenceFrames[key, default: []]
+                let ordinal = frames.firstIndex(of: frame) ?? frames.count
+                if ordinal == frames.count {
+                    frames.append(frame)
+                    occurrenceFrames[key] = frames
+                }
+                instance = key + "#\(ordinal)"
+                observations[instance] = [
+                    "identifier": id, "label": label, "type": type, "scope": currentScope,
+                ]
+                if enabled {
+                    observed.insert(instance)
+                    if scrollContainer {
+                        record(
+                            id, label: label, type: type, scope: currentScope,
+                            instance: instance, action: "scroll-fit")
+                    } else if id == "ui.app-cancel-editing-button.cancel"
+                        || id.hasPrefix("community.poster.card.")
+                        || (id.isEmpty && label.hasPrefix("第") && label.contains("周，"))
+                    {
+                        record(
+                            id, label: label, type: type, scope: currentScope,
+                            instance: instance, action: "tap")
+                    } else if id == "ui.app-segmented-picker.value"
+                        || (id.isEmpty && label.hasPrefix("声明"))
+                    {
+                        record(
+                            id, label: label, type: type, scope: currentScope,
+                            instance: instance, action: "selection")
+                    }
+                } else {
+                    disabledObserved.insert(instance)
+                }
+            }
+        }
+        var attributes: [String: Any] = [
+            "identifier": id, "label": label, "elementType": type, "scope": currentScope,
+            "instance": instance, "placeholderValue": placeholder, "exists": true,
+            "enabled": enabled, "selected": selected,
+            "frame": [
+                Double(frame.minX), Double(frame.minY), Double(frame.width),
+                Double(frame.height),
+            ],
+        ]
+        if let value { attributes["value"] = value }
+        let childIdentityPath = id.isEmpty ? identityPath : identityPath + [id]
+        var children: [Element] = []
+        let count = object.accessibilityElementCount()
+        if count != NSNotFound && count > 0
+            && !object.accessibilityTraits.contains(.adjustable)
+        {
+            for index in 0..<count {
+                if let child = object.accessibilityElement(at: index) as? NSObject,
+                    let element = makeElement(
+                        child, window: window, scroll: scroll, identityPath: childIdentityPath,
+                        visited: &visited, occurrenceFrames: &occurrenceFrames)
+                {
+                    children.append(element)
+                }
+            }
+        }
+        if let view = object as? UIView {
+            children += view.subviews.compactMap {
+                makeElement(
+                    $0, window: window, scroll: scroll, identityPath: childIdentityPath,
+                    visited: &visited, occurrenceFrames: &occurrenceFrames)
+            }
+        }
+        return Element(
+            object: object, attributes: attributes, children: children, scroll: scroll)
+    }
+
+    private static func recordElementCallbacks(identifier id: String, label: String) {
+        if id == "course.browse" || id == "score.browse" || id == "schedule.variant-surface"
+            || id == "schedule.refresh-status"
+        {
+            recordCallback(
+                id == "schedule.refresh-status" ? "schedule.variant-surface" : id,
+                action: "swipe")
+            if id == "schedule.variant-surface" || id == "schedule.refresh-status" {
+                recordCallback(
+                    "interaction.CourseScheduleTabView.refresh", action: "scroll-fit")
+                recordCallback("interaction.CourseScheduleTabView.list", action: "scroll-fit")
+            }
+        } else if id.hasPrefix("gallery.comment-menu.") {
+            recordCallback(id, action: "press")
+        } else if id.hasPrefix("community.poster.card.")
+            || id == "ui.gallery-poster-detail-view-scene.profile"
+            || id == "ui.day-adjustment-sheet.cancel"
+        {
+            recordCallback(id, action: "tap")
+        } else if id.hasPrefix("ddl.event.") {
+            recordCallback(id, action: "accessibility")
+        } else if id == "ui.app-segmented-picker.value" {
+            recordCallback(id, action: "selection")
+        } else if id == "interaction.CourseSearchRow.onSubmit" {
+            recordCallback("在这里搜索课程哦", action: "input")
+        } else if id == "ui.ddl-settings-number-picker-sheet.done" {
+            recordCallback("ui.ddl-settings-number-picker-sheet.value", action: "selection")
+        } else if id == "ui.schedule-semester-start-date-picker-page.done" {
+            recordCallback(
+                "ui.schedule-semester-start-date-picker-page.学期起始日期", action: "selection")
+        } else if id == "ui.course-live-activity-lead-minutes-picker-page.done" {
+            recordCallback("提前显示阈值", action: "selection")
+            recordCallback(
+                "ui.course-live-activity-lead-minutes-picker-page.提前显示阈值", action: "selection")
+        }
+        if label == "向开发者分享错误信息" {
+            recordCallback("diagnostic.school-service", action: "tap")
+            recordCallback("ui.diagnostic-recovery-actions.update", action: "tap")
+        } else if label == "显示灵动岛提醒（实验性）" {
+            recordCallback("显示灵动岛提醒（实验性）", action: "tap")
+        }
     }
 
     private static func platform(_ controller: UIViewController) -> Bool {
@@ -732,7 +697,9 @@ enum UITestAccessibilityActions {
         func find(_ view: UIView) -> (UIResponder & UITextInput)? {
             if view.isFirstResponder, view is UITextField || view is UITextView,
                 let input = view as? (UIResponder & UITextInput)
-            { return input }
+            {
+                return input
+            }
             return view.subviews.lazy.compactMap(find).first
         }
         return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
@@ -773,7 +740,9 @@ enum UITestAccessibilityActions {
             }
             if alert.preferredAction?.title == returnTitle,
                 alert.preferredAction?.isEnabled == true, hasReturnCommand
-            { return "ready" }
+            {
+                return "ready"
+            }
             let preferred = alert.preferredAction?.title ?? "none"
             let enabled = alert.preferredAction?.isEnabled == true
             let inputs = commands.map { String(reflecting: $0.input) }.joined(separator: ",")
@@ -822,8 +791,9 @@ enum UITestAccessibilityActions {
                 let input = candidate as? (UIView & UITextInput)
             {
                 guard input.isFirstResponder else { return "input focus missing" }
-                guard let range = input.textRange(
-                    from: input.beginningOfDocument, to: input.endOfDocument)
+                guard
+                    let range = input.textRange(
+                        from: input.beginningOfDocument, to: input.endOfDocument)
                 else { return "input range missing" }
                 input.selectedTextRange = range
                 input.insertText(text)
@@ -857,7 +827,9 @@ enum UITestAccessibilityActions {
             for child in menu.children {
                 if let item = child as? UIAction, item.title == title,
                     !item.attributes.contains(.disabled)
-                { return item }
+                {
+                    return item
+                }
                 if let submenu = child as? UIMenu, let item = action(in: submenu) { return item }
             }
             return nil
@@ -866,9 +838,14 @@ enum UITestAccessibilityActions {
             guard !view.isHidden, view.alpha > 0 else { return false }
             if let control = view as? UIControl, let interaction = control.contextMenuInteraction {
                 var selected: UIAction?
-                interaction.updateVisibleMenu { menu in selected = action(in: menu); return menu }
+                interaction.updateVisibleMenu { menu in
+                    selected = action(in: menu)
+                    return menu
+                }
                 if let selected {
-                    interaction.dismissMenu(); control.sendAction(selected); return true
+                    interaction.dismissMenu()
+                    control.sendAction(selected)
+                    return true
                 }
             }
             return view.subviews.contains(where: perform)
@@ -911,7 +888,9 @@ enum UITestAccessibilityActions {
                     ]
                     if !id.isEmpty && button.accessibilityIdentifier == id
                         || !label.isEmpty && labels.contains(label)
-                    { return button }
+                    {
+                        return button
+                    }
                 }
             }
             return view.subviews.lazy.compactMap { find(in: $0) }.first
@@ -923,11 +902,14 @@ enum UITestAccessibilityActions {
             while let presented = controller.presentedViewController { controller = presented }
             guard !platform(controller), let item = find(in: controller.view) else { continue }
             if let action = item.primaryAction, let control, control.isEnabled {
-                control.sendAction(action); return true
+                control.sendAction(action)
+                return true
             }
             if item.primaryAction == nil, let action = item.action,
                 UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil)
-            { return true }
+            {
+                return true
+            }
         }
         return false
     }
@@ -961,7 +943,9 @@ enum UITestAccessibilityActions {
                 for index in (0..<count).reversed() {
                     if let child = object.accessibilityElement(at: index) as? NSObject,
                         let result = find(child)
-                    { return result }
+                    {
+                        return result
+                    }
                 }
             }
             if let view = object as? UIView {
@@ -975,7 +959,9 @@ enum UITestAccessibilityActions {
                 (!identifier.isEmpty && actualIdentifier == identifier)
                     || (identifier.isEmpty
                         && (partialLabel ? actualLabel.contains(label) : actualLabel == label))
-            { return object }
+            {
+                return object
+            }
             return nil
         }
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }

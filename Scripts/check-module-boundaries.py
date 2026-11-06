@@ -74,27 +74,10 @@ def imported_aliases(source: str, local: tuple, modules: tuple) -> tuple:
     return local + tuple(alias for alias in modules if alias_module(alias[4]) in imports)
 
 
-def service_boundary_errors(
-    path: str,
-    source: str,
-    aliases: tuple = (),
-    context: tuple = ((), ()),
-    *,
-    call_context=None,
-    origin=None,
-) -> list[str]:
-    """Enforce resource capabilities on their owning module and declaration."""
-    source = local_resource_source(
-        expanded_resource_source(source, aliases, path), origin or path, call_context
-    )
-    source = normalized_resource_source(source)
-    if call_context:
-        call_context = call_context.replacing_source(origin or path, resource_facts(source))
-    code, permitted = swift_code(source), resource_permissions(path, source)
+def service_resource_patterns(path):
     from network_capability_rules import (
         NETWORK_PLATFORM_CONNECTION_TYPES,
         NETWORK_PLATFORM_TRANSPORT_TYPES,
-        platform_stream_request,
     )
 
     patterns = [
@@ -242,6 +225,29 @@ def service_boundary_errors(
         patterns.append(
             (r"\bDateFormatter\s*\(", "format schedule dates through ScheduleDateCodec", None)
         )
+    return patterns
+
+
+def service_boundary_errors(
+    path: str,
+    source: str,
+    aliases: tuple = (),
+    context: tuple = ((), ()),
+    *,
+    call_context=None,
+    origin=None,
+) -> list[str]:
+    """Enforce resource capabilities on their owning module and declaration."""
+    source = local_resource_source(
+        expanded_resource_source(source, aliases, path), origin or path, call_context
+    )
+    source = normalized_resource_source(source)
+    if call_context:
+        call_context = call_context.replacing_source(origin or path, resource_facts(source))
+    code, permitted = swift_code(source), resource_permissions(path, source)
+    from network_capability_rules import platform_stream_request
+
+    patterns = service_resource_patterns(path)
     errors = []
     if "getStreamsToHost" in code:
         bindings = call_context or SwiftBindingTypes({origin or path: resource_facts(source)})
@@ -818,24 +824,7 @@ def main() -> int:
     errors.extend(coverage_registry_findings(set(modules), ui_modules))
     from validation_test_areas import network_capability_findings
 
-    for name, info in (support | tests).items():
-        source_root = root / info["path"]
-        if not source_root.is_dir() or not info["path"].startswith("ModuleTests/"):
-            errors.append(f"test source root requires ModuleTests ownership: {name}")
-        actual = imported_modules(source_root).keys() & (modules.keys() | support.keys())
-        if actual != info["dependencies"]:
-            errors.append(
-                (
-                    f"test consumer "
-                    f"{name}"
-                    f": declared "
-                    f"{sorted(info['dependencies'])}"
-                    f", imports "
-                    f"{sorted(actual)}"
-                )
-            )
-    if len(tests) < 2:
-        errors.append("test consumers require independent source roots")
+    check_test_consumers(errors, modules, root, support, tests)
 
     # 平台副作用适配的资源选择沿声明归属及辅助调用链核对。
     app_syntax = swift_syntax_index(sorted((root / "BIT101-iOS").rglob("*.swift")))
@@ -865,6 +854,47 @@ def main() -> int:
 
     errors.extend(native_target_errors(root, package, set(modules)))
 
+    check_native_services(app_aliases, app_syntax, errors, module_aliases, network_index, root)
+
+    errors.extend(network_capability_findings(network_index))
+    if errors:
+        for error in errors:
+            print(f"module-boundary: {error}", file=sys.stderr)
+        return 1
+
+    print(f"module-boundary: {len(modules)} module source roots and direct dependencies pass")
+    return 0
+
+
+if __name__ == "__main__":
+    from validation_artifacts import static_audit_lock
+
+    with static_audit_lock(ROOT):
+        raise SystemExit(main())
+
+
+def check_test_consumers(errors, modules, root, support, tests):
+    for name, info in (support | tests).items():
+        source_root = root / info["path"]
+        if not source_root.is_dir() or not info["path"].startswith("ModuleTests/"):
+            errors.append(f"test source root requires ModuleTests ownership: {name}")
+        actual = imported_modules(source_root).keys() & (modules.keys() | support.keys())
+        if actual != info["dependencies"]:
+            errors.append(
+                (
+                    f"test consumer "
+                    f"{name}"
+                    f": declared "
+                    f"{sorted(info['dependencies'])}"
+                    f", imports "
+                    f"{sorted(actual)}"
+                )
+            )
+    if len(tests) < 2:
+        errors.append("test consumers require independent source roots")
+
+
+def check_native_services(app_aliases, app_syntax, errors, module_aliases, network_index, root):
     from validation_inputs import NATIVE_PRODUCT_ROOTS
 
     for name in NATIVE_PRODUCT_ROOTS:
@@ -912,19 +942,3 @@ def main() -> int:
                     else source.relative_to(root).as_posix(),
                 )
             )
-
-    errors.extend(network_capability_findings(network_index))
-    if errors:
-        for error in errors:
-            print(f"module-boundary: {error}", file=sys.stderr)
-        return 1
-
-    print(f"module-boundary: {len(modules)} module source roots and direct dependencies pass")
-    return 0
-
-
-if __name__ == "__main__":
-    from validation_artifacts import static_audit_lock
-
-    with static_audit_lock(ROOT):
-        raise SystemExit(main())

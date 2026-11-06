@@ -95,6 +95,95 @@ extension FactVisitor {
                         end: callback.endPositionBeforeTrailingTrivia.utf8Offset))
             }
         }
+        collectAlertModifier(node, calledName: calledName)
+        if ["Label", "Button", "NavigationLink", "Image"].contains(calledName),
+            let imageArgument = node.arguments.first(where: {
+                $0.label?.text == "systemImage" || $0.label?.text == "systemName"
+            })
+        {
+            listIcons.append(
+                ListIconFact(
+                    name: calledName,
+                    symbol: imageArgument.expression.trimmedDescription,
+                    scope: scope,
+                    containers: listContainers
+                ))
+        }
+        collectAccessibilityControl(node, calledName: calledName)
+        if [
+            "onTapGesture", "onLongPressGesture", "onAppear", "onDisappear", "onChange",
+            "onReceive", "task", "refreshable", "onSubmit", "onDelete", "onMove",
+            "alert", "confirmationDialog", "Menu", "overlay", "background", "toolbar",
+            "appBrowserFloatingActions", "appSideToolbarActions",
+        ].contains(calledName) {
+            excludeRenderedContent(node.trailingClosure)
+            for closure in node.additionalTrailingClosures {
+                excludeRenderedContent(closure.closure)
+            }
+            for argument in node.arguments {
+                excludeRenderedContent(argument.expression.as(ClosureExprSyntax.self))
+            }
+        }
+        if ["List", "Form", "Section"].contains(calledName) {
+            listContainers.append(calledName)
+        }
+        if calledName == "Picker" || calledName == "Toggle" {
+            selectionControls.append(
+                SelectionControlFact(
+                    name: calledName,
+                    invocation: node.trimmedDescription,
+                    scope: scope,
+                    start: node.positionAfterSkippingLeadingTrivia.utf8Offset
+                ))
+        }
+        if calledName == "List" {
+            listControls.append(
+                SelectionControlFact(
+                    name: calledName,
+                    invocation: node.trimmedDescription,
+                    scope: scope,
+                    start: node.positionAfterSkippingLeadingTrivia.utf8Offset
+                ))
+        }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+            memberAccess.trimmedDescription.hasSuffix(".appSelectionFeedback")
+        {
+            feedbackModifiers.append(
+                FeedbackModifierFact(
+                    name: "appSelectionFeedback",
+                    base: memberAccess.base?.trimmedDescription ?? "",
+                    scope: scope,
+                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
+                        ?? -1
+                ))
+        }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+            memberAccess.trimmedDescription.hasSuffix(".appGroupedListStyle")
+        {
+            listStyleModifiers.append(
+                FeedbackModifierFact(
+                    name: "appGroupedListStyle",
+                    base: memberAccess.base?.trimmedDescription ?? "",
+                    scope: scope,
+                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
+                        ?? -1
+                ))
+        }
+        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
+            memberAccess.trimmedDescription.hasSuffix(".accessibilityLabel")
+        {
+            accessibilityModifiers.append(
+                FeedbackModifierFact(
+                    name: "accessibilityLabel",
+                    base: memberAccess.base?.trimmedDescription ?? "",
+                    scope: scope,
+                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
+                        ?? -1
+                ))
+        }
+        return .visitChildren
+    }
+    private func collectAlertModifier(_ node: FunctionCallExprSyntax, calledName: String) {
         if calledName == "alert", node.calledExpression.as(MemberAccessExprSyntax.self) != nil {
             alertModifiers.append(
                 AlertModifierFact(
@@ -123,19 +212,9 @@ extension FactVisitor {
                     scope: scope
                 ))
         }
-        if ["Label", "Button", "NavigationLink", "Image"].contains(calledName),
-            let imageArgument = node.arguments.first(where: {
-                $0.label?.text == "systemImage" || $0.label?.text == "systemName"
-            })
-        {
-            listIcons.append(
-                ListIconFact(
-                    name: calledName,
-                    symbol: imageArgument.expression.trimmedDescription,
-                    scope: scope,
-                    containers: listContainers
-                ))
-        }
+    }
+
+    private func collectAccessibilityControl(_ node: FunctionCallExprSyntax, calledName: String) {
         if (interactionNames.contains(calledName)
             || node.calledExpression.is(DeclReferenceExprSyntax.self) || calledName == "init"
             || calledName.first?.isUppercase == true)
@@ -251,77 +330,6 @@ extension FactVisitor {
                 break
             }
         }
-        if [
-            "onTapGesture", "onLongPressGesture", "onAppear", "onDisappear", "onChange",
-            "onReceive", "task", "refreshable", "onSubmit", "onDelete", "onMove",
-            "alert", "confirmationDialog", "Menu", "overlay", "background", "toolbar",
-            "appBrowserFloatingActions", "appSideToolbarActions",
-        ].contains(calledName) {
-            excludeRenderedContent(node.trailingClosure)
-            for closure in node.additionalTrailingClosures {
-                excludeRenderedContent(closure.closure)
-            }
-            for argument in node.arguments {
-                excludeRenderedContent(argument.expression.as(ClosureExprSyntax.self))
-            }
-        }
-        if ["List", "Form", "Section"].contains(calledName) {
-            listContainers.append(calledName)
-        }
-        if calledName == "Picker" || calledName == "Toggle" {
-            selectionControls.append(
-                SelectionControlFact(
-                    name: calledName,
-                    invocation: node.trimmedDescription,
-                    scope: scope,
-                    start: node.positionAfterSkippingLeadingTrivia.utf8Offset
-                ))
-        }
-        if calledName == "List" {
-            listControls.append(
-                SelectionControlFact(
-                    name: calledName,
-                    invocation: node.trimmedDescription,
-                    scope: scope,
-                    start: node.positionAfterSkippingLeadingTrivia.utf8Offset
-                ))
-        }
-        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
-            memberAccess.trimmedDescription.hasSuffix(".appSelectionFeedback")
-        {
-            feedbackModifiers.append(
-                FeedbackModifierFact(
-                    name: "appSelectionFeedback",
-                    base: memberAccess.base?.trimmedDescription ?? "",
-                    scope: scope,
-                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
-                        ?? -1
-                ))
-        }
-        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
-            memberAccess.trimmedDescription.hasSuffix(".appGroupedListStyle")
-        {
-            listStyleModifiers.append(
-                FeedbackModifierFact(
-                    name: "appGroupedListStyle",
-                    base: memberAccess.base?.trimmedDescription ?? "",
-                    scope: scope,
-                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
-                        ?? -1
-                ))
-        }
-        if let memberAccess = node.calledExpression.as(MemberAccessExprSyntax.self),
-            memberAccess.trimmedDescription.hasSuffix(".accessibilityLabel")
-        {
-            accessibilityModifiers.append(
-                FeedbackModifierFact(
-                    name: "accessibilityLabel",
-                    base: memberAccess.base?.trimmedDescription ?? "",
-                    scope: scope,
-                    baseStart: memberAccess.base?.positionAfterSkippingLeadingTrivia.utf8Offset
-                        ?? -1
-                ))
-        }
-        return .visitChildren
     }
+
 }

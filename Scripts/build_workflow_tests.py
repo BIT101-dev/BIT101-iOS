@@ -334,20 +334,7 @@ def build_cache_boundary_findings() -> list[str]:
     fixture = ROOT / ".build/static-audit/cache-self-test"
     findings: list[str] = []
     try:
-        from validation_artifacts import SELF_TEST_ARTIFACTS, recover_self_test_artifacts
-
-        audit_folder = fixture / ".build/static-audit"
-        audit_folder.mkdir(parents=True, exist_ok=True)
-        for name in SELF_TEST_ARTIFACTS:
-            path = audit_folder / name
-            if path.suffix in {".swift", ".sh"}:
-                path.write_text("interrupted self-test")
-            else:
-                path.mkdir()
-        retained = audit_folder / "unregistered.log"
-        retained.write_text("audit keeps unregistered evidence visible")
-        recover_self_test_artifacts(fixture)
-        assert list(audit_folder.iterdir()) == [retained]
+        verify_interrupted_audit_recovery(fixture)
         shared = fixture / ".build/compiler-cache/ModuleCache.noindex"
         old = fixture / ".build/extended-automation/ModuleCache.noindex"
         shared.mkdir(parents=True, exist_ok=True)
@@ -384,22 +371,9 @@ def build_cache_boundary_findings() -> list[str]:
         for name in contexts:
             (shared / name).mkdir()
             (shared / name / f"{name}.pcm").write_bytes(content)
-        command_run = subprocess.run
         builds = []
 
-        def inspect_module(command, **options):
-            if command[:2] == ["zsh", "-c"]:
-                builds.append(command)
-                return subprocess.CompletedProcess(command, 0)
-            if command[:3] == ["xcrun", "clang", "-module-file-info"]:
-                triple = contexts.get(Path(command[3]).stem)
-                return subprocess.CompletedProcess(
-                    command,
-                    0 if triple else 1,
-                    f"Target options:\n  Triple: {triple}\n" if triple else "",
-                    "",
-                )
-            return command_run(command, **options)
+        inspect_module = cache_module_inspector(contexts, builds)
 
         obsolete_paths = [
             fixture / ".build/ui-authorization.logarchive",
@@ -546,3 +520,40 @@ def build_cache_boundary_findings() -> list[str]:
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
     return findings
+
+
+def verify_interrupted_audit_recovery(fixture):
+    from validation_artifacts import SELF_TEST_ARTIFACTS, recover_self_test_artifacts
+
+    audit_folder = fixture / ".build/static-audit"
+    audit_folder.mkdir(parents=True, exist_ok=True)
+    for name in SELF_TEST_ARTIFACTS:
+        path = audit_folder / name
+        if path.suffix in {".swift", ".sh"}:
+            path.write_text("interrupted self-test")
+        else:
+            path.mkdir()
+    retained = audit_folder / "unregistered.log"
+    retained.write_text("audit keeps unregistered evidence visible")
+    recover_self_test_artifacts(fixture)
+    assert list(audit_folder.iterdir()) == [retained]
+
+
+def cache_module_inspector(contexts, builds):
+    command_run = subprocess.run
+
+    def inspect_module(command, **options):
+        if command[:2] == ["zsh", "-c"]:
+            builds.append(command)
+            return subprocess.CompletedProcess(command, 0)
+        if command[:3] == ["xcrun", "clang", "-module-file-info"]:
+            triple = contexts.get(Path(command[3]).stem)
+            return subprocess.CompletedProcess(
+                command,
+                0 if triple else 1,
+                f"Target options:\n  Triple: {triple}\n" if triple else "",
+                "",
+            )
+        return command_run(command, **options)
+
+    return inspect_module

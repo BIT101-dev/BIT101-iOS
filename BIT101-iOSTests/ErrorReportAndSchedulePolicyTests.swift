@@ -346,6 +346,53 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testPairedPagesDrawIntoBottomInset() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(
+            rootView: AppPairedPages(showsFirst: true) {
+                Color(uiColor: .red).ignoresSafeArea(.container, edges: .bottom)
+            } second: {
+                Color(uiColor: .blue)
+            }.appWindowLayout())
+        controller.view.backgroundColor = .blue
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+        var pixel: [UInt8] = []
+        try? await waitForTestEvent {
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            let bounds = controller.view.bounds
+            guard bounds.height > 0 else { return false }
+            let image = UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in
+                controller.view.drawHierarchy(in: bounds, afterScreenUpdates: true)
+            }
+            let sample = try XCTUnwrap(
+                image.cgImage?.cropping(
+                    to:
+                        CGRect(x: bounds.midX, y: bounds.maxY - 1, width: 1, height: 1)))
+            pixel = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(
+                CGContext(
+                    data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return pixel[0] > 240 && pixel[1] < 15 && pixel[2] < 15
+        }
+        XCTAssertEqual(Array(pixel.prefix(3)), [255, 0, 0], "可见页面应绘制到窗口底部。")
+    }
+
+    @MainActor
     func testPageSwitchObservesContentTouches() async throws {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

@@ -38,7 +38,9 @@ async function readReportBody(request, maximumBytes = MAX_BODY_BYTES) {
 function canonicalReport(value) {
   if (Array.isArray(value)) return value.map(canonicalReport);
   if (!value || typeof value !== "object") return value;
-  const entries = Object.keys(value).sort().map((key) => [key, canonicalReport(value[key])]);
+  const entries = Object.keys(value)
+    .sort()
+    .map((key) => [key, canonicalReport(value[key])]);
   return Object.fromEntries(entries);
 }
 
@@ -703,6 +705,41 @@ async function readVisibleSmokeRecord(storage, key) {
   }
 }
 
+function validateAttachments(attachments) {
+  if (attachments != null && !Array.isArray(attachments))
+    return json({ error: "invalid_attachment" }, 400);
+  if (Array.isArray(attachments)) {
+    if (attachments.length > MAX_ATTACHMENTS) {
+      return json({ error: "too_many_attachments" }, 413);
+    }
+    for (const attachment of attachments) {
+      if (
+        !attachment ||
+        typeof attachment.data !== "string" ||
+        (attachment.contentType != null && typeof attachment.contentType !== "string") ||
+        (attachment.name != null && typeof attachment.name !== "string") ||
+        (attachment.filename != null && typeof attachment.filename !== "string")
+      ) {
+        return json({ error: "invalid_attachment" }, 400);
+      }
+      const padding = attachment.data.endsWith("==") ? 2 : attachment.data.endsWith("=") ? 1 : 0;
+      const bytes = Math.floor((attachment.data.length * 3) / 4) - padding;
+      if (bytes > MAX_ATTACHMENT_BYTES) {
+        return json({ error: "attachment_too_large" }, 413);
+      }
+      if (
+        attachment.data.length < 4 ||
+        attachment.data.length % 4 !== 0 ||
+        /[^A-Za-z0-9+/]/.test(attachment.data.slice(0, attachment.data.length - padding)) ||
+        (padding > 0 && !/(?:[AQgw]==|[AEIMQUYcgkosw048]=)$/.test(attachment.data))
+      ) {
+        return json({ error: "invalid_attachment" }, 400);
+      }
+    }
+  }
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -755,37 +792,8 @@ export default {
         { error: "school_service_issue", msg: "请通过学校官方入口核对账号、认证要求或服务状态。" },
         422,
       );
-    if (report.attachments != null && !Array.isArray(report.attachments))
-      return json({ error: "invalid_attachment" }, 400);
-    if (Array.isArray(report.attachments)) {
-      if (report.attachments.length > MAX_ATTACHMENTS) {
-        return json({ error: "too_many_attachments" }, 413);
-      }
-      for (const attachment of report.attachments) {
-        if (
-          !attachment ||
-          typeof attachment.data !== "string" ||
-          (attachment.contentType != null && typeof attachment.contentType !== "string") ||
-          (attachment.name != null && typeof attachment.name !== "string") ||
-          (attachment.filename != null && typeof attachment.filename !== "string")
-        ) {
-          return json({ error: "invalid_attachment" }, 400);
-        }
-        const padding = attachment.data.endsWith("==") ? 2 : attachment.data.endsWith("=") ? 1 : 0;
-        const bytes = Math.floor((attachment.data.length * 3) / 4) - padding;
-        if (bytes > MAX_ATTACHMENT_BYTES) {
-          return json({ error: "attachment_too_large" }, 413);
-        }
-        if (
-          attachment.data.length < 4 ||
-          attachment.data.length % 4 !== 0 ||
-          /[^A-Za-z0-9+/]/.test(attachment.data.slice(0, attachment.data.length - padding)) ||
-          (padding > 0 && !/(?:[AQgw]==|[AEIMQUYcgkosw048]=)$/.test(attachment.data))
-        ) {
-          return json({ error: "invalid_attachment" }, 400);
-        }
-      }
-    }
+    const attachmentError = validateAttachments(report.attachments);
+    if (attachmentError) return attachmentError;
 
     const id = report.requestID?.toLowerCase() ?? crypto.randomUUID();
     let serializedRecord;

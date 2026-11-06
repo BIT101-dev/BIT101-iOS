@@ -132,6 +132,19 @@ def campus_fixture_self_test() -> None:
 
 
 def checker_boundary_findings() -> list[str]:
+    findings, wait_path = verify_style_and_async_rules()
+    unwrap_facts, write_facts, write_path, write_source = verify_view_and_file_error_rules(
+        findings, wait_path
+    )
+    verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_path, write_source)
+
+    verify_concurrency_and_target_rules(findings)
+
+    verify_native_target_graph(findings)
+    return findings
+
+
+def verify_style_and_async_rules():
     from code_style_tests import self_test as test_style
 
     test_style()
@@ -287,6 +300,10 @@ enum Consumer {
     ):
         findings.append("代码质量规则界限自检失败：测试可直接断言底层取消类型")
     wait_path = ROOT / "ModuleTests/Transport/EventTests.swift"
+    return findings, wait_path
+
+
+def verify_view_and_file_error_rules(findings, wait_path):
     view_path = str(ROOT / "BIT101-iOS/Example.swift")
     transport_path = str(ROOT / "Modules/TransportCore/Sources/HTTPClient.swift")
     for body, expected in (
@@ -435,6 +452,10 @@ enum Consumer {
     write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
     if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 3:
         findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
+    return unwrap_facts, write_facts, write_path, write_source
+
+
+def verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_path, write_source):
     writes = {
         "try? data.write(to: url, options: .atomic)": True,
         "let outcome = try? files.writeData(data, to: url); _ = outcome": True,
@@ -587,6 +608,8 @@ enum Consumer {
     ):
         findings.append("代码质量规则界限自检失败：持久化仓库的统一存储入口识别")
 
+
+def verify_concurrency_and_target_rules(findings):
     relocated_facts = {
         "declarations": [{"kind": "struct", "name": "ExampleView", "scope": []}],
         "calls": [{"value": "restoreCache", "scope": ["ExampleView"]}],
@@ -735,6 +758,10 @@ enum Consumer {
         findings.append("代码质量规则界限自检失败：扩展依赖断开应触发拦截")
     from code_quality_rules import native_project_targets
 
+
+def verify_native_target_graph(findings):
+    from code_quality_rules import native_project_targets
+
     native_graph = {
         "rootObject": "project",
         "objects": {
@@ -757,4 +784,3 @@ enum Consumer {
         ("FutureUITests", {"StorageCore"}, {ROOT / "Shared/Shared.swift"})
     ]:
         findings.append("工程依赖自检失败：新增 target 和跨目录编译源文件需要按工程归属审计")
-    return findings

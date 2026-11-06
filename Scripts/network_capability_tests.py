@@ -12,6 +12,12 @@ from network_execution_tests import smoke_execution_self_test
 
 
 def network_capability_self_test() -> None:
+    guard, index, offset, renamed = verify_service_capability_index()
+    course_facts, courses, request_call = verify_request_registration(guard, index, offset, renamed)
+    verify_request_execution_coverage(course_facts, courses, index, request_call)
+
+
+def verify_service_capability_index():
     from swift_type_index_tests import (
         stored_network_callback_self_test,
         dynamic_network_callback_self_test,
@@ -166,6 +172,13 @@ def network_capability_self_test() -> None:
     unbound["BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"]["typedVariables"] = []
     assert any("静态可达服务调用" in error for error in network_capability_findings(unbound))
     renamed = deepcopy(index)
+    return guard, index, offset, renamed
+
+
+def verify_request_registration(guard, index, offset, renamed):
+    from copy import deepcopy
+    from unittest.mock import patch
+
     for facts in (
         renamed["BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift"],
         renamed["BIT101-iOS/Shared/Client/CommunityWriteSmoke.swift"],
@@ -312,6 +325,12 @@ def network_capability_self_test() -> None:
             assert any(expected in error for error in network_capability_findings(index)), route
     courses.pop()
     course_facts["invocations"].pop()
+    return course_facts, courses, request_call
+
+
+def verify_request_execution_coverage(course_facts, courses, index, request_call):
+    from unittest.mock import patch
+
     courses.append(
         {
             "name": "fetchComments",

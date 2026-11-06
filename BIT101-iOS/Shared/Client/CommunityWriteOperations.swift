@@ -173,13 +173,7 @@ extension CommunityWriteSmoke {
                 identity: { AppAccountSession.storage.communityCredentials.identity },
                 account: { try await mine.fetchMyInfo().user.id },
                 course: {
-                    guard let fixture = courseFixture, fixture.isValid else {
-                        throw URLError(.badURL)
-                    }
-                    let course = try await courses.fetchCourse(id: fixture.courseID)
-                    guard course.id == fixture.courseID, course.number == fixture.courseNumber
-                    else { throw URLError(.cannotParseResponse) }
-                    return course.id
+                    try await fetchCourseID(fixture: courseFixture, courses: courses)
                 },
                 create: { kind, text, record, submit in
                     switch kind {
@@ -207,62 +201,11 @@ extension CommunityWriteSmoke {
                     }
                 },
                 find: { kind, text in
-                    var result: Set<Int> = []
-                    var scanned: Set<Int> = []
-                    var progress = CommunityPageProgress<Int>()
-                    var page = 0
-                    while true {
-                        try NetworkSmokePaging.checkSampleBudget(
-                            page: page, items: scanned.count)
-                        if kind == .poster {
-                            let rows = try await mine.fetchMyPosters(page: page)
-                            if rows.isEmpty { return result.sorted() }
-                            scanned.formUnion(rows.map(\.id))
-                            try NetworkSmokePaging.checkSampleBudget(
-                                page: page, items: scanned.count)
-                            try progress.record(rows.map(\.id))
-                            result.formUnion(rows.filter { $0.text.contains(text) }.map(\.id))
-                        } else {
-                            let rows = try await papers.fetchPapers(
-                                search: text, order: .newest, page: page)
-                            if rows.isEmpty { return result.sorted() }
-                            scanned.formUnion(rows.map(\.id))
-                            try NetworkSmokePaging.checkSampleBudget(
-                                page: page, items: scanned.count)
-                            try progress.record(rows.map(\.id))
-                            let matchingIDs = try await CommunityWriteSmoke.matchingPaperIDs(
-                                in: rows, text: text, papers: papers
-                            )
-                            result.formUnion(matchingIDs)
-                        }
-                        page += 1
-                    }
+                    try await findContent(kind: kind, text: text, papers: papers, mine: mine)
                 },
                 read: { kind, id in
-                    do {
-                        switch kind {
-                        case .poster:
-                            let value = try await gallery.fetchPoster(id: id)
-                            return Content(
-                                text: value.text, owned: value.own, liked: value.like,
-                                imageMids: value.images.map(\.mid),
-                                anonymous: value.anonymous, publicAccess: value.public,
-                                title: value.title,
-                                tags: value.tags, claimID: value.claim.id, images: value.images)
-                        case .paper:
-                            let value = try await papers.fetchPaper(id: id)
-                            return Content(
-                                text: PaperEditorContentBuilder.plainText(from: value.content),
-                                owned: value.own, liked: value.like,
-                                anonymous: value.anonymous, publicAccess: value.publicEdit,
-                                title: value.title, intro: value.intro)
-                        case .course:
-                            let value = try await courses.fetchCourse(id: id)
-                            return Content(text: "", owned: false, liked: value.like)
-                        }
-                    } catch let error where Self.isMissingContent(error, kind: kind) {
-                        return nil
-                    }
+                    try await readContent(
+                        kind: kind, id: id, papers: papers, courses: courses, gallery: gallery)
                 },
                 edit: { kind, id, text in
                     switch kind {
@@ -404,6 +347,84 @@ extension CommunityWriteSmoke {
                     return info.following
                 }, follow: { try await mine.followUser(id: $0).following })
         }
+
+        private static func fetchCourseID(fixture: NetworkSmokeFixtures?, courses: CourseService)
+            async throws -> Int
+        {
+            guard let fixture = fixture, fixture.isValid else {
+                throw URLError(.badURL)
+            }
+            let course = try await courses.fetchCourse(id: fixture.courseID)
+            guard course.id == fixture.courseID, course.number == fixture.courseNumber
+            else { throw URLError(.cannotParseResponse) }
+            return course.id
+        }
+
+        private static func findContent(
+            kind: Kind, text: String, papers: PaperService, mine: MineService
+        ) async throws -> [Int] {
+            var result: Set<Int> = []
+            var scanned: Set<Int> = []
+            var progress = CommunityPageProgress<Int>()
+            var page = 0
+            while true {
+                try NetworkSmokePaging.checkSampleBudget(
+                    page: page, items: scanned.count)
+                if kind == .poster {
+                    let rows = try await mine.fetchMyPosters(page: page)
+                    if rows.isEmpty { return result.sorted() }
+                    scanned.formUnion(rows.map(\.id))
+                    try NetworkSmokePaging.checkSampleBudget(
+                        page: page, items: scanned.count)
+                    try progress.record(rows.map(\.id))
+                    result.formUnion(rows.filter { $0.text.contains(text) }.map(\.id))
+                } else {
+                    let rows = try await papers.fetchPapers(
+                        search: text, order: .newest, page: page)
+                    if rows.isEmpty { return result.sorted() }
+                    scanned.formUnion(rows.map(\.id))
+                    try NetworkSmokePaging.checkSampleBudget(
+                        page: page, items: scanned.count)
+                    try progress.record(rows.map(\.id))
+                    let matchingIDs = try await CommunityWriteSmoke.matchingPaperIDs(
+                        in: rows, text: text, papers: papers
+                    )
+                    result.formUnion(matchingIDs)
+                }
+                page += 1
+            }
+        }
+
+        private static func readContent(
+            kind: Kind, id: Int, papers: PaperService, courses: CourseService,
+            gallery: GalleryService
+        ) async throws -> Content? {
+            do {
+                switch kind {
+                case .poster:
+                    let value = try await gallery.fetchPoster(id: id)
+                    return Content(
+                        text: value.text, owned: value.own, liked: value.like,
+                        imageMids: value.images.map(\.mid),
+                        anonymous: value.anonymous, publicAccess: value.public,
+                        title: value.title,
+                        tags: value.tags, claimID: value.claim.id, images: value.images)
+                case .paper:
+                    let value = try await papers.fetchPaper(id: id)
+                    return Content(
+                        text: PaperEditorContentBuilder.plainText(from: value.content),
+                        owned: value.own, liked: value.like,
+                        anonymous: value.anonymous, publicAccess: value.publicEdit,
+                        title: value.title, intro: value.intro)
+                case .course:
+                    let value = try await courses.fetchCourse(id: id)
+                    return Content(text: "", owned: false, liked: value.like)
+                }
+            } catch let error where Self.isMissingContent(error, kind: kind) {
+                return nil
+            }
+        }
+
     }
 }
 

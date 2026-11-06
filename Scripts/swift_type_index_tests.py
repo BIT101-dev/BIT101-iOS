@@ -577,6 +577,12 @@ def callable_object_network_self_test():
 
 
 def self_test():
+    generic_path, ports, storage = verify_type_and_receiver_index()
+    indexed, view = verify_generic_and_view_receivers(generic_path, ports, storage)
+    verify_request_target_resolution(indexed, view)
+
+
+def verify_type_and_receiver_index():
     receiver_parameter_self_test()
     network_composition_self_test()
     extension_protocol_self_test()
@@ -709,6 +715,13 @@ struct Use { func build() { _ = Native(); _ = Nested() } }
 
     ports = str(ROOT / "Modules/SchedulePorts/Sources/ScheduleServicing.swift")
     storage = str(ROOT / "Modules/StorageCore/Sources/AppFileService.swift")
+    return generic_path, ports, storage
+
+
+def verify_generic_and_view_receivers(generic_path, ports, storage):
+    from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
+    from code_quality_rules import discarded_file_write_findings, file_write_calls
+
     for parameter, constraint in [
         ("S: ScheduleCourseServicing", ""),
         ("S", "where S: ScheduleCourseServicing"),
@@ -856,6 +869,13 @@ struct Use { func build() { _ = Native(); _ = Nested() } }
             }
         )
         assert ast_has_view_request(requests[view], context=requests) == (imported and exported)
+    return indexed, view
+
+
+def verify_request_target_resolution(indexed, view):
+    from code_quality_rules import automatic_school_fetch_findings, ast_has_view_request
+    from ui_rules import native_interaction_inventory
+
     for request, expected in [
         ("func load() { typealias URLRequest = Model; _ = URLRequest() }", False),
         (

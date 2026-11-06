@@ -125,352 +125,23 @@ def report_inbox_boundary_findings() -> list[str]:
         return int(output.getvalue())
 
     try:
-        archive_io_failure_self_test(fixture)
-        namespace_configuration_self_test(source, fixture)
-        deletion_boundary_self_test(source, fixture)
-        issues_path = fixture / "github-issues.json"
-        issue = dict(
-            number=1,
-            state="open",
-            title="Issue",
-            url="https://api.github.com/repos/owner/repo/issues/1",
-            html_url="https://github.com/owner/repo/issues/1",
-        )
-        issues_path.write_text(
-            json.dumps(
-                [
-                    [issue, dict(number=2, pull_request={})],
-                    [dict(issue, number=3, pull_request=None)],
-                ]
+        verify_report_archive_contents(calls, execute, fixture, processed_path, reports, source)
+        ci_path, complete, issue_path, run_fetch, shell_source, shlex = (
+            verify_report_fetch_recovery(
+                execute, fetch_failures, fixture, processed_path, reports, source, staging
             )
         )
-        normalize_github_issues([str(issues_path)])
-        assert [item["number"] for item in json.loads(issues_path.read_text())] == [1, 3]
-        ci_path = fixture / "ci-runs.json"
-        ci_path.write_text(
-            json.dumps(
-                {
-                    "workflow_runs": [
-                        dict(
-                            id=index,
-                            workflow_id=2 if index == 29 else 1,
-                            status="completed",
-                            conclusion="failure" if index == 29 else "success",
-                            head_branch="main",
-                            event="push",
-                        )
-                        for index in range(30, 10, -1)
-                    ]
-                }
-            )
+        verify_report_ci_selection(
+            ci_path,
+            complete,
+            fixture,
+            issue_path,
+            processed_path,
+            run_fetch,
+            shell_source,
+            shlex,
+            source,
         )
-        normalize_ci_runs([str(ci_path)])
-        assert [
-            item["databaseId"] for item in latest_failed_ci_runs(json.loads(ci_path.read_text()))
-        ] == [29]
-        summary_path = fixture / "summary.txt"
-        with redirect_stdout(StringIO()):
-            publish_summary(
-                [
-                    str(issues_path),
-                    str(fixture),
-                    str(summary_path),
-                    "0",
-                    str(ci_path),
-                    "success",
-                    "success",
-                    "success",
-                ]
-            )
-        assert (
-            issue["html_url"] in summary_path.read_text()
-            and issue["url"] not in summary_path.read_text()
-        )
-        assert execute() == 2
-        saved = {
-            path.relative_to(fixture): path.read_bytes()
-            for path in fixture.glob("*/*/*")
-            if path.is_file()
-        }
-        attachment = next(fixture.glob("*/*/*_附件/*.jpg"))
-        assert (
-            attachment.read_bytes() == b"image"
-            and next(fixture.glob("*/*/*_附件/*.bin")).read_bytes() == b"image"
-        )
-        assert execute() == 0
-        assert all((fixture / path).read_bytes() == data for path, data in saved.items())
-        archive = next(
-            path
-            for path in fixture.glob("*/*/report_*.json")
-            if json.loads(path.read_text()).get("report", {}).get("attachments")
-        )
-        archived = json.loads(archive.read_text())
-        assert all(
-            "data" not in item and (archive.parent / item["localFile"]).is_file()
-            for item in archived["report"]["attachments"]
-        )
-        old_key = next(key for key in reports if key.endswith(":old"))
-        remote = reports.pop(old_key)
-        for item in archived["report"]["attachments"]:
-            item["data"] = "bmV3"
-            item.pop("fileModified")
-            item.pop("localFile")
-        archive.write_text(json.dumps(archived))
-        assert execute() == 0
-        assert json.loads(archive.read_text())["report"]["attachments"][0]["data"] == "bmV3"
-        assert old_key in processed_path.read_text(), "本地保留的归档继续保留处理记录"
-        for item in archived["report"]["attachments"]:
-            item["data"] = "aW1hZ2U="
-        archive.write_text(json.dumps(archived))
-        assert execute() == 0
-        assert all(
-            "data" not in item for item in json.loads(archive.read_text())["report"]["attachments"]
-        )
-        compacted = archive.read_bytes()
-        assert execute() == 0 and archive.read_bytes() == compacted
-        reports[old_key] = remote
-        next(fixture.glob("*/*/report_*.json")).unlink()
-        assert execute() == 1 and len(calls) == 3
-        assert all(arguments[3] == "get" for arguments in calls)
-        attachment.unlink()
-        assert execute() == 1 and attachment.read_bytes() == b"image"
-        attachment.write_bytes(b"wrong")
-        assert execute() == 1 and attachment.read_bytes() == b"image"
-        reports["report:delivery"] = {
-            "report": {"mode": "suggestion"},
-            "emailDelivery": {"status": "pending", "attempts": 1},
-        }
-        assert execute() == 1
-        reports["report:delivery"]["emailDelivery"]["attempts"] = 2
-        assert execute() == 1
-        delivery_path = next(fixture.glob("*/*/report_delivery.json"))
-        assert json.loads(delivery_path.read_text())["emailDelivery"]["attempts"] == 2
-        reports["report:delivery"]["emailDelivery"]["status"] = "sent"
-        assert execute() == 1 and execute() == 0
-        reports.update(
-            {
-                f"report:2000-01-03:batch-{index}": {"report": {"comment": "x" * 8192}}
-                for index in range(40)
-            }
-        )
-        assert execute() == 40
-        reports["report:invalid-attachment"] = {
-            "report": {
-                "attachments": [
-                    {"data": "invalid%base64", "contentType": "image/png", "name": "原附件"},
-                    "legacy-invalid",
-                ]
-            }
-        }
-        try:
-            with redirect_stderr(StringIO()):
-                execute()
-        except SystemExit as error:
-            assert error.code == 1
-        else:
-            raise AssertionError("异常附件需要返回部分失败")
-        invalid_path = next(fixture.glob("*/*/report_invalid-attachment.json"))
-        archived = json.loads(invalid_path.read_text())
-        assert archived["inboxAttachmentErrors"] == 2
-        assert archived["report"]["attachments"][0]["data"] == "invalid%base64"
-        assert archived["report"]["attachments"][1]["original"] == "legacy-invalid"
-        assert "report:invalid-attachment" not in processed_path.read_text()
-        reports["report:invalid-attachment"] = {"report": {"attachments": []}}
-        assert execute() == 1
-        assert "report:invalid-attachment" in processed_path.read_text()
-        reports.update(
-            {
-                "report:partial-success": {"report": {"comment": "archived"}},
-                "report:request-failure": {},
-                "report:json-failure": {},
-            }
-        )
-        fetch_failures.update(
-            {
-                "report:request-failure": (17, "", "fixture failure"),
-                "report:json-failure": (0, "{partial", ""),
-            }
-        )
-        with redirect_stderr(StringIO()):
-            try:
-                execute()
-            except SystemExit as error:
-                assert error.code == 1
-            else:
-                raise AssertionError("单份失败需要传播部分失败")
-        assert next(fixture.glob("*/*/report_partial-success.json")).is_file()
-        assert "report:partial-success" in processed_path.read_text()
-        assert (
-            "report:request-failure" not in processed_path.read_text()
-            and "report:json-failure" not in processed_path.read_text()
-        )
-        fetch_failures.clear()
-        reports["report:request-failure"] = reports["report:json-failure"] = {
-            "report": {"comment": "recovered"}
-        }
-        assert execute() == 2
-        import shlex
-
-        tool_dir = fixture / "bin"
-        tool_dir.mkdir(exist_ok=True)
-        fake_gh = tool_dir / "gh"
-        fake_gh.write_text(
-            (
-                '#!/bin/zsh\nif [[ "$1" == api ]]; then\n  if [[ " $* " == *" --slur'
-                'p "* && " $* " == *" --jq "* ]]; then print -ru2 \'incompatible fla'
-                'gs\'; exit 64; fi\n  if [[ "$INBOX_SELF_TEST_MODE" == listing-failu'
-                're ]]; then print partial; exit 17; fi\n  if [[ "$2" == *"/actions/'
-                'runs?"* ]]; then\n    [[ "$2" == *"?per_page=20" && " $* " != *" --'
-                'paginate "* ]] || exit 64\n    if [[ "$INBOX_SELF_TEST_MODE" == log'
-                '-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then\n      '
-                'print \'{"workflow_runs":[{"id":1,"workflow_id":1,"event":"push","h'
-                'ead_branch":"main","status":"completed","conclusion":"failure","upd'
-                'ated_at":"new","head_sha":"head"}]}\'\n    else print \'{"workflow_'
-                "runs\":[]}'; fi\n    exit 0\n  fi\n  print '[]'\nelif [[ \"$2\" == "
-                'list ]]; then\n  if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]'
-                ']; then print partial; exit 18; fi\n  if [[ "$INBOX_SELF_TEST_MODE"'
-                ' == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then'
-                '\n    print \'[{"databaseId":1,"workflowDatabaseId":1,"event":"push'
-                '","headBranch":"main","status":"completed","conclusion":"failure","'
-                'updatedAt":"new","headSha":"head"}]\'\n  else print \'[]\'; fi\neli'
-                'f [[ "$2" == view ]]; then\n  if [[ "$INBOX_SELF_TEST_MODE" == log-'
-                'success ]]; then\n    python3 -c \'print("error: first diagnostic")'
-                '; print("context" * 10000); print("final diagnostic")\'\n  else pri'
-                "nt -ru2 'fixture log failure'; exit 19; fi\nelse exit 99; fi\n"
-            )
-        )
-        fake_gh.chmod(0o700)
-        shell_source = source.replace(
-            'OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"',
-            "OUTPUT_DIR=" + shlex.quote(str(fixture)),
-        )
-        stubs = (
-            'bit101_acquire_script_lock() { :; }\nmock_wrangler() { [[ "$INBOX_SELF_TEST_MODE" != '
-            "cloudflare-list-failure ]] || return 21; print '[]'; }\nnode() { [[ \"$INBOX_SELF_TE"
-            'ST_MODE" != cloudflare-config-failure ]] || return 22; command node "$@"; }\n'
-        )
-        shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', stubs)
-        shell_source = shell_source.replace(
-            'WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', "WRANGLER=mock_wrangler"
-        )
-        shell_source = shell_source.replace(
-            'remote() { python3 "$ROOT_DIR/Scripts/workflow_processes.py" capture "$@"; }',
-            'remote() { "$@"; }',
-        )
-        issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
-        old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
-        old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLog":"cached log"}]'
-        issue_path.write_text(old_issue)
-        ci_path.write_text(old_ci)
-
-        def run_fetch(mode):
-            return subprocess.run(
-                [
-                    "zsh",
-                    "-c",
-                    shell_source,
-                    str(SCRIPT_ROOT / "fetch-issues-and-reports.sh"),
-                    "fetch",
-                ],
-                env=dict(
-                    os.environ,
-                    PATH=str(tool_dir) + os.pathsep + os.environ["PATH"],
-                    INBOX_SELF_TEST_MODE=mode,
-                ),
-                capture_output=True,
-                text=True,
-            )
-
-        assert run_fetch("listing-failure").returncode == 1
-        assert issue_path.read_text() == old_issue and ci_path.read_text() == old_ci
-        assert "failed" in (fixture / "summary.txt").read_text()
-        assert run_fetch("log-failure").returncode == 1
-        partial = json.loads(ci_path.read_text())[0]
-        assert partial["previousFailedLog"] == "cached log" and "failedLogError" in partial
-        assert run_fetch("log-failure").returncode == 1
-        repeated = json.loads(ci_path.read_text())[0]
-        assert repeated["previousFailedLog"] == "cached log" and "failedLogError" in repeated
-        for mode in ("cloudflare-config-failure", "cloudflare-list-failure"):
-            result = run_fetch(mode)
-            assert result.returncode == 1 and (fixture / "summary.txt").is_file(), result.stderr
-            assert "GitHub Issues：" in result.stdout and "failed" in result.stdout
-            assert not staging.exists()
-        assert run_fetch("log-success").returncode == 0
-        complete = json.loads(ci_path.read_text())[0]["failedLog"]
-        assert len(complete) > 30000 and complete.startswith("error: first diagnostic\n")
-        assert complete.endswith("final diagnostic\n")
-        assert "error: first diagnostic" in (fixture / "summary.txt").read_text()
-        assert run_fetch("log-failure").returncode == 0
-        assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
-        ci_path.write_text(
-            '[{"databaseId":1,"updatedAt":"new","headSha":"head","failedLogTail":"truncated"}]'
-        )
-        assert run_fetch("log-success").returncode == 0
-        assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
-        assert run_fetch("success").returncode == 0
-        assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
-        rows = [
-            {"name": f"report:{index:04}", "metadata": {"value": index}} for index in range(1000)
-        ]
-        rows.append({"name": "other:entry"})
-        keys_listing = fixture / "error-report-keys.json"
-        listing = json.dumps(rows)
-        keys_listing.write_text(listing)
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                heredoc_body(source, "PYKEYS"),
-                str(keys_listing),
-                str(SCRIPT_ROOT),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
-        assert result.stdout.startswith("report:0999 ") and "report:0000 " in result.stdout
-        assert "other:entry" not in result.stdout and keys_listing.read_text() == listing
-        network = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
-        emit = re.search(r"(?ms)^emit_output\(\) \{.*?^\}", network)[0]
-        payload = "".join(f"probe {index}\n" for index in range(1000)).rstrip("\n")
-        network_report = fixture / "network-smoke-summary.txt"
-        result = subprocess.run(
-            [
-                "zsh",
-                "-c",
-                "ROOT_DIR="
-                + shlex.quote(str(ROOT))
-                + "\n"
-                + emit
-                + '\nemit_output "$1" result "$2"',
-                "output-contract",
-                str(network_report),
-                payload,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
-        assert "probe 0\n" in result.stdout and "probe 999\n" in result.stdout
-        assert network_report.read_text() == payload + "\n"
-        orphan = fixture / "正式版/错误报告/report_orphan_附件"
-        orphan.mkdir(parents=True, exist_ok=True)
-        (orphan / "image.png").write_bytes(b"image")
-        result = subprocess.run(
-            [
-                "zsh",
-                "-c",
-                shell_source,
-                str(SCRIPT_ROOT / "fetch-issues-and-reports.sh"),
-                "clear-archive",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0 and "本地反馈归档已清理" in result.stdout, result.stderr
-        assert not list(fixture.glob("*/*/report_*.json")) and not orphan.exists()
-        assert not processed_path.exists() and not (fixture / "summary.txt").exists()
-        assert issue_path.exists() and ci_path.exists()
     except (AssertionError, OSError) as error:
         import traceback
 
@@ -796,3 +467,365 @@ def community_recovery_self_test() -> list[str]:
     if result or saved.call_args.args[0]["groups"]["community-writes"] != write_row:
         findings.append("社区恢复自测：成功清理沿独立范围记录并保留完整写入证据")
     return findings
+
+
+def verify_report_archive_contents(calls, execute, fixture, processed_path, reports, source):
+    from report_inbox import (
+        archive_reports,
+        normalize_github_issues,
+        normalize_ci_runs,
+        latest_failed_ci_runs,
+        publish_summary,
+    )
+
+    archive_io_failure_self_test(fixture)
+    namespace_configuration_self_test(source, fixture)
+    deletion_boundary_self_test(source, fixture)
+    issues_path = fixture / "github-issues.json"
+    issue = dict(
+        number=1,
+        state="open",
+        title="Issue",
+        url="https://api.github.com/repos/owner/repo/issues/1",
+        html_url="https://github.com/owner/repo/issues/1",
+    )
+    issues_path.write_text(
+        json.dumps(
+            [
+                [issue, dict(number=2, pull_request={})],
+                [dict(issue, number=3, pull_request=None)],
+            ]
+        )
+    )
+    normalize_github_issues([str(issues_path)])
+    assert [item["number"] for item in json.loads(issues_path.read_text())] == [1, 3]
+    ci_path = fixture / "ci-runs.json"
+    ci_path.write_text(
+        json.dumps(
+            {
+                "workflow_runs": [
+                    dict(
+                        id=index,
+                        workflow_id=2 if index == 29 else 1,
+                        status="completed",
+                        conclusion="failure" if index == 29 else "success",
+                        head_branch="main",
+                        event="push",
+                    )
+                    for index in range(30, 10, -1)
+                ]
+            }
+        )
+    )
+    normalize_ci_runs([str(ci_path)])
+    assert [
+        item["databaseId"] for item in latest_failed_ci_runs(json.loads(ci_path.read_text()))
+    ] == [29]
+    summary_path = fixture / "summary.txt"
+    with redirect_stdout(StringIO()):
+        publish_summary(
+            [
+                str(issues_path),
+                str(fixture),
+                str(summary_path),
+                "0",
+                str(ci_path),
+                "success",
+                "success",
+                "success",
+            ]
+        )
+    assert (
+        issue["html_url"] in summary_path.read_text()
+        and issue["url"] not in summary_path.read_text()
+    )
+    assert execute() == 2
+    saved = {
+        path.relative_to(fixture): path.read_bytes()
+        for path in fixture.glob("*/*/*")
+        if path.is_file()
+    }
+    attachment = next(fixture.glob("*/*/*_附件/*.jpg"))
+    assert (
+        attachment.read_bytes() == b"image"
+        and next(fixture.glob("*/*/*_附件/*.bin")).read_bytes() == b"image"
+    )
+    assert execute() == 0
+    assert all((fixture / path).read_bytes() == data for path, data in saved.items())
+    archive = next(
+        path
+        for path in fixture.glob("*/*/report_*.json")
+        if json.loads(path.read_text()).get("report", {}).get("attachments")
+    )
+    archived = json.loads(archive.read_text())
+    assert all(
+        "data" not in item and (archive.parent / item["localFile"]).is_file()
+        for item in archived["report"]["attachments"]
+    )
+    old_key = next(key for key in reports if key.endswith(":old"))
+    remote = reports.pop(old_key)
+    for item in archived["report"]["attachments"]:
+        item["data"] = "bmV3"
+        item.pop("fileModified")
+        item.pop("localFile")
+    archive.write_text(json.dumps(archived))
+    assert execute() == 0
+    assert json.loads(archive.read_text())["report"]["attachments"][0]["data"] == "bmV3"
+    assert old_key in processed_path.read_text(), "本地保留的归档继续保留处理记录"
+    for item in archived["report"]["attachments"]:
+        item["data"] = "aW1hZ2U="
+    archive.write_text(json.dumps(archived))
+    assert execute() == 0
+    assert all(
+        "data" not in item for item in json.loads(archive.read_text())["report"]["attachments"]
+    )
+    compacted = archive.read_bytes()
+    assert execute() == 0 and archive.read_bytes() == compacted
+    reports[old_key] = remote
+    next(fixture.glob("*/*/report_*.json")).unlink()
+    assert execute() == 1 and len(calls) == 3
+    assert all(arguments[3] == "get" for arguments in calls)
+    attachment.unlink()
+    assert execute() == 1 and attachment.read_bytes() == b"image"
+    attachment.write_bytes(b"wrong")
+    assert execute() == 1 and attachment.read_bytes() == b"image"
+    reports["report:delivery"] = {
+        "report": {"mode": "suggestion"},
+        "emailDelivery": {"status": "pending", "attempts": 1},
+    }
+    assert execute() == 1
+    reports["report:delivery"]["emailDelivery"]["attempts"] = 2
+    assert execute() == 1
+    delivery_path = next(fixture.glob("*/*/report_delivery.json"))
+    assert json.loads(delivery_path.read_text())["emailDelivery"]["attempts"] == 2
+    reports["report:delivery"]["emailDelivery"]["status"] = "sent"
+    assert execute() == 1 and execute() == 0
+    reports.update(
+        {
+            f"report:2000-01-03:batch-{index}": {"report": {"comment": "x" * 8192}}
+            for index in range(40)
+        }
+    )
+    assert execute() == 40
+    reports["report:invalid-attachment"] = {
+        "report": {
+            "attachments": [
+                {"data": "invalid%base64", "contentType": "image/png", "name": "原附件"},
+                "legacy-invalid",
+            ]
+        }
+    }
+
+
+def verify_report_fetch_recovery(
+    execute, fetch_failures, fixture, processed_path, reports, source, staging
+):
+    try:
+        with redirect_stderr(StringIO()):
+            execute()
+    except SystemExit as error:
+        assert error.code == 1
+    else:
+        raise AssertionError("异常附件需要返回部分失败")
+    invalid_path = next(fixture.glob("*/*/report_invalid-attachment.json"))
+    archived = json.loads(invalid_path.read_text())
+    assert archived["inboxAttachmentErrors"] == 2
+    assert archived["report"]["attachments"][0]["data"] == "invalid%base64"
+    assert archived["report"]["attachments"][1]["original"] == "legacy-invalid"
+    assert "report:invalid-attachment" not in processed_path.read_text()
+    reports["report:invalid-attachment"] = {"report": {"attachments": []}}
+    assert execute() == 1
+    assert "report:invalid-attachment" in processed_path.read_text()
+    reports.update(
+        {
+            "report:partial-success": {"report": {"comment": "archived"}},
+            "report:request-failure": {},
+            "report:json-failure": {},
+        }
+    )
+    fetch_failures.update(
+        {
+            "report:request-failure": (17, "", "fixture failure"),
+            "report:json-failure": (0, "{partial", ""),
+        }
+    )
+    with redirect_stderr(StringIO()):
+        try:
+            execute()
+        except SystemExit as error:
+            assert error.code == 1
+        else:
+            raise AssertionError("单份失败需要传播部分失败")
+    assert next(fixture.glob("*/*/report_partial-success.json")).is_file()
+    assert "report:partial-success" in processed_path.read_text()
+    assert (
+        "report:request-failure" not in processed_path.read_text()
+        and "report:json-failure" not in processed_path.read_text()
+    )
+    fetch_failures.clear()
+    reports["report:request-failure"] = reports["report:json-failure"] = {
+        "report": {"comment": "recovered"}
+    }
+    assert execute() == 2
+    import shlex
+
+    tool_dir = fixture / "bin"
+    tool_dir.mkdir(exist_ok=True)
+    fake_gh = tool_dir / "gh"
+    fake_gh.write_text(
+        (
+            '#!/bin/zsh\nif [[ "$1" == api ]]; then\n  if [[ " $* " == *" --slur'
+            'p "* && " $* " == *" --jq "* ]]; then print -ru2 \'incompatible fla'
+            'gs\'; exit 64; fi\n  if [[ "$INBOX_SELF_TEST_MODE" == listing-failu'
+            're ]]; then print partial; exit 17; fi\n  if [[ "$2" == *"/actions/'
+            'runs?"* ]]; then\n    [[ "$2" == *"?per_page=20" && " $* " != *" --'
+            'paginate "* ]] || exit 64\n    if [[ "$INBOX_SELF_TEST_MODE" == log'
+            '-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then\n      '
+            'print \'{"workflow_runs":[{"id":1,"workflow_id":1,"event":"push","h'
+            'ead_branch":"main","status":"completed","conclusion":"failure","upd'
+            'ated_at":"new","head_sha":"head"}]}\'\n    else print \'{"workflow_'
+            "runs\":[]}'; fi\n    exit 0\n  fi\n  print '[]'\nelif [[ \"$2\" == "
+            'list ]]; then\n  if [[ "$INBOX_SELF_TEST_MODE" == listing-failure ]'
+            ']; then print partial; exit 18; fi\n  if [[ "$INBOX_SELF_TEST_MODE"'
+            ' == log-failure || "$INBOX_SELF_TEST_MODE" == log-success ]]; then'
+            '\n    print \'[{"databaseId":1,"workflowDatabaseId":1,"event":"push'
+            '","headBranch":"main","status":"completed","conclusion":"failure","'
+            'updatedAt":"new","headSha":"head"}]\'\n  else print \'[]\'; fi\neli'
+            'f [[ "$2" == view ]]; then\n  if [[ "$INBOX_SELF_TEST_MODE" == log-'
+            'success ]]; then\n    python3 -c \'print("error: first diagnostic")'
+            '; print("context" * 10000); print("final diagnostic")\'\n  else pri'
+            "nt -ru2 'fixture log failure'; exit 19; fi\nelse exit 99; fi\n"
+        )
+    )
+    fake_gh.chmod(0o700)
+    shell_source = source.replace(
+        'OUTPUT_DIR="$ROOT_DIR/.build/issue-report-inbox"',
+        "OUTPUT_DIR=" + shlex.quote(str(fixture)),
+    )
+    stubs = (
+        'bit101_acquire_script_lock() { :; }\nmock_wrangler() { [[ "$INBOX_SELF_TEST_MODE" != '
+        "cloudflare-list-failure ]] || return 21; print '[]'; }\nnode() { [[ \"$INBOX_SELF_TE"
+        'ST_MODE" != cloudflare-config-failure ]] || return 22; command node "$@"; }\n'
+    )
+    shell_source = shell_source.replace('source "$ROOT_DIR/Scripts/script-support.sh"', stubs)
+    shell_source = shell_source.replace(
+        'WRANGLER="$WRANGLER_DIR/node_modules/.bin/wrangler"', "WRANGLER=mock_wrangler"
+    )
+    shell_source = shell_source.replace(
+        'remote() { python3 "$ROOT_DIR/Scripts/workflow_processes.py" capture "$@"; }',
+        'remote() { "$@"; }',
+    )
+    issue_path, ci_path = fixture / "github-issues.json", fixture / "github-ci.json"
+    old_issue = '[{"number":1,"state":"open","title":"cached issue","url":"fixture"}]'
+    old_ci = '[{"databaseId":1,"updatedAt":"old","headSha":"head","failedLog":"cached log"}]'
+    issue_path.write_text(old_issue)
+    ci_path.write_text(old_ci)
+
+    def run_fetch(mode):
+        return subprocess.run(
+            [
+                "zsh",
+                "-c",
+                shell_source,
+                str(SCRIPT_ROOT / "fetch-issues-and-reports.sh"),
+                "fetch",
+            ],
+            env=dict(
+                os.environ,
+                PATH=str(tool_dir) + os.pathsep + os.environ["PATH"],
+                INBOX_SELF_TEST_MODE=mode,
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+    assert run_fetch("listing-failure").returncode == 1
+    assert issue_path.read_text() == old_issue and ci_path.read_text() == old_ci
+    assert "failed" in (fixture / "summary.txt").read_text()
+    assert run_fetch("log-failure").returncode == 1
+    partial = json.loads(ci_path.read_text())[0]
+    assert partial["previousFailedLog"] == "cached log" and "failedLogError" in partial
+    assert run_fetch("log-failure").returncode == 1
+    repeated = json.loads(ci_path.read_text())[0]
+    assert repeated["previousFailedLog"] == "cached log" and "failedLogError" in repeated
+    for mode in ("cloudflare-config-failure", "cloudflare-list-failure"):
+        result = run_fetch(mode)
+        assert result.returncode == 1 and (fixture / "summary.txt").is_file(), result.stderr
+        assert "GitHub Issues：" in result.stdout and "failed" in result.stdout
+        assert not staging.exists()
+    assert run_fetch("log-success").returncode == 0
+    complete = json.loads(ci_path.read_text())[0]["failedLog"]
+    assert len(complete) > 30000 and complete.startswith("error: first diagnostic\n")
+    assert complete.endswith("final diagnostic\n")
+    assert "error: first diagnostic" in (fixture / "summary.txt").read_text()
+    assert run_fetch("log-failure").returncode == 0
+    assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
+    return ci_path, complete, issue_path, run_fetch, shell_source, shlex
+
+
+def verify_report_ci_selection(
+    ci_path, complete, fixture, issue_path, processed_path, run_fetch, shell_source, shlex, source
+):
+    ci_path.write_text(
+        '[{"databaseId":1,"updatedAt":"new","headSha":"head","failedLogTail":"truncated"}]'
+    )
+    assert run_fetch("log-success").returncode == 0
+    assert json.loads(ci_path.read_text())[0]["failedLog"] == complete
+    assert run_fetch("success").returncode == 0
+    assert json.loads(issue_path.read_text()) == json.loads(ci_path.read_text()) == []
+    rows = [{"name": f"report:{index:04}", "metadata": {"value": index}} for index in range(1000)]
+    rows.append({"name": "other:entry"})
+    keys_listing = fixture / "error-report-keys.json"
+    listing = json.dumps(rows)
+    keys_listing.write_text(listing)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            heredoc_body(source, "PYKEYS"),
+            str(keys_listing),
+            str(SCRIPT_ROOT),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
+    assert result.stdout.startswith("report:0999 ") and "report:0000 " in result.stdout
+    assert "other:entry" not in result.stdout and keys_listing.read_text() == listing
+    network = (SCRIPT_ROOT / "release-network-smoke.sh").read_text()
+    emit = re.search(r"(?ms)^emit_output\(\) \{.*?^\}", network)[0]
+    payload = "".join(f"probe {index}\n" for index in range(1000)).rstrip("\n")
+    network_report = fixture / "network-smoke-summary.txt"
+    result = subprocess.run(
+        [
+            "zsh",
+            "-c",
+            "ROOT_DIR=" + shlex.quote(str(ROOT)) + "\n" + emit + '\nemit_output "$1" result "$2"',
+            "output-contract",
+            str(network_report),
+            payload,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0 and len(result.stdout.splitlines()) == 41, result.stderr
+    assert "probe 0\n" in result.stdout and "probe 999\n" in result.stdout
+    assert network_report.read_text() == payload + "\n"
+    orphan = fixture / "正式版/错误报告/report_orphan_附件"
+    orphan.mkdir(parents=True, exist_ok=True)
+    (orphan / "image.png").write_bytes(b"image")
+    result = subprocess.run(
+        [
+            "zsh",
+            "-c",
+            shell_source,
+            str(SCRIPT_ROOT / "fetch-issues-and-reports.sh"),
+            "clear-archive",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0 and "本地反馈归档已清理" in result.stdout, result.stderr
+    assert not list(fixture.glob("*/*/report_*.json")) and not orphan.exists()
+    assert not processed_path.exists() and not (fixture / "summary.txt").exists()
+    assert issue_path.exists() and ci_path.exists()

@@ -141,28 +141,7 @@ final class CommunityWriteSmoke {
         var businessError: (any Error)?
         var operation = "创建内容"
         do {
-            guard let followTarget = operations.followTarget(), followTarget > 0,
-                try await operations.following(followTarget)
-            else { throw failure("关注采样需要已关注的验收目标") }
-            journal.followTarget = followTarget
-            try persist(journal)
-            operation = "取消关注"
-            guard
-                try await submitToggle(
-                    "follow:user\(followTarget)", journal: &journal,
-                    operation: { try await operations.follow(followTarget) }) == false,
-                try await operations.following(followTarget) == false
-            else { throw failure("验收取消关注结果异常") }
-            operation = "恢复关注"
-            guard
-                try await submitToggle(
-                    "follow:user\(followTarget)", journal: &journal,
-                    operation: { try await operations.follow(followTarget) }),
-                try await operations.following(followTarget)
-            else { throw failure("验收关注恢复待完成") }
-            journal.evidence.append("关注恢复 user\(followTarget)")
-            journal.followTarget = nil
-            try persist(journal)
+            try await verifyFollow(operations: operations, journal: &journal, operation: &operation)
             for kind in [Kind.poster, .paper] {
                 try Task.checkCancellation()
                 operation = "创建 " + kind.rawValue
@@ -313,6 +292,33 @@ final class CommunityWriteSmoke {
                 "写入验收待完成，服务端清理已确认：" + businessError.localizedDescription + "；" + images)
         }
         return evidence
+    }
+
+    private func verifyFollow(
+        operations: Operations, journal: inout Journal, operation: inout String
+    ) async throws {
+        guard let followTarget = operations.followTarget(), followTarget > 0,
+            try await operations.following(followTarget)
+        else { throw failure("关注采样需要已关注的验收目标") }
+        journal.followTarget = followTarget
+        try persist(journal)
+        operation = "取消关注"
+        guard
+            try await submitToggle(
+                "follow:user\(followTarget)", journal: &journal,
+                operation: { try await operations.follow(followTarget) }) == false,
+            try await operations.following(followTarget) == false
+        else { throw failure("验收取消关注结果异常") }
+        operation = "恢复关注"
+        guard
+            try await submitToggle(
+                "follow:user\(followTarget)", journal: &journal,
+                operation: { try await operations.follow(followTarget) }),
+            try await operations.following(followTarget)
+        else { throw failure("验收关注恢复待完成") }
+        journal.evidence.append("关注恢复 user\(followTarget)")
+        journal.followTarget = nil
+        try persist(journal)
     }
 
     private func persist(_ journal: Journal) throws { try save(JSONEncoder().encode(journal)) }

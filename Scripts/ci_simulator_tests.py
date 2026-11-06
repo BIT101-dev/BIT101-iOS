@@ -24,45 +24,73 @@ def simulator_shard_artifact(group: str, index: int) -> str:
 def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
     maintenance_self_test()
     runtime_maintenance_self_test()
-    from validation_policy import IOS_MODULE_COVERAGE_FLOORS
-    from validation_simulator import METADATA_PREFIX
-    from script_test_support import heredoc_body
+    SimulatorAcceptanceState(ci, platform).run(context, environment_fixture)
 
-    source = (ci.ROOT / "Scripts/simulator-tests.sh").read_text()
-    producer, selector = (heredoc_body(source, marker) for marker in ("PYRESULT", "PYSELECT"))
-    root, commit, run = Path("/fixture"), "a" * 40, "8"
-    work = root / ".build/extended-automation"
-    report, metrics, bundle = (
-        work / "validation-evidence.json",
-        work / "test-metrics.txt",
-        work / "test-results.xcresult",
-    )
-    result_file = work / "ci-validation-result.json"
-    inventory = {
-        "all": ["AppFixture/testBehavior"],
-        "release-runtime": ["RuntimeFixture/testComposition"],
-    }
-    cases = {name: 1 for names in inventory.values() for name in names}
-    lines = {
-        f"Modules/{name}/Sources/fixture.swift": {"covered": [1], "executable": [1]}
-        for name in IOS_MODULE_COVERAGE_FLOORS
-    }
-    runtime = dict(
-        identifier="com.apple.CoreSimulator.SimRuntime.iOS-27-0",
-        isAvailable=True,
-        version=platform["systemVersion"],
-        buildversion=platform["systemBuild"],
-    )
-    simulator = dict(runtimes=[runtime], devices={runtime["identifier"]: [{"udid": "device"}]})
-    plan = dict(
-        commit=commit,
-        run=run,
-        jobs={name: dict(execute=True) for name in ("modules", "release", "catalyst", "app")},
-    )
-    files, bundles, artifacts = {report: json.dumps({"coveragePolicy": {}})}, {}, {}
-    current_tree = {}
 
-    def tree(group, selected):
+class _MemoryResultWriter(StringIO):
+    def __init__(self, files, path, mode):
+        self.files, self.path = files, path
+        super().__init__(files.get(path, "") if mode == "a" else "")
+        self.seek(0, 2)
+
+    def close(self):
+        self.files[self.path] = self.getvalue()
+        super().close()
+
+
+class SimulatorAcceptanceState:
+    def __init__(self, ci, platform):
+        self.ci, self.platform = ci, platform
+        from validation_policy import IOS_MODULE_COVERAGE_FLOORS
+        from validation_simulator import METADATA_PREFIX
+
+        self.METADATA_PREFIX = METADATA_PREFIX
+        from script_test_support import heredoc_body
+
+        source = (self.ci.ROOT / "Scripts/simulator-tests.sh").read_text()
+        self.producer, self.selector = (
+            heredoc_body(source, marker) for marker in (("PYRESULT"), ("PYSELECT"))
+        )
+        self.root, self.commit, self.run_id = Path("/fixture"), "a" * 40, "8"
+        work = self.root / ".build/extended-automation"
+        self.report, self.metrics, self.bundle = (
+            work / "validation-evidence.json",
+            work / "test-metrics.txt",
+            work / "test-results.xcresult",
+        )
+        self.result_file = work / "ci-validation-result.json"
+        self.inventory = {
+            "all": ["AppFixture/testBehavior"],
+            "release-runtime": ["RuntimeFixture/testComposition"],
+        }
+        self.cases = {name: 1 for names in self.inventory.values() for name in names}
+        self.lines = {
+            f"Modules/{name}/Sources/fixture.swift": {"covered": [1], "executable": [1]}
+            for name in IOS_MODULE_COVERAGE_FLOORS
+        }
+        runtime = dict(
+            identifier="com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+            isAvailable=True,
+            version=self.platform["systemVersion"],
+            buildversion=self.platform["systemBuild"],
+        )
+        self.simulator = dict(
+            runtimes=[runtime], devices={runtime[("identifier")]: [{("udid"): ("device")}]}
+        )
+        self.plan = dict(
+            commit=self.commit,
+            run=self.run_id,
+            jobs={name: dict(execute=True) for name in ("modules", "release", "catalyst", "app")},
+        )
+        self.files, self.bundles, self.artifacts = (
+            {self.report: json.dumps({("coveragePolicy"): {}})},
+            {},
+            {},
+        )
+        self.current_tree = {}
+        self.profile = work / "Build/ProfileData/device/Coverage.profdata"
+
+    def tree(self, group, selected):
         target = "BIT101-iOSUITests" if group == "ui" else "BIT101-iOSTests"
         return dict(
             devices=[dict(platform="iOS Simulator", deviceId="device")],
@@ -77,13 +105,13 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
             ],
         )
 
-    def check_output(command, **kwargs):
+    def check_output(self, command, **kwargs):
         if command[:3] == ["git", "rev-parse", "HEAD"]:
-            return commit
+            return self.commit
         if command[:4] == ["xcrun", "simctl", "list", "--json"]:
-            return json.dumps(simulator)
+            return json.dumps(self.simulator)
         assert command[:4] == ["xcrun", "xcresulttool", "get", "test-results"], command
-        value = bundles.get(Path(command[command.index("--path") + 1]), current_tree)
+        value = self.bundles.get(Path(command[command.index("--path") + 1]), self.current_tree)
         if command[4] == "tests":
             return json.dumps(value)
         count = len(value["children"])
@@ -97,124 +125,139 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
             )
         )
 
-    def command(arguments, **kwargs):
+    def command(self, arguments, **kwargs):
         if arguments[:3] == ["gh", "run", "download"]:
             artifact = arguments[arguments.index("--name") + 1]
             if artifact == "validation-static-audit":
                 return SimpleNamespace(returncode=0)
-            files[metrics], bundles[bundle] = deepcopy(artifacts[artifact])
+            self.files[self.metrics], self.bundles[self.bundle] = deepcopy(self.artifacts[artifact])
         elif arguments[:3] == ["xcrun", "xcresulttool", "merge"]:
             incoming, retained, downloaded = map(Path, arguments[4:7])
-            bundles[incoming] = dict(
+            self.bundles[incoming] = dict(
                 devices=[dict(platform="iOS Simulator", deviceId="device")],
-                children=bundles[retained]["children"] + bundles[downloaded]["children"],
+                children=self.bundles[retained]["children"] + self.bundles[downloaded]["children"],
             )
         else:
             assert arguments[:3] == ["xcrun", "llvm-profdata", "merge"], arguments
         return SimpleNamespace(returncode=0)
 
-    class Writer(StringIO):
-        def __init__(self, path, mode):
-            self.path = path
-            super().__init__(files.get(path, "") if mode == "a" else "")
-            self.seek(0, 2)
+    def read(self, path, *args, **kwargs):
+        return self.files[path]
 
-        def close(self):
-            files[self.path] = self.getvalue()
-            super().close()
-
-    def read(path, *args, **kwargs):
-        return files[path]
-
-    def write(path, value, **kwargs):
-        files[path] = value
+    def write(self, path, value, **kwargs):
+        self.files[path] = value
         return len(value)
 
-    def remove(path, **kwargs):
-        bundles.pop(Path(path), None)
+    def remove(self, path, **kwargs):
+        self.bundles.pop(Path(path), None)
 
-    def move(source, target):
-        bundles[Path(target)] = bundles.pop(Path(source))
+    def move(self, source, target):
+        self.bundles[Path(target)] = self.bundles.pop(Path(source))
 
-    def selected(group, index, count):
-        return inventory[group][index::count]
+    def selected(self, group, index, count):
+        return self.inventory[group][index::count]
 
-    profile = work / "Build/ProfileData/device/Coverage.profdata"
-    patches = [
-        patch.object(ci, "ROOT", root),
-        patch.object(ci, "REPORT", report),
-        patch.object(ci, "RESULT_FILE", result_file),
-        patch.object(ci, "read_validation_plan", return_value=plan),
-        patch.object(ci, "ci_validation_environment", side_effect=environment_fixture),
-        patch("validation_environment.environment_context", return_value=context),
-        patch("validation_environment.ci_commit_findings", return_value=[]),
-        patch(
-            ("validation_result_readers.test_inventory"), side_effect=lambda group: inventory[group]
-        ),
-        patch(("validation_evidence.test_inventory"), side_effect=lambda group: inventory[group]),
-        patch(
-            ("validation_result_readers.test_selectors"),
-            side_effect=lambda group: {name: name + ("()") for name in inventory[group]},
-        ),
-        patch(
-            "validation_evidence.test_selectors",
-            side_effect=lambda group: {name: name + "()" for name in inventory[group]},
-        ),
-        patch("validation_coverage.shard_inventory", side_effect=selected),
-        patch(("validation_result_readers.test_case_inventory"), return_value=cases),
-        patch(("validation_evidence.test_case_inventory"), return_value=cases),
-        patch("validation_evidence.native_source_coverage", return_value=lines),
-        patch("validation_evidence.validate_community_write_test_output"),
-        patch("validation_coverage.shard_inventory", side_effect=selected),
-        patch("validation_provenance.report_lock", side_effect=lambda **kwargs: nullcontext()),
-        patch(
-            "validation_provenance.write_report",
-            side_effect=lambda value, **kwargs: write(report, json.dumps(value)),
-        ),
-        patch.object(subprocess, "check_output", side_effect=check_output),
-        patch.object(subprocess, "run", side_effect=command),
-        patch.object(shutil, "rmtree", side_effect=remove),
-        patch.object(shutil, "move", side_effect=move),
-        patch.object(Path, "read_text", read),
-        patch.object(Path, "write_text", write),
-        patch.object(Path, "open", lambda path, mode="r", **kwargs: Writer(path, mode)),
-        patch.object(Path, "mkdir"),
-        patch.object(Path, "chmod"),
-        patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=0o600)),
-        patch.object(Path, "exists", lambda path: path in bundles or path in files),
-        patch.object(Path, "is_file", lambda path: path == report or path.name == "Info.plist"),
-        patch.object(Path, "glob", return_value=[profile]),
-        patch.object(Path, "replace"),
-        patch.object(Path, "unlink", lambda path, **kwargs: files.pop(path, None)),
-        patch.dict(os.environ, GITHUB_RUN_ID=run),
-        redirect_stdout(StringIO()),
-    ]
-    with ExitStack() as stack:
-        for context in patches:
-            stack.enter_context(context)
+    def patches(self, context, environment_fixture):
+        patches = [
+            patch.object(self.ci, "ROOT", self.root),
+            patch.object(self.ci, "REPORT", self.report),
+            patch.object(self.ci, "RESULT_FILE", self.result_file),
+            patch.object(self.ci, "read_validation_plan", return_value=self.plan),
+            patch.object(self.ci, "ci_validation_environment", side_effect=environment_fixture),
+            patch("validation_environment.environment_context", return_value=context),
+            patch("validation_environment.ci_commit_findings", return_value=[]),
+            patch(
+                ("validation_result_readers.test_inventory"),
+                side_effect=lambda group: self.inventory[group],
+            ),
+            patch(
+                ("validation_evidence.test_inventory"),
+                side_effect=lambda group: self.inventory[group],
+            ),
+            patch(
+                ("validation_result_readers.test_selectors"),
+                side_effect=lambda group: {name: name + ("()") for name in self.inventory[group]},
+            ),
+            patch(
+                "validation_evidence.test_selectors",
+                side_effect=lambda group: {name: name + "()" for name in self.inventory[group]},
+            ),
+            patch("validation_coverage.shard_inventory", side_effect=self.selected),
+            patch(("validation_result_readers.test_case_inventory"), return_value=self.cases),
+            patch(("validation_evidence.test_case_inventory"), return_value=self.cases),
+            patch("validation_evidence.native_source_coverage", return_value=self.lines),
+            patch("validation_evidence.validate_community_write_test_output"),
+            patch("validation_coverage.shard_inventory", side_effect=self.selected),
+            patch("validation_provenance.report_lock", side_effect=lambda **kwargs: nullcontext()),
+            patch(
+                "validation_provenance.write_report",
+                side_effect=lambda value, **kwargs: self.write(self.report, json.dumps(value)),
+            ),
+            patch.object(subprocess, "check_output", side_effect=self.check_output),
+            patch.object(subprocess, "run", side_effect=self.command),
+            patch.object(shutil, "rmtree", side_effect=self.remove),
+            patch.object(shutil, "move", side_effect=self.move),
+            patch.object(
+                Path, ("read_text"), lambda path, *args, **kwargs: self.read(path, *args, **kwargs)
+            ),
+            patch.object(
+                Path,
+                ("write_text"),
+                lambda path, value, **kwargs: self.write(path, value, **kwargs),
+            ),
+            patch.object(
+                Path,
+                ("open"),
+                lambda path, mode=("r"), **kwargs: _MemoryResultWriter(self.files, path, mode),
+            ),
+            patch.object(Path, "mkdir"),
+            patch.object(Path, "chmod"),
+            patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=0o600)),
+            patch.object(Path, "exists", lambda path: path in self.bundles or path in self.files),
+            patch.object(
+                Path, ("is_file"), lambda path: path == self.report or path.name == ("Info.plist")
+            ),
+            patch.object(Path, "glob", return_value=[self.profile]),
+            patch.object(Path, "replace"),
+            patch.object(Path, "unlink", lambda path, **kwargs: self.files.pop(path, None)),
+            patch.dict(os.environ, GITHUB_RUN_ID=self.run_id),
+            redirect_stdout(StringIO()),
+        ]
+        return patches
+
+    def run(self, context, environment_fixture):
+        with ExitStack() as stack:
+            for replacement in self.patches(context, environment_fixture):
+                stack.enter_context(replacement)
+            self.check_shard_production()
+            self.check_full_runtime_selection()
+            merged = self.check_merge_and_export()
+            self.check_rejected_results(merged)
+
+    def check_shard_production(self):
         for group, count in (("all", 1), ("release-runtime", 1)):
             for index in range(count):
                 output = StringIO()
                 with (
                     patch.object(
-                        sys, "argv", ["selector", str(Path(ci.__file__).parent), group, "full"]
+                        sys, "argv", ["selector", str(Path(self.ci.__file__).parent), group, "full"]
                     ),
                     patch.dict(os.environ, BIT101_CI_SHARD=f"{index}/{count}"),
                     redirect_stdout(output),
                 ):
-                    exec(compile(selector, "<simulator-selector>", "exec"), {})
+                    exec(compile(self.selector, "<simulator-selector>", "exec"), {})
                 scope, encoded, *selectors = output.getvalue().splitlines()
                 expected = json.loads(encoded)
                 assert scope == ("full" if group == "release-runtime" else "shard")
-                assert expected == selected(group, index, count) and selectors == [
+                assert expected == self.selected(group, index, count) and selectors == [
                     name + "()" for name in expected
                 ]
-                current_tree = tree(group, expected)
+                self.current_tree = self.tree(group, expected)
                 arguments = [
                     "producer",
-                    str(bundle),
-                    str(metrics),
-                    str(Path(ci.__file__).parent),
+                    str(self.bundle),
+                    str(self.metrics),
+                    str(Path(self.ci.__file__).parent),
                     json.dumps(expected),
                     "0",
                     group,
@@ -227,10 +270,12 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                     patch.object(sys, "argv", arguments),
                     patch.dict(os.environ, BIT101_CI_SHARD=f"{index}/{count}"),
                 ):
-                    exec(compile(producer, "<simulator-producer>", "exec"), {})
-                assert METADATA_PREFIX in files[metrics]
+                    exec(compile(self.producer, "<simulator-producer>", "exec"), {})
+                assert self.METADATA_PREFIX in self.files[self.metrics]
                 artifact = simulator_shard_artifact(group, index)
-                artifacts[artifact] = files[metrics], current_tree
+                self.artifacts[artifact] = self.files[self.metrics], self.current_tree
+
+    def check_full_runtime_selection(self):
         with patch(
             "validation_coverage.shard_inventory",
             side_effect=AssertionError("完整范围沿全部库存选择。"),
@@ -240,42 +285,51 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
                 patch.object(
                     sys,
                     "argv",
-                    ["selector", str(Path(ci.__file__).parent), "release-runtime", "full"],
+                    ["selector", str(Path(self.ci.__file__).parent), "release-runtime", "full"],
                 ),
                 patch.dict(os.environ, BIT101_CI_SHARD="1/2"),
                 redirect_stdout(output),
             ):
-                exec(compile(selector, "<simulator-runtime-selector>", "exec"), {})
+                exec(compile(self.selector, "<simulator-runtime-selector>", "exec"), {})
             scope, encoded, *_ = output.getvalue().splitlines()
-            assert scope == "full" and json.loads(encoded) == inventory["release-runtime"]
+            assert scope == "full" and json.loads(encoded) == self.inventory["release-runtime"]
+
+    def check_merge_and_export(self):
         for suffix in (".retained.xcresult", ".incoming.xcresult"):
-            bundles[bundle.with_suffix(suffix)] = tree("all", ["StaleFixture/testOldResult"])
+            self.bundles[self.bundle.with_suffix(suffix)] = self.tree(
+                ("all"), [("StaleFixture/testOldResult")]
+            )
         with patch(
             "validation_environment.ci_commit_findings", return_value=["fixture commit mismatch"]
         ):
             try:
-                ci.merge_simulator_ci()
+                self.ci.merge_simulator_ci()
             except ValueError:
                 pass
             else:
                 raise AssertionError("CI 合并需要先核对来源提交。")
         assert all(
-            bundle.with_suffix(suffix) in bundles
+            self.bundle.with_suffix(suffix) in self.bundles
             for suffix in (".retained.xcresult", ".incoming.xcresult")
         )
-        ci.merge_simulator_ci()
+        self.ci.merge_simulator_ci()
         assert all(
-            bundle.with_suffix(suffix) not in bundles
+            self.bundle.with_suffix(suffix) not in self.bundles
             for suffix in (".retained.xcresult", ".incoming.xcresult")
         )
-        merged = json.loads(files[report])
-        assert "groups" not in merged and set(merged["simulatorResults"]) == set(inventory)
-        ci.export_validation_result("ios")
-        result = json.loads(files[result_file])
+        merged = json.loads(self.files[self.report])
+        assert "groups" not in merged and set(merged["simulatorResults"]) == set(self.inventory)
+        self.ci.export_validation_result("ios")
+        result = json.loads(self.files[self.result_file])
         assert (
-            result["commit"] == commit and result["run"] == run and set(result["groups"]) == {"app"}
+            result[("commit")] == self.commit
+            and result[("run")] == self.run_id
+            and set(result[("groups")]) == {("app")}
         )
-        assert result["groups"]["app"]["environment"]["platform"] == platform
+        assert result["groups"]["app"]["environment"]["platform"] == self.platform
+        return merged
+
+    def check_rejected_results(self, merged):
         for scope, field, value in (
             ("release-runtime", "identity", {}),
             ("all", "environment", {}),
@@ -283,9 +337,9 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         ):
             invalid = deepcopy(merged)
             invalid["simulatorResults"][scope][field] = value
-            files[report] = json.dumps(invalid)
+            self.files[self.report] = json.dumps(invalid)
             try:
-                ci.export_validation_result("ios")
+                self.ci.export_validation_result("ios")
             except ValueError:
                 pass
             else:
@@ -294,28 +348,28 @@ def self_test(ci, context: dict, platform: dict, environment_fixture) -> None:
         invalid["simulatorResults"]["all"]["summary"]["coverage"]["BIT101-iOS.app"][
             "coveredLines"
         ] = 0
-        files[report] = json.dumps(invalid)
+        self.files[self.report] = json.dumps(invalid)
         try:
-            ci.export_validation_result("ios")
+            self.ci.export_validation_result("ios")
         except ValueError:
             pass
         else:
             raise AssertionError("导出继续核对合并覆盖率。")
-        files[report] = json.dumps(merged)
-        plan["jobs"]["app"]["execute"] = False
+        self.files[self.report] = json.dumps(merged)
+        self.plan["jobs"]["app"]["execute"] = False
         try:
-            ci.export_validation_result("ios")
+            self.ci.export_validation_result("ios")
         except ValueError:
             pass
         else:
             raise AssertionError("完整通过的当前分组生成成功记录。")
-        plan["jobs"]["app"]["execute"] = True
-        artifacts["validation-ios-app-tests"] = (
-            files[metrics],
-            tree("release-runtime", inventory["release-runtime"]),
+        self.plan["jobs"]["app"]["execute"] = True
+        self.artifacts["validation-ios-app-tests"] = (
+            self.files[self.metrics],
+            self.tree("release-runtime", self.inventory["release-runtime"]),
         )
         try:
-            ci.merge_simulator_ci()
+            self.ci.merge_simulator_ci()
         except ValueError:
             pass
         else:

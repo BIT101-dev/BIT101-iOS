@@ -684,76 +684,7 @@ def self_test() -> None:
     assert includes_input("README.md", "audit")
     assert includes_input("BIT101-iOSTests/NetworkSmokeRegressionTests.swift", "network-smoke")
     assert includes_input("BIT101-iOSTests/PerformanceWorkload.swift", "network-smoke")
-    for group in (
-        APP_TEST_GROUPS
-        | NETWORK_GROUPS
-        | {"modules", "ui", "icloud", "restore", "manual-device", "build-archive"}
-    ):
-        assert not includes_input("README.md", group)
-        assert not includes_input("AGENTS.md", group)
-        assert not includes_input("Scripts/code_quality_tests.py", group)
-        assert includes_input("Package.swift", group)
-        assert includes_input("Modules/StorageCore/Sources/AppFileService.swift", group)
-        for name in {
-            "validation_inputs.py",
-            "check-module-boundaries.py",
-            "swift_type_index.py",
-            "network_request_contracts.py",
-            "ui_source_facts.py",
-            *SWIFT_SYNTAX_SOURCE_NAMES,
-        }:
-            expected = group != "manual-device" and not (
-                group in NETWORK_GROUPS | {"icloud", "network-smoke"}
-                and name in AUDIT_IMPLEMENTATIONS
-            )
-            assert includes_input("Scripts/" + name, group) == expected, (name, group)
-    for group in NETWORK_GROUPS | {"icloud"}:
-        for name in AUDIT_IMPLEMENTATIONS:
-            assert not includes_input("Scripts/" + name, group), (name, group)
-            assert includes_input("Scripts/" + name, "audit")
-        for name in (
-            "validation_policy.py",
-            "network_request_contracts.py",
-            "validation_inputs.py",
-        ):
-            assert includes_input("Scripts/" + name, group), (name, group)
-    assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")
-    assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", "modules")
-    assert not includes_input("BIT101-iOS/ContentView.swift", "modules")
-    assert not includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "manual-device")
-    assert includes_input("Scripts/ManualEvidenceProbe.swift", "manual-device")
-    assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
-    assert includes_input("Scripts/ui-interactions.json", "ui")
-    for name in PERFORMANCE_TEST_FILES:
-        assert (
-            includes_input(name, "all")
-            and includes_input(name, "ui")
-            and includes_input(name, "build-ui")
-        )
-    assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
-    for group in ("build-icloud-smoke", "build-network-smoke"):
-        assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
-        assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
-        assert includes_input("ModuleTests/Support/FileServiceContract.swift", group)
-        assert includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)
-    for group in NETWORK_GROUPS | {"icloud"}:
-        assert not includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
-        assert not includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
-        assert includes_input("Scripts/simulator-tests.sh", group)
-        assert not includes_input("ModuleTests/Support/FileServiceContract.swift", group)
-        assert not includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)
-    assert includes_input("BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift", "icloud")
-    assert includes_input("BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift", "network")
-    assert includes_input(
-        "Modules/ScheduleInfrastructure/Sources/ScheduleServiceLexue.swift", "school-sms"
-    )
-    assert not includes_input("Cloudflare/README.md", "network")
-    for name in (
-        "Cloudflare/ErrorReportWorker/worker.js",
-        "Cloudflare/ErrorReportWorker/wrangler.jsonc",
-        "Cloudflare/OpenWorker/worker.js",
-    ):
-        assert includes_input(name, "manual-device")
+    verify_group_specific_inputs()
 
 
 def native_project_paths(project: dict, root: Path) -> dict[str, Path]:
@@ -833,3 +764,76 @@ def performance_workloads() -> dict:
 
 def performance_group(test: str) -> str:
     return "ui" if test.startswith("MaintenancePerformanceUITests/") else "all"
+
+
+def verify_group_specific_inputs():
+    for group in (
+        APP_TEST_GROUPS
+        | NETWORK_GROUPS
+        | {"modules", "ui", "icloud", "restore", "manual-device", "build-archive"}
+    ):
+        assert not includes_input("README.md", group)
+        assert not includes_input("AGENTS.md", group)
+        assert not includes_input("Scripts/code_quality_tests.py", group)
+        assert includes_input("Package.swift", group)
+        assert includes_input("Modules/StorageCore/Sources/AppFileService.swift", group)
+        for name in {
+            "validation_inputs.py",
+            "check-module-boundaries.py",
+            "swift_type_index.py",
+            "network_request_contracts.py",
+            "ui_source_facts.py",
+            *SWIFT_SYNTAX_SOURCE_NAMES,
+        }:
+            expected = group != "manual-device" and not (
+                group in NETWORK_GROUPS | {"icloud", "network-smoke"}
+                and name in AUDIT_IMPLEMENTATIONS
+            )
+            assert includes_input("Scripts/" + name, group) == expected, (name, group)
+    for group in NETWORK_GROUPS | {"icloud"}:
+        for name in AUDIT_IMPLEMENTATIONS:
+            assert not includes_input("Scripts/" + name, group), (name, group)
+            assert includes_input("Scripts/" + name, "audit")
+        for name in (
+            "validation_policy.py",
+            "network_request_contracts.py",
+            "validation_inputs.py",
+        ):
+            assert includes_input("Scripts/" + name, group), (name, group)
+    assert includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "modules")
+    assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", "modules")
+    assert not includes_input("BIT101-iOS/ContentView.swift", "modules")
+    assert not includes_input("ModuleTests/Sync/ScheduleSyncTests.swift", "manual-device")
+    assert includes_input("Scripts/ManualEvidenceProbe.swift", "manual-device")
+    assert includes_input("docs/UI_INTERACTION_COVERAGE.md", "ui")
+    assert includes_input("Scripts/ui-interactions.json", "ui")
+    for name in PERFORMANCE_TEST_FILES:
+        assert (
+            includes_input(name, "all")
+            and includes_input(name, "ui")
+            and includes_input(name, "build-ui")
+        )
+    assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
+    for group in ("build-icloud-smoke", "build-network-smoke"):
+        assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
+        assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
+        assert includes_input("ModuleTests/Support/FileServiceContract.swift", group)
+        assert includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)
+    for group in NETWORK_GROUPS | {"icloud"}:
+        assert not includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
+        assert not includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
+        assert includes_input("Scripts/simulator-tests.sh", group)
+        assert not includes_input("ModuleTests/Support/FileServiceContract.swift", group)
+        assert not includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)
+    assert includes_input("BIT101-iOSTests/ManualICloudCrossDeviceSmokeTests.swift", "icloud")
+    assert includes_input("BIT101-iOS/Shared/Client/ReleaseNetworkSmoke.swift", "network")
+    assert includes_input(
+        "Modules/ScheduleInfrastructure/Sources/ScheduleServiceLexue.swift", "school-sms"
+    )
+    assert not includes_input("Cloudflare/README.md", "network")
+    for name in (
+        "Cloudflare/ErrorReportWorker/worker.js",
+        "Cloudflare/ErrorReportWorker/wrangler.jsonc",
+        "Cloudflare/OpenWorker/worker.js",
+    ):
+        assert includes_input(name, "manual-device")

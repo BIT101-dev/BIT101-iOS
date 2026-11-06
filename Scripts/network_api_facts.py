@@ -497,36 +497,7 @@ def matching_api_calls(
     if types is None:
         types = SwiftTypeIndex(index)
     facts = index[call["path"]]
-    receiver = call.get("receiverExpression", call["calledExpression"]).rpartition(".")[0]
-    if receiver in {"self", "Self", ""}:
-        containers = [
-            row
-            for row in facts.get("functionRanges", [])
-            if row["start"] <= call["start"] < row["end"]
-        ]
-        static = receiver == "Self" or bool(
-            containers
-            and min(containers, key=lambda row: row["end"] - row["start"]).get("isStatic")
-        )
-    else:
-        variables = visible_variables(facts, call, receiver)
-        static = (
-            any(
-                re.sub(r"\s+", "", row.get("type") or "").endswith((".Type", ".Protocol"))
-                for row in variables
-            )
-            or not call.get("receiverCall")
-            and not variables
-            and types.resolve(call["path"], receiver, call["scope"]) is not None
-        )
-    candidates = [
-        (path, row)
-        for path, row in candidates
-        if not row.get("scope")
-        or row.get("lexicalScope")
-        or row.get("isExplicitInitializer")
-        or row.get("isStatic", False) == static
-    ]
+    candidates = filter_api_receiver_candidates(call, candidates, facts, types)
     if len(candidates) <= 1:
         return candidates
     generic_candidates = [
@@ -695,3 +666,37 @@ def matching_api_calls(
         }.values()
     )
     return selected if len(selected) == 1 else []
+
+
+def filter_api_receiver_candidates(call, candidates, facts, types):
+    receiver = call.get("receiverExpression", call["calledExpression"]).rpartition(".")[0]
+    if receiver in {"self", "Self", ""}:
+        containers = [
+            row
+            for row in facts.get("functionRanges", [])
+            if row["start"] <= call["start"] < row["end"]
+        ]
+        static = receiver == "Self" or bool(
+            containers
+            and min(containers, key=lambda row: row["end"] - row["start"]).get("isStatic")
+        )
+    else:
+        variables = visible_variables(facts, call, receiver)
+        static = (
+            any(
+                re.sub(r"\s+", "", row.get("type") or "").endswith((".Type", ".Protocol"))
+                for row in variables
+            )
+            or not call.get("receiverCall")
+            and not variables
+            and types.resolve(call["path"], receiver, call["scope"]) is not None
+        )
+    candidates = [
+        (path, row)
+        for path, row in candidates
+        if not row.get("scope")
+        or row.get("lexicalScope")
+        or row.get("isExplicitInitializer")
+        or row.get("isStatic", False) == static
+    ]
+    return candidates

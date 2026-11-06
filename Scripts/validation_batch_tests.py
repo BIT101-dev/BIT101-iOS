@@ -310,179 +310,17 @@ def batch_retention_self_test(raw: list, test: str) -> None:
             raise AssertionError("结果包完成写入后提供采样摘要")
         (bundle / "Staging").rmdir()
         (bundle / "Info.plist").rename(bundle / "database.sqlite3")
-        with (
-            patch.object(subject, "BUNDLE", bundle),
-            patch.object(validation_provenance, "REPORT", report_path),
-            patch.object(validation_provenance, "report_lock", side_effect=nullcontext),
-            patch.object(
-                validation_provenance,
-                "write_report",
-                side_effect=lambda value: report_path.write_text(json.dumps(value)),
-            ) as writer,
-            patch.object(subject.subprocess, "run", side_effect=merge),
-            patch.object(subject.subprocess, "check_output", side_effect=exported),
-            redirect_stderr(StringIO()),
-        ):
-            first_sha = subject.bundle_identity(bundle)
-            report["groups"]["all"]["resultBundleIdentity"] = first_sha
-            report_path.write_text(json.dumps(report))
-            assert subject.main(["begin-batch", "append"]) == 0
-            assert retained.is_dir() and not bundle.exists()
-            assert subject.main(["reset-results"]) == 0
-            writer.assert_not_called()
-            create(bundle, b"second")
-            second_sha = subject.bundle_identity(bundle)
-            assert subject.main(["retain-batch", "all", "ui"]) == 0
-            saved = writer.call_args.args[0]
-            assert (bundle / "database.sqlite3").read_bytes() == b"firstsecond"
-            assert not retained.exists() and not incoming.exists()
-            assert saved["groups"]["all"]["runResultBundleIdentity"] == first_sha
-            assert saved["groups"]["ui"]["runResultBundleIdentity"] == second_sha
-            assert all(
-                row["resultBundleIdentity"] == subject.bundle_identity(bundle)
-                for row in saved["groups"].values()
-            )
-            assert (bundle / "Info.plist").is_file() and (bundle / "database.sqlite3").is_file()
-            writer.reset_mock()
-            assert subject.main(["begin-batch", "append"]) == 0
-            assert subject.main(["retain-batch", "all", "ui", "release-runtime"]) == 0
-            assert (
-                bundle / "database.sqlite3"
-            ).read_bytes() == b"firstsecond" and not retained.exists()
-            report_path.write_text(json.dumps({"groups": {"catalyst": {"runID": "catalyst"}}}))
-            assert subject.main(["begin-batch", "append"]) == 0
-            create(bundle, b"catalyst")
-            assert subject.main(["retain-batch", "catalyst"]) == 0
-            assert writer.call_args.args[0]["groups"]["catalyst"][
-                "resultBundleIdentity"
-            ] == subject.bundle_identity(bundle)
-            assert (bundle / "database.sqlite3").is_file()
-            assert subject.main(["begin-batch", "append"]) == 0
-            create(bundle, b"failed")
-            report_path.write_text(json.dumps(report))
-            for failure in ("merge", "summary", "interrupt"):
-                verify_retain_failure_recovery(
-                    subject,
-                    failure,
-                    bundle,
-                    retained,
-                    incoming,
-                    create,
-                    report_path,
-                    writer,
-                    merge,
-                    exported,
-                )
-            remove = shutil.rmtree
-            move = shutil.move
-            for interrupted in ("retained", "current", "publish-before", "publish-after"):
-                verify_retain_interrupted_recovery(
-                    subject,
-                    interrupted,
-                    bundle,
-                    retained,
-                    incoming,
-                    create,
-                    remove,
-                    move,
-                    report_path,
-                    writer,
-                )
-            for path in (bundle, retained, incoming):
-                remove(path, ignore_errors=True)
-            create(retained, b"previous")
-            create(bundle, b"current")
-
-            def fail_report_publish(value):
-                if "resultMerge" not in value:
-                    raise OSError("report publish failure")
-                report_path.write_text(json.dumps(value))
-
-            writer.side_effect = fail_report_publish
-            try:
-                subject.merge_result_step(["all", "ui"])
-            except OSError:
-                pass
-            else:
-                raise AssertionError("报告发布失败需要保留待恢复合并身份")
-            assert (bundle / "database.sqlite3").read_bytes() == b"previouscurrent"
-            assert "resultMerge" in json.loads(report_path.read_text())
-            writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
-            subject.recover_result_step()
-            recovered = json.loads(report_path.read_text())
-            assert "resultMerge" not in recovered
-            assert recovered["groups"]["all"]["resultBundleIdentity"] == subject.bundle_identity(
-                bundle
-            )
-            for publication in (2, 3):
-                for path in (bundle, retained, incoming):
-                    remove(path, ignore_errors=True)
-                create(bundle, b"first")
-                receipt = deepcopy(report)
-                identity = subject.bundle_identity(bundle)
-                receipt["groups"]["all"].update(
-                    resultBundleIdentity=identity, runResultBundleIdentity=identity
-                )
-                report_path.write_text(json.dumps(receipt))
-                writes = 0
-
-                def fail_first_publication(value):
-                    nonlocal writes
-                    writes += 1
-                    if writes == publication:
-                        raise OSError("first bundle publication failure")
-                    report_path.write_text(json.dumps(value))
-
-                writer.side_effect = fail_first_publication
-                try:
-                    subject.merge_result_step(["all"])
-                except OSError:
-                    pass
-                else:
-                    raise AssertionError("首包推广登记与报告发布中断需要传播")
-                writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
-                subject.recover_result_step()
-                recovered = json.loads(report_path.read_text())
-                assert "resultMerge" not in recovered
-                assert recovered["groups"]["all"][
-                    "resultBundleIdentity"
-                ] == subject.bundle_identity(bundle)
-                assert recovered["groups"]["all"][
-                    "runResultBundleIdentity"
-                ] == subject.bundle_identity(bundle)
-            for fault in (
-                "current",
-                "current-only",
-                "published-current",
-                "published-missing",
-                "retained",
-                "merged",
-                "partial",
-                "unreadable",
-                "current-partial",
-                "current-missing",
-                "current-unreadable",
-                "current-merged",
-            ):
-                setup_batch_fault_fixture(bundle, retained, incoming, fault, create)
-                assert artifact_status() == 1, fault
-
-                def recover_export(command, **kwargs):
-                    assert "--path" in command and command[-1] in {str(bundle), str(incoming)}
-                    if fault in {"unreadable", "current-unreadable"}:
-                        raise subprocess.CalledProcessError(1, command)
-                    return exported(command, **kwargs)
-
-                with patch.object(subject.subprocess, "check_output", side_effect=recover_export):
-                    assert subject.main(["recover-batch"]) == 0
-                expected = batch_fault_expected_bytes(fault)
-                assert (bundle / "database.sqlite3").read_bytes() == expected, fault
-                assert not retained.exists() and not incoming.exists(), fault
-                assert artifact_status() == 0, fault
-                subject.recover_result_step()
-                assert (bundle / "database.sqlite3").read_bytes() == expected, fault
-            assert subject.main(["begin-batch", "first"]) == 0
-            assert not any(path.exists() for path in (bundle, retained, incoming))
+        verify_batch_result_retention(
+            artifact_status,
+            bundle,
+            create,
+            exported,
+            incoming,
+            merge,
+            report,
+            report_path,
+            retained,
+        )
         result = subprocess.run(
             [
                 sys.executable,
@@ -624,3 +462,185 @@ def merge_regression_self_test() -> None:
             record["approvedBy"] == "maintainer"
             for record in saved["performanceBaseline"]["records"].values()
         )
+
+
+def verify_batch_result_retention(
+    artifact_status, bundle, create, exported, incoming, merge, report, report_path, retained
+):
+    from io import StringIO
+    import json
+    from contextlib import nullcontext, redirect_stderr
+    import shutil
+    import validation_provenance
+
+    with (
+        patch.object(subject, "BUNDLE", bundle),
+        patch.object(validation_provenance, "REPORT", report_path),
+        patch.object(validation_provenance, "report_lock", side_effect=nullcontext),
+        patch.object(
+            validation_provenance,
+            "write_report",
+            side_effect=lambda value: report_path.write_text(json.dumps(value)),
+        ) as writer,
+        patch.object(subject.subprocess, "run", side_effect=merge),
+        patch.object(subject.subprocess, "check_output", side_effect=exported),
+        redirect_stderr(StringIO()),
+    ):
+        first_sha = subject.bundle_identity(bundle)
+        report["groups"]["all"]["resultBundleIdentity"] = first_sha
+        report_path.write_text(json.dumps(report))
+        assert subject.main(["begin-batch", "append"]) == 0
+        assert retained.is_dir() and not bundle.exists()
+        assert subject.main(["reset-results"]) == 0
+        writer.assert_not_called()
+        create(bundle, b"second")
+        second_sha = subject.bundle_identity(bundle)
+        assert subject.main(["retain-batch", "all", "ui"]) == 0
+        saved = writer.call_args.args[0]
+        assert (bundle / "database.sqlite3").read_bytes() == b"firstsecond"
+        assert not retained.exists() and not incoming.exists()
+        assert saved["groups"]["all"]["runResultBundleIdentity"] == first_sha
+        assert saved["groups"]["ui"]["runResultBundleIdentity"] == second_sha
+        assert all(
+            row["resultBundleIdentity"] == subject.bundle_identity(bundle)
+            for row in saved["groups"].values()
+        )
+        assert (bundle / "Info.plist").is_file() and (bundle / "database.sqlite3").is_file()
+        writer.reset_mock()
+        assert subject.main(["begin-batch", "append"]) == 0
+        assert subject.main(["retain-batch", "all", "ui", "release-runtime"]) == 0
+        assert (
+            bundle / "database.sqlite3"
+        ).read_bytes() == b"firstsecond" and not retained.exists()
+        report_path.write_text(json.dumps({"groups": {"catalyst": {"runID": "catalyst"}}}))
+        assert subject.main(["begin-batch", "append"]) == 0
+        create(bundle, b"catalyst")
+        assert subject.main(["retain-batch", "catalyst"]) == 0
+        assert writer.call_args.args[0]["groups"]["catalyst"][
+            "resultBundleIdentity"
+        ] == subject.bundle_identity(bundle)
+        assert (bundle / "database.sqlite3").is_file()
+        assert subject.main(["begin-batch", "append"]) == 0
+        create(bundle, b"failed")
+        report_path.write_text(json.dumps(report))
+        for failure in ("merge", "summary", "interrupt"):
+            verify_retain_failure_recovery(
+                subject,
+                failure,
+                bundle,
+                retained,
+                incoming,
+                create,
+                report_path,
+                writer,
+                merge,
+                exported,
+            )
+        remove = shutil.rmtree
+        move = shutil.move
+        for interrupted in ("retained", "current", "publish-before", "publish-after"):
+            verify_retain_interrupted_recovery(
+                subject,
+                interrupted,
+                bundle,
+                retained,
+                incoming,
+                create,
+                remove,
+                move,
+                report_path,
+                writer,
+            )
+        for path in (bundle, retained, incoming):
+            remove(path, ignore_errors=True)
+        create(retained, b"previous")
+        create(bundle, b"current")
+
+        def fail_report_publish(value):
+            if "resultMerge" not in value:
+                raise OSError("report publish failure")
+            report_path.write_text(json.dumps(value))
+
+        writer.side_effect = fail_report_publish
+        try:
+            subject.merge_result_step(["all", "ui"])
+        except OSError:
+            pass
+        else:
+            raise AssertionError("报告发布失败需要保留待恢复合并身份")
+        assert (bundle / "database.sqlite3").read_bytes() == b"previouscurrent"
+        assert "resultMerge" in json.loads(report_path.read_text())
+        writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
+        subject.recover_result_step()
+        recovered = json.loads(report_path.read_text())
+        assert "resultMerge" not in recovered
+        assert recovered["groups"]["all"]["resultBundleIdentity"] == subject.bundle_identity(bundle)
+        for publication in (2, 3):
+            for path in (bundle, retained, incoming):
+                remove(path, ignore_errors=True)
+            create(bundle, b"first")
+            receipt = deepcopy(report)
+            identity = subject.bundle_identity(bundle)
+            receipt["groups"]["all"].update(
+                resultBundleIdentity=identity, runResultBundleIdentity=identity
+            )
+            report_path.write_text(json.dumps(receipt))
+            writes = 0
+
+            def fail_first_publication(value):
+                nonlocal writes
+                writes += 1
+                if writes == publication:
+                    raise OSError("first bundle publication failure")
+                report_path.write_text(json.dumps(value))
+
+            writer.side_effect = fail_first_publication
+            try:
+                subject.merge_result_step(["all"])
+            except OSError:
+                pass
+            else:
+                raise AssertionError("首包推广登记与报告发布中断需要传播")
+            writer.side_effect = lambda value: report_path.write_text(json.dumps(value))
+            subject.recover_result_step()
+            recovered = json.loads(report_path.read_text())
+            assert "resultMerge" not in recovered
+            assert recovered["groups"]["all"]["resultBundleIdentity"] == subject.bundle_identity(
+                bundle
+            )
+            assert recovered["groups"]["all"]["runResultBundleIdentity"] == subject.bundle_identity(
+                bundle
+            )
+        for fault in (
+            "current",
+            "current-only",
+            "published-current",
+            "published-missing",
+            "retained",
+            "merged",
+            "partial",
+            "unreadable",
+            "current-partial",
+            "current-missing",
+            "current-unreadable",
+            "current-merged",
+        ):
+            setup_batch_fault_fixture(bundle, retained, incoming, fault, create)
+            assert artifact_status() == 1, fault
+
+            def recover_export(command, **kwargs):
+                assert "--path" in command and command[-1] in {str(bundle), str(incoming)}
+                if fault in {"unreadable", "current-unreadable"}:
+                    raise subprocess.CalledProcessError(1, command)
+                return exported(command, **kwargs)
+
+            with patch.object(subject.subprocess, "check_output", side_effect=recover_export):
+                assert subject.main(["recover-batch"]) == 0
+            expected = batch_fault_expected_bytes(fault)
+            assert (bundle / "database.sqlite3").read_bytes() == expected, fault
+            assert not retained.exists() and not incoming.exists(), fault
+            assert artifact_status() == 0, fault
+            subject.recover_result_step()
+            assert (bundle / "database.sqlite3").read_bytes() == expected, fault
+        assert subject.main(["begin-batch", "first"]) == 0
+        assert not any(path.exists() for path in (bundle, retained, incoming))

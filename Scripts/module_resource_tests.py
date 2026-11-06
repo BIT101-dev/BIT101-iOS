@@ -369,6 +369,33 @@ def module_coverage_binary_self_test() -> None:
 
 
 def resource_access_self_test(rules: dict) -> None:
+    (
+        compilation_type_context,
+        graph_errors,
+        ownership_errors,
+        service_boundary_errors,
+        split_path,
+        swift_syntax_index_sources,
+    ) = verify_compilation_resource_types(rules)
+    verify_resource_member_aliases(
+        compilation_type_context,
+        graph_errors,
+        ownership_errors,
+        rules,
+        service_boundary_errors,
+        split_path,
+        swift_syntax_index_sources,
+    )
+    verify_file_resource_access(
+        compilation_type_context,
+        ownership_errors,
+        service_boundary_errors,
+        swift_syntax_index_sources,
+    )
+    verify_schedule_resource_access(service_boundary_errors)
+
+
+def verify_compilation_resource_types(rules):
     compilation_type_context = rules["compilation_type_context"]
     graph_errors = rules["graph_errors"]
     ownership_errors = rules["ownership_errors"]
@@ -521,6 +548,28 @@ def resource_access_self_test(rules: dict) -> None:
                 for error in graph_errors({source: {dependency}, dependency: set()})
             )
     assert graph_errors({"ScheduleDomain": {"ScheduleCore"}, "ScheduleCore": set()}) == []
+    return (
+        compilation_type_context,
+        graph_errors,
+        ownership_errors,
+        service_boundary_errors,
+        split_path,
+        swift_syntax_index_sources,
+    )
+
+
+def verify_resource_member_aliases(
+    compilation_type_context,
+    graph_errors,
+    ownership_errors,
+    rules,
+    service_boundary_errors,
+    split_path,
+    swift_syntax_index_sources,
+):
+    from validation_policy import IOS_MODULE_COVERAGE_FLOORS
+    from swift_type_index import SwiftBindingTypes
+
     assert any(
         "pure domain boundary: ScheduleDomain -> TransportCore" in error
         for error in graph_errors(
@@ -665,6 +714,11 @@ def resource_access_self_test(rules: dict) -> None:
     assert service_boundary_errors(
         split_path, sources[split_path], call_context=SwiftBindingTypes(index)
     )
+
+
+def verify_file_resource_access(
+    compilation_type_context, ownership_errors, service_boundary_errors, swift_syntax_index_sources
+):
     for source in (
         "let group = NWConnectionGroup(with: descriptor, using: .udp); group.send(content: data)",
         "let group = Network.NWConnectionGroup(with: descriptor, using: .udp)",
@@ -819,6 +873,9 @@ def resource_access_self_test(rules: dict) -> None:
             )
             == []
         )
+
+
+def verify_schedule_resource_access(service_boundary_errors):
     assert (
         service_boundary_errors(
             "Modules/GalleryFeature/Sources/Example.swift",

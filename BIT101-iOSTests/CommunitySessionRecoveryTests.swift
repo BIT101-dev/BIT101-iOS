@@ -2,6 +2,7 @@ import ClientCore
 import CommunityCore
 import CommunityTransport
 import CommunityUI
+import DesignSystemKit
 import Foundation
 import MediaKit
 import MineFeature
@@ -17,6 +18,7 @@ struct CommunitySessionRecoveryTests {
     @Observable final class RecoveryProbe {
         var visible = true
         var enabled = true
+        var pageVisible = true
         var phase = ScenePhase.active
         @ObservationIgnored var events = 0
         @ObservationIgnored var requests = 0
@@ -54,11 +56,12 @@ struct CommunitySessionRecoveryTests {
                 }
             }
             .environment(\.scenePhase, probe.phase)
+            .environment(\.appPageIsVisible, probe.pageVisible)
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func readRecoveryRespectsCancel() async throws {
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: [false, true])
+    func readRecoveryRespectsCancel(hiddenPage: Bool) async throws {
         let path = NetworkPathState(snapshot: .init(status: .disconnected))
         let probe = RecoveryProbe()
         let scene = try #require(
@@ -89,14 +92,14 @@ struct CommunitySessionRecoveryTests {
         stage = "connected"
         path.update(snapshot: .init(status: .connected))
         try await waitForTestEvent { probe.requests == 1 && probe.pending != nil }
-        probe.enabled = false
+        if hiddenPage { probe.pageVisible = false } else { probe.enabled = false }
         stage = "cancel"
         try await waitForTestEvent { probe.cancellations == 1 }
         probe.pending?.resume()
         probe.pending = nil
         probe.phase = .inactive
         probe.phase = .active
-        probe.enabled = true
+        if hiddenPage { probe.pageVisible = true } else { probe.enabled = true }
         stage = "enabled"
         try await waitForTestEvent { probe.requests == 2 && probe.pending != nil }
         probe.pending?.resume()

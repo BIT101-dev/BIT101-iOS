@@ -195,6 +195,17 @@ def worker_deployment_self_test(network_trace_fixture) -> None:
         changed = copy.deepcopy(proof)
         changed[folder]["versions"][0][field] = value
         assert not subject.worker_deployments_complete("all", changed), field
+    verify_deployment_proof_versions(folder, proof)
+
+
+def verify_deployment_proof_versions(folder, proof):
+    from types import SimpleNamespace
+    from io import BytesIO, StringIO
+    import copy, json, subprocess, sys, uuid
+    from contextlib import contextmanager, nullcontext, redirect_stderr
+    from unittest.mock import patch
+    import validation_provenance as subject
+
     gradual = copy.deepcopy(proof)
     first = gradual[folder]["versions"][0]
     first["percentage"] = 40

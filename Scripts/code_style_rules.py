@@ -10,6 +10,7 @@ from pathlib import Path
 LINE_LIMIT = 100
 NAME_LIMIT = 42
 DEPTH_LIMIT = 4
+FUNCTION_LINE_LIMIT = 200
 EMOJI = regex.compile(r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\ufe0f?\u20e3")
 
 
@@ -61,6 +62,40 @@ def check_depth(name: str, line: int, depth: int) -> list[str]:
     return [issue(name, line, f"嵌套 {depth} 层，上限为 {DEPTH_LIMIT}")]
 
 
+def check_function_lines(name: str, line: int, count: int) -> list[str]:
+    if count <= FUNCTION_LINE_LIMIT:
+        return []
+    return [issue(name, line, f"函数体共 {count} 行，上限为 {FUNCTION_LINE_LIMIT}")]
+
+
+def swift_function_lines(name: str, source: str, facts: dict) -> list[str]:
+    data = source.encode()
+    spans = {
+        (
+            (item.get("bodyStart") or item["start"])
+            if key in {"functionRanges", "initializers"}
+            else item["start"],
+            item["end"],
+        )
+        for key in (
+            "functionRanges",
+            "initializers",
+            "accessorRanges",
+            "callableRanges",
+            "inlineClosureRanges",
+        )
+        for item in facts.get(key, [])
+        if key != "initializers" or item.get("isExplicitInitializer")
+    }
+    return [
+        finding
+        for start, end in sorted(spans)
+        for finding in check_function_lines(
+            name, data[:start].count(b"\n") + 1, data[start:end].count(b"\n") + 1
+        )
+    ]
+
+
 def line_findings(name: str, source: str) -> list[str]:
     return [
         issue(name, line, f"行长 {len(text)} 字符，上限为 {LINE_LIMIT}")
@@ -110,6 +145,11 @@ def python_findings(name: str, source: str, base_line: int = 0) -> list[str]:
             depth = 0
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 findings.extend(check_name(name, node.lineno + base_line, node.name))
+                findings.extend(
+                    check_function_lines(
+                        name, node.lineno + base_line, node.end_lineno - node.lineno + 1
+                    )
+                )
         elif isinstance(node, branches):
             depth += 1
             findings.extend(check_depth(name, node.lineno + base_line, depth))
@@ -133,7 +173,7 @@ def python_findings(name: str, source: str, base_line: int = 0) -> list[str]:
 
 
 def swift_findings(name: str, source: str, facts: dict) -> list[str]:
-    findings = []
+    findings = swift_function_lines(name, source, facts)
     data = source.encode()
     identifiers = set(facts.get("identifiers", []))
     for token in LEGACY_OBSERVATION_TOKENS:
@@ -265,6 +305,12 @@ def tree_findings(name: str, source: str, language: str) -> list[str]:
     findings = []
 
     def visit(node, depth):
+        if node.type in roots | closures:
+            findings.extend(
+                check_function_lines(
+                    name, node.start_point.row + 1, node.end_point.row - node.start_point.row + 1
+                )
+            )
         if node.type in roots:
             depth = 0
             field = node.child_by_field_name("name")

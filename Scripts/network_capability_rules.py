@@ -91,85 +91,404 @@ NETWORK_SYSTEM_FUNCTIONS |= frozenset(
 
 
 def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
-    from swift_type_index import callable_effect_index
+    return _BusinessMethodDiscovery(index).collect()
 
-    index = execution_index(callable_effect_index(index))
-    can_execute = snapshot_execution_checker()
-    from validation_inputs import NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS
 
-    test_roots = {"ModuleTests", *NATIVE_TEST_ROOTS}
-    from validation_compilation import active_network_source, active_swift_source
-    from validation_policy import NETWORK_CAPABILITIES
-    from swift_type_index import (
-        SwiftTypeIndex,
-        SwiftBindingTypes,
-        compilation_unit,
-        receiver_resolver,
-    )
+class _BusinessMethodDiscovery:
+    def __init__(self, index):
+        self.index = index
 
-    types = SwiftTypeIndex(index)
-    binding_types = SwiftBindingTypes(index, types)
-    resolve_receiver = receiver_resolver(index, types=types, binding_types=binding_types)
-    network_owners = set(NETWORK_CAPABILITIES)
-    dependencies = {}
-    protocols = {
-        types.resolve(path, ".".join(node["scope"] + [node["name"]]), aliases=False)
-        for path, facts in index.items()
-        for node in facts.get("declarations", [])
-        if node["kind"] == "protocol"
-    }
-    for target, bases in types.records.items():
-        identity = ".".join([target[0], *target[1]])
-        for base in bases:
-            inherited = types.resolve(types.paths[target], base, target[1][:-1])
-            if inherited in protocols and identity not in NETWORK_CAPABILITIES:
-                dependencies.setdefault(".".join([inherited[0], *inherited[1]]), set()).add(
-                    identity
+    def collect(self):
+        self.prepare()
+        self.discover_owners()
+        self.resolve_callbacks()
+        self.result, self.request_results = {}, {}
+        for path, facts in self.index.items():
+            self.collect_file(path, facts)
+        self.mark_return_overloads()
+        return self.result
+
+    def prepare(self):
+        from swift_type_index import callable_effect_index
+
+        self.index = execution_index(callable_effect_index(self.index))
+        self.can_execute = snapshot_execution_checker()
+        from validation_inputs import NATIVE_PRODUCT_ROOTS, NATIVE_TEST_ROOTS
+
+        self.NATIVE_PRODUCT_ROOTS = NATIVE_PRODUCT_ROOTS
+
+        self.test_roots = {"ModuleTests", *NATIVE_TEST_ROOTS}
+        from validation_compilation import active_network_source, active_swift_source
+        from validation_policy import NETWORK_CAPABILITIES
+
+        self.NETWORK_CAPABILITIES = NETWORK_CAPABILITIES
+        from swift_type_index import (
+            SwiftTypeIndex,
+            SwiftBindingTypes,
+            compilation_unit,
+            receiver_resolver,
+        )
+
+        self.compilation_unit = compilation_unit
+
+        self.types = SwiftTypeIndex(self.index)
+        self.binding_types = SwiftBindingTypes(self.index, self.types)
+        self.resolve_receiver = receiver_resolver(
+            self.index, types=self.types, binding_types=self.binding_types
+        )
+        self.network_owners = set(self.NETWORK_CAPABILITIES)
+        self.dependencies = {}
+        self.protocols = {
+            self.types.resolve(path, ".".join(node["scope"] + [node["name"]]), aliases=False)
+            for path, facts in self.index.items()
+            for node in facts.get("declarations", [])
+            if node["kind"] == "protocol"
+        }
+        for target, bases in self.types.records.items():
+            identity = ".".join([target[0], *target[1]])
+            for base in bases:
+                inherited = self.types.resolve(self.types.paths[target], base, target[1][:-1])
+                if inherited in self.protocols and identity not in self.NETWORK_CAPABILITIES:
+                    self.dependencies.setdefault(
+                        (".").join([inherited[0], *inherited[1]]), set()
+                    ).add(identity)
+            if target[1][-1] not in NETWORK_TRANSPORT_TYPES and (
+                "HTTPTransport"
+            ) not in self.types.bases(target):
+                continue
+            self.network_owners.add(identity)
+            for base in bases:
+                if inherited := self.types.resolve(self.types.paths[target], base):
+                    self.network_owners.add(".".join([inherited[0], *inherited[1]]))
+        self.active_sources = {
+            path: active_network_source(facts[("source")], path).encode()
+            if ("source") in facts
+            else None
+            for path, facts in self.index.items()
+        }
+        self.regular_sources = {
+            path: active_swift_source(facts["source"], "restore", path=path).encode()
+            for path, facts in self.index.items()
+            if "source" in facts
+        }
+        self.components = self.types.components
+
+    def discover_owners(self):
+        for path, facts in self.index.items():
+            if self.test_roots.intersection(Path(path).parts):
+                continue
+            for node in facts.get("typedVariables", []):
+                if not self.active(path, node):
+                    continue
+                identity = self.owner(path, node["scope"])
+                kind = self.types.terminal_name(path, node.get("type", ""), node["scope"])
+                if self.network_port(kind):
+                    self.network_owners.add(identity)
+                for source_path, name, scope in self.components(
+                    path, node.get("type", ""), node["scope"], node
+                ):
+                    target = self.types.resolve(source_path, name, scope)
+                    if (
+                        self.types.terminal_name(source_path, name, scope).rsplit(".", 1)[-1]
+                        in NETWORK_TRANSPORT_TYPES
+                    ):
+                        self.network_owners.add(identity)
+                    if target:
+                        self.dependencies.setdefault(identity, set()).add(
+                            (".").join([target[0], *target[1]])
+                        )
+            for node in facts.get("bindings", []):
+                if node.get("lexicalScope") or not self.active(path, node):
+                    continue
+                if target := self.resolve_receiver(
+                    dict(node, path=path, calledExpression=node["bindingName"] + ".__propertyType")
+                ):
+                    self.dependencies.setdefault(self.owner(path, node["scope"]), set()).add(target)
+            for call in facts.get("invocations", []):
+                if not self.active(path, call):
+                    continue
+                expression = call.get("calledExpression", "")
+                if self.remote_data_request(facts, call, path) or self.system_request(
+                    facts, call, path
+                ):
+                    self.network_owners.add(self.owner(path, call["scope"]))
+                if (
+                    expression.removesuffix(".init").rsplit(".", 1)[-1]
+                    in NETWORK_TRANSPORT_TYPES | {"URLRequest"}
+                    or expression.split(".", 1)[0] in NETWORK_TRANSPORT_TYPES
+                    and not self.value_utility(path, call)
+                ):
+                    self.network_owners.add(self.owner(path, call["scope"]))
+        changed = True
+        while changed:
+            added = {
+                identity
+                for identity, targets in self.dependencies.items()
+                if targets & self.network_owners
+            } - self.network_owners
+            changed = bool(added)
+            self.network_owners.update(added)
+        self.registered_methods = {
+            identity: {
+                signature.split(("("), 1)[0].removeprefix(("static ")) for signature in signatures
+            }
+            for identity, signatures in self.NETWORK_CAPABILITIES.items()
+        }
+        self.helper_functions = {}
+        for source_path, source_facts in self.index.items():
+            for function in source_facts.get("functionRanges", []) + [
+                node
+                for node in source_facts.get("initializers", [])
+                if node.get("isExplicitInitializer")
+            ]:
+                if self.active(source_path, function):
+                    self.helper_functions.setdefault(
+                        self.owner(source_path, function[("scope")]), []
+                    ).append((source_path, function))
+        self.protocol_helpers = {}
+        for identity in self.dependencies.keys() & self.network_owners:
+            waiting, visited = list(self.dependencies[identity]), set()
+            while waiting:
+                implementation = waiting.pop()
+                if implementation in visited:
+                    continue
+                visited.add(implementation)
+                self.protocol_helpers.setdefault(identity, []).extend(
+                    self.helper_functions.get(implementation, [])
                 )
-        if target[1][-1] not in NETWORK_TRANSPORT_TYPES and "HTTPTransport" not in types.bases(
-            target
-        ):
-            continue
-        network_owners.add(identity)
-        for base in bases:
-            if inherited := types.resolve(types.paths[target], base):
-                network_owners.add(".".join([inherited[0], *inherited[1]]))
-    active_sources = {
-        path: active_network_source(facts["source"], path).encode() if "source" in facts else None
-        for path, facts in index.items()
-    }
-    regular_sources = {
-        path: active_swift_source(facts["source"], "restore", path=path).encode()
-        for path, facts in index.items()
-        if "source" in facts
-    }
+                waiting.extend(self.dependencies.get(implementation, set()) - visited)
 
-    def owner(path, scope):
-        return ".".join(types.function_scope(path, scope))
+    def resolve_callbacks(self):
+        self.executed_bodies = {}
+        eager_parameters = set()
+        callback_functions = [
+            (source_path, function)
+            for entries in self.helper_functions.values()
+            for source_path, function in entries
+            if any("->" in parameter["type"] for parameter in function.get("parameters", []))
+        ]
+        self.stored_callbacks = stored_callback_bindings(self.index, self.types)
+        self.stored_callback_names = {name for _, name in self.stored_callbacks}
+        for source_path, source_facts in self.index.items():
+            self.executed_bodies[source_path] = set()
+        while True:
+            previous = (len(eager_parameters), sum(map(len, self.executed_bodies.values())))
+            for source_path, function in callback_functions:
+                names = {
+                    parameter["name"]
+                    for parameter in function["parameters"]
+                    if "->" in parameter["type"]
+                }
+                for call in self.index[source_path].get("invocations", []):
+                    if (
+                        not function.get("bodyStart", function["start"])
+                        <= call["start"]
+                        < function["end"]
+                        or not self.active(source_path, call)
+                        or not self.can_execute(self.index[source_path], call)
+                        or not self.executes(source_path, function, call)
+                    ):
+                        continue
+                    expression = call.get("calledExpression", "")
+                    if expression in names:
+                        eager_parameters.add((source_path, function["start"], expression))
+                    references = set()
+                    callback_body_ranges(
+                        self.index[source_path],
+                        call,
+                        self.standard_callbacks(source_path, call),
+                        references=references,
+                    )
+                    eager_parameters.update(
+                        (source_path, function["start"], name) for name in references & names
+                    )
+                    _propagate_call_eager_parameters(
+                        source_path,
+                        function,
+                        call,
+                        names,
+                        eager_parameters,
+                        self.callback_targets,
+                        self.index,
+                    )
+            for source_path, source_facts in self.index.items():
+                executed_starts = self.executed_bodies[source_path]
+                for call in source_facts.get("invocations", []):
+                    if not (
+                        self.active(source_path, call) and self.can_execute(source_facts, call)
+                    ):
+                        continue
+                    if not _call_in_executed_closure(call, source_facts, executed_starts):
+                        continue
+                    _record_direct_executed_bodies(
+                        source_facts,
+                        source_path,
+                        call,
+                        self.executed_bodies,
+                        self.standard_callbacks,
+                    )
+                    for target_path, closure in self.stored_targets(source_path, call):
+                        self.executed_bodies[target_path].add(closure["start"])
+                    _propagate_executed_callback_bodies(
+                        source_path,
+                        source_facts,
+                        call,
+                        self.callback_targets,
+                        eager_parameters,
+                        self.executed_bodies,
+                    )
+            if previous == (len(eager_parameters), sum(map(len, self.executed_bodies.values()))):
+                break
 
-    components = types.components
+    def collect_file(self, path, facts):
+        module = self.compilation_unit(path)
+        if self.test_roots.intersection(Path(path).parts):
+            return
+        contains_request = lambda function: self.contains_request(function, path)
+        accessors = [
+            node
+            for node in facts.get("accessorRanges", [])
+            if node.get("isAsync") or contains_request(node)
+        ]
+        explicit_scopes = {
+            tuple(node["scope"])
+            for node in facts.get("initializers", [])
+            if node.get("isExplicitInitializer")
+        }
+        constructors = [
+            node
+            for node in facts.get("initializers", [])
+            if (node.get("isExplicitInitializer") or tuple(node["scope"]) not in explicit_scopes)
+            and contains_request(node)
+        ]
+        callable_apis = []
+        inline_closures = facts.get("inlineClosureRanges", [])
+        for declaration in facts.get("functionRanges", []) + facts.get("accessorRanges", []):
+            if not declaration.get("isExported") or "->" not in (
+                declaration.get("returnType") or ""
+            ):
+                continue
+            if _is_exported_async_closure_api(declaration, inline_closures, contains_request):
+                callable_apis.append(dict(declaration, isAsync=True))
+        for declaration in facts.get("callableRanges", []):
+            if declaration.get("lexicalScope") or not declaration.get("isExported"):
+                continue
+            if _is_exported_callable_async(declaration, facts, contains_request):
+                callable_apis.append(dict(declaration, isAsync=True))
+        for function in facts.get("functionRanges", []) + accessors + constructors + callable_apis:
+            scope = function["scope"]
+            if function.get("lexicalScope") or not self.active(path, function):
+                continue
+            identity = self.owner(path, scope)
+            if method_signature(function) in NETWORK_FOUNDATION_API.get(identity, set()):
+                continue
+            harness_path = NETWORK_HARNESS_TYPES.get(self.owner(path, scope[:1]))
+            harness_type = self.types.resolve(path, ".".join(scope[:1]), aliases=False)
+            declared_path = self.types.paths.get(harness_type, "")
+            if (
+                harness_path
+                and (declared_path == harness_path or declared_path.endswith("/" + harness_path))
+                and path in self.regular_sources
+                and self.regular_sources[path][function["start"] : function["start"] + 1]
+                in {b" ", b"\n", b"\r"}
+            ):
+                continue
+            if (
+                identity not in self.network_owners
+                and function not in callable_apis
+                and not contains_request(function)
+            ):
+                continue
+            target = self.types.resolve(path, ".".join(scope), aliases=False)
+            if target in self.protocols:
+                continue
+            if (
+                self.types.returns_view(path, function)
+                or target
+                and any(
+                    base.rsplit(".", 1)[-1] in {"View", "ViewModifier", "App", "Scene"}
+                    and self.types.resolve(path, base, target[1][:-1])
+                    not in self.types.nominal_records
+                    for base in self.types.bases(target)
+                )
+            ):
+                continue
+            parameters = function.get("parameters", [])
+            if (
+                target
+                and "HTTPTransport" in self.types.bases(target)
+                and function["name"] == "data"
+                and not function.get("isStatic")
+                and len(parameters) in {1, 2}
+                and parameters[0]["label"] == "for"
+                and (
+                    len(parameters) == 1
+                    or parameters[1]["label"] == "maximumBytes"
+                    and re.sub(r"\s+", "", parameters[1]["type"]) in {"Int?", "Swift.Int?"}
+                )
+                and self.types.terminal_name(path, parameters[0]["type"], scope).rsplit(".", 1)[-1]
+                == "URLRequest"
+            ):
+                continue
+            if (
+                function.get("isDeinitializer")
+                and contains_request(function)
+                or function.get("isExported")
+                and (
+                    function in callable_apis
+                    or contains_request(function)
+                    or method_signature(function) in self.NETWORK_CAPABILITIES.get(identity, {})
+                )
+                or module in self.NATIVE_PRODUCT_ROOTS
+                and not function.get("isPrivate")
+                and (
+                    contains_request(function)
+                    or method_signature(function) in self.NETWORK_CAPABILITIES.get(identity, {})
+                )
+                or not function.get("isPrivate")
+                and method_signature(function) in self.NETWORK_CAPABILITIES.get(identity, {})
+                and contains_request(function)
+                or identity not in self.NETWORK_CAPABILITIES
+                and not function.get("isPrivate")
+                and contains_request(function)
+            ):
+                self.result.setdefault(identity, []).append((path, function))
 
-    def active(path, node):
-        source = active_sources[path]
+    def mark_return_overloads(self):
+        for functions in self.result.values():
+            groups = {}
+            for _, function in functions:
+                groups.setdefault(method_signature(function), []).append(function)
+            for group in groups.values():
+                if not (len({row.get("returnType") or "Void" for row in group}) > 1):
+                    continue
+                for function in group:
+                    function["returnOverload"] = True
+
+    def owner(self, path, scope):
+        return ".".join(self.types.function_scope(path, scope))
+
+    def active(self, path, node):
+        source = self.active_sources[path]
         return source is None or source[node["start"] : node["start"] + 1] not in {
             b" ",
             b"\n",
             b"\r",
         }
 
-    def value_utility(path, call):
+    def value_utility(self, path, call):
         expression = call.get("calledExpression", "")
         receiver, _, name = expression.rpartition(".")
-        target = types.resolve(path, receiver, call["scope"])
+        target = self.types.resolve(path, receiver, call["scope"])
         if not target:
             return False
         scope = (target[0], *target[1])
         definitions = [
             (source_path, function)
-            for source_path, facts in index.items()
+            for source_path, facts in self.index.items()
             for function in facts.get("functionRanges", [])
             if function["name"] == name
-            and types.function_scope(source_path, function["scope"]) == scope
+            and self.types.function_scope(source_path, function["scope"]) == scope
             and matching_functions(
                 {"functionRanges": [function]}, name, dict(call, scope=function["scope"])
             )
@@ -177,7 +496,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
         return bool(definitions) and all(
             not function.get("isAsync")
             and not any(
-                types.terminal_name(source_path, kind, function["scope"]).rsplit(".", 1)[-1]
+                self.types.terminal_name(source_path, kind, function["scope"]).rsplit(".", 1)[-1]
                 in NETWORK_TRANSPORT_TYPES | {"URLRequest"}
                 for kind in [
                     function.get("returnType") or "",
@@ -187,7 +506,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             for source_path, function in definitions
         )
 
-    def network_port(kind):
+    def network_port(self, kind):
         return (
             "async" in kind
             and "->" in kind
@@ -195,7 +514,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             and re.search(r"\b(?:Data|HTTPResponse|URLResponse|HTTPURLResponse)\b", kind)
         )
 
-    def remote_data_request(facts, call, source_path):
+    def remote_data_request(self, facts, call, source_path):
         readers = FOUNDATION_COLLECTION_TYPES | {
             "Data",
             "NSData",
@@ -209,7 +528,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             ".self"
         ) or call.get("expectedType", "")
         expression = (
-            types.terminal_name(source_path, expression, call["scope"])
+            self.types.terminal_name(source_path, expression, call["scope"])
             .removeprefix("Foundation.")
             .removeprefix("Swift.")
         )
@@ -248,8 +567,8 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             uses = [
                 invocation
                 for invocation in facts.get("invocations", [])
-                if active(source_path, invocation)
-                and can_execute(facts, invocation)
+                if self.active(source_path, invocation)
+                and self.can_execute(facts, invocation)
                 and any(
                     node["start"] == call["start"]
                     for node in visible_callable_ranges(
@@ -264,9 +583,9 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             )
         return not file_only_argument(call.get("arguments", [])[position], call)
 
-    def system_request(facts, call, source_path):
+    def system_request(self, facts, call, source_path):
         expression = call.get("calledExpression", "")
-        if platform_stream_request(types, source_path, call, binding_types):
+        if platform_stream_request(self.types, source_path, call, self.binding_types):
             return True
         if expression in {
             module + "." + name
@@ -280,83 +599,7 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             and not matching_functions(facts, expression, call)
         )
 
-    for path, facts in index.items():
-        if test_roots.intersection(Path(path).parts):
-            continue
-        for node in facts.get("typedVariables", []):
-            if not active(path, node):
-                continue
-            identity = owner(path, node["scope"])
-            kind = types.terminal_name(path, node.get("type", ""), node["scope"])
-            if network_port(kind):
-                network_owners.add(identity)
-            for source_path, name, scope in components(
-                path, node.get("type", ""), node["scope"], node
-            ):
-                target = types.resolve(source_path, name, scope)
-                if (
-                    types.terminal_name(source_path, name, scope).rsplit(".", 1)[-1]
-                    in NETWORK_TRANSPORT_TYPES
-                ):
-                    network_owners.add(identity)
-                if target:
-                    dependencies.setdefault(identity, set()).add(".".join([target[0], *target[1]]))
-        for node in facts.get("bindings", []):
-            if node.get("lexicalScope") or not active(path, node):
-                continue
-            if target := resolve_receiver(
-                dict(node, path=path, calledExpression=node["bindingName"] + ".__propertyType")
-            ):
-                dependencies.setdefault(owner(path, node["scope"]), set()).add(target)
-        for call in facts.get("invocations", []):
-            if not active(path, call):
-                continue
-            expression = call.get("calledExpression", "")
-            if remote_data_request(facts, call, path) or system_request(facts, call, path):
-                network_owners.add(owner(path, call["scope"]))
-            if (
-                expression.removesuffix(".init").rsplit(".", 1)[-1]
-                in NETWORK_TRANSPORT_TYPES | {"URLRequest"}
-                or expression.split(".", 1)[0] in NETWORK_TRANSPORT_TYPES
-                and not value_utility(path, call)
-            ):
-                network_owners.add(owner(path, call["scope"]))
-    changed = True
-    while changed:
-        added = {
-            identity for identity, targets in dependencies.items() if targets & network_owners
-        } - network_owners
-        changed = bool(added)
-        network_owners.update(added)
-    registered_methods = {
-        identity: {signature.split("(", 1)[0].removeprefix("static ") for signature in signatures}
-        for identity, signatures in NETWORK_CAPABILITIES.items()
-    }
-    helper_functions = {}
-    for source_path, source_facts in index.items():
-        for function in source_facts.get("functionRanges", []) + [
-            node
-            for node in source_facts.get("initializers", [])
-            if node.get("isExplicitInitializer")
-        ]:
-            if active(source_path, function):
-                helper_functions.setdefault(owner(source_path, function["scope"]), []).append(
-                    (source_path, function)
-                )
-    protocol_helpers = {}
-    for identity in dependencies.keys() & network_owners:
-        waiting, visited = list(dependencies[identity]), set()
-        while waiting:
-            implementation = waiting.pop()
-            if implementation in visited:
-                continue
-            visited.add(implementation)
-            protocol_helpers.setdefault(identity, []).extend(
-                helper_functions.get(implementation, [])
-            )
-            waiting.extend(dependencies.get(implementation, set()) - visited)
-
-    def transport_calls(facts):
+    def transport_calls(self, facts):
         return (
             facts.get("invocations", [])
             + [
@@ -380,32 +623,23 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             ]
         )
 
-    executed_bodies = {}
-    eager_parameters = set()
-    callback_functions = [
-        (source_path, function)
-        for entries in helper_functions.values()
-        for source_path, function in entries
-        if any("->" in parameter["type"] for parameter in function.get("parameters", []))
-    ]
-
-    def executes(source_path, function, call):
-        facts = index[source_path]
+    def executes(self, source_path, function, call):
+        facts = self.index[source_path]
         return all(
-            closure["start"] in executed_bodies[source_path]
+            closure["start"] in self.executed_bodies[source_path]
             for closure in facts.get("callableRanges", []) + facts.get("inlineClosureRanges", [])
             if function["start"] <= closure["start"] <= call["start"] < closure["end"]
         )
 
-    def callback_targets(source_path, call):
+    def callback_targets(self, source_path, call):
         receiver, _, name = call.get("calledExpression", "").rpartition(".")
-        constructor = types.resolve(
+        constructor = self.types.resolve(
             source_path, call.get("calledExpression", "").removesuffix(".init"), call["scope"]
         )
         if constructor:
-            candidates = helper_functions.get(".".join([constructor[0], *constructor[1]]), [])
+            candidates = self.helper_functions.get(".".join([constructor[0], *constructor[1]]), [])
             return matching_api_calls(
-                index,
+                self.index,
                 candidates,
                 dict(
                     call,
@@ -413,35 +647,39 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                     calledExpression="init",
                     receiverExpression=call["calledExpression"],
                 ),
-                types=types,
+                types=self.types,
                 conservative=True,
             )
         target = (
-            owner(source_path, call["scope"])
+            self.owner(source_path, call["scope"])
             if receiver in {"", "self", "Self"}
-            else resolve_receiver(dict(call, path=source_path))
+            else self.resolve_receiver(dict(call, path=source_path))
         )
-        candidates = helper_functions.get(target, [])
+        candidates = self.helper_functions.get(target, [])
         if not receiver:
-            candidates = candidates + helper_functions.get(owner(source_path, []), [])
+            candidates = candidates + self.helper_functions.get(self.owner(source_path, []), [])
         return matching_api_calls(
-            index, candidates, dict(call, path=source_path), types=types, conservative=True
+            self.index,
+            candidates,
+            dict(call, path=source_path),
+            types=self.types,
+            conservative=True,
         )
 
-    def standard_callbacks(source_path, call):
-        constructor = types.resolve(
+    def standard_callbacks(self, source_path, call):
+        constructor = self.types.resolve(
             source_path, call.get("calledExpression", "").removesuffix(".init"), call["scope"]
         )
         return executed_callback_positions(
             call,
-            project_call=constructor is not None or bool(callback_targets(source_path, call)),
+            project_call=constructor is not None or bool(self.callback_targets(source_path, call)),
             potential=True,
         )
 
-    def selector_targets(source_path, call):
-        if callback_targets(source_path, call):
+    def selector_targets(self, source_path, call):
+        if self.callback_targets(source_path, call):
             return
-        facts = index[source_path]
+        facts = self.index[source_path]
         variables = dict(
             facts,
             typedVariables=[
@@ -470,18 +708,20 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
             if not match:
                 continue
             receiver, name, signature = match.groups()
-            resolved = types.resolve(source_path, receiver, call["scope"]) if receiver else None
+            resolved = (
+                self.types.resolve(source_path, receiver, call[("scope")]) if receiver else None
+            )
             target = (
                 ".".join([resolved[0], *resolved[1]])
                 if resolved
-                else owner(source_path, call["scope"])
+                else self.owner(source_path, call["scope"])
             )
             labels = (
                 [label.replace("_", "") for label in signature.split(":")[:-1]]
                 if signature is not None
                 else None
             )
-            for target_path, function in helper_functions.get(target, []):
+            for target_path, function in self.helper_functions.get(target, []):
                 if function["name"] == name and (
                     labels is None
                     or labels
@@ -489,15 +729,12 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 ):
                     yield target_path, function
 
-    stored_callbacks = stored_callback_bindings(index, types)
-    stored_callback_names = {name for _, name in stored_callbacks}
-
-    def stored_targets(source_path, call):
+    def stored_targets(self, source_path, call):
         receiver, _, name = call.get("calledExpression", "").rpartition(".")
-        if name not in stored_callback_names:
+        if name not in self.stored_callback_names:
             return []
         if receiver in {"", "self", "Self"}:
-            facts = index[source_path]
+            facts = self.index[source_path]
             variables = visible_variables(
                 dict(
                     facts,
@@ -517,386 +754,201 @@ def business_methods(index: dict) -> dict[str, list[tuple[str, dict]]]:
                 and (variables[-1].get("lexicalScope") or variables[-1].get("visibilityRange"))
             ):
                 return []
-            target = owner(source_path, call["scope"])
+            target = self.owner(source_path, call["scope"])
         else:
-            target = resolve_receiver(dict(call, path=source_path))
+            target = self.resolve_receiver(dict(call, path=source_path))
         return [
             (path, closure)
-            for path, closure, constructor in stored_callbacks.get((target, name), [])
-            if active(path, constructor) and can_execute(index[path], constructor)
+            for path, closure, constructor in self.stored_callbacks.get((target, name), [])
+            if self.active(path, constructor) and self.can_execute(self.index[path], constructor)
         ]
 
-    for source_path, source_facts in index.items():
-        executed_bodies[source_path] = set()
-    while True:
-        previous = (len(eager_parameters), sum(map(len, executed_bodies.values())))
-        for source_path, function in callback_functions:
-            names = {
-                parameter["name"]
-                for parameter in function["parameters"]
-                if "->" in parameter["type"]
-            }
-            for call in index[source_path].get("invocations", []):
-                if (
-                    not function.get("bodyStart", function["start"])
-                    <= call["start"]
-                    < function["end"]
-                    or not active(source_path, call)
-                    or not can_execute(index[source_path], call)
-                    or not executes(source_path, function, call)
-                ):
-                    continue
-                expression = call.get("calledExpression", "")
-                if expression in names:
-                    eager_parameters.add((source_path, function["start"], expression))
-                references = set()
-                callback_body_ranges(
-                    index[source_path],
-                    call,
-                    standard_callbacks(source_path, call),
-                    references=references,
-                )
-                eager_parameters.update(
-                    (source_path, function["start"], name) for name in references & names
-                )
-                _propagate_call_eager_parameters(
-                    source_path,
-                    function,
-                    call,
-                    names,
-                    eager_parameters,
-                    callback_targets,
-                    index,
-                )
-        for source_path, source_facts in index.items():
-            executed_starts = executed_bodies[source_path]
-            for call in source_facts.get("invocations", []):
-                if not (active(source_path, call) and can_execute(source_facts, call)):
-                    continue
-                if not _call_in_executed_closure(call, source_facts, executed_starts):
-                    continue
-                _record_direct_executed_bodies(
-                    source_facts, source_path, call, executed_bodies, standard_callbacks
-                )
-                for target_path, closure in stored_targets(source_path, call):
-                    executed_bodies[target_path].add(closure["start"])
-                _propagate_executed_callback_bodies(
-                    source_path,
-                    source_facts,
-                    call,
-                    callback_targets,
-                    eager_parameters,
-                    executed_bodies,
-                )
-        if previous == (len(eager_parameters), sum(map(len, executed_bodies.values()))):
-            break
-    result, request_results = {}, {}
-    for path, facts in index.items():
-        module = compilation_unit(path)
-        if test_roots.intersection(Path(path).parts):
-            continue
+    def contains_request(self, function, source_path, seen=None):
+        key = (
+            source_path,
+            function["start"],
+            function["end"],
+            function.get("bodyStart"),
+            function.get("isExplicitInitializer"),
+            tuple(function.get("scope", [])),
+        )
+        if key in self.request_results:
+            return self.request_results[key]
+        found = self.scan_requests(function, source_path, seen)
+        if found or seen is None:
+            self.request_results[key] = found
+        return found
 
-        def contains_request(function, source_path=path, seen=None):
-            key = (
-                source_path,
-                function["start"],
-                function["end"],
-                function.get("bodyStart"),
-                function.get("isExplicitInitializer"),
-                tuple(function.get("scope", [])),
+    def scan_requests(self, function, source_path, seen):
+        if seen is None:
+            seen = set()
+        key = (source_path, function["start"])
+        if key in seen:
+            return False
+        seen.add(key)
+        source_facts = self.index[source_path]
+        if function.get("isExplicitInitializer") and any(
+            self.contains_request(node, source_path, seen)
+            for node in source_facts.get("initializers", [])
+            if not node.get("isExplicitInitializer") and node["scope"] == function["scope"]
+        ):
+            return True
+        closures = source_facts.get("callableRanges", []) + source_facts.get(
+            "inlineClosureRanges", []
+        )
+        task_bodies = self.executed_bodies[source_path]
+        for call in self.transport_calls(source_facts):
+            if (
+                not (function.get("bodyStart") or function["start"])
+                <= call["start"]
+                < function["end"]
+                or not self.active(source_path, call)
+                or not self.can_execute(source_facts, call)
+            ):
+                continue
+            target = self.resolve_receiver(dict(call, path=source_path))
+            method = transport_method(call.get("calledExpression", ""))
+            executes = all(
+                closure["start"] in task_bodies
+                for closure in closures
+                if function["start"] <= closure["start"] <= call["start"] < closure["end"]
             )
-            if key in request_results:
-                return request_results[key]
-            found = scan_requests(function, source_path, seen)
-            if found or seen is None:
-                request_results[key] = found
-            return found
-
-        def scan_requests(function, source_path, seen):
-            if seen is None:
-                seen = set()
-            key = (source_path, function["start"])
-            if key in seen:
-                return False
-            seen.add(key)
-            source_facts = index[source_path]
-            if function.get("isExplicitInitializer") and any(
-                contains_request(node, source_path, seen)
-                for node in source_facts.get("initializers", [])
-                if not node.get("isExplicitInitializer") and node["scope"] == function["scope"]
+            if not executes:
+                continue
+            if any(
+                self.contains_request(closure, target_path, seen)
+                for target_path, closure in self.stored_targets(source_path, call)
             ):
                 return True
-            closures = source_facts.get("callableRanges", []) + source_facts.get(
-                "inlineClosureRanges", []
+            if any(
+                self.contains_request(callback, target_path, seen)
+                for target_path, callback in self.selector_targets(source_path, call)
+            ):
+                return True
+            callback_ranges = callback_body_ranges(
+                source_facts, call, self.standard_callbacks(source_path, call)
             )
-            task_bodies = executed_bodies[source_path]
-            for call in transport_calls(source_facts):
-                if (
-                    not (function.get("bodyStart") or function["start"])
-                    <= call["start"]
-                    < function["end"]
-                    or not active(source_path, call)
-                    or not can_execute(source_facts, call)
-                ):
-                    continue
-                target = resolve_receiver(dict(call, path=source_path))
-                method = transport_method(call.get("calledExpression", ""))
-                executes = all(
-                    closure["start"] in task_bodies
-                    for closure in closures
-                    if function["start"] <= closure["start"] <= call["start"] < closure["end"]
+            if any(
+                self.contains_request(closure, source_path, seen)
+                for closure in closures
+                if (closure["start"], closure["end"]) in callback_ranges
+            ):
+                return True
+            if self.remote_data_request(source_facts, call, source_path):
+                return True
+            if executes and self.system_request(source_facts, call, source_path):
+                return True
+            expression = call.get("calledExpression", "")
+            constructor = self.types.resolve(
+                source_path, expression.removesuffix(".init"), call["scope"]
+            )
+            invocation = (
+                dict(call, calledExpression="init", receiverExpression=expression)
+                if constructor
+                else call
+            )
+            if constructor:
+                target = ".".join([constructor[0], *constructor[1]])
+            definitions = matching_api_calls(
+                self.index,
+                self.helper_functions.get(target, []),
+                dict(invocation, path=source_path),
+                types=self.types,
+                conservative=True,
+            )
+            if (
+                (
+                    target
+                    and target.rsplit(".", 1)[-1] in NETWORK_TRANSPORT_TYPES
+                    or expression.removesuffix(".init").rsplit(".", 1)[-1]
+                    in NETWORK_TRANSPORT_TYPES
                 )
-                if not executes:
-                    continue
-                if any(
-                    contains_request(closure, target_path, seen)
-                    for target_path, closure in stored_targets(source_path, call)
-                ):
-                    return True
-                if any(
-                    contains_request(callback, target_path, seen)
-                    for target_path, callback in selector_targets(source_path, call)
-                ):
-                    return True
-                callback_ranges = callback_body_ranges(
-                    source_facts, call, standard_callbacks(source_path, call)
-                )
-                if any(
-                    contains_request(closure, source_path, seen)
-                    for closure in closures
-                    if (closure["start"], closure["end"]) in callback_ranges
-                ):
-                    return True
-                if remote_data_request(source_facts, call, source_path):
-                    return True
-                if executes and system_request(source_facts, call, source_path):
-                    return True
-                expression = call.get("calledExpression", "")
-                constructor = types.resolve(
-                    source_path, expression.removesuffix(".init"), call["scope"]
-                )
-                invocation = (
-                    dict(call, calledExpression="init", receiverExpression=expression)
-                    if constructor
-                    else call
-                )
-                if constructor:
-                    target = ".".join([constructor[0], *constructor[1]])
-                definitions = matching_api_calls(
-                    index,
-                    helper_functions.get(target, []),
-                    dict(invocation, path=source_path),
-                    types=types,
-                    conservative=True,
-                )
-                if (
-                    (
-                        target
-                        and target.rsplit(".", 1)[-1] in NETWORK_TRANSPORT_TYPES
-                        or expression.removesuffix(".init").rsplit(".", 1)[-1]
-                        in NETWORK_TRANSPORT_TYPES
+                and not self.value_utility(source_path, call)
+                and (not definitions or any(function.get("isAsync") for _, function in definitions))
+                and expression.removesuffix(".init") not in NETWORK_PLATFORM_TRANSPORT_TYPES
+            ):
+                return True
+            if target in self.network_owners and (
+                method in NETWORK_TRANSPORT_METHODS
+                or method in self.registered_methods.get(target, set())
+            ):
+                return True
+            expression = call.get("calledExpression", "").removeprefix("self.")
+            if any(
+                self.network_port(
+                    self.types.terminal_name(
+                        source_path, variable.get("type", ""), variable["scope"]
                     )
-                    and not value_utility(source_path, call)
-                    and (
-                        not definitions
-                        or any(function.get("isAsync") for _, function in definitions)
-                    )
-                    and expression.removesuffix(".init") not in NETWORK_PLATFORM_TRANSPORT_TYPES
-                ):
-                    return True
-                if target in network_owners and (
-                    method in NETWORK_TRANSPORT_METHODS
-                    or method in registered_methods.get(target, set())
-                ):
-                    return True
-                expression = call.get("calledExpression", "").removeprefix("self.")
-                if any(
-                    network_port(
-                        types.terminal_name(
-                            source_path, variable.get("type", ""), variable["scope"]
-                        )
-                    )
-                    for variable in visible_variables(source_facts, call, expression)
-                ):
-                    return True
+                )
+                for variable in visible_variables(source_facts, call, expression)
+            ):
+                return True
+            if method in NETWORK_TRANSPORT_METHODS and any(
+                kind.rsplit(".", 1)[-1] in NETWORK_TRANSPORT_TYPES
+                or kind in NETWORK_PLATFORM_TRANSPORT_TYPES
+                for kind in self.binding_types.receiver_components(call, source_path)
+            ):
+                return True
+            receiver, _, method = call.get("calledExpression", "").rpartition(".")
+            receiver_name = re.split(r"[.\[]", receiver.removeprefix("self."), maxsplit=1)[0]
+            for variable in visible_variables(
+                source_facts, call, receiver_name, receiver.startswith("self.")
+            ):
                 if method in NETWORK_TRANSPORT_METHODS and any(
-                    kind.rsplit(".", 1)[-1] in NETWORK_TRANSPORT_TYPES
-                    or kind in NETWORK_PLATFORM_TRANSPORT_TYPES
-                    for kind in binding_types.receiver_components(call, source_path)
+                    self.types.terminal_name(component_path, name, scope).rsplit(".", 1)[-1]
+                    in NETWORK_TRANSPORT_TYPES
+                    for component_path, name, scope in self.components(
+                        source_path, variable.get("type", ""), variable["scope"], call
+                    )
                 ):
                     return True
-                receiver, _, method = call.get("calledExpression", "").rpartition(".")
-                receiver_name = re.split(r"[.\[]", receiver.removeprefix("self."), maxsplit=1)[0]
-                for variable in visible_variables(
-                    source_facts, call, receiver_name, receiver.startswith("self.")
-                ):
-                    if method in NETWORK_TRANSPORT_METHODS and any(
-                        types.terminal_name(component_path, name, scope).rsplit(".", 1)[-1]
-                        in NETWORK_TRANSPORT_TYPES
-                        for component_path, name, scope in components(
-                            source_path, variable.get("type", ""), variable["scope"], call
-                        )
-                    ):
-                        return True
-                if not executes:
-                    continue
-                if constructor:
-                    matches = definitions
-                    if any(
-                        contains_request(helper, candidate_path, seen)
-                        for candidate_path, helper in matches
-                    ):
-                        return True
-                    continue
-                if not receiver or receiver in {"self", "Self"}:
-                    if not receiver and visible_variables(source_facts, call, method):
-                        continue
-                    target = owner(source_path, call["scope"])
-                available = helper_functions.get(target, []) + protocol_helpers.get(target, [])
-                if not receiver:
-                    available = available + helper_functions.get(owner(source_path, []), [])
-                candidates = [
-                    (candidate_path, helper)
-                    for candidate_path, helper in available
-                    if (not helper.get("isPrivate") or candidate_path == source_path)
-                    and call.get("lexicalScope", [])[: len(helper.get("lexicalScope", []))]
-                    == helper.get("lexicalScope", [])
-                ]
-                groups = {None: candidates}
-                if target in protocol_helpers:
-                    groups = {}
-                    for candidate_path, helper in candidates:
-                        groups.setdefault(owner(candidate_path, helper["scope"]), []).append(
-                            (candidate_path, helper)
-                        )
-                matches = [
-                    match
-                    for group in groups.values()
-                    for match in matching_api_calls(
-                        index, group, dict(call, path=source_path), types=types, conservative=True
-                    )
-                ]
+            if not executes:
+                continue
+            if constructor:
+                matches = definitions
                 if any(
-                    contains_request(helper, candidate_path, seen)
+                    self.contains_request(helper, candidate_path, seen)
                     for candidate_path, helper in matches
                 ):
                     return True
-            return False
-
-        accessors = [
-            node
-            for node in facts.get("accessorRanges", [])
-            if node.get("isAsync") or contains_request(node)
-        ]
-        explicit_scopes = {
-            tuple(node["scope"])
-            for node in facts.get("initializers", [])
-            if node.get("isExplicitInitializer")
-        }
-        constructors = [
-            node
-            for node in facts.get("initializers", [])
-            if (node.get("isExplicitInitializer") or tuple(node["scope"]) not in explicit_scopes)
-            and contains_request(node)
-        ]
-        callable_apis = []
-        inline_closures = facts.get("inlineClosureRanges", [])
-        for declaration in facts.get("functionRanges", []) + facts.get("accessorRanges", []):
-            if not declaration.get("isExported") or "->" not in (
-                declaration.get("returnType") or ""
-            ):
                 continue
-            if _is_exported_async_closure_api(declaration, inline_closures, contains_request):
-                callable_apis.append(dict(declaration, isAsync=True))
-        for declaration in facts.get("callableRanges", []):
-            if declaration.get("lexicalScope") or not declaration.get("isExported"):
-                continue
-            if _is_exported_callable_async(declaration, facts, contains_request):
-                callable_apis.append(dict(declaration, isAsync=True))
-        for function in facts.get("functionRanges", []) + accessors + constructors + callable_apis:
-            scope = function["scope"]
-            if function.get("lexicalScope") or not active(path, function):
-                continue
-            identity = owner(path, scope)
-            if method_signature(function) in NETWORK_FOUNDATION_API.get(identity, set()):
-                continue
-            harness_path = NETWORK_HARNESS_TYPES.get(owner(path, scope[:1]))
-            harness_type = types.resolve(path, ".".join(scope[:1]), aliases=False)
-            declared_path = types.paths.get(harness_type, "")
-            if (
-                harness_path
-                and (declared_path == harness_path or declared_path.endswith("/" + harness_path))
-                and path in regular_sources
-                and regular_sources[path][function["start"] : function["start"] + 1]
-                in {b" ", b"\n", b"\r"}
-            ):
-                continue
-            if (
-                identity not in network_owners
-                and function not in callable_apis
-                and not contains_request(function)
-            ):
-                continue
-            target = types.resolve(path, ".".join(scope), aliases=False)
-            if target in protocols:
-                continue
-            if (
-                types.returns_view(path, function)
-                or target
-                and any(
-                    base.rsplit(".", 1)[-1] in {"View", "ViewModifier", "App", "Scene"}
-                    and types.resolve(path, base, target[1][:-1]) not in types.nominal_records
-                    for base in types.bases(target)
+            if not receiver or receiver in {"self", "Self"}:
+                if not receiver and visible_variables(source_facts, call, method):
+                    continue
+                target = self.owner(source_path, call["scope"])
+            available = self.helper_functions.get(target, []) + self.protocol_helpers.get(
+                target, []
+            )
+            if not receiver:
+                available = available + self.helper_functions.get(self.owner(source_path, []), [])
+            candidates = [
+                (candidate_path, helper)
+                for candidate_path, helper in available
+                if (not helper.get("isPrivate") or candidate_path == source_path)
+                and call.get("lexicalScope", [])[: len(helper.get("lexicalScope", []))]
+                == helper.get("lexicalScope", [])
+            ]
+            groups = {None: candidates}
+            if target in self.protocol_helpers:
+                groups = {}
+                for candidate_path, helper in candidates:
+                    groups.setdefault(self.owner(candidate_path, helper["scope"]), []).append(
+                        (candidate_path, helper)
+                    )
+            matches = [
+                match
+                for group in groups.values()
+                for match in matching_api_calls(
+                    self.index,
+                    group,
+                    dict(call, path=source_path),
+                    types=self.types,
+                    conservative=True,
                 )
+            ]
+            if any(
+                self.contains_request(helper, candidate_path, seen)
+                for candidate_path, helper in matches
             ):
-                continue
-            parameters = function.get("parameters", [])
-            if (
-                target
-                and "HTTPTransport" in types.bases(target)
-                and function["name"] == "data"
-                and not function.get("isStatic")
-                and len(parameters) in {1, 2}
-                and parameters[0]["label"] == "for"
-                and (
-                    len(parameters) == 1
-                    or parameters[1]["label"] == "maximumBytes"
-                    and re.sub(r"\s+", "", parameters[1]["type"]) in {"Int?", "Swift.Int?"}
-                )
-                and types.terminal_name(path, parameters[0]["type"], scope).rsplit(".", 1)[-1]
-                == "URLRequest"
-            ):
-                continue
-            if (
-                function.get("isDeinitializer")
-                and contains_request(function)
-                or function.get("isExported")
-                and (
-                    function in callable_apis
-                    or contains_request(function)
-                    or method_signature(function) in NETWORK_CAPABILITIES.get(identity, {})
-                )
-                or module in NATIVE_PRODUCT_ROOTS
-                and not function.get("isPrivate")
-                and (
-                    contains_request(function)
-                    or method_signature(function) in NETWORK_CAPABILITIES.get(identity, {})
-                )
-                or not function.get("isPrivate")
-                and method_signature(function) in NETWORK_CAPABILITIES.get(identity, {})
-                and contains_request(function)
-                or identity not in NETWORK_CAPABILITIES
-                and not function.get("isPrivate")
-                and contains_request(function)
-            ):
-                result.setdefault(identity, []).append((path, function))
-    for functions in result.values():
-        groups = {}
-        for _, function in functions:
-            groups.setdefault(method_signature(function), []).append(function)
-        for group in groups.values():
-            if not (len({row.get("returnType") or "Void" for row in group}) > 1):
-                continue
-            for function in group:
-                function["returnOverload"] = True
-    return result
+                return True
+        return False

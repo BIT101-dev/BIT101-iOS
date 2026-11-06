@@ -117,6 +117,206 @@ def platform_installed_bundles(bundles: list[dict], contracts: dict, platform: s
     return result
 
 
+def manual_scenario_evidence(check, observations, make_action_entry):
+    from validation_manual import MANUAL_SCENARIOS
+
+    scenarios = {
+        name: {
+            "operation": "实际操作",
+            "result": "观察结果",
+            "outcome": "passed",
+            "capturedAt": utc_now().isoformat(),
+            "evidence": captured_media_fixture(),
+            "capabilities": observations(name),
+        }
+        for name in MANUAL_SCENARIOS[check]
+    }
+    if check == "ipad-layout":
+        for name, size in [
+            ("portrait", (768, 1024)),
+            ("landscape", (1024, 768)),
+            ("split-view", (512, 768)),
+            ("resize", (640, 768)),
+        ]:
+            scenarios[name]["windowSize"] = dict(zip(("width", "height"), size))
+        scenarios["split-view"]["screenWidth"] = 1024
+        scenarios["resize"]["previousWindowSize"] = {"width": 512, "height": 768}
+    if check != "performance-baseline":
+        from validation_compilation import compilation_settings
+        from validation_provenance import input_identity
+
+        expected_platform = "watchOS" if check == "watch" else "iOS"
+        contract = next(
+            (identifier, row)
+            for identifier, row in distribution.distribution_contracts().items()
+            if row["platform"] == expected_platform and not row["extension"]
+        )
+        identifier, row = contract
+        bundle = next(
+            value
+            for value in distribution_fixture()[1]["bundles"]
+            if value["identifier"] == identifier
+        )
+        if check == "installation-paths":
+            from validation_manual import INSTALLATION_ACTIONS
+
+            for name, actions in INSTALLATION_ACTIONS.items():
+                scenarios[name]["actions"] = make_action_entry(actions)
+            scenarios["app-store-upgrade"].update(
+                sourceApplication={
+                    "identifier": identifier,
+                    "version": "1.0",
+                    "build": "1",
+                    "distributionChannel": "app-store",
+                },
+                appStoreLookup={
+                    "trackId": 6761147125,
+                    "bundleId": identifier,
+                    "version": "1.0",
+                },
+            )
+        desktop = check == "catalyst-desktop"
+        platform = "macCatalyst" if desktop else "watchOS" if check == "watch" else "iOS"
+        minimum = compilation_settings("macOS" if desktop else platform)[1]
+        if desktop:
+            scenarios["window-resize"].update(
+                windowSize={"width": 1024, "height": 768},
+                previousWindowSize={"width": 800, "height": 600},
+            )
+            for name, actions in {
+                "menu-actions": ("app-menu", "window-menu"),
+                "keyboard-navigation": ("tab", "return", "escape"),
+                "permission-dialogs": ("photos", "calendar", "notifications"),
+            }.items():
+                scenarios[name]["actions"] = make_action_entry(actions)
+        return json.dumps(
+            {
+                "schemaVersion": 1,
+                "platform": platform,
+                "deviceIdentifier": "fixture-mac" if desktop else "fixture-pad",
+                "deviceModel": "Mac" if desktop else "iPad",
+                "deviceFamily": "iPad",
+                "systemVersion": minimum,
+                "systemBuild": "fixture-build",
+                "inputDigest": input_identity("manual-device", environment={}),
+                "application": {
+                    "identifier": identifier,
+                    "version": row["version"],
+                    "build": row["build"],
+                    "configuration": "Release",
+                    "testHostMarkers": [],
+                    "minimumOSVersion": minimum,
+                    **({} if desktop else {"distributionChannel": "testflight"}),
+                    "executableUUIDs": bundle["executableUUIDs"],
+                },
+                "scenarios": scenarios,
+            }
+        ).encode()
+    if check == "performance-baseline":
+        from validation_manual import PERFORMANCE_WORKLOADS, performance_group
+        from validation_policy import workflow_conditions
+
+        for name, row in scenarios.items():
+            test, workload = PERFORMANCE_WORKLOADS[name]
+            group = performance_group(test)
+            current = {
+                "testIdentifier": test,
+                "sourceCommit": "a" * 40,
+                "input": workload,
+                "capturedAt": row["capturedAt"],
+                "environment": {
+                    "deviceIdentifier": "fixture-phone",
+                    "deviceModel": "iPhone",
+                    "systemVersion": "26.0",
+                    "systemBuild": "fixture",
+                    "xcodeBuild": "fixture",
+                    "configuration": "Release",
+                    "compilerVersion": "a" * 64,
+                    "compilationConditions": ["DEBUG", "BIT101_AUTOMATED_TESTING"],
+                },
+                "resultBundle": {
+                    "path": ".build/extended-automation/test-results.xcresult",
+                    "identity": "a" * 64,
+                },
+                "metrics": {
+                    "clockSeconds": {"samples": [0.1] * 10, "mean": 0.1},
+                    "peakPhysicalMemoryBytes": {"samples": [1024] * 10, "mean": 1024},
+                },
+            }
+            from validation_performance import current_commit
+            from validation_provenance import input_identity
+
+            context = {
+                "host": {"system": "fixture"},
+                "developer": "/fixture",
+                "xcode": {"DTXcodeBuild": "fixture"},
+                "compiler": {"modified": 1, "size": 1, "version": "a" * 64},
+                "sdks": {"iPhoneOS": {"Version": "26.0"}},
+                "device": {
+                    "identifier": "fixture-phone",
+                    "model": "iPhone",
+                    "systemVersion": "26.0",
+                    "systemBuild": "fixture",
+                },
+            }
+            current["sourceCommit"] = current_commit()
+            current["environment"]["compilationConditions"] = sorted(workflow_conditions(group))
+            from validation_performance import normalize_metrics
+
+            current["execution"] = {
+                "group": group,
+                "runID": "fixture-run",
+                "environment": context,
+                "sourceCommit": current["sourceCommit"],
+                "inputDigest": input_identity(group, environment=context),
+                "bundleIdentity": "a" * 64,
+            }
+            current["xcresultMetrics"] = [
+                {
+                    "testIdentifier": test + "()",
+                    "testRuns": [
+                        {
+                            "device": {"deviceId": "fixture-phone"},
+                            "metrics": [
+                                {
+                                    "identifier": "com.apple.dt.XCTMetric_Clock.time.monotonic",
+                                    "unitOfMeasurement": "s",
+                                    "measurements": [0.1] * 10,
+                                },
+                                {
+                                    "identifier": "com.apple.dt.XCTMetric_Memory.physical_peak",
+                                    "unitOfMeasurement": "kB",
+                                    "measurements": [1.024] * 10,
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ]
+            current["metrics"] = normalize_metrics(
+                current["xcresultMetrics"], test, "fixture-phone"
+            )
+            baseline = copy.deepcopy(current)
+            baseline.update(
+                capturedAt=(utc_now() - timedelta(days=1)).isoformat(),
+                approvedAt=(utc_now() - timedelta(hours=1)).isoformat(),
+                approvedBy="maintainer",
+            )
+            baseline["resultBundle"]["identity"] = "b" * 64
+            baseline["execution"]["bundleIdentity"] = "b" * 64
+            for metric in baseline["metrics"].values():
+                metric["maximumRegressionPercent"] = 10
+            row["measurement"] = {"current": current, "baseline": baseline}
+    return json.dumps(
+        {
+            "schemaVersion": 1,
+            "deviceFamily": "iPad",
+            "deviceIdentifier": "fixture-pad",
+            "scenarios": scenarios,
+        }
+    ).encode()
+
+
 def evidence_fixture(check: str) -> bytes:
     from validation_manual import MANUAL_SCENARIOS
     from validation_test_areas import manual_capabilities
@@ -134,201 +334,7 @@ def evidence_fixture(check: str) -> bytes:
         }
 
     if check in MANUAL_SCENARIOS:
-        scenarios = {
-            name: {
-                "operation": "实际操作",
-                "result": "观察结果",
-                "outcome": "passed",
-                "capturedAt": utc_now().isoformat(),
-                "evidence": captured_media_fixture(),
-                "capabilities": observations(name),
-            }
-            for name in MANUAL_SCENARIOS[check]
-        }
-        if check == "ipad-layout":
-            for name, size in [
-                ("portrait", (768, 1024)),
-                ("landscape", (1024, 768)),
-                ("split-view", (512, 768)),
-                ("resize", (640, 768)),
-            ]:
-                scenarios[name]["windowSize"] = dict(zip(("width", "height"), size))
-            scenarios["split-view"]["screenWidth"] = 1024
-            scenarios["resize"]["previousWindowSize"] = {"width": 512, "height": 768}
-        if check != "performance-baseline":
-            from validation_compilation import compilation_settings
-            from validation_provenance import input_identity
-
-            expected_platform = "watchOS" if check == "watch" else "iOS"
-            contract = next(
-                (identifier, row)
-                for identifier, row in distribution.distribution_contracts().items()
-                if row["platform"] == expected_platform and not row["extension"]
-            )
-            identifier, row = contract
-            bundle = next(
-                value
-                for value in distribution_fixture()[1]["bundles"]
-                if value["identifier"] == identifier
-            )
-            if check == "installation-paths":
-                from validation_manual import INSTALLATION_ACTIONS
-
-                for name, actions in INSTALLATION_ACTIONS.items():
-                    scenarios[name]["actions"] = make_action_entry(actions)
-                scenarios["app-store-upgrade"].update(
-                    sourceApplication={
-                        "identifier": identifier,
-                        "version": "1.0",
-                        "build": "1",
-                        "distributionChannel": "app-store",
-                    },
-                    appStoreLookup={
-                        "trackId": 6761147125,
-                        "bundleId": identifier,
-                        "version": "1.0",
-                    },
-                )
-            desktop = check == "catalyst-desktop"
-            platform = "macCatalyst" if desktop else "watchOS" if check == "watch" else "iOS"
-            minimum = compilation_settings("macOS" if desktop else platform)[1]
-            if desktop:
-                scenarios["window-resize"].update(
-                    windowSize={"width": 1024, "height": 768},
-                    previousWindowSize={"width": 800, "height": 600},
-                )
-                for name, actions in {
-                    "menu-actions": ("app-menu", "window-menu"),
-                    "keyboard-navigation": ("tab", "return", "escape"),
-                    "permission-dialogs": ("photos", "calendar", "notifications"),
-                }.items():
-                    scenarios[name]["actions"] = make_action_entry(actions)
-            return json.dumps(
-                {
-                    "schemaVersion": 1,
-                    "platform": platform,
-                    "deviceIdentifier": "fixture-mac" if desktop else "fixture-pad",
-                    "deviceModel": "Mac" if desktop else "iPad",
-                    "deviceFamily": "iPad",
-                    "systemVersion": minimum,
-                    "systemBuild": "fixture-build",
-                    "inputDigest": input_identity("manual-device", environment={}),
-                    "application": {
-                        "identifier": identifier,
-                        "version": row["version"],
-                        "build": row["build"],
-                        "configuration": "Release",
-                        "testHostMarkers": [],
-                        "minimumOSVersion": minimum,
-                        **({} if desktop else {"distributionChannel": "testflight"}),
-                        "executableUUIDs": bundle["executableUUIDs"],
-                    },
-                    "scenarios": scenarios,
-                }
-            ).encode()
-        if check == "performance-baseline":
-            from validation_manual import PERFORMANCE_WORKLOADS, performance_group
-            from validation_policy import workflow_conditions
-
-            for name, row in scenarios.items():
-                test, workload = PERFORMANCE_WORKLOADS[name]
-                group = performance_group(test)
-                current = {
-                    "testIdentifier": test,
-                    "sourceCommit": "a" * 40,
-                    "input": workload,
-                    "capturedAt": row["capturedAt"],
-                    "environment": {
-                        "deviceIdentifier": "fixture-phone",
-                        "deviceModel": "iPhone",
-                        "systemVersion": "26.0",
-                        "systemBuild": "fixture",
-                        "xcodeBuild": "fixture",
-                        "configuration": "Release",
-                        "compilerVersion": "a" * 64,
-                        "compilationConditions": ["DEBUG", "BIT101_AUTOMATED_TESTING"],
-                    },
-                    "resultBundle": {
-                        "path": ".build/extended-automation/test-results.xcresult",
-                        "identity": "a" * 64,
-                    },
-                    "metrics": {
-                        "clockSeconds": {"samples": [0.1] * 10, "mean": 0.1},
-                        "peakPhysicalMemoryBytes": {"samples": [1024] * 10, "mean": 1024},
-                    },
-                }
-                from validation_performance import current_commit
-                from validation_provenance import input_identity
-
-                context = {
-                    "host": {"system": "fixture"},
-                    "developer": "/fixture",
-                    "xcode": {"DTXcodeBuild": "fixture"},
-                    "compiler": {"modified": 1, "size": 1, "version": "a" * 64},
-                    "sdks": {"iPhoneOS": {"Version": "26.0"}},
-                    "device": {
-                        "identifier": "fixture-phone",
-                        "model": "iPhone",
-                        "systemVersion": "26.0",
-                        "systemBuild": "fixture",
-                    },
-                }
-                current["sourceCommit"] = current_commit()
-                current["environment"]["compilationConditions"] = sorted(workflow_conditions(group))
-                from validation_performance import normalize_metrics
-
-                current["execution"] = {
-                    "group": group,
-                    "runID": "fixture-run",
-                    "environment": context,
-                    "sourceCommit": current["sourceCommit"],
-                    "inputDigest": input_identity(group, environment=context),
-                    "bundleIdentity": "a" * 64,
-                }
-                current["xcresultMetrics"] = [
-                    {
-                        "testIdentifier": test + "()",
-                        "testRuns": [
-                            {
-                                "device": {"deviceId": "fixture-phone"},
-                                "metrics": [
-                                    {
-                                        "identifier": "com.apple.dt.XCTMetric_Clock.time.monotonic",
-                                        "unitOfMeasurement": "s",
-                                        "measurements": [0.1] * 10,
-                                    },
-                                    {
-                                        "identifier": "com.apple.dt.XCTMetric_Memory.physical_peak",
-                                        "unitOfMeasurement": "kB",
-                                        "measurements": [1.024] * 10,
-                                    },
-                                ],
-                            }
-                        ],
-                    }
-                ]
-                current["metrics"] = normalize_metrics(
-                    current["xcresultMetrics"], test, "fixture-phone"
-                )
-                baseline = copy.deepcopy(current)
-                baseline.update(
-                    capturedAt=(utc_now() - timedelta(days=1)).isoformat(),
-                    approvedAt=(utc_now() - timedelta(hours=1)).isoformat(),
-                    approvedBy="maintainer",
-                )
-                baseline["resultBundle"]["identity"] = "b" * 64
-                baseline["execution"]["bundleIdentity"] = "b" * 64
-                for metric in baseline["metrics"].values():
-                    metric["maximumRegressionPercent"] = 10
-                row["measurement"] = {"current": current, "baseline": baseline}
-        return json.dumps(
-            {
-                "schemaVersion": 1,
-                "deviceFamily": "iPad",
-                "deviceIdentifier": "fixture-pad",
-                "scenarios": scenarios,
-            }
-        ).encode()
+        return manual_scenario_evidence(check, observations, make_action_entry)
     if check == "distribution-signing":
         return json.dumps(distribution_fixture()[1]).encode()
     if check == "minimum-platforms":

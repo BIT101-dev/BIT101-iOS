@@ -453,16 +453,6 @@ def file_member_accesses(
     ]
     encoded = source.encode()
     binding_types = None
-    file_types = FOUNDATION_COLLECTION_TYPES | {
-        "Data",
-        "NSData",
-        "NSMutableData",
-        "String",
-        "NSString",
-        "NSMutableString",
-        "FileWrapper",
-        "NSFileWrapper",
-    }
 
     def normalized_type(value: str) -> str:
         value = (
@@ -626,6 +616,24 @@ def file_member_accesses(
             return value_type(binding["value"].split("=", 1)[1], binding, seen | {identity})
         return None
 
+    return file_member_access_lines(
+        facts, encoded, value_type, normalized_type, call_context=call_context, origin=origin
+    )
+
+
+def file_member_access_lines(
+    facts, encoded, value_type, normalized_type, *, call_context, origin
+) -> list[int]:
+    file_types = FOUNDATION_COLLECTION_TYPES | {
+        "Data",
+        "NSData",
+        "NSMutableData",
+        "String",
+        "NSString",
+        "NSMutableString",
+        "FileWrapper",
+        "NSFileWrapper",
+    }
     hits = set()
     for call in facts["invocations"]:
         if re.match(r"(?:CoreGraphics\.)?CGPDFDocument\s*(?:\.\s*init\s*)?\(", call["value"]):

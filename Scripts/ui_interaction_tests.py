@@ -33,620 +33,11 @@ def inventory_json_self_test() -> None:
 
 
 def interaction_inventory_boundary_findings() -> list[str]:
-    inventory_json_self_test()
-    path = str(ROOT / "Modules/Example/Sources/Example.swift")
-    original = swift_syntax_index_sources(
-        {path: 'struct Screen: View { var body: some View { Button("入口") {} } }'}
-    )
-    manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(original).items()
-    }
-    findings = list_row_layout_boundary_findings()
-    for kind, modifier, action in (
-        ("onDrag", "onDrag { NSItemProvider() }", "drag"),
-        ("onDrop", 'onDrop(of: ["text"], isTargeted: nil) { _ in true }', "drop"),
-        ("draggable", 'draggable("内容")', "drag"),
-        ("dropDestination", "dropDestination(for: String.self) { _, _ in true }", "drop"),
-        ("onKeyPress", "onKeyPress(.return) { .handled }", "keyboard"),
-    ):
-        syntax = swift_syntax_index_sources(
-            {
-                path: 'struct Screen: View { var body: some View { Text("内容").'
-                + modifier
-                + '.accessibilityIdentifier("carrier") } }'
-            }
-        )
-        inventory = interaction_source_inventory(syntax)
-        if list(inventory.values()) != [{kind: 1}] or not source_inventory_findings(
-            syntax, {}, set()
-        ):
-            findings.append("UI 清单自测：拖放与键盘事件进入归属库存")
-        modifier_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"}) for key, controls in inventory.items()
-        }
-        row = dict(
-            scope="ExampleUITests/testScreen",
-            identifier="carrier",
-            instance="carrier",
-            actions=[action],
-        )
-        if not source_runtime_interaction_findings(
-            syntax, modifier_manifest, []
-        ) or source_runtime_interaction_findings(syntax, modifier_manifest, [row]):
-            findings.append("UI 清单自测：拖放与键盘事件核对实际动作证据")
-        if action in {"drag", "drop"} and not source_runtime_interaction_findings(
-            syntax, modifier_manifest, [dict(row, actions=["swipe"])]
-        ):
-            findings.append("UI 清单自测：拖放需要独立于轻扫的动作证据")
-    for gesture, action, wrong in [
-        ("DragGesture()", "swipe", "pinch"),
-        ("MagnificationGesture()", "pinch", "swipe"),
-        ("TapGesture()", "tap", "swipe"),
-        ("LongPressGesture()", "press", "tap"),
-    ]:
-        syntax = swift_syntax_index_sources(
-            {
-                path: 'struct Screen: View { var body: some View { Text("内容").gesture('
-                + gesture
-                + ').accessibilityIdentifier("carrier") } }'
-            }
-        )
-        gesture_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(syntax).items()
-        }
-        row = dict(
-            scope="ExampleUITests/testScreen",
-            identifier="carrier",
-            instance="carrier",
-            actions=[action],
-        )
-        if source_runtime_interaction_findings(
-            syntax, gesture_manifest, [row]
-        ) or not source_runtime_interaction_findings(
-            syntax, gesture_manifest, [dict(row, actions=[wrong])]
-        ):
-            findings.append("UI 清单自测：轻扫、捏合、点击与长按分别验证")
-    for gesture, required in [
-        ("gesture(TapGesture().simultaneously(with: DragGesture()))", {"tap", "swipe"}),
-        ("gesture(TapGesture().sequenced(before: LongPressGesture()))", {"tap", "press"}),
-        ("gesture(TapGesture()).simultaneousGesture(DragGesture())", {"tap", "swipe"}),
-        (
-            (
-                'gesture(DragGesture().onChanged { _ in print("MagnificationGesture"); let unused '
-                "= MagnificationGesture() })"
-            ),
-            {"swipe"},
-        ),
-        ("gesture(DragGesture(/* MagnificationGesture */))", {"swipe"}),
-    ]:
-        syntax = swift_syntax_index_sources(
-            {
-                path: 'struct Screen: View { var body: some View { Text("内容").'
-                + gesture
-                + '.accessibilityIdentifier("carrier") } }'
-            }
-        )
-        gesture_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(syntax).items()
-        }
-        row = dict(
-            scope="ExampleUITests/testScreen",
-            identifier="carrier",
-            instance="carrier",
-            actions=sorted(required),
-        )
-        if source_runtime_interaction_findings(syntax, gesture_manifest, [row]):
-            findings.append("UI 清单自测：组合手势按实际构造核对完整动作集合")
-        for missing in required:
-            actions = sorted(required - {missing}) or ["pinch"]
-            if not source_runtime_interaction_findings(
-                syntax, gesture_manifest, [dict(row, actions=actions)]
-            ):
-                findings.append("UI 清单自测：组合手势逐项检查动作缺口")
-    for kind, control, action in (
-        ("DisclosureGroup", 'DisclosureGroup("详情") { Text("正文") }', "tap"),
-        ("ColorPicker", 'ColorPicker("颜色", selection: .constant(.red))', "selection"),
-        (
-            "MultiDatePicker",
-            'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))',
-            "selection",
-        ),
-        ("EditButton", "EditButton()", "tap"),
-        ("PasteButton", "PasteButton(payloadType: String.self) { _ in }", "tap"),
-    ):
-        identifier = "control" if kind in {"MultiDatePicker", "EditButton", "PasteButton"} else ""
-        if identifier:
-            control += '.accessibilityIdentifier("control")'
-        syntax = swift_syntax_index_sources(
-            {path: "struct Screen: View { var body: some View { " + control + " } }"}
-        )
-        control_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(syntax).items()
-        }
-        if list(value[0] for value in control_manifest.values()) != [
-            {kind: 1}
-        ] or not source_inventory_findings(syntax, {}, set()):
-            findings.append("UI 清单自测：系统折叠与颜色控件进入归属库存")
-        row = dict(
-            scope="ExampleUITests/testScreen",
-            label="详情" if kind == "DisclosureGroup" else "颜色",
-            identifier=identifier,
-            instance="control",
-            actions=["tap" if action == "selection" else action],
-        )
-        if not source_runtime_interaction_findings(
-            syntax, control_manifest, []
-        ) or source_runtime_interaction_findings(syntax, control_manifest, [row]):
-            findings.append("UI 清单自测：系统控件核对实际动作证据")
-    spacers = swift_syntax_index_sources(
-        {
-            path: (
-                "class Screen { func build() { let fixed = UIBarButtonItem(systemItem: .fixedSpace"
-                "); let flexible: UIBarButtonItem = .init(barButtonSystemItem: .flexibleSpace, tar"
-                "get: nil, action: nil) } }"
-            )
-        }
-    )
-    if interaction_source_inventory(spacers):
-        findings.append("UI 原生清单自测：工具栏间隔沿布局归属")
-    wrapped = swift_syntax_index_sources(
-        {
-            path: (
-                "class Screen { func build() { let button = UIButton(type: .system); button.access"
-                'ibilityIdentifier = "done"; let item = UIBarButtonItem(customView: button); item.'
-                'accessibilityIdentifier = "done" } }'
-            )
-        }
-    )
-    wrapped_manifest = {
-        key: (controls, {"ExampleUITests/testNative"})
-        for key, controls in interaction_source_inventory(wrapped).items()
-    }
-    if list(value[0] for value in wrapped_manifest.values()) != [{"UIButton": 1}]:
-        findings.append("UI 原生清单自测：自定义工具栏按钮沿实际控件归属")
-    wrapped_row = dict(
-        scope="ExampleUITests/testNative", identifier="done", instance="done", actions=["tap"]
-    )
-    if not source_runtime_interaction_findings(
-        wrapped, wrapped_manifest, []
-    ) or source_runtime_interaction_findings(wrapped, wrapped_manifest, [wrapped_row]):
-        findings.append("UI 原生清单自测：自定义工具栏按钮核对实际点击证据")
-    independent = swift_syntax_index_sources(
-        {
-            path: (
-                'class Screen { func build() { let item = UIBarButtonItem(title: "独立", style: .pla'
-                'in, target: self, action: #selector(done)); item.accessibilityIdentifier = "indep'
-                'endent" } }'
-            )
-        }
-    )
-    independent_manifest = {
-        key: (controls, {"ExampleUITests/testNative"})
-        for key, controls in interaction_source_inventory(independent).items()
-    }
-    if list(value[0] for value in independent_manifest.values()) != [
-        {"UIBarButtonItem": 1}
-    ] or not source_runtime_interaction_findings(independent, independent_manifest, [wrapped_row]):
-        findings.append("UI 原生清单自测：独立工具栏按钮保留自身点击验收")
-    for root, expected in (
-        ("BIT101-iOS", True),
-        ("BIT101-iOS/Tests", True),
-        ("ModuleTests/Support", False),
-        ("BIT101-iOSTests", False),
-        ("BIT101-iOSUITests", False),
-    ):
-        renamed_path = str(ROOT / root / "ScreenUITestExample.swift")
-        renamed = swift_syntax_index_sources(
-            {
-                renamed_path: (
-                    'struct Screen: View { var body: some View { Button("入口") {} }; func build() {'
-                    " let field = UITextField() } }"
-                )
-            }
-        )
-        if list(interaction_source_inventory(renamed).values()) != (
-            [{"Button": 1, "UITextField": 1}] if expected else []
-        ):
-            findings.append("UI 清单自测：生产文件名与实际测试目录归属")
-        if expected and not source_runtime_interaction_findings(renamed, {}, []):
-            findings.append("UI 清单自测：重命名控件继续核对运行证据")
-    native_sources = {
-        path: (
-            "class CodeField: UITextField {}; class Screen { func build() { let field = CodeField("
-            '); let input: UITextField = .init(); let menu = UIAction(title: "动作") { _ in }; let p'
-            "inch = UIPinchGestureRecognizer(); let label = UILabel(); accept(.init()) }; func dir"
-            "ect() -> UITextField { .init() }; func returned() -> UITextField { let frame: CGRect "
-            "= .init(); return .init() } }"
-        ),
-        str(
-            Path(path).with_name("Support.swift")
-        ): "extension Screen { func accept(_ field: UITextField, enabled: Bool = true) {} }",
-    }
-    native = swift_syntax_index_sources(native_sources)
-    native_inventory = interaction_source_inventory(native)
-    if list(native_inventory.values()) != [
-        {"UIAction": 1, "UIPinchGestureRecognizer": 1, "UITextField": 5}
-    ]:
-        findings.append("UI 原生清单自测：控件继承、隐式构造、菜单和手势进入库存")
-    native_manifest = {
-        key: (controls, {"ExampleUITests/testNative"}) for key, controls in native_inventory.items()
-    }
-    if source_inventory_findings(native, native_manifest, {"ExampleUITests/testNative"}):
-        findings.append("UI 原生清单自测：已登记控件对应验证用例")
-    changed_native = swift_syntax_index_sources(
-        {
-            **native_sources,
-            path: native_sources[path].replace(
-                "let label = UILabel()", "let added = UITapGestureRecognizer()"
-            ),
-        }
-    )
-    if not source_inventory_findings(
-        changed_native, native_manifest, {"ExampleUITests/testNative"}
-    ):
-        findings.append("UI 原生清单自测：新增交互需要同步库存")
-    if not source_inventory_findings(native, native_manifest, set()):
-        findings.append("UI 原生清单自测：验证用例移除触发归属检查")
-    findings.extend(native_runtime_boundary_findings(path))
-    if source_inventory_findings(original, manifest, {"ExampleUITests/testScreen"}):
-        findings.append("UI 清单自测：已归属交互")
-    for change in (
-        'struct Unvisited: View { var body: some View { Button("新页面") {} } }',
-        (
-            'extension Screen { var hiddenControl: some View { Toggle("新增", isOn: .const'
-            "ant(false)) } }"
-        ),
-    ):
-        changed = swift_syntax_index_sources(
-            {path: 'struct Screen: View { var body: some View { Button("入口") {} } }\n' + change}
-        )
-        if not source_inventory_findings(changed, manifest, {"ExampleUITests/testScreen"}):
-            findings.append("UI 清单自测：新增页面与交互进入验收")
-    if not source_inventory_findings(original, manifest, set()):
-        findings.append("UI 清单自测：验收用例删除进入拦截")
-    evidence = [
-        {
-            "scope": "ExampleUITests/testScreen / 页面",
-            "label": "入口",
-            "identifier": "",
-            "actions": ["tap"],
-        }
-    ]
-    for declaration, invocation in [
-        ("typealias Alias = Button<Text>", 'Alias("入口") {}'),
-        (
-            "typealias Generic<T: View> = SwiftUI.Button<T>; typealias Alias = Generic<Text>",
-            'Alias("入口") {}',
-        ),
-        ("typealias alias = Button<Text>", 'alias("入口") {}'),
-        ("typealias Alias = Button<Text>", 'Alias(action: {}) { Text("入口") }'),
-    ]:
-        aliased = swift_syntax_index_sources(
-            {
-                path: declaration
-                + "; struct Screen: View { var body: some View { "
-                + invocation
-                + " } }"
-            }
-        )
-        if interaction_source_inventory(aliased) != interaction_source_inventory(original):
-            findings.append("UI 别名清单自测：泛型与连续别名沿控件类型归属")
-        if not source_runtime_interaction_findings(aliased, manifest, []):
-            findings.append("UI 别名清单自测：控件入口需要实际访问证据")
-        if source_runtime_interaction_findings(aliased, manifest, evidence):
-            findings.append("UI 别名清单自测：原生控件证据沿别名匹配")
-    if source_runtime_interaction_findings(original, manifest, evidence):
-        findings.append("UI 清单自测：源码声明对应实际访问")
-    changed = swift_syntax_index_sources(
-        {
-            path: (
-                'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button'
-                '("新增条件分支") {} } } }'
-            )
-        }
-    )
-    expanded = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(changed).items()
-    }
-    if not source_runtime_interaction_findings(changed, expanded, evidence):
-        findings.append("UI 清单自测：条件分支需要独立访问证据")
-    mixed = {
-        key: (controls, {"ExampleUITests/testScreen", "manual:watch"})
-        for key, controls in interaction_source_inventory(changed).items()
-    }
-    if not source_inventory_findings(changed, mixed, {"ExampleUITests/testScreen"}):
-        findings.append("UI 清单自测：手工归属需要匹配平台")
-    if not source_runtime_interaction_findings(changed, mixed, evidence):
-        findings.append("UI 清单自测：手工归属保留自动访问要求")
-    if not source_runtime_interaction_findings(
-        original, manifest, [dict(evidence[0], label="另一个入口")]
-    ):
-        findings.append("UI 清单自测：标题按完整含义匹配")
-    duplicate = swift_syntax_index_sources(
-        {
-            path: (
-                'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button'
-                '("入口") {} } } }'
-            )
-        }
-    )
-    duplicate_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(duplicate).items()
-    }
-    if not source_runtime_interaction_findings(duplicate, duplicate_manifest, evidence):
-        findings.append("UI 清单自测：同名声明需要独立控件证据")
-    if not source_runtime_interaction_findings(
-        duplicate,
-        duplicate_manifest,
-        [
-            dict(evidence[0], instance="presentation.first"),
-            dict(evidence[0], instance="presentation.second"),
-        ],
-    ):
-        findings.append("UI 清单自测：重复呈现对应独立源码标识")
-    for kind, action in [
-        ("refreshable", "refresh"),
-        ("onSubmit", "submit"),
-        ("onDelete", "delete"),
-        ("onMove", "move"),
-    ]:
-        callback = swift_syntax_index_sources(
-            {
-                path: "struct Screen: View { var body: some View { Color.clear."
-                + kind
-                + ' { interactionEvidence?("callback", "'
-                + action
-                + '"); run() } } }'
-            }
-        )
-        callback_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(callback).items()
-        }
-        visited = dict(evidence[0], identifier="callback", instance="callback", actions=["input"])
-        if not source_runtime_interaction_findings(callback, callback_manifest, [visited]):
-            findings.append("UI 清单自测：回调要求实际执行对应动作")
-        if source_runtime_interaction_findings(
-            callback, callback_manifest, [dict(visited, actions=[action])]
-        ):
-            findings.append("UI 清单自测：实际回调执行进入覆盖证据")
-    dynamic = swift_syntax_index_sources(
-        {
-            path: (
-                "struct Screen: View { var body: some View { Button(title) {}.accessibilityIdentif"
-                'ier("item.\\(id)") } }'
-            )
-        }
-    )
-    dynamic_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(dynamic).items()
-    }
-    if not source_runtime_interaction_findings(dynamic, dynamic_manifest, evidence):
-        findings.append("UI 清单自测：动态标识需要匹配访问")
-    if source_runtime_interaction_findings(
-        dynamic, dynamic_manifest, [dict(evidence[0], identifier="item.42")]
-    ):
-        findings.append("UI 清单自测：动态标识模板接受实际访问")
-    for control in (
-        'Toggle("启用", isOn: .constant(false))',
-        'Picker("校区", selection: .constant(0)) { Text("主校区").tag(0) }',
-        'DatePicker("日期", selection: .constant(Date()))',
-        'TextField("输入", text: .constant(""))',
-        "Button(dynamicTitle) {}",
-    ):
-        hidden = swift_syntax_index_sources(
-            {path: "struct Screen: View { var body: some View { " + control + " } }"}
-        )
-        hidden_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(hidden).items()
-        }
-        if not source_runtime_interaction_findings(hidden, hidden_manifest, []):
-            findings.append("UI 清单自测：输入、选择及动态标题需要实际身份约定")
-    for kind, invocation, expected in [
-        ("TextField", 'TextField("输入", text: .constant(""))', "input"),
-        ("SecureField", 'SecureField("输入", text: .constant(""))', "input"),
-        ("TextEditor", 'TextEditor(text: .constant(""))', "input"),
-        ("Toggle", 'Toggle("启用", isOn: .constant(false))', "tap"),
-        ("Slider", "Slider(value: .constant(0.5))", "drag"),
-        (
-            "MultiDatePicker",
-            'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))',
-            "selection",
-        ),
-        ("EditButton", "EditButton()", "tap"),
-        ("PasteButton", "PasteButton(payloadType: String.self) { _ in }", "tap"),
-        ("Stepper", 'Stepper("数值", value: .constant(1))', "tap"),
-    ]:
-        control = swift_syntax_index_sources(
-            {
-                path: "struct Screen: View { var body: some View { "
-                + invocation
-                + '.accessibilityIdentifier("control") } }'
-            }
-        )
-        control_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(control).items()
-        }
-        row = dict(
-            evidence[0],
-            identifier="control",
-            instance="control",
-            actions=["input" if expected in {"tap", "selection"} else "tap"],
-        )
-        if not source_runtime_interaction_findings(control, control_manifest, [row]):
-            findings.append("UI 清单自测：控件需要对应动作类型")
-        if source_runtime_interaction_findings(
-            control,
-            control_manifest,
-            [dict(row, actions=["tap" if expected == "selection" else expected])],
-        ):
-            findings.append("UI 清单自测：实际控件动作进入证据")
-    scopes = swift_syntax_index_sources(
-        {
-            path: (
-                'struct FirstView: View { var body: some View { Button("取消") {} } }; struct Second'
-                'View: View { var body: some View { Button("取消") {} } }'
-            )
-        }
-    )
-    scope_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(scopes).items()
-    }
-    cancel = dict(evidence[0], label="取消", instance="cancel.first")
-    if not source_runtime_interaction_findings(scopes, scope_manifest, [cancel]):
-        findings.append("UI 清单自测：跨作用域声明需要独立身份")
-    if not source_runtime_interaction_findings(
-        scopes, scope_manifest, [cancel, dict(cancel, instance="cancel.second")]
-    ):
-        findings.append("UI 清单自测：重复呈现保留跨作用域标识要求")
-    scopes = swift_syntax_index_sources(
-        {
-            path: (
-                'struct FirstView: View { var body: some View { Button("取消") {}.accessibilityIdent'
-                'ifier("first.cancel") } }; struct SecondView: View { var body: some View { Button'
-                '("取消") {}.accessibilityIdentifier("second.cancel") } }'
-            )
-        }
-    )
-    cancel = dict(cancel, identifier="first.cancel")
-    second = dict(cancel, identifier="second.cancel", instance="cancel.second")
-    if source_runtime_interaction_findings(scopes, scope_manifest, [cancel, second]):
-        findings.append("UI 清单自测：明确标识覆盖同名作用域")
-    keys = list(scope_manifest)
-    scope_manifest[keys[0]] = (
-        scope_manifest[keys[0]][0],
-        {"ExampleUITests/testScreen", "ExampleUITests/testOther"},
-    )
-    if source_runtime_interaction_findings(
-        scopes,
-        scope_manifest,
-        [second, dict(cancel, scope="ExampleUITests/testOther", instance="cancel.other")],
-    ):
-        findings.append("UI 清单自测：共享流程按完整匹配分配证据")
-    gesture = swift_syntax_index_sources(
-        {
-            path: (
-                "struct Screen: View { var body: some View { Color.clear.onTapGesture { open() }.a"
-                'ccessibilityIdentifier("carrier").toolbar { Button("旁路") {}.accessibilityIdentifi'
-                'er("child") } } }'
-            )
-        }
-    )
-    gesture_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(gesture).items()
-    }
-    child = dict(evidence[0], identifier="child", instance="child")
-    carrier = dict(evidence[0], identifier="carrier", instance="carrier", actions=["gesture"])
-    if not source_runtime_interaction_findings(gesture, gesture_manifest, [child, carrier]):
-        findings.append("UI 清单自测：手势需要对应动作")
-    if source_runtime_interaction_findings(
-        gesture, gesture_manifest, [child, dict(carrier, actions=["tap"])]
-    ):
-        findings.append("UI 清单自测：手势载体与子控件分别匹配")
-    for kind, invocation, action in [
-        ("ScrollView", 'ScrollView { Text("内容") }', "scroll"),
-        ("List", 'List { Text("内容") }', "scroll"),
-        ("TabView", 'TabView { Text("内容") }', "tab-switch"),
-    ]:
-        source = (
-            "struct Screen: View { var body: some View { "
-            + invocation
-            + '.accessibilityIdentifier("container") } }'
-        )
-        container = swift_syntax_index_sources({path: source})
-        container_manifest = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(container).items()
-        }
-        if not source_runtime_interaction_findings(container, container_manifest, []):
-            findings.append(f"UI 容器自测：{kind} 需要独立动作证据")
-        row = dict(evidence[0], identifier="container", instance="container", actions=["tap"])
-        if not source_runtime_interaction_findings(container, container_manifest, [row]):
-            findings.append(f"UI 容器自测：{kind} 核对实际动作类型")
-        if source_runtime_interaction_findings(
-            container, container_manifest, [dict(row, actions=[action])]
-        ):
-            findings.append(f"UI 容器自测：{kind} 接受所属动作证据")
-    combined = swift_syntax_index_sources(
-        {
-            path: (
-                'struct Screen: View { var body: some View { ScrollView { Text("内容") }.accessibili'
-                'tyIdentifier("container").simultaneousGesture(DragGesture().onEnded { _ in }).acc'
-                'essibilityIdentifier("container") } }'
-            )
-        }
-    )
-    combined_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(combined).items()
-    }
-    combined_evidence = dict(
-        evidence[0], identifier="container", instance="container", actions=["scroll"]
-    )
-    if not source_runtime_interaction_findings(combined, combined_manifest, [combined_evidence]):
-        findings.append("UI 容器自测：共享载体分别核对滚动和业务手势")
-    if source_runtime_interaction_findings(
-        combined, combined_manifest, [dict(combined_evidence, actions=["scroll", "swipe"])]
-    ):
-        findings.append("UI 容器自测：同一载体的独立动作共同进入证据")
-    unrelated = swift_syntax_index_sources(
-        {
-            path: (
-                'struct Screen: View { var body: some View { TextField("输入", text: .constant("")).'
-                'accessibilityIdentifier("shared"); Button("提交") {}.accessibilityIdentifier("share'
-                'd") } }'
-            )
-        }
-    )
-    unrelated_manifest = {
-        key: (controls, {"ExampleUITests/testScreen"})
-        for key, controls in interaction_source_inventory(unrelated).items()
-    }
-    if not source_runtime_interaction_findings(
-        unrelated,
-        unrelated_manifest,
-        [dict(evidence[0], identifier="shared", instance="shared", actions=["input", "tap"])],
-    ):
-        findings.append("UI 容器自测：不同控件继续要求独立身份")
-    for modifier, action in [
-        ('accessibilityAction(named: "打开") { open() }', "accessibility:打开"),
-        ("keyboardShortcut(.defaultAction)", "keyboard"),
-    ]:
-        source = (
-            (
-                'struct Screen: View { var body: some View { Button("打开") {}.accessibilityIdentifi'
-                'er("carrier").'
-            )
-            + modifier
-            + " } }"
-        )
-        control = swift_syntax_index_sources({path: source})
-        contract = {
-            key: (controls, {"ExampleUITests/testScreen"})
-            for key, controls in interaction_source_inventory(control).items()
-        }
-        row = dict(evidence[0], identifier="carrier", instance="carrier", actions=["tap"])
-        if not source_runtime_interaction_findings(control, contract, [row]):
-            findings.append("UI 辅助交互自测：点击证据需要补齐独立入口")
-        if source_runtime_interaction_findings(
-            control, contract, [dict(row, actions=["tap", action])]
-        ):
-            findings.append("UI 辅助交互自测：同一控件的独立动作共同进入证据")
-        if action.startswith("accessibility:") and not source_runtime_interaction_findings(
-            control, contract, [dict(row, actions=["tap", "accessibility:其他"])]
-        ):
-            findings.append("UI 辅助交互自测：自定义动作核对名称")
+    findings, manifest, original, path = verify_control_evidence()
+    evidence = verify_layout_control_inventory(findings, manifest, original, path)
+    verify_control_identity(evidence, findings, manifest, original, path)
+    verify_container_actions(evidence, findings, path)
+    verify_cross_file_control_inventory(evidence, findings, path)
     return findings
 
 
@@ -862,3 +253,634 @@ def list_row_layout_boundary_findings() -> list[str]:
         if bool(list_row_layout_findings(swift_syntax_index_sources({path: source}))) != expected:
             findings.append("UI 布局自测：浏览器分组底色与一级选择沿公共组件验收")
     return findings
+
+
+def verify_control_evidence():
+    inventory_json_self_test()
+    path = str(ROOT / "Modules/Example/Sources/Example.swift")
+    original = swift_syntax_index_sources(
+        {path: 'struct Screen: View { var body: some View { Button("入口") {} } }'}
+    )
+    manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(original).items()
+    }
+    findings = list_row_layout_boundary_findings()
+    for kind, modifier, action in (
+        ("onDrag", "onDrag { NSItemProvider() }", "drag"),
+        ("onDrop", 'onDrop(of: ["text"], isTargeted: nil) { _ in true }', "drop"),
+        ("draggable", 'draggable("内容")', "drag"),
+        ("dropDestination", "dropDestination(for: String.self) { _, _ in true }", "drop"),
+        ("onKeyPress", "onKeyPress(.return) { .handled }", "keyboard"),
+    ):
+        syntax = swift_syntax_index_sources(
+            {
+                path: 'struct Screen: View { var body: some View { Text("内容").'
+                + modifier
+                + '.accessibilityIdentifier("carrier") } }'
+            }
+        )
+        inventory = interaction_source_inventory(syntax)
+        if list(inventory.values()) != [{kind: 1}] or not source_inventory_findings(
+            syntax, {}, set()
+        ):
+            findings.append("UI 清单自测：拖放与键盘事件进入归属库存")
+        modifier_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"}) for key, controls in inventory.items()
+        }
+        row = dict(
+            scope="ExampleUITests/testScreen",
+            identifier="carrier",
+            instance="carrier",
+            actions=[action],
+        )
+        if not source_runtime_interaction_findings(
+            syntax, modifier_manifest, []
+        ) or source_runtime_interaction_findings(syntax, modifier_manifest, [row]):
+            findings.append("UI 清单自测：拖放与键盘事件核对实际动作证据")
+        if action in {"drag", "drop"} and not source_runtime_interaction_findings(
+            syntax, modifier_manifest, [dict(row, actions=["swipe"])]
+        ):
+            findings.append("UI 清单自测：拖放需要独立于轻扫的动作证据")
+    for gesture, action, wrong in [
+        ("DragGesture()", "swipe", "pinch"),
+        ("MagnificationGesture()", "pinch", "swipe"),
+        ("TapGesture()", "tap", "swipe"),
+        ("LongPressGesture()", "press", "tap"),
+    ]:
+        syntax = swift_syntax_index_sources(
+            {
+                path: 'struct Screen: View { var body: some View { Text("内容").gesture('
+                + gesture
+                + ').accessibilityIdentifier("carrier") } }'
+            }
+        )
+        gesture_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(syntax).items()
+        }
+        row = dict(
+            scope="ExampleUITests/testScreen",
+            identifier="carrier",
+            instance="carrier",
+            actions=[action],
+        )
+        if source_runtime_interaction_findings(
+            syntax, gesture_manifest, [row]
+        ) or not source_runtime_interaction_findings(
+            syntax, gesture_manifest, [dict(row, actions=[wrong])]
+        ):
+            findings.append("UI 清单自测：轻扫、捏合、点击与长按分别验证")
+    for gesture, required in [
+        ("gesture(TapGesture().simultaneously(with: DragGesture()))", {"tap", "swipe"}),
+        ("gesture(TapGesture().sequenced(before: LongPressGesture()))", {"tap", "press"}),
+        ("gesture(TapGesture()).simultaneousGesture(DragGesture())", {"tap", "swipe"}),
+        (
+            (
+                'gesture(DragGesture().onChanged { _ in print("MagnificationGesture"); let unused '
+                "= MagnificationGesture() })"
+            ),
+            {"swipe"},
+        ),
+        ("gesture(DragGesture(/* MagnificationGesture */))", {"swipe"}),
+    ]:
+        syntax = swift_syntax_index_sources(
+            {
+                path: 'struct Screen: View { var body: some View { Text("内容").'
+                + gesture
+                + '.accessibilityIdentifier("carrier") } }'
+            }
+        )
+        gesture_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(syntax).items()
+        }
+        row = dict(
+            scope="ExampleUITests/testScreen",
+            identifier="carrier",
+            instance="carrier",
+            actions=sorted(required),
+        )
+        if source_runtime_interaction_findings(syntax, gesture_manifest, [row]):
+            findings.append("UI 清单自测：组合手势按实际构造核对完整动作集合")
+        for missing in required:
+            actions = sorted(required - {missing}) or ["pinch"]
+            if not source_runtime_interaction_findings(
+                syntax, gesture_manifest, [dict(row, actions=actions)]
+            ):
+                findings.append("UI 清单自测：组合手势逐项检查动作缺口")
+    for kind, control, action in (
+        ("DisclosureGroup", 'DisclosureGroup("详情") { Text("正文") }', "tap"),
+        ("ColorPicker", 'ColorPicker("颜色", selection: .constant(.red))', "selection"),
+        (
+            "MultiDatePicker",
+            'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))',
+            "selection",
+        ),
+        ("EditButton", "EditButton()", "tap"),
+        ("PasteButton", "PasteButton(payloadType: String.self) { _ in }", "tap"),
+    ):
+        identifier = "control" if kind in {"MultiDatePicker", "EditButton", "PasteButton"} else ""
+        if identifier:
+            control += '.accessibilityIdentifier("control")'
+        syntax = swift_syntax_index_sources(
+            {path: "struct Screen: View { var body: some View { " + control + " } }"}
+        )
+        control_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(syntax).items()
+        }
+        if list(value[0] for value in control_manifest.values()) != [
+            {kind: 1}
+        ] or not source_inventory_findings(syntax, {}, set()):
+            findings.append("UI 清单自测：系统折叠与颜色控件进入归属库存")
+        row = dict(
+            scope="ExampleUITests/testScreen",
+            label="详情" if kind == "DisclosureGroup" else "颜色",
+            identifier=identifier,
+            instance="control",
+            actions=["tap" if action == "selection" else action],
+        )
+        if not source_runtime_interaction_findings(
+            syntax, control_manifest, []
+        ) or source_runtime_interaction_findings(syntax, control_manifest, [row]):
+            findings.append("UI 清单自测：系统控件核对实际动作证据")
+    return findings, manifest, original, path
+
+
+def verify_layout_control_inventory(findings, manifest, original, path):
+    spacers = swift_syntax_index_sources(
+        {
+            path: (
+                "class Screen { func build() { let fixed = UIBarButtonItem(systemItem: .fixedSpace"
+                "); let flexible: UIBarButtonItem = .init(barButtonSystemItem: .flexibleSpace, tar"
+                "get: nil, action: nil) } }"
+            )
+        }
+    )
+    if interaction_source_inventory(spacers):
+        findings.append("UI 原生清单自测：工具栏间隔沿布局归属")
+    wrapped = swift_syntax_index_sources(
+        {
+            path: (
+                "class Screen { func build() { let button = UIButton(type: .system); button.access"
+                'ibilityIdentifier = "done"; let item = UIBarButtonItem(customView: button); item.'
+                'accessibilityIdentifier = "done" } }'
+            )
+        }
+    )
+    wrapped_manifest = {
+        key: (controls, {"ExampleUITests/testNative"})
+        for key, controls in interaction_source_inventory(wrapped).items()
+    }
+    if list(value[0] for value in wrapped_manifest.values()) != [{"UIButton": 1}]:
+        findings.append("UI 原生清单自测：自定义工具栏按钮沿实际控件归属")
+    wrapped_row = dict(
+        scope="ExampleUITests/testNative", identifier="done", instance="done", actions=["tap"]
+    )
+    if not source_runtime_interaction_findings(
+        wrapped, wrapped_manifest, []
+    ) or source_runtime_interaction_findings(wrapped, wrapped_manifest, [wrapped_row]):
+        findings.append("UI 原生清单自测：自定义工具栏按钮核对实际点击证据")
+    independent = swift_syntax_index_sources(
+        {
+            path: (
+                'class Screen { func build() { let item = UIBarButtonItem(title: "独立", style: .pla'
+                'in, target: self, action: #selector(done)); item.accessibilityIdentifier = "indep'
+                'endent" } }'
+            )
+        }
+    )
+    independent_manifest = {
+        key: (controls, {"ExampleUITests/testNative"})
+        for key, controls in interaction_source_inventory(independent).items()
+    }
+    if list(value[0] for value in independent_manifest.values()) != [
+        {"UIBarButtonItem": 1}
+    ] or not source_runtime_interaction_findings(independent, independent_manifest, [wrapped_row]):
+        findings.append("UI 原生清单自测：独立工具栏按钮保留自身点击验收")
+    for root, expected in (
+        ("BIT101-iOS", True),
+        ("BIT101-iOS/Tests", True),
+        ("ModuleTests/Support", False),
+        ("BIT101-iOSTests", False),
+        ("BIT101-iOSUITests", False),
+    ):
+        renamed_path = str(ROOT / root / "ScreenUITestExample.swift")
+        renamed = swift_syntax_index_sources(
+            {
+                renamed_path: (
+                    'struct Screen: View { var body: some View { Button("入口") {} }; func build() {'
+                    " let field = UITextField() } }"
+                )
+            }
+        )
+        if list(interaction_source_inventory(renamed).values()) != (
+            [{"Button": 1, "UITextField": 1}] if expected else []
+        ):
+            findings.append("UI 清单自测：生产文件名与实际测试目录归属")
+        if expected and not source_runtime_interaction_findings(renamed, {}, []):
+            findings.append("UI 清单自测：重命名控件继续核对运行证据")
+    native_sources = {
+        path: (
+            "class CodeField: UITextField {}; class Screen { func build() { let field = CodeField("
+            '); let input: UITextField = .init(); let menu = UIAction(title: "动作") { _ in }; let p'
+            "inch = UIPinchGestureRecognizer(); let label = UILabel(); accept(.init()) }; func dir"
+            "ect() -> UITextField { .init() }; func returned() -> UITextField { let frame: CGRect "
+            "= .init(); return .init() } }"
+        ),
+        str(
+            Path(path).with_name("Support.swift")
+        ): "extension Screen { func accept(_ field: UITextField, enabled: Bool = true) {} }",
+    }
+    native = swift_syntax_index_sources(native_sources)
+    native_inventory = interaction_source_inventory(native)
+    if list(native_inventory.values()) != [
+        {"UIAction": 1, "UIPinchGestureRecognizer": 1, "UITextField": 5}
+    ]:
+        findings.append("UI 原生清单自测：控件继承、隐式构造、菜单和手势进入库存")
+    native_manifest = {
+        key: (controls, {"ExampleUITests/testNative"}) for key, controls in native_inventory.items()
+    }
+    if source_inventory_findings(native, native_manifest, {"ExampleUITests/testNative"}):
+        findings.append("UI 原生清单自测：已登记控件对应验证用例")
+    changed_native = swift_syntax_index_sources(
+        {
+            **native_sources,
+            path: native_sources[path].replace(
+                "let label = UILabel()", "let added = UITapGestureRecognizer()"
+            ),
+        }
+    )
+    if not source_inventory_findings(
+        changed_native, native_manifest, {"ExampleUITests/testNative"}
+    ):
+        findings.append("UI 原生清单自测：新增交互需要同步库存")
+    if not source_inventory_findings(native, native_manifest, set()):
+        findings.append("UI 原生清单自测：验证用例移除触发归属检查")
+    findings.extend(native_runtime_boundary_findings(path))
+    if source_inventory_findings(original, manifest, {"ExampleUITests/testScreen"}):
+        findings.append("UI 清单自测：已归属交互")
+    for change in (
+        'struct Unvisited: View { var body: some View { Button("新页面") {} } }',
+        (
+            'extension Screen { var hiddenControl: some View { Toggle("新增", isOn: .const'
+            "ant(false)) } }"
+        ),
+    ):
+        changed = swift_syntax_index_sources(
+            {path: 'struct Screen: View { var body: some View { Button("入口") {} } }\n' + change}
+        )
+        if not source_inventory_findings(changed, manifest, {"ExampleUITests/testScreen"}):
+            findings.append("UI 清单自测：新增页面与交互进入验收")
+    if not source_inventory_findings(original, manifest, set()):
+        findings.append("UI 清单自测：验收用例删除进入拦截")
+    evidence = [
+        {
+            "scope": "ExampleUITests/testScreen / 页面",
+            "label": "入口",
+            "identifier": "",
+            "actions": ["tap"],
+        }
+    ]
+    return evidence
+
+
+def verify_control_identity(evidence, findings, manifest, original, path):
+    for declaration, invocation in [
+        ("typealias Alias = Button<Text>", 'Alias("入口") {}'),
+        (
+            "typealias Generic<T: View> = SwiftUI.Button<T>; typealias Alias = Generic<Text>",
+            'Alias("入口") {}',
+        ),
+        ("typealias alias = Button<Text>", 'alias("入口") {}'),
+        ("typealias Alias = Button<Text>", 'Alias(action: {}) { Text("入口") }'),
+    ]:
+        aliased = swift_syntax_index_sources(
+            {
+                path: declaration
+                + "; struct Screen: View { var body: some View { "
+                + invocation
+                + " } }"
+            }
+        )
+        if interaction_source_inventory(aliased) != interaction_source_inventory(original):
+            findings.append("UI 别名清单自测：泛型与连续别名沿控件类型归属")
+        if not source_runtime_interaction_findings(aliased, manifest, []):
+            findings.append("UI 别名清单自测：控件入口需要实际访问证据")
+        if source_runtime_interaction_findings(aliased, manifest, evidence):
+            findings.append("UI 别名清单自测：原生控件证据沿别名匹配")
+    if source_runtime_interaction_findings(original, manifest, evidence):
+        findings.append("UI 清单自测：源码声明对应实际访问")
+    changed = swift_syntax_index_sources(
+        {
+            path: (
+                'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button'
+                '("新增条件分支") {} } } }'
+            )
+        }
+    )
+    expanded = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(changed).items()
+    }
+    if not source_runtime_interaction_findings(changed, expanded, evidence):
+        findings.append("UI 清单自测：条件分支需要独立访问证据")
+    mixed = {
+        key: (controls, {"ExampleUITests/testScreen", "manual:watch"})
+        for key, controls in interaction_source_inventory(changed).items()
+    }
+    if not source_inventory_findings(changed, mixed, {"ExampleUITests/testScreen"}):
+        findings.append("UI 清单自测：手工归属需要匹配平台")
+    if not source_runtime_interaction_findings(changed, mixed, evidence):
+        findings.append("UI 清单自测：手工归属保留自动访问要求")
+    if not source_runtime_interaction_findings(
+        original, manifest, [dict(evidence[0], label="另一个入口")]
+    ):
+        findings.append("UI 清单自测：标题按完整含义匹配")
+    duplicate = swift_syntax_index_sources(
+        {
+            path: (
+                'struct Screen: View { var body: some View { Button("入口") {}; if expanded { Button'
+                '("入口") {} } } }'
+            )
+        }
+    )
+    duplicate_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(duplicate).items()
+    }
+    if not source_runtime_interaction_findings(duplicate, duplicate_manifest, evidence):
+        findings.append("UI 清单自测：同名声明需要独立控件证据")
+    if not source_runtime_interaction_findings(
+        duplicate,
+        duplicate_manifest,
+        [
+            dict(evidence[0], instance="presentation.first"),
+            dict(evidence[0], instance="presentation.second"),
+        ],
+    ):
+        findings.append("UI 清单自测：重复呈现对应独立源码标识")
+    for kind, action in [
+        ("refreshable", "refresh"),
+        ("onSubmit", "submit"),
+        ("onDelete", "delete"),
+        ("onMove", "move"),
+    ]:
+        callback = swift_syntax_index_sources(
+            {
+                path: "struct Screen: View { var body: some View { Color.clear."
+                + kind
+                + ' { interactionEvidence?("callback", "'
+                + action
+                + '"); run() } } }'
+            }
+        )
+        callback_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(callback).items()
+        }
+        visited = dict(evidence[0], identifier="callback", instance="callback", actions=["input"])
+        if not source_runtime_interaction_findings(callback, callback_manifest, [visited]):
+            findings.append("UI 清单自测：回调要求实际执行对应动作")
+        if source_runtime_interaction_findings(
+            callback, callback_manifest, [dict(visited, actions=[action])]
+        ):
+            findings.append("UI 清单自测：实际回调执行进入覆盖证据")
+    dynamic = swift_syntax_index_sources(
+        {
+            path: (
+                "struct Screen: View { var body: some View { Button(title) {}.accessibilityIdentif"
+                'ier("item.\\(id)") } }'
+            )
+        }
+    )
+    dynamic_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(dynamic).items()
+    }
+    if not source_runtime_interaction_findings(dynamic, dynamic_manifest, evidence):
+        findings.append("UI 清单自测：动态标识需要匹配访问")
+    if source_runtime_interaction_findings(
+        dynamic, dynamic_manifest, [dict(evidence[0], identifier="item.42")]
+    ):
+        findings.append("UI 清单自测：动态标识模板接受实际访问")
+    for control in (
+        'Toggle("启用", isOn: .constant(false))',
+        'Picker("校区", selection: .constant(0)) { Text("主校区").tag(0) }',
+        'DatePicker("日期", selection: .constant(Date()))',
+        'TextField("输入", text: .constant(""))',
+        "Button(dynamicTitle) {}",
+    ):
+        hidden = swift_syntax_index_sources(
+            {path: "struct Screen: View { var body: some View { " + control + " } }"}
+        )
+        hidden_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(hidden).items()
+        }
+        if not source_runtime_interaction_findings(hidden, hidden_manifest, []):
+            findings.append("UI 清单自测：输入、选择及动态标题需要实际身份约定")
+
+
+def verify_container_actions(evidence, findings, path):
+    for kind, invocation, expected in [
+        ("TextField", 'TextField("输入", text: .constant(""))', "input"),
+        ("SecureField", 'SecureField("输入", text: .constant(""))', "input"),
+        ("TextEditor", 'TextEditor(text: .constant(""))', "input"),
+        ("Toggle", 'Toggle("启用", isOn: .constant(false))', "tap"),
+        ("Slider", "Slider(value: .constant(0.5))", "drag"),
+        (
+            "MultiDatePicker",
+            'MultiDatePicker("日期", selection: .constant(Set<DateComponents>()))',
+            "selection",
+        ),
+        ("EditButton", "EditButton()", "tap"),
+        ("PasteButton", "PasteButton(payloadType: String.self) { _ in }", "tap"),
+        ("Stepper", 'Stepper("数值", value: .constant(1))', "tap"),
+    ]:
+        control = swift_syntax_index_sources(
+            {
+                path: "struct Screen: View { var body: some View { "
+                + invocation
+                + '.accessibilityIdentifier("control") } }'
+            }
+        )
+        control_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(control).items()
+        }
+        row = dict(
+            evidence[0],
+            identifier="control",
+            instance="control",
+            actions=["input" if expected in {"tap", "selection"} else "tap"],
+        )
+        if not source_runtime_interaction_findings(control, control_manifest, [row]):
+            findings.append("UI 清单自测：控件需要对应动作类型")
+        if source_runtime_interaction_findings(
+            control,
+            control_manifest,
+            [dict(row, actions=["tap" if expected == "selection" else expected])],
+        ):
+            findings.append("UI 清单自测：实际控件动作进入证据")
+    scopes = swift_syntax_index_sources(
+        {
+            path: (
+                'struct FirstView: View { var body: some View { Button("取消") {} } }; struct Second'
+                'View: View { var body: some View { Button("取消") {} } }'
+            )
+        }
+    )
+    scope_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(scopes).items()
+    }
+    cancel = dict(evidence[0], label="取消", instance="cancel.first")
+    if not source_runtime_interaction_findings(scopes, scope_manifest, [cancel]):
+        findings.append("UI 清单自测：跨作用域声明需要独立身份")
+    if not source_runtime_interaction_findings(
+        scopes, scope_manifest, [cancel, dict(cancel, instance="cancel.second")]
+    ):
+        findings.append("UI 清单自测：重复呈现保留跨作用域标识要求")
+    scopes = swift_syntax_index_sources(
+        {
+            path: (
+                'struct FirstView: View { var body: some View { Button("取消") {}.accessibilityIdent'
+                'ifier("first.cancel") } }; struct SecondView: View { var body: some View { Button'
+                '("取消") {}.accessibilityIdentifier("second.cancel") } }'
+            )
+        }
+    )
+    cancel = dict(cancel, identifier="first.cancel")
+    second = dict(cancel, identifier="second.cancel", instance="cancel.second")
+    if source_runtime_interaction_findings(scopes, scope_manifest, [cancel, second]):
+        findings.append("UI 清单自测：明确标识覆盖同名作用域")
+    keys = list(scope_manifest)
+    scope_manifest[keys[0]] = (
+        scope_manifest[keys[0]][0],
+        {"ExampleUITests/testScreen", "ExampleUITests/testOther"},
+    )
+    if source_runtime_interaction_findings(
+        scopes,
+        scope_manifest,
+        [second, dict(cancel, scope="ExampleUITests/testOther", instance="cancel.other")],
+    ):
+        findings.append("UI 清单自测：共享流程按完整匹配分配证据")
+    gesture = swift_syntax_index_sources(
+        {
+            path: (
+                "struct Screen: View { var body: some View { Color.clear.onTapGesture { open() }.a"
+                'ccessibilityIdentifier("carrier").toolbar { Button("旁路") {}.accessibilityIdentifi'
+                'er("child") } } }'
+            )
+        }
+    )
+    gesture_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(gesture).items()
+    }
+    child = dict(evidence[0], identifier="child", instance="child")
+    carrier = dict(evidence[0], identifier="carrier", instance="carrier", actions=["gesture"])
+    if not source_runtime_interaction_findings(gesture, gesture_manifest, [child, carrier]):
+        findings.append("UI 清单自测：手势需要对应动作")
+    if source_runtime_interaction_findings(
+        gesture, gesture_manifest, [child, dict(carrier, actions=["tap"])]
+    ):
+        findings.append("UI 清单自测：手势载体与子控件分别匹配")
+    for kind, invocation, action in [
+        ("ScrollView", 'ScrollView { Text("内容") }', "scroll"),
+        ("List", 'List { Text("内容") }', "scroll"),
+        ("TabView", 'TabView { Text("内容") }', "tab-switch"),
+    ]:
+        source = (
+            "struct Screen: View { var body: some View { "
+            + invocation
+            + '.accessibilityIdentifier("container") } }'
+        )
+        container = swift_syntax_index_sources({path: source})
+        container_manifest = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(container).items()
+        }
+        if not source_runtime_interaction_findings(container, container_manifest, []):
+            findings.append(f"UI 容器自测：{kind} 需要独立动作证据")
+        row = dict(evidence[0], identifier="container", instance="container", actions=["tap"])
+        if not source_runtime_interaction_findings(container, container_manifest, [row]):
+            findings.append(f"UI 容器自测：{kind} 核对实际动作类型")
+        if source_runtime_interaction_findings(
+            container, container_manifest, [dict(row, actions=[action])]
+        ):
+            findings.append(f"UI 容器自测：{kind} 接受所属动作证据")
+    combined = swift_syntax_index_sources(
+        {
+            path: (
+                'struct Screen: View { var body: some View { ScrollView { Text("内容") }.accessibili'
+                'tyIdentifier("container").simultaneousGesture(DragGesture().onEnded { _ in }).acc'
+                'essibilityIdentifier("container") } }'
+            )
+        }
+    )
+    combined_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(combined).items()
+    }
+    combined_evidence = dict(
+        evidence[0], identifier="container", instance="container", actions=["scroll"]
+    )
+    if not source_runtime_interaction_findings(combined, combined_manifest, [combined_evidence]):
+        findings.append("UI 容器自测：共享载体分别核对滚动和业务手势")
+    if source_runtime_interaction_findings(
+        combined, combined_manifest, [dict(combined_evidence, actions=["scroll", "swipe"])]
+    ):
+        findings.append("UI 容器自测：同一载体的独立动作共同进入证据")
+
+
+def verify_cross_file_control_inventory(evidence, findings, path):
+    unrelated = swift_syntax_index_sources(
+        {
+            path: (
+                'struct Screen: View { var body: some View { TextField("输入", text: .constant("")).'
+                'accessibilityIdentifier("shared"); Button("提交") {}.accessibilityIdentifier("share'
+                'd") } }'
+            )
+        }
+    )
+    unrelated_manifest = {
+        key: (controls, {"ExampleUITests/testScreen"})
+        for key, controls in interaction_source_inventory(unrelated).items()
+    }
+    if not source_runtime_interaction_findings(
+        unrelated,
+        unrelated_manifest,
+        [dict(evidence[0], identifier="shared", instance="shared", actions=["input", "tap"])],
+    ):
+        findings.append("UI 容器自测：不同控件继续要求独立身份")
+    for modifier, action in [
+        ('accessibilityAction(named: "打开") { open() }', "accessibility:打开"),
+        ("keyboardShortcut(.defaultAction)", "keyboard"),
+    ]:
+        source = (
+            (
+                'struct Screen: View { var body: some View { Button("打开") {}.accessibilityIdentifi'
+                'er("carrier").'
+            )
+            + modifier
+            + " } }"
+        )
+        control = swift_syntax_index_sources({path: source})
+        contract = {
+            key: (controls, {"ExampleUITests/testScreen"})
+            for key, controls in interaction_source_inventory(control).items()
+        }
+        row = dict(evidence[0], identifier="carrier", instance="carrier", actions=["tap"])
+        if not source_runtime_interaction_findings(control, contract, [row]):
+            findings.append("UI 辅助交互自测：点击证据需要补齐独立入口")
+        if source_runtime_interaction_findings(
+            control, contract, [dict(row, actions=["tap", action])]
+        ):
+            findings.append("UI 辅助交互自测：同一控件的独立动作共同进入证据")
+        if action.startswith("accessibility:") and not source_runtime_interaction_findings(
+            control, contract, [dict(row, actions=["tap", "accessibility:其他"])]
+        ):
+            findings.append("UI 辅助交互自测：自定义动作核对名称")

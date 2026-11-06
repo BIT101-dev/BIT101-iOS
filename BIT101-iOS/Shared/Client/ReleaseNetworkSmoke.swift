@@ -1,5 +1,6 @@
 import ClientCore
 import CommunityCore
+import CommunityTransport
 import CourseFeature
 import Foundation
 import GalleryFeature
@@ -189,6 +190,34 @@ final class ReleaseNetworkSmokeRunner {
             try await mine.fetchMyInfo()
         }
         let courses = dependencies.makeCourses()
+        await runSharedResources(scope: scope, gallery: gallery)
+        let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
+        let gallerySearchText = await runGalleryDetails(
+            scope: scope, gallery: gallery, validatedFixtures: validatedFixtures)
+        await runGalleryFeeds(
+            scope: scope, gallery: gallery, validatedFixtures: validatedFixtures,
+            gallerySearchText: gallerySearchText,
+            communityExpectedAccount: communityExpectedAccount, myInfo: myInfo,
+            messageOwner: messageOwner)
+
+        await runCoursePages(scope: scope, courses: courses, validatedFixtures: validatedFixtures)
+
+        await runPaperPages(scope: scope, validatedFixtures: validatedFixtures)
+
+        await runProfiles(scope: scope, mine: mine, myInfo: myInfo)
+
+        await runTranscript(scope: scope)
+
+        await runScheduleAndDDL(scope: scope, capture: capture, runID: runID)
+
+        await runScoresAndUpdates(scope: scope, runID: runID)
+
+        return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
+    }
+
+    private func runSharedResources(
+        scope: NetworkSmokeScope, gallery: any NetworkSmokeGalleryServicing
+    ) async {
         await runInParallel([
             {
                 _ = await self.probe(.appAssociation, area: .bit101, scope: scope) {
@@ -251,7 +280,12 @@ final class ReleaseNetworkSmokeRunner {
                 order: .newest, currentIdentity: self.dependencies.communityIdentity
             ) { try await gallery.fetchFeed(kind: .newest, page: $0 == 0 ? nil : $0) }.items
         }
-        let validatedFixtures = fixtures.flatMap { $0.isValid ? $0 : nil }
+    }
+
+    private func runGalleryDetails(
+        scope: NetworkSmokeScope, gallery: any NetworkSmokeGalleryServicing,
+        validatedFixtures: NetworkSmokeFixtures?
+    ) async -> String {
         var gallerySearchText = ""
         if let fixture = validatedFixtures {
             await runInParallel([
@@ -306,6 +340,15 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("gallery.web", reason, area: .bit101, scope: scope)
             recordSkip("gallery.image", reason, area: .bit101, scope: scope)
         }
+        return gallerySearchText
+    }
+
+    private func runGalleryFeeds(
+        scope: NetworkSmokeScope, gallery: any NetworkSmokeGalleryServicing,
+        validatedFixtures: NetworkSmokeFixtures?, gallerySearchText: String,
+        communityExpectedAccount: Int?, myInfo: MineUserInfo?,
+        messageOwner: CommunitySessionIdentity
+    ) async {
         var galleryOperations: [@MainActor () async -> Void] = [
             {
                 _ = await self.probe(.galleryFollowing, area: .bit101, scope: scope) {
@@ -406,7 +449,12 @@ final class ReleaseNetworkSmokeRunner {
             }
         }
         await runInParallel(galleryOperations)
+    }
 
+    private func runCoursePages(
+        scope: NetworkSmokeScope, courses: any NetworkSmokeCourseServicing,
+        validatedFixtures: NetworkSmokeFixtures?
+    ) async {
         _ = await probe(.courseList, area: .bit101, scope: scope) {
             try await NetworkSmokePaging.arrayPage(
                 requiresContent: validatedFixtures != nil,
@@ -486,7 +534,11 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("course.history", reason, area: .bit101, scope: scope)
             recordSkip("course.web", reason, area: .bit101, scope: scope)
         }
+    }
 
+    private func runPaperPages(scope: NetworkSmokeScope, validatedFixtures: NetworkSmokeFixtures?)
+        async
+    {
         let papers = dependencies.makePapers()
         _ = await probe(.paperList, area: .bit101, scope: scope) {
             try await NetworkSmokePaging.paperPage(
@@ -581,7 +633,11 @@ final class ReleaseNetworkSmokeRunner {
                     }
                 }
             })
+    }
 
+    private func runProfiles(
+        scope: NetworkSmokeScope, mine: any NetworkSmokeMineServicing, myInfo: MineUserInfo?
+    ) async {
         productionSessionEvidence =
             await probe(.productionSession, area: .bit101, scope: scope) {
                 try await self.dependencies.productionSessionProbe()
@@ -649,7 +705,9 @@ final class ReleaseNetworkSmokeRunner {
             recordSkip("user.profile", "资料采样没有可用数据", area: .bit101, scope: scope)
             recordSkip("user.posts", "资料采样没有可用数据", area: .bit101, scope: scope)
         }
+    }
 
+    private func runTranscript(scope: NetworkSmokeScope) async {
         // 可信成绩单采样位于学校相关流程的首段，模拟用户手动点击“申请可信成绩单”的路径。
         let transcriptService = dependencies.makeScores()
         _ = await probe(.transcript, area: .transcript, scope: scope) {
@@ -681,7 +739,11 @@ final class ReleaseNetworkSmokeRunner {
             }
             return try Self.validateTranscriptPages(result.pages.map(\.data))
         }
+    }
 
+    private func runScheduleAndDDL(
+        scope: NetworkSmokeScope, capture: NetworkSmokeCapture, runID: String
+    ) async {
         var rawCourseResponseHandler: ((Data) -> Void)?
         if capture == .rawCourseResponse {
             rawCourseResponseHandler = { data in
@@ -838,7 +900,9 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             recordSkip("lexue.ddl", "日历订阅地址采样没有可用数据", area: .ddl, scope: scope)
         }
+    }
 
+    private func runScoresAndUpdates(scope: NetworkSmokeScope, runID: String) async {
         // 成绩页与可信成绩单同属学校网络链路；短信二次验证时记录为 AUTH_BLOCKED，
         // 区分认证阻塞与网络故障。
         let scoreService = dependencies.makeScores()
@@ -886,8 +950,6 @@ final class ReleaseNetworkSmokeRunner {
                 }
             },
         ])
-
-        return await finishReport(runID: runID, scope: scope, startedAt: startedAt)
     }
 
 }

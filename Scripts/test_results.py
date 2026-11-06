@@ -219,147 +219,7 @@ def report_test_results(arguments: list[str]) -> None:
         print(output)
         raise SystemExit(0)
 
-    if cli_arguments[2]:
-        try:
-            activities = json.loads(
-                subprocess.check_output(
-                    [
-                        "xcrun",
-                        "xcresulttool",
-                        "get",
-                        "test-results",
-                        "activities",
-                        "--path",
-                        str(bundle),
-                        "--test-id",
-                        cli_arguments[2],
-                    ],
-                    text=True,
-                )
-            )
-        except subprocess.CalledProcessError:
-            raise SystemExit(
-                "读取该测试的记录失败；请通过 report json 核对完整测试标识，例如 测试类/方法()。"
-            ) from None
-        if cli_arguments[3] == "activities":
-            if cli_arguments[5] == "json":
-                print(json.dumps(activities, ensure_ascii=False))
-                raise SystemExit(0)
-            actions = []
-
-            def titles(value):
-                if isinstance(value, dict):
-                    title = str(value.get("title", ""))
-                    if title.startswith(
-                        ("Tap ", "Press ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")
-                    ):
-                        actions.append(title)
-                    for child in value.values():
-                        titles(child)
-                elif isinstance(value, list):
-                    for child in value:
-                        titles(child)
-
-            titles(activities)
-            print("\n".join(actions[-30:]))
-            raise SystemExit(0)
-        if cli_arguments[3] == "screenshot":
-            output = Path(cli_arguments[1]).parent.parent / "screenshot.png"
-            screenshots = {}
-
-            def collect(value):
-                if isinstance(value, dict):
-                    name = str(value.get("name", ""))
-                    if (
-                        name.startswith(("失败时的界面截图", "界面截图"))
-                        or name.endswith(".web.screen")
-                    ) and value.get("payloadId"):
-                        screenshots[value["payloadId"]] = value["name"]
-                    for child in value.values():
-                        collect(child)
-                elif isinstance(value, list):
-                    for child in value:
-                        collect(child)
-
-            collect(activities)
-            identifiers = [
-                value for value in screenshots if not cli_arguments[5] or value == cli_arguments[5]
-            ]
-            if len(identifiers) != 1:
-                available = "\n".join(
-                    f"{key} · {name}" for key, name in sorted(screenshots.items())
-                )
-                raise SystemExit(
-                    "请按当前测试的截图附件标识选择一张图片。"
-                    + ("\n" + available if available else "\n当前测试包含零张截图附件。")
-                )
-            incoming = diagnostics / "screenshot.png"
-            diagnostics.mkdir(parents=True, exist_ok=True)
-            try:
-                incoming.unlink(missing_ok=True)
-                subprocess.run(
-                    [
-                        "xcrun",
-                        "xcresulttool",
-                        "export",
-                        "object",
-                        "--legacy",
-                        "--type",
-                        "file",
-                        "--path",
-                        str(bundle),
-                        "--id",
-                        identifiers[0],
-                        "--output-path",
-                        str(incoming),
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                )
-                incoming.replace(output)
-            finally:
-                incoming.unlink(missing_ok=True)
-            print(output)
-            raise SystemExit(0)
-        selected = {}
-
-        def collect_attachments(value):
-            if isinstance(value, dict):
-                name, identifier = str(value.get("name", "")), value.get("payloadId")
-                if identifier and (
-                    name.startswith(
-                        (
-                            "失败时的界面元素树",
-                            "App UI hierarchy for",
-                            "Debug description for",
-                            "Crash Log ",
-                            "score_",
-                        )
-                    )
-                    or name.endswith(".web.runtime")
-                ):
-                    selected.setdefault(identifier, name)
-                for child in value.values():
-                    collect_attachments(child)
-            elif isinstance(value, list):
-                for child in value:
-                    collect_attachments(child)
-
-        collect_attachments(activities)
-        output = result_root / "failure-hierarchy.txt"
-        output.unlink(missing_ok=True)
-        if selected:
-            incoming = diagnostics / "failure-hierarchy.txt"
-            diagnostics.mkdir(parents=True, exist_ok=True)
-            try:
-                export_failure_hierarchy_attachments(bundle, selected, output, incoming)
-            finally:
-                incoming.unlink(missing_ok=True)
-            print(f"诊断附件：{len(selected)} 份 · {bundle}")
-            print(output)
-        else:
-            print(f"当前用例包含零份文本诊断附件 · {bundle}")
-        raise SystemExit(0)
+    report_test_activities(bundle, cli_arguments, diagnostics, result_root)
 
     report_result_summary(str(bundle))
 
@@ -805,48 +665,7 @@ def record_native_metrics(arguments: list[str]) -> None:
             lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
             if coverage_error:
                 lines.append(coverage_error)
-    if coverage is not None:
-        target_rows = coverage.get("targets", [])
-        for target in target_rows:
-            fraction = target.get("lineCoverage")
-            if not (isinstance(fraction, (int, float))):
-                continue
-            percentage = fraction * 100 if fraction <= 1 else fraction
-            covered = target.get("coveredLines", "?")
-            executable = target.get("executableLines", "?")
-            if executable == 0:
-                lines.append(f"- {target.get('name', '?')}: 符号合并到宿主范围")
-            else:
-                lines.append(
-                    (
-                        f"- "
-                        f"{target.get('name', '?')}"
-                        f": "
-                        f"{percentage:.2f}"
-                        f"% ("
-                        f"{covered}"
-                        f"/"
-                        f"{executable}"
-                        f" lines)"
-                    )
-                )
-        sys.path.insert(0, str(Path(root) / "Scripts"))
-        from validation_evidence import native_source_coverage
-
-        build = Path(report_path).parent / "Build"
-        ios_modules = native_source_coverage(
-            build / "Products/Release-iphoneos",
-            build / "ProfileData" / device_id / "Coverage.profdata",
-            include_app=True,
-        )
-        for name, (covered, executable) in sorted(ios_modules.items()):
-            label = name if name == "BIT101-iOS.app" else "iOS/" + name
-            if executable:
-                lines.append(
-                    f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)"
-                )
-        if not target_rows:
-            lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
+    append_native_coverage_lines(coverage, device_id, lines, report_path, root)
 
     test_tree = json.loads(
         subprocess.check_output(
@@ -980,3 +799,200 @@ if __name__ == "__main__":
             )
         )
     commands[sys.argv[1]](sys.argv[2:])
+
+
+def append_native_coverage_lines(coverage, device_id, lines, report_path, root):
+    from pathlib import Path
+    import json
+    import sys
+
+    if coverage is not None:
+        target_rows = coverage.get("targets", [])
+        for target in target_rows:
+            fraction = target.get("lineCoverage")
+            if not (isinstance(fraction, (int, float))):
+                continue
+            percentage = fraction * 100 if fraction <= 1 else fraction
+            covered = target.get("coveredLines", "?")
+            executable = target.get("executableLines", "?")
+            if executable == 0:
+                lines.append(f"- {target.get('name', '?')}: 符号合并到宿主范围")
+            else:
+                lines.append(
+                    (
+                        f"- "
+                        f"{target.get('name', '?')}"
+                        f": "
+                        f"{percentage:.2f}"
+                        f"% ("
+                        f"{covered}"
+                        f"/"
+                        f"{executable}"
+                        f" lines)"
+                    )
+                )
+        sys.path.insert(0, str(Path(root) / "Scripts"))
+        from validation_evidence import native_source_coverage
+
+        build = Path(report_path).parent / "Build"
+        ios_modules = native_source_coverage(
+            build / "Products/Release-iphoneos",
+            build / "ProfileData" / device_id / "Coverage.profdata",
+            include_app=True,
+        )
+        for name, (covered, executable) in sorted(ios_modules.items()):
+            label = name if name == "BIT101-iOS.app" else "iOS/" + name
+            if executable:
+                lines.append(
+                    f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)"
+                )
+        if not target_rows:
+            lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def report_test_activities(bundle, cli_arguments, diagnostics, result_root):
+    from pathlib import Path
+    import json
+    import subprocess
+
+    if cli_arguments[2]:
+        try:
+            activities = json.loads(
+                subprocess.check_output(
+                    [
+                        "xcrun",
+                        "xcresulttool",
+                        "get",
+                        "test-results",
+                        "activities",
+                        "--path",
+                        str(bundle),
+                        "--test-id",
+                        cli_arguments[2],
+                    ],
+                    text=True,
+                )
+            )
+        except subprocess.CalledProcessError:
+            raise SystemExit(
+                "读取该测试的记录失败；请通过 report json 核对完整测试标识，例如 测试类/方法()。"
+            ) from None
+        if cli_arguments[3] == "activities":
+            if cli_arguments[5] == "json":
+                print(json.dumps(activities, ensure_ascii=False))
+                raise SystemExit(0)
+            actions = []
+
+            def titles(value):
+                if isinstance(value, dict):
+                    title = str(value.get("title", ""))
+                    if title.startswith(
+                        ("Tap ", "Press ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")
+                    ):
+                        actions.append(title)
+                    for child in value.values():
+                        titles(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        titles(child)
+
+            titles(activities)
+            print("\n".join(actions[-30:]))
+            raise SystemExit(0)
+        if cli_arguments[3] == "screenshot":
+            output = Path(cli_arguments[1]).parent.parent / "screenshot.png"
+            screenshots = {}
+
+            def collect(value):
+                if isinstance(value, dict):
+                    name = str(value.get("name", ""))
+                    if (
+                        name.startswith(("失败时的界面截图", "界面截图"))
+                        or name.endswith(".web.screen")
+                    ) and value.get("payloadId"):
+                        screenshots[value["payloadId"]] = value["name"]
+                    for child in value.values():
+                        collect(child)
+                elif isinstance(value, list):
+                    for child in value:
+                        collect(child)
+
+            collect(activities)
+            identifiers = [
+                value for value in screenshots if not cli_arguments[5] or value == cli_arguments[5]
+            ]
+            if len(identifiers) != 1:
+                available = "\n".join(
+                    f"{key} · {name}" for key, name in sorted(screenshots.items())
+                )
+                raise SystemExit(
+                    "请按当前测试的截图附件标识选择一张图片。"
+                    + ("\n" + available if available else "\n当前测试包含零张截图附件。")
+                )
+            incoming = diagnostics / "screenshot.png"
+            diagnostics.mkdir(parents=True, exist_ok=True)
+            try:
+                incoming.unlink(missing_ok=True)
+                subprocess.run(
+                    [
+                        "xcrun",
+                        "xcresulttool",
+                        "export",
+                        "object",
+                        "--legacy",
+                        "--type",
+                        "file",
+                        "--path",
+                        str(bundle),
+                        "--id",
+                        identifiers[0],
+                        "--output-path",
+                        str(incoming),
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                )
+                incoming.replace(output)
+            finally:
+                incoming.unlink(missing_ok=True)
+            print(output)
+            raise SystemExit(0)
+        selected = {}
+
+        def collect_attachments(value):
+            if isinstance(value, dict):
+                name, identifier = str(value.get("name", "")), value.get("payloadId")
+                if identifier and (
+                    name.startswith(
+                        (
+                            "失败时的界面元素树",
+                            "App UI hierarchy for",
+                            "Debug description for",
+                            "Crash Log ",
+                            "score_",
+                        )
+                    )
+                    or name.endswith(".web.runtime")
+                ):
+                    selected.setdefault(identifier, name)
+                for child in value.values():
+                    collect_attachments(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect_attachments(child)
+
+        collect_attachments(activities)
+        output = result_root / "failure-hierarchy.txt"
+        output.unlink(missing_ok=True)
+        if selected:
+            incoming = diagnostics / "failure-hierarchy.txt"
+            diagnostics.mkdir(parents=True, exist_ok=True)
+            try:
+                export_failure_hierarchy_attachments(bundle, selected, output, incoming)
+            finally:
+                incoming.unlink(missing_ok=True)
+            print(f"诊断附件：{len(selected)} 份 · {bundle}")
+            print(output)
+        else:
+            print(f"当前用例包含零份文本诊断附件 · {bundle}")
+        raise SystemExit(0)

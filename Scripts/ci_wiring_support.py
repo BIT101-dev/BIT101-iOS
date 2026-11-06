@@ -395,3 +395,55 @@ def check_test_results_native_coverage(metrics_source: str) -> bool:
 for job, paths in DIAGNOSTIC_PATHS.items():
     if job != "static-audit":
         paths.add(".build/extended-automation/diagnostics/test-results.xcresult")
+
+
+def workflow_mapping(value):
+    return value if isinstance(value, dict) else {}
+
+
+def workflow_shell(step):
+    value = workflow_mapping(step).get("run", "")
+    return value if isinstance(value, str) else ""
+
+
+def workflow_step_has_role(step, role):
+    step = workflow_mapping(step)
+    if role == "Verify maintainer review commit":
+        return step.get("id") == "review"
+    artifacts = {
+        "Preserve native compilation cache": "compilation-cache-",
+        "Preserve validation diagnostics": "validation-${{ github.job }}",
+        "Preserve App validation diagnostics": "validation-ios-test-shards-app-0",
+    }
+    if role in artifacts:
+        name = str(workflow_mapping(step.get("with")).get("name", ""))
+        return str(step.get("uses", "")).startswith("actions/upload-artifact@") and (
+            name == artifacts[role]
+            if role == "Preserve App validation diagnostics"
+            else name.startswith(artifacts[role])
+        )
+    commands = {
+        "Show toolchain": "Scripts/build-install-device.sh toolchain",
+        "Reuse compatible successful validation": "python3 Scripts/ci_evidence.py reuse",
+        "Run static audit": "Scripts/run-static-audit.sh",
+        "Check current CI results": "python3 Scripts/ci_evidence.py current",
+        "Download release validation evidence": "python3 Scripts/ci_evidence.py release",
+        "Load target branch coverage baseline": "python3 Scripts/ci_evidence.py baseline",
+        "Restore native compilation cache": "python3 Scripts/ci_evidence.py cache-restore",
+        "Prepare native compilation cache": "python3 Scripts/ci_evidence.py cache-export",
+        "Prepare full iOS Simulator": "Scripts/run-extended-tests.sh simulator prepare",
+        "Run assigned complete Simulator inventory": (
+            'Scripts/run-extended-tests.sh simulator "${{ matrix.mode }}"'
+        ),
+        "Run complete App behavior inventory": "Scripts/run-extended-tests.sh simulator app",
+    }
+    if role not in commands:
+        return False
+    expected = shlex.split(commands[role])
+    try:
+        return any(
+            shlex.split(line, comments=True)[: len(expected)] == expected
+            for line in workflow_shell(step).replace("\\\n", " ").splitlines()
+        )
+    except ValueError:
+        return False

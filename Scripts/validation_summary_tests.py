@@ -23,6 +23,36 @@ from validation_manual_tests import captured_fixture, distribution_fixture
 def verify_group_summaries(
     subject, test, icloud_summary, fixture_environment, compiler, original_is_file
 ):
+    checks, module_name, provenance, stale, summaries = verify_build_and_native_summaries(
+        subject, test
+    )
+    sms, writes = verify_network_sampling_summaries(checks, stale, subject, summaries)
+    cleanup, full_sms, peripheral = verify_community_write_summaries(
+        module_name, sms, subject, summaries, writes
+    )
+    groups, report = verify_cloud_and_group_summaries(
+        full_sms, icloud_summary, peripheral, provenance, sms, subject, summaries, test
+    )
+    verify_recorded_evidence_summaries(
+        cleanup,
+        compiler,
+        fixture_environment,
+        groups,
+        icloud_summary,
+        module_name,
+        original_is_file,
+        report,
+        sms,
+        subject,
+        summaries,
+        test,
+        writes,
+    )
+    verify_distribution_stage_summaries(icloud_summary, subject)
+    return 0
+
+
+def verify_build_and_native_summaries(subject, test):
     module_name = subject.__name__
     summaries = {
         name: dict(
@@ -178,6 +208,12 @@ def verify_group_summaries(
     summaries["manual-device"] = {"passed": True, "checks": checks}
     assert complete(checks)
     stale = json.loads(json.dumps(checks))
+    return checks, module_name, provenance, stale, summaries
+
+
+def verify_network_sampling_summaries(checks, stale, subject, summaries):
+    from validation_manual import MANUAL_DEVICE_CHECKS, capture, complete
+
     next(iter(stale.values()))["capturedAt"] = "2000-01-01T00:00:00+00:00"
     assert not complete(stale)
     original_read = Path.read_bytes
@@ -328,6 +364,10 @@ def verify_group_summaries(
             if not item.startswith("定向回复 course")
         ]
     )
+    return sms, writes
+
+
+def verify_community_write_summaries(module_name, sms, subject, summaries, writes):
     assert not subject.community_writes_complete(
         [
             item.replace("定向回复 course 目标 comment17", "定向回复 course 目标 comment11")
@@ -483,6 +523,12 @@ def verify_group_summaries(
     assert not subject.smoke_summary("school-sms", dict(peripheral, schoolSMSCoverage="pending"))[
         "passed"
     ]
+    return cleanup, full_sms, peripheral
+
+
+def verify_cloud_and_group_summaries(
+    full_sms, icloud_summary, peripheral, provenance, sms, subject, summaries, test
+):
     assert not subject.smoke_summary("school-sms", dict(peripheral, authenticatedSchoolProbes=[]))[
         "passed"
     ]
@@ -569,6 +615,24 @@ def verify_group_summaries(
             startedAt=subject.utc_now().isoformat(), finishedAt=subject.utc_now().isoformat()
         )
     report = {"sourceDigest": "source", "groups": groups}
+    return groups, report
+
+
+def verify_recorded_evidence_summaries(
+    cleanup,
+    compiler,
+    fixture_environment,
+    groups,
+    icloud_summary,
+    module_name,
+    original_is_file,
+    report,
+    sms,
+    subject,
+    summaries,
+    test,
+    writes,
+):
     with (
         patch("ui_rules.source_runtime_interaction_findings", return_value=[]),
         patch("ui_source_facts.syntax_index", return_value={}),
@@ -720,6 +784,9 @@ def verify_group_summaries(
     ddl["skippedProbes"] = ["eclass.ddl"]
     assert subject.smoke_summary("ddl", ddl)["passed"] is False
     assert icloud_summary({"exitCode": 0, "stages": []})["passed"] is False
+
+
+def verify_distribution_stage_summaries(icloud_summary, subject):
     stages = [
         icloud_stage_fixture(
             name,
@@ -820,4 +887,3 @@ def verify_group_summaries(
     )["passed"]
     stages[1]["passedTests"] = 0
     assert icloud_summary({"exitCode": 0, "stages": stages})["passed"] is False
-    return 0

@@ -20,6 +20,20 @@ def run_recorded_stage(code: object) -> int:
 
 
 def smoke_script_boundary_findings() -> list[str]:
+    findings, harness, shell_function, source = verify_smoke_report_collection()
+    extended_source = verify_smoke_process_cleanup(findings, harness, shell_function, source)
+
+    match, observed, read, result_response, state, summary, write, outcome = (
+        verify_smoke_result_recording(extended_source, findings, shell_function)
+    )
+
+    verify_smoke_installation_restore(
+        outcome, findings, match, observed, read, result_response, state, summary, write
+    )
+    return findings
+
+
+def verify_smoke_report_collection():
     "通过故障注入验证清理顺序、状态传播和测试现场保留。"
 
     source = (SCRIPT_ROOT / "run_icloud_cross_device_smoke.sh").read_text()
@@ -71,6 +85,16 @@ def smoke_script_boundary_findings() -> list[str]:
         ["zsh", "-c", stub + wait_loop], capture_output=True, text=True, timeout=5
     )
     assert ready.returncode == 17, ready
+    copy_failure = stub.replace("phase=waiting", "phase=ready") + (
+        '\nxcrun() { print -u2 "设备复制失败"; return 9; }\n'
+        'sleep() { print -u2 "完成采样后应直接报告复制错误"; exit 8; }\n'
+    )
+    failed_copy = subprocess.run(
+        ["zsh", "-c", copy_failure + wait_loop], capture_output=True, text=True, timeout=5
+    )
+    assert failed_copy.returncode == 1 and "设备复制失败" in failed_copy.stderr, failed_copy
+    assert "报告读取失败" in failed_copy.stderr, failed_copy
+
     stopped = subprocess.run(
         ["zsh", "-c", stub.replace("phase=waiting", "phase=stopped") + wait_loop],
         capture_output=True,
@@ -163,6 +187,12 @@ bit101_invalidate_restore() { :; }
     )
     assignment.value = ast.Constant(command)
     harness = ast.unparse(tree)
+    return findings, harness, shell_function, source
+
+
+def verify_smoke_process_cleanup(findings, harness, shell_function, source):
+    import time
+
     supervisor = subprocess.Popen(
         [
             sys.executable,
@@ -300,6 +330,12 @@ python3() {{ if [[ "$1" == - ]]; then cat >/dev/null; fi; }}
     extended_source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     from script_test_support import shell_function as shared_shell_function
 
+    return extended_source
+
+
+def verify_smoke_result_recording(extended_source, findings, shell_function):
+    from script_test_support import shell_function as shared_shell_function
+
     for name in ("bit101_finish_verification", "finish_validation"):
         finish = (
             shared_shell_function(SCRIPT_ROOT / "script-support.sh", name)
@@ -357,7 +393,7 @@ python3() {{ return 0; }}
     stage_source = (SCRIPT_ROOT / "icloud-smoke-support.sh").read_text()
     match = re.search(r"(?ms)^record_result\(\).*?<<'PY'\n(.*?)^PY$", stage_source)
     if match is None:
-        return [*findings, "Smoke 自测需要阶段结果记录器"]
+        raise AssertionError("\n".join([*findings, "Smoke 自测需要阶段结果记录器"]))
     state = {}
 
     def read(path: Path, *args, **kwargs) -> str:
@@ -374,7 +410,13 @@ python3() {{ return 0; }}
         "skippedTests": 0,
         "testFailures": [{"failureText": "business failure"}],
     }
-    completed = {"totalTestCount": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
+    outcome = {}
+    outcome[("completed")] = {
+        ("totalTestCount"): 1,
+        ("passedTests"): 1,
+        ("failedTests"): 0,
+        ("skippedTests"): 0,
+    }
     observed = {}
 
     def result_response(command, **kwargs):
@@ -407,9 +449,15 @@ python3() {{ return 0; }}
                 ],
             }
             return subprocess.CompletedProcess(command, 0, json.dumps(tree))
-        result = summary if sys.argv[3] == "testPhoneRoundTrip" else completed
+        result = summary if sys.argv[3] == "testPhoneRoundTrip" else outcome["completed"]
         return subprocess.CompletedProcess(command, 0, json.dumps(result))
 
+    return match, observed, read, result_response, state, summary, write, outcome
+
+
+def verify_smoke_installation_restore(
+    outcome, findings, match, observed, read, result_response, state, summary, write
+):
     with (
         patch.dict(os.environ, BIT101_VALIDATION_RUN_ID="fixture", BIT101_XCODE_DEVICE_ID="phone"),
         patch.object(Path, "is_file", lambda path: str(path) in state),
@@ -459,7 +507,7 @@ python3() {{ return 0; }}
         ):
             findings.append("Smoke 结果自测失败：失败阶段与清理阶段的证据归属")
         for log, expected in (("", 1), ("skipped", 1), ("failed", 1), ("passed", 0)):
-            completed = {
+            outcome["completed"] = {
                 "totalTestCount": int(bool(log)),
                 "passedTests": int(log == "passed"),
                 "failedTests": int(log == "failed"),
@@ -498,7 +546,12 @@ python3() {{ return 0; }}
                 retain_bundle.called or not remove_bundle.called or "resultBundle" in cleanup
             ):
                 findings.append("Smoke 结果自测：成功阶段完成归集后清理原始结果包")
-        completed = {"totalTestCount": 1, "passedTests": 1, "failedTests": 0, "skippedTests": 0}
+        outcome[("completed")] = {
+            ("totalTestCount"): 1,
+            ("passedTests"): 1,
+            ("failedTests"): 0,
+            ("skippedTests"): 0,
+        }
         for key, value in [
             ("identifier", "UnrelatedTests/testAlwaysPass"),
             ("target", "OtherTests"),
@@ -528,7 +581,7 @@ python3() {{ return 0; }}
             assert json.loads(state["/smoke/report.json"])["cleanup"]["exitCode"] == 1
             observed.clear()
         for exit_code in (0, 65):
-            completed = {
+            outcome["completed"] = {
                 "totalTestCount": 1,
                 "passedTests": int(exit_code == 0),
                 "failedTests": int(exit_code != 0),
@@ -580,4 +633,3 @@ python3() {{ return 0; }}
                 )
             ):
                 findings.append("Mac 恢复自测：保留业务结果包与清理失败诊断")
-    return findings

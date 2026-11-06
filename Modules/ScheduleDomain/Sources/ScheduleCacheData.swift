@@ -415,6 +415,20 @@ nonisolated struct LegacyScheduleCache: Decodable, Sendable {
             }
         }
 
+        normalizeCachedCourses(decodedParserVersion: decodedCourseScheduleParserVersion)
+
+        if let baseline = schoolCoursesByTerm[currentTerm] {
+            let reconciliation = ScheduleCourseEditor.reconcile(
+                rules: manualCourseRulesByTerm[currentTerm] ?? [],
+                with: baseline
+            )
+            courses = reconciliation.courses
+            cachedCoursesByTerm[currentTerm] = baseline
+        }
+        firstDayString = manualFirstDayStringsByTerm[currentTerm] ?? firstDayString
+    }
+
+    private mutating func normalizeCachedCourses(decodedParserVersion: Int) {
         // 解析器版本低于当前版本时，按行级周次规范化 `-1` 小学期记录。
         // 规范化后的 offset 为 0，重复解码保持周次稳定；cachedCoursesByTerm 的课程也应用此规则。
         let migrationTerms = Set(termSchedulesByTerm.keys)
@@ -438,7 +452,7 @@ nonisolated struct LegacyScheduleCache: Decodable, Sendable {
                 courses: sourceCourses
             )
             let narrowedCourses: [CourseRecord]
-            if decodedCourseScheduleParserVersion < Self.courseScheduleParserVersion {
+            if decodedParserVersion < Self.courseScheduleParserVersion {
                 narrowedCourses = CourseScheduleRowParser.narrowedCourses(normalized.courses)
             } else {
                 narrowedCourses = normalized.courses
@@ -464,15 +478,6 @@ nonisolated struct LegacyScheduleCache: Decodable, Sendable {
             }
         }
 
-        if let baseline = schoolCoursesByTerm[currentTerm] {
-            let reconciliation = ScheduleCourseEditor.reconcile(
-                rules: manualCourseRulesByTerm[currentTerm] ?? [],
-                with: baseline
-            )
-            courses = reconciliation.courses
-            cachedCoursesByTerm[currentTerm] = baseline
-        }
-        firstDayString = manualFirstDayStringsByTerm[currentTerm] ?? firstDayString
     }
 
     /// 把课表标题裁到统一长度上限。调用方先提供默认标题，再传入需要裁切的文本。

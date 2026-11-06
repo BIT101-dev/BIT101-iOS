@@ -124,6 +124,114 @@ struct CourseScheduleTabView: View {
     }
 
     @ViewBuilder
+    private func entryDetailSheet(_ entry: ScheduleCalendarEntry) -> some View {
+        ScheduleEntryDetailSheet(
+            entry: entry,
+            academicCourses: {
+                let displayedCourses = entry.resolvedSourceIDs.compactMap { sourceID in
+                    activeSchedule.courses.first(where: { $0.id == sourceID })
+                }
+                let identities = Set(displayedCourses.map(scheduleCourseIdentity))
+                return activeSchedule.courses.filter {
+                    identities.contains(scheduleCourseIdentity($0))
+                }
+            }(),
+            currentWeek: viewModel.selectedWeek,
+            currentTerm: activeSchedule.currentTerm,
+            allowsCourseMutation: supportsEditingDisplayedSchedule,
+            allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
+            destinations: destinations,
+            timeTable: viewModel.courseState.timeTable,
+            buildings: viewModel.courseArrangementBuildings,
+            courseArrangementDraftsForCourse: { courseID in
+                viewModel.courseArrangementDrafts(forCourseID: courseID)
+            },
+            courseArrangementDraftForOccurrence: { courseID, week in
+                guard
+                    let course = activeSchedule.courses.first(where: { $0.id == courseID })
+                else {
+                    return nil
+                }
+                return viewModel.courseArrangementDraft(for: course, week: week)
+            },
+            onSaveCourseArrangements: saveCourseArrangements,
+            onDeleteCourseOccurrence: { courseID, week in
+                guard
+                    let course = activeSchedule.courses.first(where: { $0.id == courseID })
+                else { return }
+                do {
+                    try viewModel.deleteCourseOccurrence(id: course.id, week: week)
+                    selectedEntry = nil
+                } catch { presentSaveError(error) }
+            },
+            onDeleteCourse: { courseID in
+                do {
+                    try viewModel.deleteCourse(id: courseID)
+                    selectedEntry = nil
+                } catch { presentSaveError(error) }
+            },
+            onImportCourseOccurrence: { courseID, week in
+                guard let content = calendarCourseContent(courseID: courseID, week: week)
+                else { return }
+                importCalendarEntries(content, term: activeSchedule.currentTerm)
+            },
+            onImportCourse: { courseID in
+                guard let content = calendarCourseContent(courseID: courseID) else {
+                    return
+                }
+                importCalendarEntries(content, term: activeSchedule.currentTerm)
+            },
+            onDeleteCalendarMarkers: { markerIDs, term in
+                deleteCalendarEntries(markerIDs: markerIDs, term: term)
+            },
+            onDeleteCalendarCourse: { courseID, term in
+                guard let content = calendarCourseContent(courseID: courseID) else {
+                    return
+                }
+                deleteCalendarEntries(content, term: term)
+            },
+            onImportExam: { examID in
+                guard let exam = activeSchedule.exams.first(where: { $0.id == examID })
+                else { return }
+                importCalendarEntries(.exam(exam), term: activeSchedule.currentTerm)
+            },
+            onImportCustomSchedule: { scheduleID in
+                guard
+                    let schedule = activeSchedule.customSchedules.first(where: {
+                        $0.id == scheduleID
+                    })
+                else { return }
+                importCalendarEntries(
+                    .customSchedule(schedule), term: activeSchedule.currentTerm)
+            },
+            onDeleteCalendarEntry: { markerID, term in
+                if entry.kind == .custom,
+                    let schedule = activeSchedule.customSchedules.first(where: {
+                        $0.id == entry.sourceID
+                    })
+                {
+                    deleteCalendarEntries(.customSchedule(schedule), term: term)
+                } else {
+                    deleteCalendarEntries(markerIDs: Set([markerID]), term: term)
+                }
+            },
+            onEditCustomSchedule: {
+                if let schedule = viewModel.courseState.customSchedules.first(where: {
+                    $0.id == entry.sourceID
+                }) {
+                    editingCustomScheduleID = schedule.id
+                    customScheduleDraft = viewModel.customScheduleDraft(for: schedule)
+                }
+            },
+            onDeleteCustomSchedule: {
+                do {
+                    try viewModel.deleteCustomSchedule(id: entry.sourceID)
+                    selectedEntry = nil
+                } catch { presentSaveError(error) }
+            }
+        )
+    }
+
     private func calendarSurface(height: CGFloat) -> some View {
         Group {
             if let firstDay = activeSchedule.firstDay {
@@ -327,111 +435,7 @@ struct CourseScheduleTabView: View {
                 }
             }
         ) { entry in
-            ScheduleEntryDetailSheet(
-                entry: entry,
-                academicCourses: {
-                    let displayedCourses = entry.resolvedSourceIDs.compactMap { sourceID in
-                        activeSchedule.courses.first(where: { $0.id == sourceID })
-                    }
-                    let identities = Set(displayedCourses.map(scheduleCourseIdentity))
-                    return activeSchedule.courses.filter {
-                        identities.contains(scheduleCourseIdentity($0))
-                    }
-                }(),
-                currentWeek: viewModel.selectedWeek,
-                currentTerm: activeSchedule.currentTerm,
-                allowsCourseMutation: supportsEditingDisplayedSchedule,
-                allowsCustomScheduleMutation: supportsEditingDisplayedSchedule,
-                destinations: destinations,
-                timeTable: viewModel.courseState.timeTable,
-                buildings: viewModel.courseArrangementBuildings,
-                courseArrangementDraftsForCourse: { courseID in
-                    viewModel.courseArrangementDrafts(forCourseID: courseID)
-                },
-                courseArrangementDraftForOccurrence: { courseID, week in
-                    guard
-                        let course = activeSchedule.courses.first(where: { $0.id == courseID })
-                    else {
-                        return nil
-                    }
-                    return viewModel.courseArrangementDraft(for: course, week: week)
-                },
-                onSaveCourseArrangements: saveCourseArrangements,
-                onDeleteCourseOccurrence: { courseID, week in
-                    guard
-                        let course = activeSchedule.courses.first(where: { $0.id == courseID })
-                    else { return }
-                    do {
-                        try viewModel.deleteCourseOccurrence(id: course.id, week: week)
-                        selectedEntry = nil
-                    } catch { presentSaveError(error) }
-                },
-                onDeleteCourse: { courseID in
-                    do {
-                        try viewModel.deleteCourse(id: courseID)
-                        selectedEntry = nil
-                    } catch { presentSaveError(error) }
-                },
-                onImportCourseOccurrence: { courseID, week in
-                    guard let content = calendarCourseContent(courseID: courseID, week: week)
-                    else { return }
-                    importCalendarEntries(content, term: activeSchedule.currentTerm)
-                },
-                onImportCourse: { courseID in
-                    guard let content = calendarCourseContent(courseID: courseID) else {
-                        return
-                    }
-                    importCalendarEntries(content, term: activeSchedule.currentTerm)
-                },
-                onDeleteCalendarMarkers: { markerIDs, term in
-                    deleteCalendarEntries(markerIDs: markerIDs, term: term)
-                },
-                onDeleteCalendarCourse: { courseID, term in
-                    guard let content = calendarCourseContent(courseID: courseID) else {
-                        return
-                    }
-                    deleteCalendarEntries(content, term: term)
-                },
-                onImportExam: { examID in
-                    guard let exam = activeSchedule.exams.first(where: { $0.id == examID })
-                    else { return }
-                    importCalendarEntries(.exam(exam), term: activeSchedule.currentTerm)
-                },
-                onImportCustomSchedule: { scheduleID in
-                    guard
-                        let schedule = activeSchedule.customSchedules.first(where: {
-                            $0.id == scheduleID
-                        })
-                    else { return }
-                    importCalendarEntries(
-                        .customSchedule(schedule), term: activeSchedule.currentTerm)
-                },
-                onDeleteCalendarEntry: { markerID, term in
-                    if entry.kind == .custom,
-                        let schedule = activeSchedule.customSchedules.first(where: {
-                            $0.id == entry.sourceID
-                        })
-                    {
-                        deleteCalendarEntries(.customSchedule(schedule), term: term)
-                    } else {
-                        deleteCalendarEntries(markerIDs: Set([markerID]), term: term)
-                    }
-                },
-                onEditCustomSchedule: {
-                    if let schedule = viewModel.courseState.customSchedules.first(where: {
-                        $0.id == entry.sourceID
-                    }) {
-                        editingCustomScheduleID = schedule.id
-                        customScheduleDraft = viewModel.customScheduleDraft(for: schedule)
-                    }
-                },
-                onDeleteCustomSchedule: {
-                    do {
-                        try viewModel.deleteCustomSchedule(id: entry.sourceID)
-                        selectedEntry = nil
-                    } catch { presentSaveError(error) }
-                }
-            )
+            entryDetailSheet(entry)
         }
         .sheet(isPresented: $isShowingEditSchedule) {
             AddEditCustomScheduleSheet(

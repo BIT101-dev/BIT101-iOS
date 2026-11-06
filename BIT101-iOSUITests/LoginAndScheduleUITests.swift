@@ -65,6 +65,20 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     }
 
     @MainActor
+    func testCourseDetailsUseEdgeBack() {
+        app = configureApp(resetStorage: true, content: true, initialTab: "home")
+        tapHeader(app.segmentedControls.buttons["课程"])
+        tap("自动化测试课程")
+        assertUI(app.navigationBars["课程详情"].appears(timeout: 5), "课程应打开原生详情导航。")
+        let window = app.native.windows.firstMatch
+        let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+        let destination = window.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.5))
+        edge.press(forDuration: 0, thenDragTo: destination)
+        assertUI(app.navigationBars["课程详情"].disappears(timeout: 5), "左侧边缘拖动应返回课程列表。")
+        assertUI(app.segmentedControls.buttons["课程"].isSelected, "返回应保留课程分区。")
+    }
+
+    @MainActor
     func testScheduleDayHolidayCancel() {
         app = configureApp(resetStorage: true)
         tap("第1周")

@@ -184,121 +184,7 @@ def auxiliary_contracts(
                     ("checkToken", {"phone", "token", "delete", "trustDevice"}),
                 )
             )
-    if school_session:
-        rows.extend(
-            [
-                RequestContract(
-                    r"login\.bit101\.flwfdd\.xyz",
-                    "/api/jxzxehall/cookies",
-                    "POST",
-                    body_parameters=frozenset({"username", "password", "challenge_id"}),
-                    body_parameter_variants=SCHOOL_AUTHENTICATION_BODIES,
-                ),
-                RequestContract(r"login\.bit101\.flwfdd\.xyz", r"/api/auth/[^/]+"),
-            ]
-        )
-        if allow_sms and probe in set().union(
-            *(SCHOOL_SMS_PROBES[purpose] for purpose in ("webvpn", "jwb", "jwb_cjd"))
-        ):
-            rows.append(
-                RequestContract(
-                    r"login\.bit101\.flwfdd\.xyz",
-                    r"/api/auth/[^/]+/sms",
-                    "POST",
-                    body_parameters=frozenset({"code"}),
-                    required_body_parameters=frozenset({"code"}),
-                )
-            )
-        rows.extend(CONTRACTS["schedule.teaching-center"])
-        rows.extend(CONTRACTS["score.authentication"])
-        rows.extend(
-            [
-                RequestContract(
-                    r"jxzxehall\.bit\.edu\.cn",
-                    "/auth-protocol-core/login",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    r"jxzxehall\.bit\.edu\.cn",
-                    "/auth-protocol-core/loginSuccess",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    SCHOOL,
-                    VPN + r"/auth-protocol-core/login",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    SCHOOL,
-                    VPN + r"/jwapp/sys/xsfacx/\*default/index\.do",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    SCHOOL,
-                    VPN + r"/jwapp/sys/wdkbby/\*default/index\.do",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    r"login\.bit\.edu\.cn",
-                    "/cas/login",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    r"jwb\.bit\.edu\.cn",
-                    r"/cjd/(?:Account/ExternalLogin(?:Callback)?|signin-cas)?",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                replace(NATIVE_JWB_LANDING, statuses=range(200, 400)),
-                RequestContract(
-                    r"webvpn\.bit\.edu\.cn",
-                    r"/(?:set-fingerprint|fingerprint|login)",
-                    statuses=range(200, 400),
-                    resource_parameters=True,
-                ),
-                RequestContract(
-                    r"sso\.bit\.edu\.cn",
-                    "/ustc-rba-front/fp",
-                    "POST",
-                    statuses=(200, 404),
-                    body_parameters=frozenset(
-                        {
-                            "fonts",
-                            "deviceMemory",
-                            "hardwareConcurrency",
-                            "localgroupId",
-                            "timezone",
-                            "cpuClass",
-                            "platform",
-                            "language",
-                            "screenResolution",
-                            "fingerprint",
-                            "cookieValue",
-                            "userAgent",
-                            "platformAuthenticator",
-                        }
-                    ),
-                ),
-            ]
-        )
-        if probe.startswith("score."):
-            rows.extend(
-                [
-                    NATIVE_SCORE_LIST,
-                    RequestContract(
-                        JWB_HOST,
-                        JWB_VPN + r"/jsxsd/kscj/(?:[^/]+\.do|cjfx)",
-                        resource_parameters=True,
-                    ),
-                ]
-            )
-            rows.extend(contract for name in NATIVE_CONTRACTS for contract in CONTRACTS[name])
+    extend_school_session_contracts(allow_sms, probe, rows, school_session)
     if probe in {"eclass.authentication", "eclass.ddl"}:
         rows.extend(
             [
@@ -642,75 +528,77 @@ def complete(
             observed.add(path.split("/")[3])
         return observed == expected
     if matched and probe == "community.writes":
-        comments = [
-            row
-            for row in requests
-            if community(
-                "/reaction/comments",
-                method="POST",
-                query={"obj": r"(?:poster|paper|course|comment)\d+"},
-            ).matches(row)
-        ]
-        from collections import Counter
-
-        replies = Counter(
-            (
-                row["query"]["obj"],
-                frozenset({"reply_obj", "reply_uid"}) <= set(row.get("bodyParameterNames", [])),
-            )
-            for row in comments
-            if row.get("query", {}).get("obj", "").startswith("comment")
-            and (frozenset({"reply_obj", "reply_uid"}) <= set(row.get("bodyParameterNames", [])))
-            == (
-                frozenset({"reply_obj", "reply_uid"}) <= set(row.get("finalBodyParameterNames", []))
-            )
-        )
-        deleted = {
-            urlsplit(row["endpoint"]).path
-            for row in requests
-            if community(r"/reaction/comments/\d+", method="DELETE").matches(row)
-        }
-        likes = Counter(
-            row.get("query", {}).get("obj")
-            for row in requests
-            if community(
-                "/reaction/like",
-                method="POST",
-                query={"obj": r"(?:poster|paper|course|comment)\d+"},
-            ).matches(row)
-        )
-        user_pages = {
-            row.get("query", {}).get("page", "0")
-            for row in requests
-            if community(
-                "/posters",
-                query={"mode": "search", "uid": r"[1-9]\d*", "order": None, "search": None},
-            ).matches(row)
-        }
-        followed = Counter(
-            urlsplit(row["endpoint"]).path
-            for row in requests
-            if community(r"/user/follow/\d+", method="POST").matches(row)
-        )
-        return (
-            {"0", "1"} <= user_pages
-            and sum(obj.startswith("comment") and count >= 2 for obj, count in likes.items()) >= 3
-            and sum(
-                replies[(obj, False)] >= 1 and replies[(obj, True)] >= 1
-                for obj in {obj for obj, _ in replies}
-            )
-            >= 3
-            and len(deleted) >= 9
-            and any(count >= 2 for count in followed.values())
-            and all(
-                any(
-                    isinstance(obj, str) and re.fullmatch(kind + r"\d+", obj) and count >= 2
-                    for obj, count in likes.items()
-                )
-                for kind in ("poster", "paper", "course")
-            )
-        )
+        return community_writes_complete(requests)
     return matched
+
+
+def community_writes_complete(requests) -> bool:
+    comments = [
+        row
+        for row in requests
+        if community(
+            "/reaction/comments",
+            method="POST",
+            query={"obj": r"(?:poster|paper|course|comment)\d+"},
+        ).matches(row)
+    ]
+    from collections import Counter
+
+    replies = Counter(
+        (
+            row["query"]["obj"],
+            frozenset({"reply_obj", "reply_uid"}) <= set(row.get("bodyParameterNames", [])),
+        )
+        for row in comments
+        if row.get("query", {}).get("obj", "").startswith("comment")
+        and (frozenset({"reply_obj", "reply_uid"}) <= set(row.get("bodyParameterNames", [])))
+        == (frozenset({"reply_obj", "reply_uid"}) <= set(row.get("finalBodyParameterNames", [])))
+    )
+    deleted = {
+        urlsplit(row["endpoint"]).path
+        for row in requests
+        if community(r"/reaction/comments/\d+", method="DELETE").matches(row)
+    }
+    likes = Counter(
+        row.get("query", {}).get("obj")
+        for row in requests
+        if community(
+            "/reaction/like",
+            method="POST",
+            query={"obj": r"(?:poster|paper|course|comment)\d+"},
+        ).matches(row)
+    )
+    user_pages = {
+        row.get("query", {}).get("page", "0")
+        for row in requests
+        if community(
+            "/posters",
+            query={"mode": "search", "uid": r"[1-9]\d*", "order": None, "search": None},
+        ).matches(row)
+    }
+    followed = Counter(
+        urlsplit(row["endpoint"]).path
+        for row in requests
+        if community(r"/user/follow/\d+", method="POST").matches(row)
+    )
+    return (
+        {"0", "1"} <= user_pages
+        and sum(obj.startswith("comment") and count >= 2 for obj, count in likes.items()) >= 3
+        and sum(
+            replies[(obj, False)] >= 1 and replies[(obj, True)] >= 1
+            for obj in {obj for obj, _ in replies}
+        )
+        >= 3
+        and len(deleted) >= 9
+        and any(count >= 2 for count in followed.values())
+        and all(
+            any(
+                isinstance(obj, str) and re.fullmatch(kind + r"\d+", obj) and count >= 2
+                for obj, count in likes.items()
+            )
+            for kind in ("poster", "paper", "course")
+        )
+    )
 
 
 if __name__ == "__main__":
@@ -721,3 +609,121 @@ if __name__ == "__main__":
     if not passed:
         print("生产请求与 Smoke 约定存在差异：" + payload["probe"], file=sys.stderr)
     raise SystemExit(0 if passed else 1)
+
+
+def extend_school_session_contracts(allow_sms, probe, rows, school_session):
+    if school_session:
+        rows.extend(
+            [
+                RequestContract(
+                    r"login\.bit101\.flwfdd\.xyz",
+                    "/api/jxzxehall/cookies",
+                    "POST",
+                    body_parameters=frozenset({"username", "password", "challenge_id"}),
+                    body_parameter_variants=SCHOOL_AUTHENTICATION_BODIES,
+                ),
+                RequestContract(r"login\.bit101\.flwfdd\.xyz", r"/api/auth/[^/]+"),
+            ]
+        )
+        if allow_sms and probe in set().union(
+            *(SCHOOL_SMS_PROBES[purpose] for purpose in ("webvpn", "jwb", "jwb_cjd"))
+        ):
+            rows.append(
+                RequestContract(
+                    r"login\.bit101\.flwfdd\.xyz",
+                    r"/api/auth/[^/]+/sms",
+                    "POST",
+                    body_parameters=frozenset({"code"}),
+                    required_body_parameters=frozenset({"code"}),
+                )
+            )
+        rows.extend(CONTRACTS["schedule.teaching-center"])
+        rows.extend(CONTRACTS["score.authentication"])
+        rows.extend(
+            [
+                RequestContract(
+                    r"jxzxehall\.bit\.edu\.cn",
+                    "/auth-protocol-core/login",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    r"jxzxehall\.bit\.edu\.cn",
+                    "/auth-protocol-core/loginSuccess",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    SCHOOL,
+                    VPN + r"/auth-protocol-core/login",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    SCHOOL,
+                    VPN + r"/jwapp/sys/xsfacx/\*default/index\.do",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    SCHOOL,
+                    VPN + r"/jwapp/sys/wdkbby/\*default/index\.do",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    r"login\.bit\.edu\.cn",
+                    "/cas/login",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    r"jwb\.bit\.edu\.cn",
+                    r"/cjd/(?:Account/ExternalLogin(?:Callback)?|signin-cas)?",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                replace(NATIVE_JWB_LANDING, statuses=range(200, 400)),
+                RequestContract(
+                    r"webvpn\.bit\.edu\.cn",
+                    r"/(?:set-fingerprint|fingerprint|login)",
+                    statuses=range(200, 400),
+                    resource_parameters=True,
+                ),
+                RequestContract(
+                    r"sso\.bit\.edu\.cn",
+                    "/ustc-rba-front/fp",
+                    "POST",
+                    statuses=(200, 404),
+                    body_parameters=frozenset(
+                        {
+                            "fonts",
+                            "deviceMemory",
+                            "hardwareConcurrency",
+                            "localgroupId",
+                            "timezone",
+                            "cpuClass",
+                            "platform",
+                            "language",
+                            "screenResolution",
+                            "fingerprint",
+                            "cookieValue",
+                            "userAgent",
+                            "platformAuthenticator",
+                        }
+                    ),
+                ),
+            ]
+        )
+        if probe.startswith("score."):
+            rows.extend(
+                [
+                    NATIVE_SCORE_LIST,
+                    RequestContract(
+                        JWB_HOST,
+                        JWB_VPN + r"/jsxsd/kscj/(?:[^/]+\.do|cjfx)",
+                        resource_parameters=True,
+                    ),
+                ]
+            )
+            rows.extend(contract for name in NATIVE_CONTRACTS for contract in CONTRACTS[name])

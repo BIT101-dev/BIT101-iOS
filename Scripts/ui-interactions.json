@@ -205,7 +205,7 @@
   },
   "Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppBrowserLayout": {
     "controls": {"AppEmptyState":1},
-    "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes"]
+    "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes", "LoginAndScheduleUITests/testCourseDetailsUseEdgeBack"]
   },
   "Modules/DesignSystemKit/Sources/AppLayoutComponents.swift:AppBrowserListRow": {
     "controls": {"Button":1},

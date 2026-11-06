@@ -1,3 +1,23 @@
+#if BIT101_UI_TESTING || EXTENDED_AUTOMATION
+nonisolated enum UITestControlIdentity {
+    static func key(
+        scope: String, ancestors: [String], identifier: String, label: String, type: Int
+    ) -> String {
+        let control = identifier.isEmpty ? "\(type):\(label)" : identifier
+        var path = ancestors
+        while !identifier.isEmpty && path.last == identifier { path.removeLast() }
+        return ([scope] + path + [control]).map { "\($0.utf8.count):\($0)" }.joined(
+            separator: ":")
+    }
+}
+
+nonisolated enum UITestScrollGeometry {
+    static func visibleDistance(_ points: Double, scale: Double) -> Double {
+        max(0, (points * scale).rounded()) / scale
+    }
+}
+#endif
+
 #if BIT101_UI_TESTING
 import StorageCore
 import Foundation
@@ -7,6 +27,55 @@ import PhotosUI
 import QuickLook
 
 extension UITestAccessibilityActions {
+    static func elementType(
+        _ object: NSObject, window: UIWindow, accessible: Bool,
+        traits: UIAccessibilityTraits, frame: CGRect
+    ) -> (Int, UIView?) {
+        var inputView: UIView?
+        let type: Int
+        switch object {
+        case is UIWindow: type = 4
+        case is UINavigationBar: type = 21
+        case is UITabBar: type = 22
+        case is UIToolbar: type = 24
+        case is UITableView: type = 26
+        case is UICollectionView: type = 32
+        case is UISegmentedControl: type = 37
+        case is UISwitch: type = 40
+        case is UISlider: type = 33
+        case is UIStepper: type = 79
+        case let field as UITextField: type = field.isSecureTextEntry ? 50 : 49
+        case is UITextView: type = 52
+        case is UIScrollView: type = 46
+        default:
+            if accessible && traits.contains(.toggleButton) {
+                type = 40
+            } else if accessible && traits.contains(.link) {
+                type = 42
+            } else if accessible && traits.contains(.button) {
+                type = 9
+            } else if accessible, !frame.isEmpty {
+                let point = window.convert(
+                    CGPoint(x: frame.midX, y: frame.midY),
+                    from: window.screen.coordinateSpace)
+                inputView = window.hitTest(point, with: nil)
+                while let view = inputView, !(view is UITextField || view is UITextView) {
+                    inputView = view.superview
+                }
+                if let input = inputView as? UITextField {
+                    type = input.isSecureTextEntry ? 50 : 49
+                } else if inputView is UITextView {
+                    type = 52
+                } else {
+                    type = traits.contains(.staticText) ? 48 : 1
+                }
+            } else {
+                type = 1
+            }
+        }
+        return (type, inputView)
+    }
+
     static func mapCamera() throws -> Data {
         func find(in view: UIView) -> MKMapView? {
             guard !view.isHidden, view.alpha > 0 else { return nil }

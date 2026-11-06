@@ -651,86 +651,7 @@ class ReleaseNetworkSmokeRunner {
         "public func begin() {", "public func begin() {}\n private func dormant() {"
     )
     assert not business_methods(swift_syntax_index_sources({observer_path: dormant}))
-    stored = observer.replace(
-        "_ = NotificationCenter.default.addObserver(forName: nil, object: nil, queue: nil) { _ in",
-        "let callback: @Sendable (Notification) -> Void = { _ in",
-    ).replace(
-        "  }\n }",
-        (
-            "  }\n  _ = NotificationCenter.default.addObserver(forName: nil, object: nil, queue: n"
-            "il, using: callback)\n }"
-        ),
-    )
-    assert "CourseFeature.Observer" in business_methods(
-        swift_syntax_index_sources({observer_path: stored})
-    )
-    for body, smoke_executed in (
-        ("Task<Void, Never> { BODY }", True),
-        ("_Concurrency.Task { BODY }", True),
-        ("_Concurrency.Task<Void, Never>.init { BODY }", True),
-        ("Task<Void, Never>.detached { BODY }", True),
-        ("let operation = { BODY }; Task<Void, Never>(operation: operation)", True),
-        ("let stream = AsyncStream<Int> { _ in BODY }", True),
-        ("let stream = _Concurrency.AsyncThrowingStream<Int, Error> { _ in BODY }", True),
-        ("let stream = AsyncStream<Int>(unfolding: { BODY; return nil })", False),
-        ("let stream = AsyncThrowingStream<Int, Error>(unfolding: { BODY; return nil })", False),
-        ("let stream = AsyncStream<Int>(unfolding: { nil }, onCancel: { BODY })", False),
-        ("OperationQueue.main.addBarrierBlock { BODY }", True),
-        ("DispatchQueue.concurrentPerform(iterations: 1) { _ in BODY }", True),
-        ("await withTaskCancellationHandler(operation: {}, onCancel: { BODY })", False),
-        (
-            (
-                "let cancelled = { BODY }; await _Concurrency.withTaskCancellationHandler(operatio"
-                "n: {}, onCancel: cancelled)"
-            ),
-            False,
-        ),
-    ):
-        production = (
-            (
-                "import Foundation; import TransportCore; public struct CallbackService { let clie"
-                "nt: HTTPClient; public func fetch() async { "
-            )
-            + body.replace(
-                "BODY",
-                (
-                    'Task { _ = try await client.send(URLRequest(url: URL(string: "https://example'
-                    '.invalid")!)) }'
-                ),
-            )
-            + " } }"
-        )
-        assert "CourseFeature.CallbackService" in business_methods(
-            swift_syntax_index_sources({observer_path: production})
-        ), body
-        smoke = (
-            "class ReleaseNetworkSmokeRunner { func run() async { "
-            + body.replace("BODY", "service.fetch()")
-            + " } }"
-        )
-        calls = reachable_smoke_calls(swift_syntax_index_sources({path: smoke}))["network"]
-        assert (
-            any(call["calledExpression"] == "service.fetch" for call in calls) == smoke_executed
-        ), body
-    for execution, expected in (("", False), ("operation()", True)):
-        declaration = f"struct Task<S, F> {{ init(operation: () -> Void) {{ {execution} }} }}; "
-        production = declaration + (
-            "import Foundation; public struct Service { public func fetch() { Task<Void, Never"
-            '>(operation: { _ = try? Data(contentsOf: URL(string: "https://example.invalid")!)'
-            " }) } }"
-        )
-        assert (
-            bool(business_methods(swift_syntax_index_sources({observer_path: production})))
-            == expected
-        ), execution
-        smoke = declaration + (
-            "class ReleaseNetworkSmokeRunner { func run() { Task<Void, Never>(operation: { ser"
-            "vice.fetch() }) } }"
-        )
-        calls = reachable_smoke_calls(swift_syntax_index_sources({path: smoke}))["network"]
-        assert any(call["calledExpression"] == "service.fetch" for call in calls) == expected, (
-            execution
-        )
+    verify_observer_execution_scope(observer, observer_path, path)
 
 
 @lru_cache
@@ -829,3 +750,88 @@ def test_case_inventory(group: str) -> dict[str, int]:
                 raise ValueError(f"参数库存需要有效测试实例：{test['value']}")
             expected[normalized_test_id(test["value"])] = count
     return {name: count for name, count in expected.items() if name in test_inventory(group)}
+
+
+def verify_observer_execution_scope(observer, observer_path, path):
+    from network_capability_rules import business_methods
+
+    stored = observer.replace(
+        "_ = NotificationCenter.default.addObserver(forName: nil, object: nil, queue: nil) { _ in",
+        "let callback: @Sendable (Notification) -> Void = { _ in",
+    ).replace(
+        "  }\n }",
+        (
+            "  }\n  _ = NotificationCenter.default.addObserver(forName: nil, object: nil, queue: n"
+            "il, using: callback)\n }"
+        ),
+    )
+    assert "CourseFeature.Observer" in business_methods(
+        swift_syntax_index_sources({observer_path: stored})
+    )
+    for body, smoke_executed in (
+        ("Task<Void, Never> { BODY }", True),
+        ("_Concurrency.Task { BODY }", True),
+        ("_Concurrency.Task<Void, Never>.init { BODY }", True),
+        ("Task<Void, Never>.detached { BODY }", True),
+        ("let operation = { BODY }; Task<Void, Never>(operation: operation)", True),
+        ("let stream = AsyncStream<Int> { _ in BODY }", True),
+        ("let stream = _Concurrency.AsyncThrowingStream<Int, Error> { _ in BODY }", True),
+        ("let stream = AsyncStream<Int>(unfolding: { BODY; return nil })", False),
+        ("let stream = AsyncThrowingStream<Int, Error>(unfolding: { BODY; return nil })", False),
+        ("let stream = AsyncStream<Int>(unfolding: { nil }, onCancel: { BODY })", False),
+        ("OperationQueue.main.addBarrierBlock { BODY }", True),
+        ("DispatchQueue.concurrentPerform(iterations: 1) { _ in BODY }", True),
+        ("await withTaskCancellationHandler(operation: {}, onCancel: { BODY })", False),
+        (
+            (
+                "let cancelled = { BODY }; await _Concurrency.withTaskCancellationHandler(operatio"
+                "n: {}, onCancel: cancelled)"
+            ),
+            False,
+        ),
+    ):
+        production = (
+            (
+                "import Foundation; import TransportCore; public struct CallbackService { let clie"
+                "nt: HTTPClient; public func fetch() async { "
+            )
+            + body.replace(
+                "BODY",
+                (
+                    'Task { _ = try await client.send(URLRequest(url: URL(string: "https://example'
+                    '.invalid")!)) }'
+                ),
+            )
+            + " } }"
+        )
+        assert "CourseFeature.CallbackService" in business_methods(
+            swift_syntax_index_sources({observer_path: production})
+        ), body
+        smoke = (
+            "class ReleaseNetworkSmokeRunner { func run() async { "
+            + body.replace("BODY", "service.fetch()")
+            + " } }"
+        )
+        calls = reachable_smoke_calls(swift_syntax_index_sources({path: smoke}))["network"]
+        assert (
+            any(call["calledExpression"] == "service.fetch" for call in calls) == smoke_executed
+        ), body
+    for execution, expected in (("", False), ("operation()", True)):
+        declaration = f"struct Task<S, F> {{ init(operation: () -> Void) {{ {execution} }} }}; "
+        production = declaration + (
+            "import Foundation; public struct Service { public func fetch() { Task<Void, Never"
+            '>(operation: { _ = try? Data(contentsOf: URL(string: "https://example.invalid")!)'
+            " }) } }"
+        )
+        assert (
+            bool(business_methods(swift_syntax_index_sources({observer_path: production})))
+            == expected
+        ), execution
+        smoke = declaration + (
+            "class ReleaseNetworkSmokeRunner { func run() { Task<Void, Never>(operation: { ser"
+            "vice.fetch() }) } }"
+        )
+        calls = reachable_smoke_calls(swift_syntax_index_sources({path: smoke}))["network"]
+        assert any(call["calledExpression"] == "service.fetch" for call in calls) == expected, (
+            execution
+        )

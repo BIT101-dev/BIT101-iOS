@@ -1,5 +1,8 @@
 """Network evidence fixtures and request contract checks."""
 
+from network_redirect_tests import (
+    verify_final_redirect_queries as verify_final_redirect_queries,
+)
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from datetime import timedelta
 from io import BytesIO, StringIO
@@ -26,9 +29,7 @@ def verify_contract_body_parameters(contract, sample, field):
     if contract.required_body_parameters:
         assert not contract.matches(dict(sample, **{field: []}))
     for name in contract.required_body_parameters:
-        assert not contract.matches(
-            dict(sample, **{field: sorted(set(sample[field]) - {name})})
-        )
+        assert not contract.matches(dict(sample, **{field: sorted(set(sample[field]) - {name})}))
     if (
         contract.body_parameter_variants
         and {"challenge_id", "username", "password"} <= contract.body_parameters
@@ -57,9 +58,7 @@ def verify_parameter_mutation(probe, fixture, key, field, invalid):
     from validation_provenance import network_requests_complete
 
     changed = deepcopy(fixture)
-    target = next(
-        row for row in changed["requestEvidence"][0]["requests"] if key in row[field]
-    )
+    target = next(row for row in changed["requestEvidence"][0]["requests"] if key in row[field])
     if invalid is None:
         target[field].pop(key)
     else:
@@ -91,6 +90,138 @@ def gallery_search_queries(parameters: dict) -> list[dict]:
 
 
 def network_route_identity_self_test() -> None:
+    proof, required = verify_native_request_identity()
+
+    writes = verify_session_request_coverage(proof, required)
+    variants = verify_course_request_parameters()
+    login, paper = verify_content_request_coverage(variants)
+    page, transcript = verify_comment_and_transcript_requests(login, paper, writes)
+    verify_final_redirect_queries(login, page, transcript)
+
+
+def native_school_request_contracts_self_test() -> None:
+    from network_request_contracts import complete, auxiliary_contracts, NATIVE_CONTRACTS
+
+    def request(path, *, host="jwms.bit.edu.cn", method="GET", status=200, body=(), query=None):
+        endpoint = "https://" + host + path
+        return dict(
+            endpoint=endpoint,
+            finalEndpoint=endpoint,
+            method=method,
+            finalMethod=method,
+            statusCode=status,
+            query=query or {},
+            finalQuery=query or {},
+            bodyParameterNames=list(body),
+            finalBodyParameterNames=list(body),
+        )
+
+    landing = request("/jsxsd/framework/main.jsp")
+    grades = request("/jsxsd/kscj/cjcx_list", method="POST", body=("kksj", "kcxz", "kcmc", "xsfs"))
+    detail = request("/jsxsd/kscj/cjpm_list.do", query={"id": "[REDACTED]"})
+    cas = request("/cas/login", host="sso.bit.edu.cn", status=302, query={"service": "[REDACTED]"})
+    assert complete("score.authentication", [cas, landing])
+    assert complete("score.brief", [grades])
+    assert complete("score.detail", [grades, detail])
+    session_redirect = request(
+        "/http/abcdef/;jsessionid=fixture-session", host="webvpn.bit.edu.cn", status=302
+    )
+    assert complete("score.authentication", [session_redirect, landing])
+    assert not complete("score.authentication", [session_redirect])
+    analysis = request(
+        "/http/abcdef/jsxsd/kscj/cjfx", host="webvpn.bit.edu.cn", query={"kch": "[REDACTED]"}
+    )
+    assert complete("score.detail", [grades, analysis])
+    assert complete("score.detail", [analysis])
+    assert not complete("score.detail", [dict(analysis, statusCode=500)])
+    assert not complete(
+        "score.detail", [dict(analysis, finalEndpoint="https://outside.invalid/score")]
+    )
+    for probe in ("school.session", "schedule.teaching-center"):
+        trace = network_trace_fixture({"requiredProbes": [probe]})["requestEvidence"][0]
+        callbacks = [
+            request("/auth-protocol-core/loginSuccess", host="jxzxehall.bit.edu.cn", status=302),
+            request(
+                "/jwapp/sys/wdkbby/*default/index.do", host="jxzxehallapp.bit.edu.cn", status=302
+            ),
+            request("/jwapp/sys/wdkbby/*default/index.do", host="jxzxehallapp.bit.edu.cn"),
+        ]
+        assert complete(probe, trace["requests"] + callbacks, trace["expectedParameters"])
+        assert not complete(
+            probe,
+            trace["requests"]
+            + [dict(callbacks[0], finalEndpoint="https://outside.invalid/callback")],
+            trace["expectedParameters"],
+        )
+    for probe in ("score.brief", "score.detail"):
+        assert not complete(probe, [dict(grades, bodyParameterNames=["xsfs"])])
+        assert not complete(probe, [dict(grades, finalBodyParameterNames=["xsfs"])])
+        assert not complete(probe, [dict(grades, statusCode=500)])
+        assert not complete(
+            probe,
+            [
+                request(
+                    "/jsxsd/kscj/cjcx_list",
+                    host="outside.invalid",
+                    method="POST",
+                    body=("kksj", "kcxz", "kcmc", "xsfs"),
+                )
+            ],
+        )
+    assert not complete("score.detail", [detail])
+    entry = request("/cjd/Account/ExternalLogin", host="jwb.bit.edu.cn", status=302)
+    report = request("/cjd/ScoreReport2/Index", host="jwb.bit.edu.cn", query={"GPA": "1"})
+    page = request("/cjd/Temp/page.jpg", host="jwb.bit.edu.cn")
+    assert complete("score.transcript", [entry, cas, report, page])
+    assert not complete("score.transcript", [entry, cas, report, dict(page, statusCode=500)])
+    assert not complete("score.transcript", [entry, cas, dict(report, query={"GPA": "0"}), page])
+    risk = next(
+        contract
+        for contract in auxiliary_contracts(
+            "score.authentication", NATIVE_CONTRACTS["score.authentication"]
+        )
+        if contract.path == "/ustc-rba-front/fp"
+    )
+    fingerprint = request(
+        risk.path, host="sso.bit.edu.cn", method="POST", status=404, body=risk.body_parameters
+    )
+    assert complete("score.authentication", [fingerprint, cas, landing])
+    assert not complete("score.authentication", [dict(fingerprint, statusCode=500), cas, landing])
+    assert not complete("score.authentication", [fingerprint, cas])
+    courses = network_trace_fixture({"requiredProbes": ["eclass.authentication"]})[
+        "requestEvidence"
+    ][0]["requests"]
+    index = request("/user/index", host="zy-eclass.bit.edu.cn")
+    redirected = dict(
+        index,
+        finalEndpoint="https://sso.bit.edu.cn/cas//login",
+        finalQuery={"service": "[REDACTED]"},
+    )
+    sms = request(
+        "/cas//login",
+        host="sso.bit.edu.cn",
+        method="POST",
+        body=("username", "password", "type", "trustDevice"),
+        query={"service": "[REDACTED]", "type": "smsLogin"},
+    )
+    sms.update(
+        finalEndpoint=index["endpoint"],
+        finalMethod="GET",
+        finalQuery={},
+        finalBodyParameterNames=[],
+    )
+    recovered = [dict(courses[0], statusCode=401), redirected, sms, index] + courses
+    assert complete("eclass.authentication", recovered, allow_sms=True)
+    assert not complete("eclass.authentication", recovered)
+    assert not complete("eclass.authentication", [redirected, sms, index], allow_sms=True)
+    assert not complete(
+        "eclass.authentication",
+        [dict(sms, finalEndpoint="https://outside.invalid/")] + courses,
+        allow_sms=True,
+    )
+
+
+def verify_native_request_identity():
     native_school_request_contracts_self_test()
     community_recovery_contract_self_test()
     image_resource_self_test()
@@ -241,6 +372,15 @@ def network_route_identity_self_test() -> None:
             assert not network_requests_complete({probe}, changed), (probe, parameter)
     from network_request_contracts import SELECTORS
 
+    return proof, required
+
+
+def verify_session_request_coverage(proof, required):
+    from network_request_contracts import SELECTORS
+    from network_request_contracts import CONTRACTS, contracts_for, complete
+    from copy import deepcopy
+    from validation_provenance import network_requests_complete
+
     for probe, selectors in SELECTORS.items():
         selected = network_trace_fixture({"requiredProbes": [probe]})
         row = selected["requestEvidence"][0]
@@ -353,6 +493,14 @@ def network_route_identity_self_test() -> None:
         request.update(endpoint=endpoint, finalEndpoint=endpoint)
         assert complete(probe, [request]), probe
         assert not complete(probe, [dict(request, method="GET")]), probe
+    return writes
+
+
+def verify_course_request_parameters():
+    from network_request_contracts import CONTRACTS, contracts_for, complete
+    from copy import deepcopy
+    from validation_provenance import network_requests_complete
+
     for probe in ("eclass.authentication", "eclass.ddl"):
         page = {
             "method": "POST",
@@ -481,6 +629,13 @@ def network_route_identity_self_test() -> None:
         "paper.list.like": {"order": "like"},
         "paper.list.comment": {"order": "comment"},
     }
+    return variants
+
+
+def verify_content_request_coverage(variants):
+    from network_request_contracts import CONTRACTS, contracts_for, complete
+    from copy import deepcopy
+
     for probe, parameters in variants.items():
         endpoint = "https://bit101.flwfdd.xyz/" + (
             "papers" if probe.startswith("paper.") else "posters"
@@ -635,6 +790,12 @@ def network_route_identity_self_test() -> None:
         "query": {},
     }
     paper = dict(login, endpoint="https://bit101.flwfdd.xyz/papers/17")
+    return login, paper
+
+
+def verify_comment_and_transcript_requests(login, paper, writes):
+    from network_request_contracts import CONTRACTS, contracts_for, complete
+
     comments = [
         dict(
             login,
@@ -790,181 +951,4 @@ def network_route_identity_self_test() -> None:
         "query": {},
     }
     assert complete("score.transcript", transcript["requests"] + [page])
-    for field in ("query", "finalQuery"):
-        for value in (None, "true", "0", "[REDACTED]"):
-            broken = deepcopy(transcript["requests"])
-            request = next(row for row in broken if row["endpoint"].endswith("/cjd/cookies"))
-            query = dict(request.get(field, request["query"]))
-            if value is None:
-                query.pop("detailed", None)
-            else:
-                query["detailed"] = value
-            request[field] = query
-            assert not complete("score.transcript", broken)
-    assert not complete("score.transcript", transcript["requests"] + [dict(page, statusCode=500)])
-    assert complete(
-        "community.login", [dict(login, endpoint="https://bit101.flwfdd.xyz:443/user/check")]
-    )
-    for port in ("0", "80", "8443", "65536", "invalid"):
-        assert not complete(
-            "community.login",
-            [dict(login, endpoint="https://bit101.flwfdd.xyz:" + port + "/user/check")],
-        )
-    media = network_trace_fixture({"requiredProbes": ["gallery.image"]})["requestEvidence"][0]
-    import hashlib
-
-    resource = "https://image.invalid:8443/image.png"
-    digest = hashlib.sha256(resource.encode()).hexdigest()
-    assert complete(
-        "gallery.image",
-        [
-            dict(
-                media["requests"][0],
-                endpoint=resource,
-                finalEndpoint=resource,
-                endpointDigest=digest,
-            )
-        ],
-        {"resourceDigests": digest},
-    )
-    for status in (100, 302, 401, 403, 500):
-        assert not complete("community.login", [dict(login, statusCode=status)])
-    assert not complete(
-        "community.login", [dict(login, endpoint=login["endpoint"].replace("https:", "http:"))]
-    )
-    account = dict(login, endpoint="https://bit101.flwfdd.xyz/user/info/0")
-    phases = [account, dict(account, statusCode=401), account]
-    assert complete("community.session", phases)
-    for statuses in (
-        (200, 200, 200),
-        (401, 200, 200),
-        (200, 401, 500),
-        (200, 403, 200),
-        (200, 401),
-        (200, 401, 200, 200),
-    ):
-        assert not complete(
-            "community.session", [dict(account, statusCode=status) for status in statuses]
-        )
-
-
-def native_school_request_contracts_self_test() -> None:
-    from network_request_contracts import complete, auxiliary_contracts, NATIVE_CONTRACTS
-
-    def request(path, *, host="jwms.bit.edu.cn", method="GET", status=200, body=(), query=None):
-        endpoint = "https://" + host + path
-        return dict(
-            endpoint=endpoint,
-            finalEndpoint=endpoint,
-            method=method,
-            finalMethod=method,
-            statusCode=status,
-            query=query or {},
-            finalQuery=query or {},
-            bodyParameterNames=list(body),
-            finalBodyParameterNames=list(body),
-        )
-
-    landing = request("/jsxsd/framework/main.jsp")
-    grades = request("/jsxsd/kscj/cjcx_list", method="POST", body=("kksj", "kcxz", "kcmc", "xsfs"))
-    detail = request("/jsxsd/kscj/cjpm_list.do", query={"id": "[REDACTED]"})
-    cas = request("/cas/login", host="sso.bit.edu.cn", status=302, query={"service": "[REDACTED]"})
-    assert complete("score.authentication", [cas, landing])
-    assert complete("score.brief", [grades])
-    assert complete("score.detail", [grades, detail])
-    session_redirect = request(
-        "/http/abcdef/;jsessionid=fixture-session", host="webvpn.bit.edu.cn", status=302
-    )
-    assert complete("score.authentication", [session_redirect, landing])
-    assert not complete("score.authentication", [session_redirect])
-    analysis = request(
-        "/http/abcdef/jsxsd/kscj/cjfx", host="webvpn.bit.edu.cn", query={"kch": "[REDACTED]"}
-    )
-    assert complete("score.detail", [grades, analysis])
-    assert complete("score.detail", [analysis])
-    assert not complete("score.detail", [dict(analysis, statusCode=500)])
-    assert not complete(
-        "score.detail", [dict(analysis, finalEndpoint="https://outside.invalid/score")]
-    )
-    for probe in ("school.session", "schedule.teaching-center"):
-        trace = network_trace_fixture({"requiredProbes": [probe]})["requestEvidence"][0]
-        callbacks = [
-            request("/auth-protocol-core/loginSuccess", host="jxzxehall.bit.edu.cn", status=302),
-            request(
-                "/jwapp/sys/wdkbby/*default/index.do", host="jxzxehallapp.bit.edu.cn", status=302
-            ),
-            request("/jwapp/sys/wdkbby/*default/index.do", host="jxzxehallapp.bit.edu.cn"),
-        ]
-        assert complete(probe, trace["requests"] + callbacks, trace["expectedParameters"])
-        assert not complete(
-            probe,
-            trace["requests"]
-            + [dict(callbacks[0], finalEndpoint="https://outside.invalid/callback")],
-            trace["expectedParameters"],
-        )
-    for probe in ("score.brief", "score.detail"):
-        assert not complete(probe, [dict(grades, bodyParameterNames=["xsfs"])])
-        assert not complete(probe, [dict(grades, finalBodyParameterNames=["xsfs"])])
-        assert not complete(probe, [dict(grades, statusCode=500)])
-        assert not complete(
-            probe,
-            [
-                request(
-                    "/jsxsd/kscj/cjcx_list",
-                    host="outside.invalid",
-                    method="POST",
-                    body=("kksj", "kcxz", "kcmc", "xsfs"),
-                )
-            ],
-        )
-    assert not complete("score.detail", [detail])
-    entry = request("/cjd/Account/ExternalLogin", host="jwb.bit.edu.cn", status=302)
-    report = request("/cjd/ScoreReport2/Index", host="jwb.bit.edu.cn", query={"GPA": "1"})
-    page = request("/cjd/Temp/page.jpg", host="jwb.bit.edu.cn")
-    assert complete("score.transcript", [entry, cas, report, page])
-    assert not complete("score.transcript", [entry, cas, report, dict(page, statusCode=500)])
-    assert not complete("score.transcript", [entry, cas, dict(report, query={"GPA": "0"}), page])
-    risk = next(
-        contract
-        for contract in auxiliary_contracts(
-            "score.authentication", NATIVE_CONTRACTS["score.authentication"]
-        )
-        if contract.path == "/ustc-rba-front/fp"
-    )
-    fingerprint = request(
-        risk.path, host="sso.bit.edu.cn", method="POST", status=404, body=risk.body_parameters
-    )
-    assert complete("score.authentication", [fingerprint, cas, landing])
-    assert not complete("score.authentication", [dict(fingerprint, statusCode=500), cas, landing])
-    assert not complete("score.authentication", [fingerprint, cas])
-    courses = network_trace_fixture({"requiredProbes": ["eclass.authentication"]})[
-        "requestEvidence"
-    ][0]["requests"]
-    index = request("/user/index", host="zy-eclass.bit.edu.cn")
-    redirected = dict(
-        index,
-        finalEndpoint="https://sso.bit.edu.cn/cas//login",
-        finalQuery={"service": "[REDACTED]"},
-    )
-    sms = request(
-        "/cas//login",
-        host="sso.bit.edu.cn",
-        method="POST",
-        body=("username", "password", "type", "trustDevice"),
-        query={"service": "[REDACTED]", "type": "smsLogin"},
-    )
-    sms.update(
-        finalEndpoint=index["endpoint"],
-        finalMethod="GET",
-        finalQuery={},
-        finalBodyParameterNames=[],
-    )
-    recovered = [dict(courses[0], statusCode=401), redirected, sms, index] + courses
-    assert complete("eclass.authentication", recovered, allow_sms=True)
-    assert not complete("eclass.authentication", recovered)
-    assert not complete("eclass.authentication", [redirected, sms, index], allow_sms=True)
-    assert not complete(
-        "eclass.authentication",
-        [dict(sms, finalEndpoint="https://outside.invalid/")] + courses,
-        allow_sms=True,
-    )
+    return page, transcript

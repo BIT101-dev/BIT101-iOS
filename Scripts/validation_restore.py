@@ -310,58 +310,7 @@ def simulator_restore_findings(simulator_source: str) -> list[str]:
             'if [[ "$operation" == restore ||', 1
         )[0]
     )
-    launch = (
-        "simulator_restore_prepare_pid=\n"
-        + simulator_source.split("simulator_restore_prepare_pid=\n", 1)[1].split(
-            '\nif [[ "$mode" == ui', 1
-        )[0]
-    )
-    launch = launch.replace(
-        '"$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore', "preparation_probe"
-    )
-    if simulator_source.index("simulator_restore_prepare_pid=\n") < simulator_source.index(
-        "xcodebuild build-for-testing"
-    ):
-        findings.append("恢复准备自测：测试宿主编译完成后并行准备生产 App")
-    for operation in ("app", "ui"):
-        for original, prepared in ((0, 0), (7, 0), (0, 9), (7, 9)):
-            reader, writer = os.pipe()
-            try:
-                harness = (
-                    f"operation="
-                    f"{operation}"
-                    f" BIT101_SIMULATOR_PREPARE_RESTORE=1 BIT101_DEFER_APP_RESTORE=1\npreparatio"
-                    f"n_probe() {{ read -r message <&"
-                    f"{reader}"
-                    f"; print PREPARED; return "
-                    f"{prepared}"
-                    f"; }}\n"
-                )
-                result = subprocess.run(
-                    [
-                        "zsh",
-                        "-c",
-                        harness
-                        + restoration
-                        + launch
-                        + f"\nprint native >&{writer}\ntrap restore_on_exit EXIT\nexit {original}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    pass_fds=(reader, writer),
-                    timeout=5,
-                )
-                expected_prepared = prepared if operation == "app" else 0
-                expected_code = original or expected_prepared
-                if result.returncode != expected_code or ("PREPARED" in result.stdout) != (
-                    operation == "app"
-                ):
-                    findings.append(
-                        "恢复准备自测：原生测试与主机编译重叠，设备操作完成后归集子进程及失败状态"
-                    )
-            finally:
-                os.close(reader)
-                os.close(writer)
+    simulator_restore_preparation_findings(findings, restoration, simulator_source)
     stub = (
         "ROOT_DIR=/fixture\npython3() { print digest; }\nbit101_run_logged() { print RESTORE; if ["
         '[ "$2" == "常规模拟器包编译" && ( " $* " != *" ENABLE_TESTABILITY=YES "* || " $* " != *" ONLY_ACT'
@@ -580,67 +529,7 @@ def simulator_startup_findings(source: str) -> list[str]:
         return ["模拟器启动自测：设备、系统与 App 初始化入口应提供完整脚本正文。"]
     device_program = programs["PYDEVICE"]
     runtime = "com.apple.CoreSimulator.SimRuntime.iOS-27"
-    inventory = {
-        "runtimes": [
-            {
-                "isAvailable": True,
-                "identifier": runtime,
-                "version": "27.0",
-                "supportedDeviceTypes": [{"name": "iPhone 17 Pro", "identifier": "phone"}],
-            }
-        ],
-        "devices": {
-            runtime: [
-                {
-                    "udid": "device",
-                    "isAvailable": True,
-                    "state": "Shutdown",
-                    "deviceTypeIdentifier": "phone",
-                }
-            ]
-        },
-    }
-    findings = []
-    for hosted in ("true", "false"):
-        for operation in ("prepare", "prepare-restore", "build-ui", "app", "release-runtime", "ui"):
-            commands = []
-            with (
-                patch.dict(
-                    os.environ,
-                    GITHUB_ACTIONS=hosted,
-                    DEVELOPER_DIR="/fixture/Xcode.app/Contents/Developer",
-                ),
-                patch.object(sys, "argv", ["device", "/fixture/device.json", operation]),
-                patch.object(subprocess, "check_output", return_value=json.dumps(inventory)),
-                patch.object(
-                    subprocess,
-                    "run",
-                    side_effect=lambda command, **kwargs: commands.append(command),
-                ),
-                patch.object(Path, "is_file", return_value=True),
-                patch.object(
-                    Path,
-                    "read_text",
-                    return_value=json.dumps({"identifier": "device", "runtime": runtime}),
-                ),
-                redirect_stdout(StringIO()),
-            ):
-                run_simulator_device_program(device_program)
-            expected = (
-                [["xcrun", "simctl", "boot", "device"]]
-                if hosted == "true" and operation == "prepare"
-                else []
-            )
-            if hosted == "false" and operation not in {"prepare-restore", "build-ui"}:
-                expected = [
-                    ["xcrun", "simctl", "boot", "device"],
-                    ["xcrun", "simctl", "bootstatus", "device", "-b"],
-                    ["open", "-a", "/fixture/Xcode.app/Contents/Applications/DeviceHub.app"],
-                ]
-            if commands != expected:
-                findings.append(
-                    "模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对"
-                )
+    findings = simulator_operation_startup_findings(device_program, runtime)
     stock = {
         "runtimes": [
             {
@@ -981,3 +870,131 @@ if __name__ == "__main__":
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print(f"App 就绪采样失败：{type(error).__name__}：{error}", file=sys.stderr)
         sys.exit(1)
+
+
+def simulator_operation_startup_findings(device_program, runtime):
+    from io import StringIO
+    import os
+    from unittest.mock import patch
+    from contextlib import redirect_stdout
+    import sys
+
+    inventory = {
+        "runtimes": [
+            {
+                "isAvailable": True,
+                "identifier": runtime,
+                "version": "27.0",
+                "supportedDeviceTypes": [{"name": "iPhone 17 Pro", "identifier": "phone"}],
+            }
+        ],
+        "devices": {
+            runtime: [
+                {
+                    "udid": "device",
+                    "isAvailable": True,
+                    "state": "Shutdown",
+                    "deviceTypeIdentifier": "phone",
+                }
+            ]
+        },
+    }
+    findings = []
+    for hosted in ("true", "false"):
+        for operation in ("prepare", "prepare-restore", "build-ui", "app", "release-runtime", "ui"):
+            commands = []
+            with (
+                patch.dict(
+                    os.environ,
+                    GITHUB_ACTIONS=hosted,
+                    DEVELOPER_DIR="/fixture/Xcode.app/Contents/Developer",
+                ),
+                patch.object(sys, "argv", ["device", "/fixture/device.json", operation]),
+                patch.object(subprocess, "check_output", return_value=json.dumps(inventory)),
+                patch.object(
+                    subprocess,
+                    "run",
+                    side_effect=lambda command, **kwargs: commands.append(command),
+                ),
+                patch.object(Path, "is_file", return_value=True),
+                patch.object(
+                    Path,
+                    "read_text",
+                    return_value=json.dumps({"identifier": "device", "runtime": runtime}),
+                ),
+                redirect_stdout(StringIO()),
+            ):
+                run_simulator_device_program(device_program)
+            expected = (
+                [["xcrun", "simctl", "boot", "device"]]
+                if hosted == "true" and operation == "prepare"
+                else []
+            )
+            if hosted == "false" and operation not in {"prepare-restore", "build-ui"}:
+                expected = [
+                    ["xcrun", "simctl", "boot", "device"],
+                    ["xcrun", "simctl", "bootstatus", "device", "-b"],
+                    ["open", "-a", "/fixture/Xcode.app/Contents/Applications/DeviceHub.app"],
+                ]
+            if commands != expected:
+                findings.append(
+                    "模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对"
+                )
+    return findings
+
+
+def simulator_restore_preparation_findings(findings, restoration, simulator_source):
+    import os
+
+    launch = (
+        "simulator_restore_prepare_pid=\n"
+        + simulator_source.split("simulator_restore_prepare_pid=\n", 1)[1].split(
+            '\nif [[ "$mode" == ui', 1
+        )[0]
+    )
+    launch = launch.replace(
+        '"$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore', "preparation_probe"
+    )
+    if simulator_source.index("simulator_restore_prepare_pid=\n") < simulator_source.index(
+        "xcodebuild build-for-testing"
+    ):
+        findings.append("恢复准备自测：测试宿主编译完成后并行准备生产 App")
+    for operation in ("app", "ui"):
+        for original, prepared in ((0, 0), (7, 0), (0, 9), (7, 9)):
+            reader, writer = os.pipe()
+            try:
+                harness = (
+                    f"operation="
+                    f"{operation}"
+                    f" BIT101_SIMULATOR_PREPARE_RESTORE=1 BIT101_DEFER_APP_RESTORE=1\npreparatio"
+                    f"n_probe() {{ read -r message <&"
+                    f"{reader}"
+                    f"; print PREPARED; return "
+                    f"{prepared}"
+                    f"; }}\n"
+                )
+                result = subprocess.run(
+                    [
+                        "zsh",
+                        "-c",
+                        harness
+                        + restoration
+                        + launch
+                        + f"\nprint native >&{writer}\ntrap restore_on_exit EXIT\nexit {original}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    pass_fds=(reader, writer),
+                    timeout=5,
+                )
+                expected_prepared = prepared if operation == "app" else 0
+                expected_code = original or expected_prepared
+                if result.returncode != expected_code or ("PREPARED" in result.stdout) != (
+                    operation == "app"
+                ):
+                    findings.append(
+                        "恢复准备自测：原生测试与主机编译重叠，设备操作完成后归集子进程及失败状态"
+                    )
+            finally:
+                os.close(reader)
+                os.close(writer)

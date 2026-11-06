@@ -693,6 +693,110 @@ def cache_and_ui_products(fixture: Path) -> None:
 
     derived = fixture / "ready"
     derived.mkdir()
+    verify_cache_preservation(cache, data, derived, fixture, native, output, original_run)
+
+
+def cache_maintenance_self_test(fixture: Path) -> None:
+    import sqlite3
+    import validation_artifacts as artifacts
+    from compiler_cache import run_cache
+
+    metadata = fixture / ".build/compiler-cache/compilation-cache.json"
+    saved = json.loads(metadata.read_text())
+    free = saved["sampleFreeBytes"]
+    with patch.object(shutil, "disk_usage", return_value=type("Disk", (), {"free": free})()):
+        assert not artifacts.cache_maintenance_needed(fixture)
+    with patch.object(
+        shutil,
+        "disk_usage",
+        return_value=type("Disk", (), {"free": free - artifacts.CACHE_GROWTH_INTERVAL})(),
+    ):
+        assert not artifacts.cache_maintenance_needed(fixture)
+    with patch.object(
+        artifacts,
+        "build_database_bytes",
+        return_value=saved["space"]["buildDatabaseBytes"] + artifacts.CACHE_GROWTH_INTERVAL,
+    ):
+        assert artifacts.cache_maintenance_needed(fixture)
+    with (
+        patch.object(
+            subprocess,
+            "check_output",
+            return_value=str(
+                (saved["space"]["casBytes"] + artifacts.CACHE_GROWTH_INTERVAL) // 1024
+            ),
+        ),
+        patch.object(shutil, "disk_usage", return_value=type("Disk", (), {"free": free})()),
+    ):
+        assert artifacts.cache_maintenance_needed(fixture)
+    for exit_code, needed, crashed in ((0, False, False), (7, True, True), (0, True, True)):
+        with (
+            patch.object(
+                subprocess, "run", return_value=subprocess.CompletedProcess([], exit_code)
+            ),
+            patch.object(artifacts, "cache_maintenance_needed", return_value=needed),
+            patch.object(
+                artifacts, "prune_compilation_cache", side_effect=RuntimeError("native signal 11")
+            ) as prune,
+            patch.object(artifacts, "record_cache_space") as sample,
+            redirect_stderr(StringIO()),
+        ):
+            try:
+                run_cache([str(fixture), "build.log", "build", "xcodebuild", "build"])
+            except SystemExit as status:
+                assert status.code == exit_code
+            assert prune.called == crashed
+            sample.assert_not_called()
+    for exit_code in (-11, 1, 124):
+        with patch(
+            "workflow_processes.capture_command",
+            return_value=subprocess.CompletedProcess([], exit_code, "", "native failure"),
+        ):
+            try:
+                artifacts.prune_compilation_cache(fixture / "cache")
+            except RuntimeError as error:
+                assert str(exit_code) in str(error) and "native failure" in str(error)
+            else:
+                raise AssertionError("原生维护失败应回到父进程处理。")
+    derived = fixture / "database"
+    for relative in artifacts.BUILD_DATABASE_RELATIVES:
+        database = derived / relative
+        database.parent.mkdir(parents=True)
+        connection = sqlite3.connect(database)
+        try:
+            connection.execute("CREATE TABLE incremental (id INTEGER PRIMARY KEY, value BLOB)")
+            connection.executemany(
+                "INSERT INTO incremental VALUES (?, ?)", [(i, b"x" * 4096) for i in range(100)]
+            )
+            connection.execute("DELETE FROM incremental WHERE id > 2")
+            connection.commit()
+            rows = connection.execute("SELECT * FROM incremental").fetchall()
+        finally:
+            connection.close()
+        before = database.stat().st_size
+        with patch.object(artifacts, "CACHE_GROWTH_INTERVAL", 1):
+            artifacts.compact_build_databases([derived])
+        connection = sqlite3.connect(database)
+        try:
+            assert connection.execute("SELECT * FROM incremental").fetchall() == rows
+        finally:
+            connection.close()
+        assert database.stat().st_size < before
+    with patch.object(artifacts, "DERIVED_ROOT_NAMES", ("database",)):
+        assert artifacts.build_database_bytes(fixture) == sum(
+            path.stat().st_size for path in artifacts.build_databases([derived])
+        )
+    metadata.write_text("{")
+    assert artifacts.cache_maintenance_needed(fixture)
+    artifacts.update_cache_metadata(metadata, saved)
+
+
+def verify_cache_preservation(cache, data, derived, fixture, native, output, original_run):
+    from compiler_cache import cache_layout_ready
+    from validation_artifacts import cache_names
+    from compiler_cache import run_cache
+    from test_results import ui_host_product_paths
+
     for name in cache_names:
         (derived / name).symlink_to(
             fixture / ".build/compiler-cache" / name, target_is_directory=True
@@ -797,98 +901,3 @@ def cache_and_ui_products(fixture: Path) -> None:
                 assert status.code == 0
         commands = [call.args[0] for call in build.call_args_list if call.args[0][0] == "zsh"]
         assert len(commands) == 1 and f"COMPILATION_CACHE_ENABLE_CACHING={expected}" in commands[0]
-
-
-def cache_maintenance_self_test(fixture: Path) -> None:
-    import sqlite3
-    import validation_artifacts as artifacts
-    from compiler_cache import run_cache
-
-    metadata = fixture / ".build/compiler-cache/compilation-cache.json"
-    saved = json.loads(metadata.read_text())
-    free = saved["sampleFreeBytes"]
-    with patch.object(shutil, "disk_usage", return_value=type("Disk", (), {"free": free})()):
-        assert not artifacts.cache_maintenance_needed(fixture)
-    with patch.object(
-        shutil,
-        "disk_usage",
-        return_value=type("Disk", (), {"free": free - artifacts.CACHE_GROWTH_INTERVAL})(),
-    ):
-        assert not artifacts.cache_maintenance_needed(fixture)
-    with patch.object(
-        artifacts,
-        "build_database_bytes",
-        return_value=saved["space"]["buildDatabaseBytes"] + artifacts.CACHE_GROWTH_INTERVAL,
-    ):
-        assert artifacts.cache_maintenance_needed(fixture)
-    with (
-        patch.object(
-            subprocess,
-            "check_output",
-            return_value=str(
-                (saved["space"]["casBytes"] + artifacts.CACHE_GROWTH_INTERVAL) // 1024
-            ),
-        ),
-        patch.object(shutil, "disk_usage", return_value=type("Disk", (), {"free": free})()),
-    ):
-        assert artifacts.cache_maintenance_needed(fixture)
-    for exit_code, needed, crashed in ((0, False, False), (7, True, True), (0, True, True)):
-        with (
-            patch.object(
-                subprocess, "run", return_value=subprocess.CompletedProcess([], exit_code)
-            ),
-            patch.object(artifacts, "cache_maintenance_needed", return_value=needed),
-            patch.object(
-                artifacts, "prune_compilation_cache", side_effect=RuntimeError("native signal 11")
-            ) as prune,
-            patch.object(artifacts, "record_cache_space") as sample,
-            redirect_stderr(StringIO()),
-        ):
-            try:
-                run_cache([str(fixture), "build.log", "build", "xcodebuild", "build"])
-            except SystemExit as status:
-                assert status.code == exit_code
-            assert prune.called == crashed
-            sample.assert_not_called()
-    for exit_code in (-11, 1, 124):
-        with patch(
-            "workflow_processes.capture_command",
-            return_value=subprocess.CompletedProcess([], exit_code, "", "native failure"),
-        ):
-            try:
-                artifacts.prune_compilation_cache(fixture / "cache")
-            except RuntimeError as error:
-                assert str(exit_code) in str(error) and "native failure" in str(error)
-            else:
-                raise AssertionError("原生维护失败应回到父进程处理。")
-    derived = fixture / "database"
-    for relative in artifacts.BUILD_DATABASE_RELATIVES:
-        database = derived / relative
-        database.parent.mkdir(parents=True)
-        connection = sqlite3.connect(database)
-        try:
-            connection.execute("CREATE TABLE incremental (id INTEGER PRIMARY KEY, value BLOB)")
-            connection.executemany(
-                "INSERT INTO incremental VALUES (?, ?)", [(i, b"x" * 4096) for i in range(100)]
-            )
-            connection.execute("DELETE FROM incremental WHERE id > 2")
-            connection.commit()
-            rows = connection.execute("SELECT * FROM incremental").fetchall()
-        finally:
-            connection.close()
-        before = database.stat().st_size
-        with patch.object(artifacts, "CACHE_GROWTH_INTERVAL", 1):
-            artifacts.compact_build_databases([derived])
-        connection = sqlite3.connect(database)
-        try:
-            assert connection.execute("SELECT * FROM incremental").fetchall() == rows
-        finally:
-            connection.close()
-        assert database.stat().st_size < before
-    with patch.object(artifacts, "DERIVED_ROOT_NAMES", ("database",)):
-        assert artifacts.build_database_bytes(fixture) == sum(
-            path.stat().st_size for path in artifacts.build_databases([derived])
-        )
-    metadata.write_text("{")
-    assert artifacts.cache_maintenance_needed(fixture)
-    artifacts.update_cache_metadata(metadata, saved)

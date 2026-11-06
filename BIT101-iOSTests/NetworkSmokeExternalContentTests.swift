@@ -470,174 +470,11 @@ extension ReleaseNetworkSmokeLifecycleTests {
                     courseNumber: stage == "fixture-course-number-failure" ? "OTHER" : "COURSE",
                     paperID: 45),
             schoolSMSCodeHandler: stage.hasPrefix("all-sms-") ? smsHandler : nil)
-        if scope.includes(.bit101) && !stage.contains("community-login") {
-            #expect(
-                services.observed.isSuperset(of: [
-                    "gallery-follow", "gallery-hot", "gallery-newest",
-                ]))
-            #expect(
-                report.executedProbes.contains("gallery.following")
-                    && report.executedProbes.contains("gallery.hot"))
-        }
-        #expect(
-            report.passed
-                == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"
-                    || stage.hasPrefix("report-types-")),
-            "\(stage): \(report.failures)")
-        if stage == "all-success" || stage == "maintained-fixtures-success" {
-            #expect(
-                services.observed.isSuperset(of: [
-                    "course-search-COURSE-0", "course-search-COURSE-1",
-                    "paper-search-fixture-0", "paper-search-fixture-1",
-                ]))
-            #expect(
-                report.executedProbes.contains("course.search")
-                    && report.executedProbes.contains("paper.search"))
-        }
-        if stage.contains("search-target-failure") || stage.contains("search-ignored-failure") {
-            #expect(
-                report.failures.contains {
-                    $0.contains(
-                        stage.hasPrefix("course-")
-                            ? "course.search"
-                            : stage.hasPrefix("gallery-") ? "gallery.search" : "paper.search")
-                })
-        }
-        if stage == "course-search-later-success" {
-            #expect(services.observed.contains("course-search-COURSE-2"))
-        }
-        if stage.hasPrefix("poster-") {
-            #expect(report.failures.contains { $0.contains("gallery.search") })
-        }
-        if stage.hasPrefix("report-types-") {
-            let exempted = Set([
-                "community.report-types", "message.follow", "message.system", "message.like",
-                "message.comment",
-            ])
-            #expect(report.coverageComplete && Set(report.exemptedProbes.keys) == exempted)
-            #expect(
-                exempted.isDisjoint(with: report.executedProbes)
-                    && exempted.isDisjoint(with: report.requestEvidence.map(\.probe)))
-        }
-        if stage == "course-comment-ranking-failure" {
-            #expect(report.failures.contains { $0.contains("course.comments") })
-        }
-        if stage.hasPrefix("message-account-") {
-            #expect(report.failures.count == 1 && !services.observed.contains("message-read"))
-        }
-        if stage == "course-history-statistics-failure" {
-            #expect(report.failures.contains { $0.contains("course.history") })
-        }
-        if stage == "maintained-fixtures-success" {
-            #expect(
-                services.observed.isSuperset(
-                    of: GallerySearchOrder.allCases.map { "gallery-search-\($0.rawValue)" }))
-            for kind in ["gallery", "paper"] {
-                #expect(
-                    services.observed.isSuperset(
-                        of: CommunityCommentOrder.allCases.map {
-                            "\(kind)-order-\($0.rawValue)"
-                        }))
-            }
-            #expect(
-                services.observed.isSuperset(of: [
-                    "fixture-poster-41", "fixture-course-43", "fixture-paper-45",
-                ]))
-            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
-        }
-        if stage == "paper-media-success" {
-            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
-            #expect(external.requests.contains { $0.url?.path == "/paper-low.png" })
-        }
-        if stage == "paper-media-original-failure" || stage == "paper-media-thumbnail-failure" {
-            #expect(report.failures.count == 1 && report.failures[0].contains("paper.image"))
-        }
-        if stage == "feed-images-missing-success" || stage == "maintained-fixtures-success" {
-            #expect(external.requests.contains { $0.url?.path == "/fixture.png" })
-        }
-        if stage == "fixture-image-missing-failure" {
-            #expect(report.failures.contains { $0.contains("gallery.image") })
-        }
-        if stage == "missing-fixtures-failure" {
-            #expect(
-                !report.coverageComplete
-                    && report.skippedProbes.contains { $0.contains("维护对象配置") })
-        }
-        #expect(
-            report.productionSessionEvidence
-                == (scope.includes(.bit101) && !stage.contains("community-login")
-                    ? sessionEvidence : []))
-        if stage == "all-sms-success" {
-            #expect(report.schoolSMSCoverage == "verified")
-            #expect(services.webvpnVerified && productionServices.webvpnVerified)
-            #expect(
-                Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe))
-                    == ["school.session", "schedule.current-term"])
-            #expect(
-                Set(report.verifiedSMSProbes.map(\.purpose))
-                    == NetworkSmokeScope.all.requiredSMSPurposes)
-        }
-        if stage.hasPrefix("all-sms-") && !captchaBlocked {
-            #expect(
-                Set(report.authenticatedSchoolProbes.map(\.purpose))
-                    == NetworkSmokeScope.all.requiredSMSPurposes)
-            #expect(
-                Set(report.requestedSMSPurposes) == Set(report.verifiedSMSProbes.map(\.purpose))
-            )
-            #expect(
-                report.schoolSMSCoverage
-                    == (stage == "all-sms-not-required" ? "not_required" : "verified"))
-            #expect(
-                Set(NetworkSmokeScope.school.requiredProbes).isSubset(
-                    of: Set(report.executedProbes)))
-            #expect(
-                report.coverageComplete == !stage.contains("community-login"),
-                "\(stage): \(report.coverageGaps)")
-            if stage.contains("community-login") {
-                #expect(!services.observed.contains("gallery-newest"))
-            }
-        }
-        if stage == "all-sms-not-required" {
-            #expect(report.schoolSMSCoverage == "not_required")
-            #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
-        }
-        if stage == "repeated-page-failure" {
-            #expect(report.failures.contains { $0.contains("course.list") })
-            #expect(services.observed.contains("fixture-course-43"))
-            #expect(report.coverageComplete)
-        }
-        if stage == "missing-fixtures-failure" {
-            #expect(
-                Set(scope.requiredProbes).subtracting(report.executedProbes)
-                    == [
-                        "gallery.detail", "gallery.image", "gallery.comments", "gallery.web",
-                        "course.detail", "course.comments",
-                        "course.history", "course.web", "course.search", "paper.search",
-                        "paper.detail", "paper.image", "paper.comments", "paper.web",
-                    ])
-        } else {
-            let deferred: Set<String>
-            if stage.contains("community-login") {
-                deferred = Set(
-                    NetworkSmokeProbe.allCases.filter(\.requiresCommunitySession).map(
-                        \.rawValue))
-            } else if captchaBlocked {
-                deferred = [
-                    "score.brief", "score.detail", "schedule.sync", "classroom.campuses",
-                    "classroom.buildings", "classroom.occupancy",
-                ]
-            } else if stage == "entity-identity-failure" {
-                deferred = ["paper.search", "paper.image", "gallery.image"]
-            } else if stage == "paper-content-failure" {
-                deferred = ["paper.search", "paper.image"]
-            } else if stage == "campus-selection-failure" {
-                deferred = ["classroom.occupancy"]
-            } else {
-                deferred = []
-            }
-            #expect(
-                Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
-        }
+        try await verifyCommunityResults(
+            stage: stage, scope: scope, report: report, services: services, external: external)
+        try await verifySessionCoverage(
+            stage: stage, scope: scope, report: report, services: services,
+            productionServices: productionServices, sessionEvidence: sessionEvidence)
         #expect(reports.count == 1 && reports[0].passed == report.passed)
         #expect(loginChecks == (scope.includes(.authentication) ? 1 : 0))
         if scope.includes(.bit101) {
@@ -796,6 +633,187 @@ extension ReleaseNetworkSmokeLifecycleTests {
         }
         return .schedule
     }
+    private func verifyCommunityResults(
+        stage: String, scope: NetworkSmokeScope, report: ReleaseNetworkSmokeReport,
+        services: Services, external: External
+    ) async throws {
+        if scope.includes(.bit101) && !stage.contains("community-login") {
+            #expect(
+                services.observed.isSuperset(of: [
+                    "gallery-follow", "gallery-hot", "gallery-newest",
+                ]))
+            #expect(
+                report.executedProbes.contains("gallery.following")
+                    && report.executedProbes.contains("gallery.hot"))
+        }
+        #expect(
+            report.passed
+                == (!stage.hasSuffix("failure") || stage == "missing-fixtures-failure"
+                    || stage.hasPrefix("report-types-")),
+            "\(stage): \(report.failures)")
+        if stage == "all-success" || stage == "maintained-fixtures-success" {
+            #expect(
+                services.observed.isSuperset(of: [
+                    "course-search-COURSE-0", "course-search-COURSE-1",
+                    "paper-search-fixture-0", "paper-search-fixture-1",
+                ]))
+            #expect(
+                report.executedProbes.contains("course.search")
+                    && report.executedProbes.contains("paper.search"))
+        }
+        if stage.contains("search-target-failure") || stage.contains("search-ignored-failure") {
+            #expect(
+                report.failures.contains {
+                    $0.contains(
+                        stage.hasPrefix("course-")
+                            ? "course.search"
+                            : stage.hasPrefix("gallery-") ? "gallery.search" : "paper.search")
+                })
+        }
+        if stage == "course-search-later-success" {
+            #expect(services.observed.contains("course-search-COURSE-2"))
+        }
+        if stage.hasPrefix("poster-") {
+            #expect(report.failures.contains { $0.contains("gallery.search") })
+        }
+        if stage.hasPrefix("report-types-") {
+            let exempted = Set([
+                "community.report-types", "message.follow", "message.system", "message.like",
+                "message.comment",
+            ])
+            #expect(report.coverageComplete && Set(report.exemptedProbes.keys) == exempted)
+            #expect(
+                exempted.isDisjoint(with: report.executedProbes)
+                    && exempted.isDisjoint(with: report.requestEvidence.map(\.probe)))
+        }
+        if stage == "course-comment-ranking-failure" {
+            #expect(report.failures.contains { $0.contains("course.comments") })
+        }
+        if stage.hasPrefix("message-account-") {
+            #expect(report.failures.count == 1 && !services.observed.contains("message-read"))
+        }
+        if stage == "course-history-statistics-failure" {
+            #expect(report.failures.contains { $0.contains("course.history") })
+        }
+        if stage == "maintained-fixtures-success" {
+            #expect(
+                services.observed.isSuperset(
+                    of: GallerySearchOrder.allCases.map { "gallery-search-\($0.rawValue)" }))
+            for kind in ["gallery", "paper"] {
+                #expect(
+                    services.observed.isSuperset(
+                        of: CommunityCommentOrder.allCases.map {
+                            "\(kind)-order-\($0.rawValue)"
+                        }))
+            }
+            #expect(
+                services.observed.isSuperset(of: [
+                    "fixture-poster-41", "fixture-course-43", "fixture-paper-45",
+                ]))
+            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
+        }
+        if stage == "paper-media-success" {
+            #expect(external.requests.contains { $0.url?.path == "/paper.png" })
+            #expect(external.requests.contains { $0.url?.path == "/paper-low.png" })
+        }
+        if stage == "paper-media-original-failure" || stage == "paper-media-thumbnail-failure" {
+            #expect(report.failures.count == 1 && report.failures[0].contains("paper.image"))
+        }
+        if stage == "feed-images-missing-success" || stage == "maintained-fixtures-success" {
+            #expect(external.requests.contains { $0.url?.path == "/fixture.png" })
+        }
+        if stage == "fixture-image-missing-failure" {
+            #expect(report.failures.contains { $0.contains("gallery.image") })
+        }
+        if stage == "missing-fixtures-failure" {
+            #expect(
+                !report.coverageComplete
+                    && report.skippedProbes.contains { $0.contains("维护对象配置") })
+        }
+    }
+
+    private func verifySessionCoverage(
+        stage: String, scope: NetworkSmokeScope, report: ReleaseNetworkSmokeReport,
+        services: Services, productionServices: Services, sessionEvidence: [String]
+    ) async throws {
+        let captchaBlocked = stage == "all-sms-captcha-failure"
+        #expect(
+            report.productionSessionEvidence
+                == (scope.includes(.bit101) && !stage.contains("community-login")
+                    ? sessionEvidence : []))
+        if stage == "all-sms-success" {
+            #expect(report.schoolSMSCoverage == "verified")
+            #expect(services.webvpnVerified && productionServices.webvpnVerified)
+            #expect(
+                Set(report.verifiedSMSProbes.filter { $0.purpose == "webvpn" }.map(\.probe))
+                    == ["school.session", "schedule.current-term"])
+            #expect(
+                Set(report.verifiedSMSProbes.map(\.purpose))
+                    == NetworkSmokeScope.all.requiredSMSPurposes)
+        }
+        if stage.hasPrefix("all-sms-") && !captchaBlocked {
+            #expect(
+                Set(report.authenticatedSchoolProbes.map(\.purpose))
+                    == NetworkSmokeScope.all.requiredSMSPurposes)
+            #expect(
+                Set(report.requestedSMSPurposes) == Set(report.verifiedSMSProbes.map(\.purpose))
+            )
+            #expect(
+                report.schoolSMSCoverage
+                    == (stage == "all-sms-not-required" ? "not_required" : "verified"))
+            #expect(
+                Set(NetworkSmokeScope.school.requiredProbes).isSubset(
+                    of: Set(report.executedProbes)))
+            #expect(
+                report.coverageComplete == !stage.contains("community-login"),
+                "\(stage): \(report.coverageGaps)")
+            if stage.contains("community-login") {
+                #expect(!services.observed.contains("gallery-newest"))
+            }
+        }
+        if stage == "all-sms-not-required" {
+            #expect(report.schoolSMSCoverage == "not_required")
+            #expect(report.verifiedSMSProbes.isEmpty && report.requestedSMSPurposes.isEmpty)
+        }
+        if stage == "repeated-page-failure" {
+            #expect(report.failures.contains { $0.contains("course.list") })
+            #expect(services.observed.contains("fixture-course-43"))
+            #expect(report.coverageComplete)
+        }
+        if stage == "missing-fixtures-failure" {
+            #expect(
+                Set(scope.requiredProbes).subtracting(report.executedProbes)
+                    == [
+                        "gallery.detail", "gallery.image", "gallery.comments", "gallery.web",
+                        "course.detail", "course.comments",
+                        "course.history", "course.web", "course.search", "paper.search",
+                        "paper.detail", "paper.image", "paper.comments", "paper.web",
+                    ])
+        } else {
+            let deferred: Set<String>
+            if stage.contains("community-login") {
+                deferred = Set(
+                    NetworkSmokeProbe.allCases.filter(\.requiresCommunitySession).map(
+                        \.rawValue))
+            } else if captchaBlocked {
+                deferred = [
+                    "score.brief", "score.detail", "schedule.sync", "classroom.campuses",
+                    "classroom.buildings", "classroom.occupancy",
+                ]
+            } else if stage == "entity-identity-failure" {
+                deferred = ["paper.search", "paper.image", "gallery.image"]
+            } else if stage == "paper-content-failure" {
+                deferred = ["paper.search", "paper.image"]
+            } else if stage == "campus-selection-failure" {
+                deferred = ["classroom.occupancy"]
+            } else {
+                deferred = []
+            }
+            #expect(
+                Set(report.executedProbes) == Set(scope.requiredProbes).subtracting(deferred))
+        }
+    }
+
 }
 extension NetworkSmokeExternalContentTests {
     private static func selectedEclassPages(for stage: String) -> [Int] {
@@ -808,6 +826,7 @@ extension NetworkSmokeExternalContentTests {
         default: [1, 2]
         }
     }
+
 }
 
 #endif

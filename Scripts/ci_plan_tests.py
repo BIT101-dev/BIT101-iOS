@@ -750,6 +750,13 @@ def acceptance_self_test(subject) -> None:
                     pass
                 else:
                     raise AssertionError("静态与完整验收需要分别核对每项任务的执行状态")
+    verify_acceptance_step_status(commit, full_results, module, policy_source)
+
+
+def verify_acceptance_step_status(commit, full_results, module, policy_source):
+    from io import StringIO
+    from unittest.mock import patch
+
     for source in (
         "MODULE_COVERAGE_FLOORS = {}",
         policy_source.replace("60", "101"),

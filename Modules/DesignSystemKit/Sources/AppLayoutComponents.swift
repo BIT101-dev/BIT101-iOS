@@ -156,7 +156,23 @@ public struct AppPairedPages<First: View, Second: View>: View {
             .environment(\.appPageIsVisible, visible && isVisible)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .frame(width: visible ? nil : 0)
-            .clipped().allowsHitTesting(visible).accessibilityHidden(!visible)
+            .clipShape(
+                AppPageColumnClip(
+                    windowHeight: (layout.availableHeight ?? 0) + layout.safeAreaInsets.top
+                        + layout.safeAreaInsets.bottom)
+            )
+            .allowsHitTesting(visible).accessibilityHidden(!visible)
+    }
+}
+
+/// 保留分栏宽度，并允许底部绘制延伸至当前窗口。
+private nonisolated struct AppPageColumnClip: Shape {
+    let windowHeight: CGFloat
+    func path(in rect: CGRect) -> Path {
+        Path(
+            CGRect(
+                x: rect.minX, y: rect.minY, width: rect.width,
+                height: max(rect.height, windowHeight)))
     }
 }
 
@@ -285,7 +301,7 @@ public struct AppBrowserLayout<
             .background(AppDesignSystem.Palette.Background.grouped)
             .toolbar(.visible, for: .navigationBar)
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-            .appPaneBackButton(isPresented: true) {
+            .appPaneBackButton(isPresented: layout.isLandscapeWindow) {
                 selection = nil
             }
     }
@@ -621,7 +637,8 @@ public struct AppFloatingActionButton: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
         .accessibilityIdentifier(
-            accessibilityIdentifier ?? "ui.app-floating-action-button.action")
+            accessibilityIdentifier ?? "ui.app-floating-action-button.action"
+        )
         .appImpactFeedback(trigger: feedbackToken)
     }
 

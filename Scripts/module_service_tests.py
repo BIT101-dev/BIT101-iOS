@@ -14,6 +14,27 @@ def service_access_self_test(rules: dict) -> None:
     swift_syntax_index_sources = rules["swift_syntax_index_sources"]
     type_aliases = rules["type_aliases"]
     service_path = "BIT101-iOS/Example.swift"
+    verify_adapter_resource_access(service_boundary_errors, service_path)
+    verify_service_transport_access(
+        imported_aliases,
+        ownership_errors,
+        rules,
+        service_boundary_errors,
+        service_path,
+        swift_syntax_index_sources,
+        type_aliases,
+    )
+    verify_native_resource_access(service_boundary_errors, service_path)
+    verify_external_resource_access(
+        adapter_ownership_errors,
+        ownership_errors,
+        service_boundary_errors,
+        service_path,
+        swift_syntax_index_sources,
+    )
+
+
+def verify_adapter_resource_access(service_boundary_errors, service_path):
     for source in (
         "let session = URLSession(configuration: configuration)",
         (
@@ -173,6 +194,17 @@ def service_access_self_test(rules: dict) -> None:
         r'let text = "\(try Data(contentsOf: url))"',
     ):
         assert service_boundary_errors(service_path, source), source
+
+
+def verify_service_transport_access(
+    imported_aliases,
+    ownership_errors,
+    rules,
+    service_boundary_errors,
+    service_path,
+    swift_syntax_index_sources,
+    type_aliases,
+):
     assert ownership_errors(
         "GalleryFeature", "struct Store { var defaults: UserDefaults { .standard } }"
     )
@@ -324,6 +356,9 @@ def service_access_self_test(rules: dict) -> None:
         )
         == []
     )
+
+
+def verify_native_resource_access(service_boundary_errors, service_path):
     assert service_boundary_errors(
         service_path,
         (
@@ -476,6 +511,15 @@ def service_access_self_test(rules: dict) -> None:
         )
         == []
     )
+
+
+def verify_external_resource_access(
+    adapter_ownership_errors,
+    ownership_errors,
+    service_boundary_errors,
+    service_path,
+    swift_syntax_index_sources,
+):
     assert (
         service_boundary_errors(
             service_path,

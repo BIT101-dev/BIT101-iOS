@@ -133,305 +133,23 @@ def workflow_lock_boundary_findings() -> list[str]:
     environment.pop("BIT101_WORKFLOW_DEADLINE", None)
     environment["BIT101_LOCK_TEST_CHECKOUT"] = str(fixture)
     try:
-        shutil.rmtree(fixture, ignore_errors=True)
-        fixture.mkdir(parents=True, exist_ok=True)
-        os.mkfifo(release)
-        support = (
-            (SCRIPT_ROOT / "script-support.sh")
-            .read_text()
-            .replace(
-                '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"',
-                shlex.quote(str(fixture / "device-workflow.lock")),
-            )
+        first, line, other_checkout = verify_lock_queue_and_inheritance(
+            environment, fixture, processes, release, worker
         )
-        dispatch = (
-            (SCRIPT_ROOT / "build-install-device.sh")
-            .read_text()
-            .split('if [[ "$ACTION" == install', 1)[1]
-            .split('\nif [[ "$ACTION" == install', 1)[0]
+        deadline, first = verify_lock_recovery_and_cancellation(
+            environment,
+            first,
+            fixture,
+            line,
+            other_checkout,
+            processes,
+            release,
+            signal_release,
+            worker,
         )
-        test_lock = re.search(
-            r"(?ms)^acquire_test_lock\(\) \{.*?^\}",
-            (SCRIPT_ROOT / "run-extended-tests.sh").read_text(),
-        )[0]
-        worker.write_text(
-            'ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n'
-            + support
-            + "\nBIT101_SCRIPTS_DIR="
-            + shlex.quote(str(SCRIPT_ROOT))
-            + "\n"
-            + test_lock
-            + (
-                '\ncase "${1:-}" in aggregate) MODE=verify; verification_needs_device=false; BUILD'
-                '_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_t'
-                'est_lock; if [[ "${BIT101_DEVICE_WORKFLOW_LOCK_HELD:-0}" != 1 ]]; then print arti'
-                'facts-held; read -r reply < "$ROOT_DIR/release"; MODE=modules; acquire_test_lock;'
-                ' fi ;;\nmodules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; G'
-                'ENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)'
-                '\nACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; e'
-                "sac\n"
-            )
-            + 'if [[ "$ACTION" == install'
-            + dispatch
-            + (
-                '\n;; esac\nif [[ "${1:-}" == startup ]]; then read -r reply < "$ROOT_DIR/release"'
-                '; fi\nif [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n  trap \'print cle'
-                'anup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit'
-                ' 143\' TERM\nfi\nif [[ "${1:-}" == budget ]]; then print "deadline=$BIT101_WORKFL'
-                'OW_DEADLINE"; fi\nprint entered\ncase "${1:-}" in hold|signal|budget) read -r rep'
-                'ly < "$ROOT_DIR/release" ;; esac\n'
-            )
+        verify_lock_diagnostics(
+            deadline, environment, findings, first, fixture, line, processes, release, worker
         )
-
-        def line(process):
-            value = bytearray()
-            deadline = time.monotonic() + 5
-            while (remaining := deadline - time.monotonic()) > 0:
-                if not select.select([process.stdout], [], [], remaining)[0]:
-                    return "timeout"
-                character = os.read(process.stdout.fileno(), 1)
-                if not character or character == b"\n":
-                    return value.decode().strip()
-                value.extend(character)
-            return "timeout"
-
-        burst = subprocess.Popen(
-            [sys.executable, "-c", 'print("one\\ntwo", flush=True); input()'],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        processes.append(burst)
-        if (line(burst), line(burst)) != ("one", "two"):
-            raise ValueError("连续状态行按已到达的字节读取")
-        burst.communicate(input="done\n", timeout=5)
-        aggregate = subprocess.Popen(
-            ["zsh", str(worker), "aggregate"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="2"),
-        )
-        processes.append(aggregate)
-        if line(aggregate) != "artifacts-held":
-            raise ValueError("聚合流程取得产物锁")
-        direct = subprocess.Popen(
-            ["zsh", str(worker), "modules"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="2"),
-        )
-        processes.append(direct)
-        if not line(direct).startswith("[等待]"):
-            raise ValueError("单独流程等待同一工作区产物")
-        with release.open("w") as stream:
-            stream.write("done\n")
-        aggregate_output, _ = aggregate.communicate(timeout=5)
-        direct_output, _ = direct.communicate(timeout=5)
-        if (
-            aggregate.returncode
-            or direct.returncode
-            or aggregate_output.strip() != "entered"
-            or direct_output.strip() != "entered"
-        ):
-            raise ValueError("聚合与单独流程沿同一锁顺序完成")
-        first = subprocess.Popen(
-            ["zsh", str(worker), "hold"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-        )
-        processes.append(first)
-        if line(first) != "entered":
-            raise ValueError("首个工作流取得锁")
-        other_checkout = dict(
-            environment, BIT101_LOCK_TEST_CHECKOUT=str(fixture / "other-checkout")
-        )
-        independent = subprocess.run(
-            ["zsh", str(worker), "artifact"],
-            capture_output=True,
-            text=True,
-            env=other_checkout,
-            timeout=5,
-        )
-        if independent.returncode or independent.stdout.strip() != "entered":
-            raise ValueError("独立工作区的本机流程与真机流程并行")
-        competing = subprocess.Popen(
-            ["zsh", str(worker), "artifact"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
-        )
-        processes.append(competing)
-        output, _ = competing.communicate(timeout=5)
-        if competing.returncode != 124 or "entered" in output:
-            raise ValueError("同一工作区的本机与真机流程共用固定产物锁")
-        seconds = [
-            subprocess.Popen(
-                ["zsh", str(worker), mode],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=other_checkout,
-            )
-            for mode in ("mac", "modules", "catalyst", "catalyst-release-runtime")
-        ]
-        processes.extend(seconds)
-        if any(not line(second).startswith("[等待]") for second in seconds):
-            raise ValueError("竞争工作流在执行前排队")
-        with release.open("w") as stream:
-            stream.write("done\n")
-        first.communicate(timeout=5)
-        for second in seconds:
-            output, _ = second.communicate(timeout=5)
-            if first.returncode or second.returncode or output.strip() != "entered":
-                raise ValueError("锁释放后继续执行并复用父流程锁")
-        first = subprocess.Popen(
-            ["zsh", str(worker), "signal"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-        )
-        processes.append(first)
-        if line(first) != "entered":
-            raise ValueError("信号测试取得工作流锁")
-        first.terminate()
-        if line(first) != "cleanup":
-            raise ValueError("外层信号传递到执行子进程")
-        second = subprocess.Popen(
-            ["zsh", str(worker)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=other_checkout,
-        )
-        processes.append(second)
-        for lock_path in (
-            fixture / "device-workflow.lock",
-            fixture / ".build/extended-automation.lock",
-        ):
-            with lock_path.open("a") as handle:
-                try:
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    continue
-                raise ValueError(f"子进程清理期间保持工作流锁：{lock_path.name}")
-        with release.open("w") as stream:
-            stream.write("done\n")
-        first.communicate(timeout=5)
-        output, _ = second.communicate(timeout=5)
-        entered = [row for row in output.splitlines() if not row.startswith("[等待]")]
-        if first.returncode != 143 or second.returncode or entered != ["entered"]:
-            raise ValueError("信号清理完成后释放锁并保持退出状态")
-        first = subprocess.Popen(
-            ["zsh", str(worker), "hold"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-        )
-        processes.append(first)
-        if line(first) != "entered":
-            raise ValueError("超时竞争测试取得锁")
-        second = subprocess.Popen(
-            [
-                sys.executable,
-                "-B",
-                str(SCRIPT_ROOT / "workflow_processes.py"),
-                str(fixture / "device-workflow.lock"),
-                "BIT101_DEVICE_WORKFLOW_LOCK_HELD",
-                str(worker),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=dict(other_checkout, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
-        )
-        processes.append(second)
-        output, error = second.communicate(timeout=5)
-        if second.returncode != 124 or "[超时]" not in output or "entered" in output:
-            raise ValueError(
-                f"竞争工作流沿等待预算结束：{second.returncode} · {output.strip()} · {error.strip()}"
-            )
-        with release.open("w") as stream:
-            stream.write("done\n")
-        first.communicate(timeout=5)
-        for mode in ("startup", "signal"):
-            timed = subprocess.Popen(
-                ["zsh", str(worker), mode],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
-            )
-            processes.append(timed)
-            timed_events = []
-            while event := line(timed):
-                if event not in {"entered", "cleanup"} and not event.startswith("[超时]"):
-                    raise ValueError(f"执行预算需要已知的生命周期事件：{event}")
-                timed_events.append(event)
-                if event == "cleanup":
-                    signal_release(release)
-            timed.communicate(timeout=5)
-            if (
-                not any(event.startswith("[超时]") for event in timed_events)
-                or "entered" in timed_events
-                and ("cleanup" not in timed_events or mode == "startup")
-            ):
-                raise ValueError("执行预算覆盖启动阶段，已启动工作流完成恢复清理")
-            recovered = subprocess.run(
-                ["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5
-            )
-            if (
-                timed.returncode != 124
-                or recovered.returncode
-                or recovered.stdout.strip() != "entered"
-            ):
-                raise ValueError("超时恢复完成后释放全局与工作区锁")
-        first = subprocess.Popen(
-            ["zsh", str(worker), "hold"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=environment,
-        )
-        processes.append(first)
-        if line(first) != "entered":
-            raise ValueError("共享预算测试取得锁")
-        deadline = time.monotonic() + 2
-        second = subprocess.Popen(
-            ["zsh", str(worker), "budget"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=dict(
-                environment,
-                BIT101_WORKFLOW_TIMEOUT_SECONDS="2",
-                BIT101_WORKFLOW_DEADLINE=str(deadline),
-            ),
-        )
-        processes.append(second)
-        if not line(second).startswith("[等待]"):
-            raise ValueError("共享预算测试进入排队")
-        time.sleep(0.4)
-        with release.open("w") as stream:
-            stream.write("done\n")
-        first.communicate(timeout=5)
-        output, _ = second.communicate(timeout=5)
-        if (
-            second.returncode != 124
-            or "entered" not in output
-            or "cleanup" not in output
-            or f"deadline={deadline}" not in output
-        ):
-            raise ValueError("等待与执行沿同一截止时间消费预算")
-        findings.extend(process_group_boundary_findings(fixture, line))
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         findings.append(f"工作流锁自测：{error}")
     finally:
@@ -644,3 +362,319 @@ def supervisor_parent_self_test() -> None:
         assert stopped.call_args.args == ({123 if owns_group else 222, 456},)
         assert stopped.call_args.kwargs["workers_only"] == (not owns_group)
         process.wait.assert_called_once_with()
+
+
+def verify_lock_queue_and_inheritance(environment, fixture, processes, release, worker):
+    import select
+
+    import shlex
+
+    shutil.rmtree(fixture, ignore_errors=True)
+    fixture.mkdir(parents=True, exist_ok=True)
+    os.mkfifo(release)
+    support = (
+        (SCRIPT_ROOT / "script-support.sh")
+        .read_text()
+        .replace(
+            '"$HOME/Library/Caches/BIT101-iOS/device-workflow.lock"',
+            shlex.quote(str(fixture / "device-workflow.lock")),
+        )
+    )
+    dispatch = (
+        (SCRIPT_ROOT / "build-install-device.sh")
+        .read_text()
+        .split('if [[ "$ACTION" == install', 1)[1]
+        .split('\nif [[ "$ACTION" == install', 1)[0]
+    )
+    test_lock = re.search(
+        r"(?ms)^acquire_test_lock\(\) \{.*?^\}",
+        (SCRIPT_ROOT / "run-extended-tests.sh").read_text(),
+    )[0]
+    worker.write_text(
+        'ROOT_DIR="$BIT101_LOCK_TEST_CHECKOUT"\n'
+        + support
+        + "\nBIT101_SCRIPTS_DIR="
+        + shlex.quote(str(SCRIPT_ROOT))
+        + "\n"
+        + test_lock
+        + (
+            '\ncase "${1:-}" in aggregate) MODE=verify; verification_needs_device=false; BUILD'
+            '_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_t'
+            'est_lock; if [[ "${BIT101_DEVICE_WORKFLOW_LOCK_HELD:-0}" != 1 ]]; then print arti'
+            'facts-held; read -r reply < "$ROOT_DIR/release"; MODE=modules; acquire_test_lock;'
+            ' fi ;;\nmodules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; G'
+            'ENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)'
+            '\nACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; e'
+            "sac\n"
+        )
+        + 'if [[ "$ACTION" == install'
+        + dispatch
+        + (
+            '\n;; esac\nif [[ "${1:-}" == startup ]]; then read -r reply < "$ROOT_DIR/release"'
+            '; fi\nif [[ "${1:-}" == signal || "${1:-}" == budget ]]; then\n  trap \'print cle'
+            'anup; if [[ "$1" == signal ]]; then read -r reply < "$ROOT_DIR/release"; fi; exit'
+            ' 143\' TERM\nfi\nif [[ "${1:-}" == budget ]]; then print "deadline=$BIT101_WORKFL'
+            'OW_DEADLINE"; fi\nprint entered\ncase "${1:-}" in hold|signal|budget) read -r rep'
+            'ly < "$ROOT_DIR/release" ;; esac\n'
+        )
+    )
+
+    def line(process):
+        value = bytearray()
+        deadline = time.monotonic() + 5
+        while (remaining := deadline - time.monotonic()) > 0:
+            if not select.select([process.stdout], [], [], remaining)[0]:
+                return "timeout"
+            character = os.read(process.stdout.fileno(), 1)
+            if not character or character == b"\n":
+                return value.decode().strip()
+            value.extend(character)
+        return "timeout"
+
+    burst = subprocess.Popen(
+        [sys.executable, "-c", 'print("one\\ntwo", flush=True); input()'],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    processes.append(burst)
+    if (line(burst), line(burst)) != ("one", "two"):
+        raise ValueError("连续状态行按已到达的字节读取")
+    burst.communicate(input="done\n", timeout=5)
+    aggregate = subprocess.Popen(
+        ["zsh", str(worker), "aggregate"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="2"),
+    )
+    processes.append(aggregate)
+    if line(aggregate) != "artifacts-held":
+        raise ValueError("聚合流程取得产物锁")
+    direct = subprocess.Popen(
+        ["zsh", str(worker), "modules"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="2"),
+    )
+    processes.append(direct)
+    if not line(direct).startswith("[等待]"):
+        raise ValueError("单独流程等待同一工作区产物")
+    with release.open("w") as stream:
+        stream.write("done\n")
+    aggregate_output, _ = aggregate.communicate(timeout=5)
+    direct_output, _ = direct.communicate(timeout=5)
+    if (
+        aggregate.returncode
+        or direct.returncode
+        or aggregate_output.strip() != "entered"
+        or direct_output.strip() != "entered"
+    ):
+        raise ValueError("聚合与单独流程沿同一锁顺序完成")
+    first = subprocess.Popen(
+        ["zsh", str(worker), "hold"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    processes.append(first)
+    if line(first) != "entered":
+        raise ValueError("首个工作流取得锁")
+    other_checkout = dict(environment, BIT101_LOCK_TEST_CHECKOUT=str(fixture / "other-checkout"))
+    independent = subprocess.run(
+        ["zsh", str(worker), "artifact"],
+        capture_output=True,
+        text=True,
+        env=other_checkout,
+        timeout=5,
+    )
+    if independent.returncode or independent.stdout.strip() != "entered":
+        raise ValueError("独立工作区的本机流程与真机流程并行")
+    competing = subprocess.Popen(
+        ["zsh", str(worker), "artifact"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
+    )
+    processes.append(competing)
+    output, _ = competing.communicate(timeout=5)
+    if competing.returncode != 124 or "entered" in output:
+        raise ValueError("同一工作区的本机与真机流程共用固定产物锁")
+    return first, line, other_checkout
+
+
+def verify_lock_recovery_and_cancellation(
+    environment, first, fixture, line, other_checkout, processes, release, signal_release, worker
+):
+    import time
+
+    seconds = [
+        subprocess.Popen(
+            ["zsh", str(worker), mode],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=other_checkout,
+        )
+        for mode in ("mac", "modules", "catalyst", "catalyst-release-runtime")
+    ]
+    processes.extend(seconds)
+    if any(not line(second).startswith("[等待]") for second in seconds):
+        raise ValueError("竞争工作流在执行前排队")
+    with release.open("w") as stream:
+        stream.write("done\n")
+    first.communicate(timeout=5)
+    for second in seconds:
+        output, _ = second.communicate(timeout=5)
+        if first.returncode or second.returncode or output.strip() != "entered":
+            raise ValueError("锁释放后继续执行并复用父流程锁")
+    first = subprocess.Popen(
+        ["zsh", str(worker), "signal"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    processes.append(first)
+    if line(first) != "entered":
+        raise ValueError("信号测试取得工作流锁")
+    first.terminate()
+    if line(first) != "cleanup":
+        raise ValueError("外层信号传递到执行子进程")
+    second = subprocess.Popen(
+        ["zsh", str(worker)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=other_checkout,
+    )
+    processes.append(second)
+    for lock_path in (
+        fixture / "device-workflow.lock",
+        fixture / ".build/extended-automation.lock",
+    ):
+        with lock_path.open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            raise ValueError(f"子进程清理期间保持工作流锁：{lock_path.name}")
+    with release.open("w") as stream:
+        stream.write("done\n")
+    first.communicate(timeout=5)
+    output, _ = second.communicate(timeout=5)
+    entered = [row for row in output.splitlines() if not row.startswith("[等待]")]
+    if first.returncode != 143 or second.returncode or entered != ["entered"]:
+        raise ValueError("信号清理完成后释放锁并保持退出状态")
+    first = subprocess.Popen(
+        ["zsh", str(worker), "hold"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    processes.append(first)
+    if line(first) != "entered":
+        raise ValueError("超时竞争测试取得锁")
+    second = subprocess.Popen(
+        [
+            sys.executable,
+            "-B",
+            str(SCRIPT_ROOT / "workflow_processes.py"),
+            str(fixture / "device-workflow.lock"),
+            "BIT101_DEVICE_WORKFLOW_LOCK_HELD",
+            str(worker),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=dict(other_checkout, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
+    )
+    processes.append(second)
+    output, error = second.communicate(timeout=5)
+    if second.returncode != 124 or "[超时]" not in output or "entered" in output:
+        raise ValueError(
+            f"竞争工作流沿等待预算结束：{second.returncode} · {output.strip()} · {error.strip()}"
+        )
+    with release.open("w") as stream:
+        stream.write("done\n")
+    first.communicate(timeout=5)
+    for mode in ("startup", "signal"):
+        timed = subprocess.Popen(
+            ["zsh", str(worker), mode],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=dict(environment, BIT101_WORKFLOW_TIMEOUT_SECONDS="0.5"),
+        )
+        processes.append(timed)
+        timed_events = []
+        while event := line(timed):
+            if event not in {"entered", "cleanup"} and not event.startswith("[超时]"):
+                raise ValueError(f"执行预算需要已知的生命周期事件：{event}")
+            timed_events.append(event)
+            if event == "cleanup":
+                signal_release(release)
+        timed.communicate(timeout=5)
+        if (
+            not any(event.startswith("[超时]") for event in timed_events)
+            or "entered" in timed_events
+            and ("cleanup" not in timed_events or mode == "startup")
+        ):
+            raise ValueError("执行预算覆盖启动阶段，已启动工作流完成恢复清理")
+        recovered = subprocess.run(
+            ["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5
+        )
+        if timed.returncode != 124 or recovered.returncode or recovered.stdout.strip() != "entered":
+            raise ValueError("超时恢复完成后释放全局与工作区锁")
+    first = subprocess.Popen(
+        ["zsh", str(worker), "hold"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=environment,
+    )
+    processes.append(first)
+    if line(first) != "entered":
+        raise ValueError("共享预算测试取得锁")
+    deadline = time.monotonic() + 2
+    return deadline, first
+
+
+def verify_lock_diagnostics(
+    deadline, environment, findings, first, fixture, line, processes, release, worker
+):
+    import time
+
+    second = subprocess.Popen(
+        ["zsh", str(worker), "budget"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=dict(
+            environment,
+            BIT101_WORKFLOW_TIMEOUT_SECONDS="2",
+            BIT101_WORKFLOW_DEADLINE=str(deadline),
+        ),
+    )
+    processes.append(second)
+    if not line(second).startswith("[等待]"):
+        raise ValueError("共享预算测试进入排队")
+    time.sleep(0.4)
+    with release.open("w") as stream:
+        stream.write("done\n")
+    first.communicate(timeout=5)
+    output, _ = second.communicate(timeout=5)
+    if (
+        second.returncode != 124
+        or "entered" not in output
+        or "cleanup" not in output
+        or f"deadline={deadline}" not in output
+    ):
+        raise ValueError("等待与执行沿同一截止时间消费预算")
+    findings.extend(process_group_boundary_findings(fixture, line))

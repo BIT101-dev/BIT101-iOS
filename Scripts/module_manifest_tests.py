@@ -2,6 +2,30 @@
 
 
 def module_types_self_test(rules: dict) -> None:
+    (
+        adapter_ownership_errors,
+        adapter_roles,
+        imports_in_text,
+        ownership_errors,
+        platform_errors,
+        service_boundary_errors,
+        swift_code,
+        swift_syntax_index_sources,
+    ) = verify_module_resource_ownership(rules)
+    verify_module_factory_ownership(
+        adapter_ownership_errors,
+        adapter_roles,
+        imports_in_text,
+        ownership_errors,
+        platform_errors,
+        rules,
+        service_boundary_errors,
+        swift_code,
+        swift_syntax_index_sources,
+    )
+
+
+def verify_module_resource_ownership(rules):
     adapter_ownership_errors = rules["adapter_ownership_errors"]
     adapter_roles = rules["adapter_roles"]
     graph_errors = rules["graph_errors"]
@@ -150,6 +174,29 @@ def module_types_self_test(rules: dict) -> None:
     assert ownership_errors("CommunityUI", "let screen = UIApplication . shared")
     assert ownership_errors("ScoreFeature", "let store: ScoreCacheStore")
     assert ownership_errors("GalleryFeature", "let store: ComposerDraftStore")
+    return (
+        adapter_ownership_errors,
+        adapter_roles,
+        imports_in_text,
+        ownership_errors,
+        platform_errors,
+        service_boundary_errors,
+        swift_code,
+        swift_syntax_index_sources,
+    )
+
+
+def verify_module_factory_ownership(
+    adapter_ownership_errors,
+    adapter_roles,
+    imports_in_text,
+    ownership_errors,
+    platform_errors,
+    rules,
+    service_boundary_errors,
+    swift_code,
+    swift_syntax_index_sources,
+):
     for factory in (
         "URLSessionTransport.make(configuration: .ephemeral)",
         "URLSessionTransport.self.make(configuration: .ephemeral)",

@@ -26,6 +26,23 @@ from validation_performance_tests import run_self_test as performance_self_test
 
 
 def verify_workflow_inputs(subject, fixture_environment):
+    core, current_digest, module_name, relocated = verify_build_workflow_inputs(
+        fixture_environment, subject
+    )
+    compiler = verify_restoration_workflow_inputs(
+        core, current_digest, fixture_environment, module_name, relocated, subject
+    )
+    return compiler
+
+
+def verify_test_inventory(subject, stable_inputs):
+    fixture, module_name = verify_selected_test_inventory(subject)
+    icloud_summary, test = verify_audit_test_inventory(fixture, subject)
+    verify_test_fixture_inventory(module_name, stable_inputs, subject, test)
+    return test, icloud_summary
+
+
+def verify_build_workflow_inputs(fixture_environment, subject):
     module_name = subject.__name__
     from validation_provenance_tests import run_self_test as provenance_self_test
     from validation_test_areas import inventory_findings
@@ -179,6 +196,15 @@ def verify_workflow_inputs(subject, fixture_environment):
         device=None,
         compiler=dict(fixture_environment["compiler"], path="/other/swift-frontend", modified=2),
     )
+    return core, current_digest, module_name, relocated
+
+
+def verify_restoration_workflow_inputs(
+    core, current_digest, fixture_environment, module_name, relocated, subject
+):
+    from validation_test_areas import inventory_findings
+    from validation_merge import findings as merge_findings
+
     with patch("validation_merge.environment_context", return_value=relocated):
         assert not merge_findings(
             core,
@@ -336,7 +362,7 @@ def verify_workflow_inputs(subject, fixture_environment):
     return compiler
 
 
-def verify_test_inventory(subject, stable_inputs):
+def verify_selected_test_inventory(subject):
     module_name = subject.__name__
     assert subject.compilation_condition("canImport(SwiftUI) && canImport(AppKit)", "modules")
     for group in ("modules", "all", "catalyst", "ui"):
@@ -491,6 +517,10 @@ def verify_test_inventory(subject, stable_inputs):
         assert "@Test func realTest" in subject.active_swift_source(source, "modules")
     fixture = subject.ROOT / ".build/static-audit/source-digest-self-test.sh"
     fixture.parent.mkdir(parents=True, exist_ok=True)
+    return fixture, module_name
+
+
+def verify_audit_test_inventory(fixture, subject):
     try:
         fixture.write_text("exit 0\n")
         with patch.object(
@@ -640,6 +670,10 @@ def verify_test_inventory(subject, stable_inputs):
 
         with patch.object(Path, "read_text", mutated_read):
             assert any(("静态审计回调" in finding for finding in audit_wiring_findings()))
+    return icloud_summary, test
+
+
+def verify_test_fixture_inventory(module_name, stable_inputs, subject, test):
     with (
         patch(("validation_result_readers.test_inventory"), return_value={("Outer/Inner/works")}),
         patch(module_name + (".test_inventory"), return_value={("Outer/Inner/works")}),
@@ -663,4 +697,3 @@ def verify_test_inventory(subject, stable_inputs):
     from validation_provenance import source_snapshot
 
     stable_inputs.enter_context(source_snapshot())
-    return test, icloud_summary

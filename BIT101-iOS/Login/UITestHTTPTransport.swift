@@ -192,6 +192,14 @@ final class UITestHTTPTransport: HTTPTransport {
         {
             throw URLError(.networkConnectionLost)
         }
+        return try await contentResponse(
+            url: url, path: path, query: query, page: page, body: body, method: method)
+    }
+
+    private func contentResponse(
+        url: URL, path: String, query: [URLQueryItem], page: String,
+        body: [String: Any], method: String
+    ) async throws -> (Data, URLResponse) {
         let payload: Any
         switch path {
         case "user/check": payload = [:] as [String: String]
@@ -259,76 +267,10 @@ final class UITestHTTPTransport: HTTPTransport {
                 "like_num": likedObjects.contains(object) ? 2 : 1,
             ]
         case "reaction/comments":
-            if method == "GET", query.first(where: { $0.name == "obj" })?.value == "course1",
-                AppUITestBootstrap.environment["BIT101_UI_TEST_COURSE_COMMENT_RECOVERY"] == "1",
-                failedPaths.insert("course-comments").inserted
-            {
-                await AppUITestBootstrap.holdRequest("course-comments")
-                throw URLError(.networkConnectionLost)
-            }
-            if method == "POST" {
-                var comment = makeComment(
-                    id: comments.count + 2, text: body["text"] as? String ?? "测试回复")
-                comment["reply_obj"] = body["reply_obj"] ?? ""
-                comment["obj"] = body["obj"] ?? "poster1"
-                if AppUITestBootstrap.environment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"]
-                    == "1",
-                    failedPaths.insert("comment-outcome").inserted
-                {
-                    comment["id"] = 0
-                } else {
-                    comments.append(comment)
-                }
-                payload = comment
-            } else {
-                let object = query.first { $0.name == "obj" }?.value ?? "poster1"
-                payload =
-                    page == "0"
-                    ? ([makeComment(id: 1, text: "自动化测试评论")]
-                        + comments.filter { $0["obj"] as? String == object })
-                        .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) }
-                        .map { value in
-                            var value = value
-                            value["obj"] = object
-                            return value
-                        } : []
-            }
+            payload = try await commentsPayload(
+                query: query, page: page, body: body, method: method)
         case "posters":
-            if method == "POST" {
-                var poster = self.poster
-                let id = createdPosters.count + 10
-                poster["id"] = id
-                poster["title"] = body["title"]
-                poster["text"] = body["text"]
-                poster["tags"] = body["tags"]
-                poster["anonymous"] = body["anonymous"]
-                poster["public"] = body["public"]
-                createdPosters.append(poster)
-                if AppUITestBootstrap.environment[
-                    "BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] == "1",
-                    failedPaths.insert("poster-outcome").inserted
-                {
-                    throw URLError(.networkConnectionLost)
-                }
-                payload = ["id": id]
-            } else {
-                if AppUITestBootstrap.environment["BIT101_UI_TEST_BOT_PAGING"] == "1",
-                    query.contains(where: { $0.name == "mode" && $0.value == "search" }),
-                    query.contains(where: { $0.name == "order" && $0.value == "new" })
-                {
-                    try await Task.sleep(for: .milliseconds(100))
-                    let sourcePage = Int(page) ?? 0
-                    var item = poster
-                    item["id"] = sourcePage + 100
-                    item["tags"] = sourcePage == 10 ? ["bot"] : ["测试"]
-                    item["title"] = sourcePage == 10 ? "机器人分页话题" : "普通分页话题"
-                    payload = sourcePage <= 10 ? [item] : []
-                } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
-                    payload = paginationItems(poster, page: page, key: "title", title: "分页话题")
-                } else {
-                    payload = activePosters(page: page)
-                }
-            }
+            payload = try await postersPayload(query: query, page: page, body: body, method: method)
         case "papers":
             if method == "POST" {
                 var paper = self.paper
@@ -431,6 +373,89 @@ final class UITestHTTPTransport: HTTPTransport {
             }
         }
         return try jsonResponse(payload, url: url)
+    }
+
+    private func commentsPayload(
+        query: [URLQueryItem], page: String, body: [String: Any], method: String
+    ) async throws -> Any {
+        let payload: Any
+        if method == "GET", query.first(where: { $0.name == "obj" })?.value == "course1",
+            AppUITestBootstrap.environment["BIT101_UI_TEST_COURSE_COMMENT_RECOVERY"] == "1",
+            failedPaths.insert("course-comments").inserted
+        {
+            await AppUITestBootstrap.holdRequest("course-comments")
+            throw URLError(.networkConnectionLost)
+        }
+        if method == "POST" {
+            var comment = makeComment(
+                id: comments.count + 2, text: body["text"] as? String ?? "测试回复")
+            comment["reply_obj"] = body["reply_obj"] ?? ""
+            comment["obj"] = body["obj"] ?? "poster1"
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_COMMENT_OUTCOME_UNKNOWN_ONCE"]
+                == "1",
+                failedPaths.insert("comment-outcome").inserted
+            {
+                comment["id"] = 0
+            } else {
+                comments.append(comment)
+            }
+            payload = comment
+        } else {
+            let object = query.first { $0.name == "obj" }?.value ?? "poster1"
+            payload =
+                page == "0"
+                ? ([makeComment(id: 1, text: "自动化测试评论")]
+                    + comments.filter { $0["obj"] as? String == object })
+                    .filter { !deletedCommentIDs.contains($0["id"] as? Int ?? 0) }
+                    .map { value in
+                        var value = value
+                        value["obj"] = object
+                        return value
+                    } : []
+        }
+        return payload
+    }
+
+    private func postersPayload(
+        query: [URLQueryItem], page: String, body: [String: Any], method: String
+    ) async throws -> Any {
+        let payload: Any
+        if method == "POST" {
+            var poster = self.poster
+            let id = createdPosters.count + 10
+            poster["id"] = id
+            poster["title"] = body["title"]
+            poster["text"] = body["text"]
+            poster["tags"] = body["tags"]
+            poster["anonymous"] = body["anonymous"]
+            poster["public"] = body["public"]
+            createdPosters.append(poster)
+            if AppUITestBootstrap.environment[
+                "BIT101_UI_TEST_PUBLICATION_OUTCOME_UNKNOWN_ONCE"] == "1",
+                failedPaths.insert("poster-outcome").inserted
+            {
+                throw URLError(.networkConnectionLost)
+            }
+            payload = ["id": id]
+        } else {
+            if AppUITestBootstrap.environment["BIT101_UI_TEST_BOT_PAGING"] == "1",
+                query.contains(where: { $0.name == "mode" && $0.value == "search" }),
+                query.contains(where: { $0.name == "order" && $0.value == "new" })
+            {
+                try await Task.sleep(for: .milliseconds(100))
+                let sourcePage = Int(page) ?? 0
+                var item = poster
+                item["id"] = sourcePage + 100
+                item["tags"] = sourcePage == 10 ? ["bot"] : ["测试"]
+                item["title"] = sourcePage == 10 ? "机器人分页话题" : "普通分页话题"
+                payload = sourcePage <= 10 ? [item] : []
+            } else if AppUITestBootstrap.environment["BIT101_UI_TEST_PAGINATION"] == "1" {
+                payload = paginationItems(poster, page: page, key: "title", title: "分页话题")
+            } else {
+                payload = activePosters(page: page)
+            }
+        }
+        return payload
     }
 
     private func jsonResponse(_ payload: Any, url: URL, statusCode: Int = 200) throws -> (

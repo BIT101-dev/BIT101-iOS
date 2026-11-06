@@ -9,6 +9,14 @@ from network_surface_tests import capability_surface_self_test
 
 
 def network_discovery_self_test() -> None:
+    verify_request_shapes()
+    watch_only = verify_platform_ownership()
+    verify_request_callbacks(watch_only)
+    compound_path = verify_request_polymorphism()
+    verify_exported_request_members(compound_path)
+
+
+def verify_request_shapes():
     from swift_source_index import swift_syntax_index_sources
     from network_capability_rules import business_methods
 
@@ -157,6 +165,12 @@ def network_discovery_self_test() -> None:
         assert "BIT101-iOS.NewService" in business_methods(
             swift_syntax_index_sources({path: source})
         ), body
+
+
+def verify_platform_ownership():
+    from network_capability_rules import business_methods, method_signature
+    from swift_source_index import swift_syntax_index_sources
+
     for request_type in ("URLRequest", "Foundation.URLRequest"):
         path = "Modules/NewGalleryFeature/Sources/NewService.swift"
         source = (
@@ -310,6 +324,12 @@ def network_discovery_self_test() -> None:
                 condition,
                 path,
             )
+    return watch_only
+
+
+def verify_request_callbacks(watch_only):
+    from validation_compilation import active_network_source, available_local_modules
+
     assert {"CommunityCore", "StorageCore", "TransportCore"} <= available_local_modules(
         "Modules/GalleryFeature/Sources/Service.swift"
     )
@@ -439,6 +459,13 @@ def network_discovery_self_test() -> None:
         assert (
             ([row["returnType"] for _, row in matches] == [expected]) if expected else not matches
         ), body
+
+
+def verify_request_polymorphism():
+    from network_capability_rules import business_methods, method_signature
+    from network_capability_rules import matching_api_calls
+    from swift_source_index import swift_syntax_index_sources
+
     for declarations, alternatives, argument, expected in [
         ("protocol Port {}; struct Concrete: Port {}", ["Port", "Int"], "Concrete()", "Port"),
         (
@@ -580,6 +607,13 @@ def network_discovery_self_test() -> None:
             argument,
         )
     compound_path = "Modules/NewForumFeature/Sources/Service.swift"
+    return compound_path
+
+
+def verify_exported_request_members(compound_path):
+    from network_capability_rules import business_methods, method_signature
+    from swift_source_index import swift_syntax_index_sources
+
     for kind, expression in [
         ("(HTTPClient, String)", "context.0"),
         ("[HTTPClient]", "context[0]"),

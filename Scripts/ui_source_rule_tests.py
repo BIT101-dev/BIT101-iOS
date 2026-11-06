@@ -44,43 +44,7 @@ from ui_rules import (
 )
 
 
-def source_boundary_findings() -> list[str]:
-    checker = ROOT / "Scripts/check-code-quality.py"
-    spec = importlib.util.spec_from_file_location("check_code_quality_ui_self_test", checker)
-    if spec is None or spec.loader is None:
-        return ["UI 检查器自测无法加载 SwiftSyntax 索引器"]
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-
-    from unittest.mock import patch
-    from ui_source_facts import swift_files as scanned_files
-    from ui_rules import check_design_token_boundaries
-
-    extension_probes = [
-        ROOT / name / "VisualProbe.swift"
-        for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")
-    ]
-    scanned_files.cache_clear()
-    with patch("swift_source_index.repository_swift_files", return_value=extension_probes):
-        observed = scanned_files()
-    scanned_files.cache_clear()
-    extension_findings = []
-    if set(observed) != set(extension_probes):
-        extension_findings.append("UI 扩展视觉自测：Watch 与两种 Widget 进入扫描范围")
-    visual_source = 'struct Screen: View { var body: some View { Text("内容").opacity(0.9) } }'
-    visual_facts = swift_syntax_index_sources({str(path): visual_source for path in observed})
-    visual_errors = []
-    with (
-        patch("ui_rules.swift_files", return_value=observed),
-        patch("ui_rules.source_text", return_value=visual_source),
-    ):
-        check_design_token_boundaries(visual_errors, visual_facts)
-    for path in extension_probes:
-        if not any(path.relative_to(ROOT).as_posix() in error for error in visual_errors):
-            extension_findings.append("UI 扩展视觉自测：新增透明度常量触发设计规则")
-
-    source = r"""
+CONTROL_SOURCE = r"""
 import SwiftUI
 
 struct ItemAlertSample: View {
@@ -274,10 +238,79 @@ struct AppLoadingState {}
 struct AppAvatarView: View { var body: some View { Text("avatar") } }
 struct AppFixedColumnItem {}
 """
+
+
+def source_boundary_findings() -> list[str]:
+    facts, findings, visual_facts, wrapped_calls = verify_control_source_rules()
+    row_source = verify_visual_source_rules(facts, findings, visual_facts, wrapped_calls)
+    verify_row_source_rules(findings, row_source)
+    return findings
+
+
+def map_theme_color_contract_findings() -> list[str]:
+    path = source_path(MAP_THEME_COLOR_CONTRACT[0])
+    source = (
+        "extension AppDesignSystem {\n    enum Map {\n        "
+        + MAP_THEME_COLOR_CONTRACT[1]
+        + "\n    }\n}"
+    )
+    start = source.encode("utf-8").find(b"Color.green")
+    node = {"scope": ["AppDesignSystem", "Map"], "start": start}
+    if not is_registered_map_theme_color_definition(path, source, node):
+        return ["UI 检查器自测：地图主题令牌的精确源码例外无法识别"]
+
+    unrelated_source = source.replace(
+        MAP_THEME_COLOR_CONTRACT[1], "static let otherAccent = Color.green"
+    )
+    if is_registered_map_theme_color_definition(path, unrelated_source, node):
+        return ["UI 检查器自测：地图主题令牌例外覆盖了相邻声明"]
+    wrong_scope_node = {**node, "scope": ["OtherDesignSystem", "Map"]}
+    if is_registered_map_theme_color_definition(path, source, wrong_scope_node):
+        return ["UI 检查器自测：地图主题令牌例外覆盖了其它词法作用域"]
+    return []
+
+
+def verify_control_source_rules():
+    checker = ROOT / "Scripts/check-code-quality.py"
+    spec = importlib.util.spec_from_file_location("check_code_quality_ui_self_test", checker)
+    if spec is None or spec.loader is None:
+        raise AssertionError("\n".join(["UI 检查器自测无法加载 SwiftSyntax 索引器"]))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    from unittest.mock import patch
+    from ui_source_facts import swift_files as scanned_files
+    from ui_rules import check_design_token_boundaries
+
+    extension_probes = [
+        ROOT / name / "VisualProbe.swift"
+        for name in ("BIT101Watch", "BIT101ScheduleWidgets", "BIT101WatchWidgets")
+    ]
+    scanned_files.cache_clear()
+    with patch("swift_source_index.repository_swift_files", return_value=extension_probes):
+        observed = scanned_files()
+    scanned_files.cache_clear()
+    extension_findings = []
+    if set(observed) != set(extension_probes):
+        extension_findings.append("UI 扩展视觉自测：Watch 与两种 Widget 进入扫描范围")
+    visual_source = 'struct Screen: View { var body: some View { Text("内容").opacity(0.9) } }'
+    visual_facts = swift_syntax_index_sources({str(path): visual_source for path in observed})
+    visual_errors = []
+    with (
+        patch("ui_rules.swift_files", return_value=observed),
+        patch("ui_rules.source_text", return_value=visual_source),
+    ):
+        check_design_token_boundaries(visual_errors, visual_facts)
+    for path in extension_probes:
+        if not any(path.relative_to(ROOT).as_posix() in error for error in visual_errors):
+            extension_findings.append("UI 扩展视觉自测：新增透明度常量触发设计规则")
+
+    source = CONTROL_SOURCE
     try:
         facts = swift_syntax_index_sources({"ui-self-test.swift": source})["ui-self-test.swift"]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
-        return [f"UI 检查器自测无法解析内存 Swift 样例：{error}"]
+        raise AssertionError("\n".join([f"UI 检查器自测无法解析内存 Swift 样例：{error}"]))
 
     findings: list[str] = list(extension_findings)
     if rendered_view_has_marker(facts, ["UnrenderedHelperComponentSample"], "AppFailureState"):
@@ -393,6 +426,10 @@ struct AppFixedColumnItem {}
     assert "https://example.invalid" in mask_comments(interpolation)
     assert "/* padding(7) */" not in mask_comments(interpolation)
     assert len(mask_literals_and_comments(interpolation)) == len(interpolation)
+    return facts, findings, visual_facts, wrapped_calls
+
+
+def verify_visual_source_rules(facts, findings, visual_facts, wrapped_calls):
     masked_calls = mask_literals_and_comments(wrapped_calls)
     wrapped_patterns = (
         DIRECT_ANIMATION_DURATION,
@@ -434,7 +471,7 @@ struct AppFixedColumnItem {}
             "visual-rule-self-test.swift"
         ]
     except (OSError, subprocess.CalledProcessError, RuntimeError, KeyError) as error:
-        return [f"UI 检查器自测无法解析视觉规则样例：{error}"]
+        raise AssertionError("\n".join([f"UI 检查器自测无法解析视觉规则样例：{error}"]))
     rectangle_nodes = pattern_nodes(visual_facts, DIRECT_ROUNDED_RECTANGLE)
     if len(rectangle_nodes) != 1 or not DIRECT_ROUNDED_RECTANGLE.search(
         mask_literals_and_comments(rectangle_nodes[0]["value"])
@@ -543,6 +580,10 @@ struct AppFixedColumnItem {}
         'floatingButton }\n    }\n    private var helperRows: some View { Button("计算属性行") {} }\n  '
         '  private var floatingButton: some View { Button("浮动按钮") {} }\n}\n'
     )
+    return row_source
+
+
+def verify_row_source_rules(findings, row_source):
     row_source = row_source.replace(
         "            helperRows",
         "            helperRows\n            calendarSurface",
@@ -561,27 +602,3 @@ struct AppFixedColumnItem {}
         findings.append(
             f"UI 检查器自测：列表标题、颜色覆盖、删除警示色、子组件、右侧值、计算属性、填充按钮及字符串界限应报告 11 项，实际 {len(row_findings)} 项"
         )
-    return findings
-
-
-def map_theme_color_contract_findings() -> list[str]:
-    path = source_path(MAP_THEME_COLOR_CONTRACT[0])
-    source = (
-        "extension AppDesignSystem {\n    enum Map {\n        "
-        + MAP_THEME_COLOR_CONTRACT[1]
-        + "\n    }\n}"
-    )
-    start = source.encode("utf-8").find(b"Color.green")
-    node = {"scope": ["AppDesignSystem", "Map"], "start": start}
-    if not is_registered_map_theme_color_definition(path, source, node):
-        return ["UI 检查器自测：地图主题令牌的精确源码例外无法识别"]
-
-    unrelated_source = source.replace(
-        MAP_THEME_COLOR_CONTRACT[1], "static let otherAccent = Color.green"
-    )
-    if is_registered_map_theme_color_definition(path, unrelated_source, node):
-        return ["UI 检查器自测：地图主题令牌例外覆盖了相邻声明"]
-    wrong_scope_node = {**node, "scope": ["OtherDesignSystem", "Map"]}
-    if is_registered_map_theme_color_definition(path, source, wrong_scope_node):
-        return ["UI 检查器自测：地图主题令牌例外覆盖了其它词法作用域"]
-    return []

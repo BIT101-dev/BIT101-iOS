@@ -10,6 +10,13 @@ from validation_test_areas import (
 
 
 def capability_surface_self_test() -> None:
+    getter_path, leaf, ports, ports_path, transport_path = verify_service_entry_access()
+    app_path = verify_transport_entry_access(getter_path, ports, ports_path, transport_path)
+    task_helper = verify_client_entry_access(app_path, leaf, transport_path)
+    verify_callback_entry_access(app_path, getter_path, task_helper, transport_path)
+
+
+def verify_service_entry_access():
     leaf = "Modules/PaperFeature/Sources/PaperService.swift"
     transport_path = "Modules/TransportCore/Sources/HTTPClient.swift"
     getter_path = "Modules/NewForumFeature/Sources/ReadService.swift"
@@ -149,6 +156,10 @@ def capability_surface_self_test() -> None:
         "public protocol Fetching { func fetch() async throws -> Data }; public protocol RefinedFe"
         "tching: Fetching {}"
     )
+    return getter_path, leaf, ports, ports_path, transport_path
+
+
+def verify_transport_entry_access(getter_path, ports, ports_path, transport_path):
     for access in ("internal", "fileprivate"):
         for annotation in ("any Fetching", "any RefinedFetching", "ForwardedFetching"):
             sources = {
@@ -292,6 +303,10 @@ def capability_surface_self_test() -> None:
     ]:
         index = swift_syntax_index_sources({app_path: "struct DNSService { " + body + " }"})
         assert ("BIT101-iOS.DNSService" in business_methods(index)) == expected, body
+    return app_path
+
+
+def verify_client_entry_access(app_path, leaf, transport_path):
     for access, body, expected in [
         (
             "internal",
@@ -409,6 +424,12 @@ def capability_surface_self_test() -> None:
             {app_path: source, transport_path: "public struct HTTPClient {}"}
         )
         assert ("BIT101-iOS.NewService" in business_methods(index)) == expected, argument
+    return task_helper
+
+
+def verify_callback_entry_access(app_path, getter_path, task_helper, transport_path):
+    from unittest.mock import patch
+
     for body, helpers, expected in [
         ("func start() { startRequest() }", task_helper, True),
         ("func start() { self.startRequest() }", task_helper, True),

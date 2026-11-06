@@ -400,8 +400,12 @@ while (( SECONDS < DEADLINE )); do
     sleep 1
     continue
   fi
-  if copy_smoke_report "$REMOTE_REPORT_PATH" "$LOCAL_REPORT_PATH" 2>/dev/null; then
-    if python3 - "$LOCAL_REPORT_PATH" "$RUN_ID" <<'PY'
+  # 完成标记在报告写入后发出，此时复制错误可直接定位设备或容器状态。
+  if ! copy_smoke_report "$REMOTE_REPORT_PATH" "$LOCAL_REPORT_PATH"; then
+    echo "网络 Smoke 报告读取失败：$REMOTE_REPORT_PATH" >&2
+    exit 1
+  fi
+  if ! python3 - "$LOCAL_REPORT_PATH" "$RUN_ID" <<'PYREPORT'
 import json
 import sys
 
@@ -409,13 +413,13 @@ with open(sys.argv[1], encoding="utf-8") as stream:
     report = json.load(stream)
 
 sys.exit(0 if report.get("runID") == sys.argv[2] else 1)
-PY
-    then
-      REPORT_READY=true
-      break
-    fi
+PYREPORT
+  then
+    echo "网络 Smoke 报告与当前采样不匹配：$LOCAL_REPORT_PATH" >&2
+    exit 1
   fi
-  sleep 1
+  REPORT_READY=true
+  break
 done
 if ! $REPORT_READY; then
   echo "网络 Smoke 等待超过 30 分钟：$REMOTE_REPORT_PATH" >&2
