@@ -475,6 +475,14 @@ private struct AppPageSwitchInput: UIViewRepresentable {
             return abs(velocity.x) > abs(velocity.y)
         }
 
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            otherGestureRecognizer is UIPanGestureRecognizer
+                && otherGestureRecognizer.view is UIScrollView
+        }
+
         @objc private func didPan() {
             guard pan.state == .ended else { return }
             let translation = pan.translation(in: self)
