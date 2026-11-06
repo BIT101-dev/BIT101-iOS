@@ -414,7 +414,16 @@ def normalize_metrics(raw: list, test: str, device: str) -> dict:
         raise ValueError("性能指标需要来自所属实体设备。")
     result = {}
     for name, (identifier, unit, scale) in METRICS.items():
-        rows = [row for row in runs[0]["metrics"] if row.get("identifier") == identifier]
+        rows = [
+            row
+            for row in runs[0]["metrics"]
+            if row.get("identifier") == identifier
+            or name == "peakPhysicalMemoryBytes"
+            and re.fullmatch(
+                r"com\.apple\.dt\.XCTMetric_Memory(?:-[A-Za-z0-9._-]+)?\.physical_peak",
+                str(row.get("identifier", "")),
+            )
+        ]
         if len(rows) != 1 or rows[0].get("unitOfMeasurement") != unit:
             raise ValueError("XCTest 性能指标需要完整标识和实际计量单位。")
         values = rows[0]["measurements"]

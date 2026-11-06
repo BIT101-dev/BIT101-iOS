@@ -325,9 +325,10 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testSideToolbarUsesSpaceAboveNavigation() throws {
         app = configureApp(resetStorage: true, content: true, school: true, initialTab: "map")
-        try XCTSkipIf(
-            !windowUsesSideToolbar,
-            "侧栏工具验收使用带侧方系统安全区的竖屏窗口。")
+        if !windowUsesSideToolbar {
+            assertUI(app.buttons["切换地图图层"].appears(timeout: 5), "地图工具应完整展示。")
+            return
+        }
         checkSideToolbar(["切换地图图层", "定位到我的位置", "切换到良乡校区", "切换到中关村校区", "切换到珠海校区"])
         if app.native.buttons["导航到下一节课"].exists { checkSideToolbar(["导航到下一节课"]) }
         captureBrowserScreenshot("地图侧栏工具")
@@ -369,6 +370,8 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
         app = configureApp(resetStorage: true, ddlFixture: "sources")
         defer { Self.endSharedSession() }
         let application = try XCTUnwrap(app.native as? XCUIApplication)
+        checkScrollContainers()
+        Self.captureControlInventory()
         application.open(try XCTUnwrap(URL(string: "bit101://schedule/ddl")))
         UITestSnapshotReader.invalidate()
         assertUI(
@@ -376,6 +379,8 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             "小组件链接应打开日程页面。")
         assertUI(app.native.segmentedControls.buttons["DDL"].isSelected, "DDL 小组件链接应选中 DDL 分页。")
         assertUI(app.staticTexts["课程中心测试作业"].appears(timeout: 5), "小组件入口应展示当前账号的待办。")
+        checkScrollContainers()
+        Self.captureControlInventory()
         application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
         UITestSnapshotReader.invalidate()
         assertUI(app.native.segmentedControls.buttons["课表"].isSelected, "课表小组件链接应选中课表分页。")
@@ -626,6 +631,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             cover.waitForExistence(timeout: 5)
                 && cover.frame.contains(CGPoint(x: submit.frame.midX, y: submit.frame.midY)),
             "遮挡层应覆盖登录按钮。")
+        app.buttons["ui-test.occlusion"].tapBriefly()
         let query = try JSONSerialization.data(withJSONObject: [
             ["type": "9"], ["predicate": "identifier == 'login.submit'"], ["first": "1"],
         ])

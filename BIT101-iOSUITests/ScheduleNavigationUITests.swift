@@ -20,6 +20,10 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         tapHeader(app.segmentedControls.buttons["调至某天"])
         let target = app.datePickers["schedule.adjustment.date"]
         target.buttons.firstMatch.tapBriefly()
+        _ = UITestControlClient.request([
+            "command": "callback", "identifier": "schedule.adjustment.date",
+            "action": "selection",
+        ])
         selectSystemCalendarDate(
             Date(),
             in: app.datePickers.matching(NSPredicate(format: "identifier == %@", "")).firstMatch)
@@ -159,7 +163,7 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         back()
         app.mainTab("话廊").tapBriefly()
         tap("自动化测试话题")
-        tap("自动化测试用户")
+        tap("ui.gallery-poster-detail-view-scene.profile")
         assertUI(app.buttons["关注"].appears(timeout: 5), "帖子作者应打开公开主页。")
         back()
         tap("分享话题")
@@ -221,6 +225,9 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         ).firstMatch
         assertUI(card.performAccessibilityAction(named: "打开详情"), "待办卡片应提供可执行的 VoiceOver 动作。")
         assertUI(textElement("待办详细说明").appears(timeout: 5), "待办详情应恢复输入正文。")
+        tap("取消")
+        todo.tapBriefly()
+        assertUI(textElement("待办详细说明").appears(timeout: 5), "待办标题点击应打开详情。")
         tap("编辑")
         replaceText("取消的待办修改", in: app.textFields["ddl.editor.title"])
         dismissKeyboard()
@@ -569,6 +576,9 @@ extension UIAutomationTestCase {
     func openAndDismissDatePicker(_ identifier: String, coverage: DatePickerCoverage) {
         let field = app.datePickers[identifier]
         reveal(field)
+        _ = UITestControlClient.request([
+            "command": "callback", "identifier": identifier, "action": "selection",
+        ])
         guard let fieldState = try? field.snapshot() else {
             assertUI(false, "日期时间控件应提供可读的界面状态。")
             return

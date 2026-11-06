@@ -88,7 +88,6 @@ public struct AppComposerToolbar: ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             AppCancelEditingButton(confirmDiscard: confirmDiscard, onCancel: onCancel)
                 .disabled(isSubmitting)
-                .accessibilityIdentifier("ui.app-composer-toolbar.cancel")
         }
 
         ToolbarItem(placement: .confirmationAction) {

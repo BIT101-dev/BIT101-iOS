@@ -324,7 +324,8 @@ private struct PaperDraftsView: View {
         .confirmationDialog(
             "删除此文章草稿？",
             isPresented: Binding(
-                get: { selectedDraft != nil }, set: { if !$0 { selectedDraft = nil } }),
+                get: { selectedDraft != nil },
+                set: { if !$0 { selectedDraft = nil } }),
             titleVisibility: .visible
         ) {
             Button("删除草稿", role: .destructive) {

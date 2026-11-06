@@ -8,7 +8,6 @@ import SwiftUI
 public struct CommunityPosterActionMenu: View {
     let onDelete: (() -> Void)?
     let onReport: (() -> Void)?
-    @State private var isPresentingFallbackActions = false
 
     public init(onDelete: (() -> Void)? = nil, onReport: (() -> Void)? = nil) {
         self.onDelete = onDelete
@@ -16,30 +15,12 @@ public struct CommunityPosterActionMenu: View {
     }
 
     public var body: some View {
-        Group {
-            if #available(iOS 18.0, *) {
-                Menu {
-                    menuActions
-                } label: {
-                    menuLabel
-                }
-                .accessibilityIdentifier("ui.community-poster-action-menu.menu")
-            } else {
-                Button {
-                    isPresentingFallbackActions = true
-                } label: {
-                    menuLabel
-                }
-                .confirmationDialog(
-                    "", isPresented: $isPresentingFallbackActions, titleVisibility: .hidden
-                ) {
-                    menuActions
-                    Button("取消", role: .cancel) {}
-                        .accessibilityIdentifier("ui.community-poster-action-menu.cancel")
-                }
-                .accessibilityIdentifier("ui.community-poster-action-menu.actions")
-            }
+        Menu {
+            menuActions
+        } label: {
+            menuLabel
         }
+        .accessibilityIdentifier("ui.community-poster-action-menu.menu")
         .buttonStyle(.plain)
     }
 

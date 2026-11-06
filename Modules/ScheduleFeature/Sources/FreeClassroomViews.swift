@@ -16,8 +16,7 @@ struct FreeClassroomTabView: View {
     var body: some View {
         AppBrowserLayout(selection: $selectedPage) {
             if layout.isLandscape {
-                List { classroomControls(usesSidebar: true) }.appGroupedListStyle()
-                    .accessibilityIdentifier("interaction.FreeClassroomTabView.sidebar")
+                classroomResults(usesSidebar: true, controlsOnly: true)
             } else {
                 classroomResults(usesSidebar: false)
             }
@@ -28,11 +27,11 @@ struct FreeClassroomTabView: View {
         }
     }
 
-    private func classroomResults(usesSidebar: Bool) -> some View {
+    private func classroomResults(usesSidebar: Bool, controlsOnly: Bool = false) -> some View {
         let availabilities = viewModel.classroomAvailabilities(at: currentDate)
         return List {
-            if !usesSidebar { classroomControls(usesSidebar: false) }
-            if availabilities.isEmpty, !viewModel.isRefreshingPage {
+            if controlsOnly || !usesSidebar { classroomControls(usesSidebar: controlsOnly) }
+            if !controlsOnly, availabilities.isEmpty, !viewModel.isRefreshingPage {
                 Section {
                     AppEmptyState(
                         title: "暂无空教室结果",
@@ -43,7 +42,7 @@ struct FreeClassroomTabView: View {
                     )
                     .frame(maxWidth: .infinity)
                 }
-            } else {
+            } else if !controlsOnly {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(availabilities) { classroom in
@@ -53,7 +52,7 @@ struct FreeClassroomTabView: View {
             }
         }
         .accessibilityIdentifier("interaction.FreeClassroomTabView.list")
-        .appGroupedListStyle(insetViewport: usesSidebar)
+        .appGroupedListStyle(insetViewport: usesSidebar && !controlsOnly)
         .scrollContentBackground(.hidden)
         .background(AppDesignSystem.Palette.Background.grouped)
     }

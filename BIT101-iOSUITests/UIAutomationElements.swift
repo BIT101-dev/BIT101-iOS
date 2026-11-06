@@ -226,8 +226,9 @@ enum UITestSnapshotReader {
         if cached == nil, loading, let application { _ = try? snapshot(of: application) }
         guard let cached else { return nil }
         func attributes(_ element: any XCUIElementSnapshot) -> [String: Any] {
+            let label = element.label.isEmpty ? (element.placeholderValue ?? "") : element.label
             var result: [String: Any] = [
-                "exists": true, "identifier": element.identifier, "label": element.label,
+                "exists": true, "identifier": element.identifier, "label": label,
                 "elementType": Int(element.elementType.rawValue), "enabled": element.isEnabled,
                 "selected": element.isSelected, "placeholderValue": element.placeholderValue ?? "",
                 "frame": [
@@ -297,8 +298,9 @@ final class UIElement: NSObject {
                     "label": "", "identifier": "", "frame": [0.0, 0.0, 0.0, 0.0],
                 ]
             }
+            let label = state.label.isEmpty ? (state.placeholderValue ?? "") : state.label
             var attributes: [String: Any] = [
-                "exists": true, "identifier": state.identifier, "label": state.label,
+                "exists": true, "identifier": state.identifier, "label": label,
                 "elementType": Int(state.elementType.rawValue), "enabled": state.isEnabled,
                 "selected": state.isSelected,
                 "frame": [
@@ -518,6 +520,11 @@ final class UIElement: NSObject {
     }
 
     private var interactionIdentity: [String: String] {
+        if let path, path.count > 2,
+            Array(path.suffix(2)) == [["type": "40"], ["first": "1"]]
+        {
+            return UIElement(native, path: Array(path.dropLast(2))).interactionIdentity
+        }
         let bounds = frame
         var identity = [
             "identifier": identifier, "label": label, "type": String(elementType.rawValue),
@@ -536,6 +543,12 @@ final class UIElement: NSObject {
                     identity.merging(["command": "native-observe"]) { _, command in command }) ?? ""
         }
         return identity
+    }
+    func recordInput() {
+        recordInteraction(interactionIdentity, action: "input")
+    }
+    func recordTap() {
+        recordInteraction(interactionIdentity, action: "tap")
     }
     private func recordInteraction(_ identity: [String: String], action: String = "input") {
         _ = UITestControlClient.request(

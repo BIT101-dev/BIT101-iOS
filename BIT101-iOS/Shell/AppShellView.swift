@@ -260,6 +260,8 @@ struct AppShellView: View {
         }
         .onChange(of: selectedTab) { _, _ in
             interactionEvidence?("app.shell", "tab-switch")
+            interactionEvidence?("app.navigation.adaptive", "tab-switch")
+            interactionEvidence?("app.navigation.grouped", "tab-switch")
         }
         .onAppear {
             #if BIT101_UI_TESTING

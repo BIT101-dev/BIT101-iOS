@@ -104,7 +104,7 @@ public struct ScheduleRootView: View {
                             : 0)
                 )
             )
-            .accessibilityElement(children: .contain)
+            .appAccessibilitySurface()
             .accessibilityIdentifier("schedule.section-surface")
         }
         .background(AppDesignSystem.Palette.Background.grouped)

@@ -8,15 +8,6 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
         defer { XCUIDevice.shared.orient(to: .portrait) }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
-        guard
-            waitUntil(
-                NSPredicate { _, _ in
-                    self.app.windows.firstMatch.frame.width
-                        > self.app.windows.firstMatch.frame.height
-                }, on: app)
-        else {
-            throw XCTSkip("本例验收横屏双栏窗口。")
-        }
         assertUI(
             UITestControlClient.request(["command": "hold-request", "key": "score-details"])
                 == "queued", "详细成绩应进入受控等待。")

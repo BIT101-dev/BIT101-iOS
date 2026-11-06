@@ -210,15 +210,11 @@ public struct AppBrowserLayout<
                 .toolbar(.visible, for: .navigationBar)
                 .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
                 .navigationDestination(for: Selection.self) { selected in
-                    detailContent(selected).appPaneBackButton(isPresented: true) {
-                        selection = nil
-                    }
+                    detailContent(selected)
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .contain).accessibilityIdentifier(
-            "browser.detail"
-        )
+        .appAccessibilityContainer("browser.detail")
         .environment(\.appContentColumn, .trailing)
         .padding(
             .top,
@@ -247,8 +243,7 @@ public struct AppBrowserLayout<
                         .environment(\.appPageIsVisible, isVisible && selection == nil)
                         .navigationDestination(for: Selection.self) { selected in
                             detailContent(selected)
-                                .accessibilityElement(children: .contain)
-                                .accessibilityIdentifier("browser.detail")
+                                .appAccessibilityContainer("browser.detail")
                         }
                 }
                 .padding(
@@ -282,7 +277,7 @@ public struct AppBrowserLayout<
                 header?.padding(.top, layout.contentTopInset)
             }
             .appBrowserNavigationBar()
-            .accessibilityElement(children: .contain).accessibilityIdentifier("browser.master")
+            .appAccessibilityContainer("browser.master")
     }
 
     private func detailContent(_ selected: Selection) -> some View {
@@ -290,6 +285,9 @@ public struct AppBrowserLayout<
             .background(AppDesignSystem.Palette.Background.grouped)
             .toolbar(.visible, for: .navigationBar)
             .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+            .appPaneBackButton(isPresented: true) {
+                selection = nil
+            }
     }
 }
 
@@ -418,6 +416,17 @@ extension View {
         )
         .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
         .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
+    }
+    public func appAccessibilitySurface() -> some View {
+        overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+        }
+        .accessibilityElement(children: .contain)
+    }
+    public func appAccessibilityContainer(_ identifier: String) -> some View {
+        appAccessibilitySurface().accessibilityIdentifier(identifier)
     }
 }
 
@@ -599,52 +608,45 @@ public struct AppFloatingActionButton: View {
     }
 
     public var body: some View {
-        Group {
-            if usesNativeToolbar {
-                Button(accessibilityLabel, systemImage: systemImage, action: performAction)
-                    .labelStyle(.iconOnly)
-                    .badge(badgeText.map { Text($0) })
-                    .accessibilityLabel(accessibilityLabel)
-                    .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
-                    .accessibilityIdentifier(
-                        accessibilityIdentifier
-                            ?? "ui.app-floating-action-button.toolbar-action")
-            } else {
-                floatingActionButton
-            }
-        }
-        .appImpactFeedback(trigger: feedbackToken)
-    }
-
-    @ViewBuilder
-    private var floatingActionButton: some View {
         Button(action: performAction) {
-            ZStack(alignment: .topTrailing) {
-                AppFloatingActionButtonLabel(systemImage: systemImage)
-
-                if let badgeText {
-                    Text(badgeText)
-                        .font(AppDesignSystem.Typography.captionEmphasis)
-                        .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
-                        .padding(.horizontal, AppDesignSystem.Spacing.tiny)
-                        .frame(
-                            minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
-                            minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
-                        )
-                        .background(
-                            AppDesignSystem.Palette.Status.danger, in: Capsule()
-                        )
-                        .offset(
-                            x: AppDesignSystem.Spacing.tiny,
-                            y: -AppDesignSystem.Spacing.tiny)
-                }
+            if usesNativeToolbar {
+                Label(accessibilityLabel, systemImage: systemImage)
+                    .labelStyle(.iconOnly)
+            } else {
+                floatingButtonContent
             }
         }
         .buttonStyle(.plain)
+        .badge(usesNativeToolbar ? badgeText.map { Text($0) } : nil)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(badgeText.map { "\($0) 条未读" } ?? "")
         .accessibilityIdentifier(
             accessibilityIdentifier ?? "ui.app-floating-action-button.action")
+        .appImpactFeedback(trigger: feedbackToken)
+    }
+
+    @ViewBuilder
+    private var floatingButtonContent: some View {
+        ZStack(alignment: .topTrailing) {
+            AppFloatingActionButtonLabel(systemImage: systemImage)
+
+            if let badgeText {
+                Text(badgeText)
+                    .font(AppDesignSystem.Typography.captionEmphasis)
+                    .foregroundStyle(AppDesignSystem.Palette.Highlight.foreground)
+                    .padding(.horizontal, AppDesignSystem.Spacing.tiny)
+                    .frame(
+                        minWidth: AppDesignSystem.Size.FloatingAction.badgeMinimum,
+                        minHeight: AppDesignSystem.Size.FloatingAction.badgeMinimum
+                    )
+                    .background(
+                        AppDesignSystem.Palette.Status.danger, in: Capsule()
+                    )
+                    .offset(
+                        x: AppDesignSystem.Spacing.tiny,
+                        y: -AppDesignSystem.Spacing.tiny)
+            }
+        }
     }
 
     private func performAction() {

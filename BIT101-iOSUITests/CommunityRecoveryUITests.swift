@@ -40,6 +40,8 @@ nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {
             persistentFailurePaths: ["posters/1"], initialTab: "mine")
         defer { Self.endSharedSession() }
         let application = try XCTUnwrap(app.native as? XCUIApplication)
+        checkScrollContainers()
+        Self.captureControlInventory()
         application.open(try XCTUnwrap(URL(string: "bit101://gallery/1")))
         UITestSnapshotReader.invalidate()
         assertUI(textElement("无法打开话题").appears(timeout: 5), "目标读取失败应保留原位重试入口。")

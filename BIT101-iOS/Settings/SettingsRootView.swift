@@ -82,37 +82,19 @@ struct SettingsRootView: View {
     let studentID: String
     let onLogout: () -> Void
     let dependencies: SettingsDependencies
-    var showsCloseButton = false
-
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Group {
-            if let initialRoute {
-                SettingsRoutePage(
-                    route: initialRoute, studentID: studentID, onLogout: onLogout,
-                    dependencies: dependencies)
-            } else {
-                SettingsIndexPage(
-                    studentID: studentID, onLogout: onLogout, dependencies: dependencies)
-            }
-        }
+        let route = initialRoute ?? .calendar
+        SettingsRoutePage(
+            route: route, studentID: studentID, onLogout: onLogout,
+            dependencies: dependencies
+        )
         .environment(dependencies.settings)
         .environment(dependencies.schedule)
         .environment(dependencies.media)
-        .navigationTitle(initialRoute?.title ?? "设置")
+        .navigationTitle(route.title)
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) { SettingsStorageNotice(settings: dependencies.settings) }
-        .toolbar {
-            if showsCloseButton {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("ui.settings-root-view.cancel")
-                }
-            }
-        }
     }
 }
 
@@ -138,69 +120,6 @@ private struct SettingsStorageNotice: View {
             } message: {
                 Text("话廊偏好与账号内的提示设置恢复为默认值。日程、成绩、登录状态与设备偏好继续保留。")
             }
-        }
-    }
-}
-
-/// 此页面列出全部设置一级菜单。
-///
-/// 此页面使用卡片式入口，与“我的”页保持风格区分。
-private struct SettingsIndexPage: View {
-    @Environment(\.appWindowLayout) private var layout
-    let studentID: String
-    let onLogout: () -> Void
-    let dependencies: SettingsDependencies
-    @State private var isShowingSuggestion = false
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: layout.gridColumns, spacing: AppDesignSystem.Spacing.regular) {
-                ForEach(SettingsRoute.allCases) { route in
-                    routeItem(route)
-                }
-            }
-            .padding(AppDesignSystem.Spacing.section)
-        }
-        .accessibilityIdentifier("interaction.SettingsIndexPage.scroll")
-        .background(AppDesignSystem.Palette.Background.grouped)
-        .sheet(isPresented: $isShowingSuggestion) {
-            NavigationStack {
-                DeveloperSuggestionPage(dependencies: dependencies.suggestion)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func routeItem(_ route: SettingsRoute) -> some View {
-        if route == .suggestion {
-            Button {
-                isShowingSuggestion = true
-            } label: {
-                SettingsIndexCard(route: route)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ui.settings-index-page.suggestion")
-        } else {
-            NavigationLink {
-                SettingsRoutePage(
-                    route: route, studentID: studentID, onLogout: onLogout,
-                    dependencies: dependencies)
-            } label: {
-                SettingsIndexCard(route: route)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("ui.settings-index-page.destination")
-        }
-    }
-}
-
-/// 此视图展示设置首页卡片。
-private struct SettingsIndexCard: View {
-    let route: SettingsRoute
-
-    var body: some View {
-        AppCard {
-            AppNavigationRowLabel(title: route.title, systemImage: route.systemImage)
         }
     }
 }

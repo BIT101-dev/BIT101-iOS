@@ -281,6 +281,8 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let application = try XCTUnwrap(app.native as? XCUIApplication)
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = nil
+        checkScrollContainers()
+        Self.captureControlInventory()
         application.open(try XCTUnwrap(URL(string: "bit101://schedule/courses")))
         UITestSnapshotReader.invalidate()
         assertUI(

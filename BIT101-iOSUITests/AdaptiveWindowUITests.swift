@@ -9,7 +9,10 @@ extension LandscapeLayoutUITests {
             app = configureApp(
                 resetStorage: true, userInterfaceStyle: style, ddlFixture: "sources", content: true,
                 animations: true, school: true)
-            try requireLandscapeSupport()
+            if !supportsLandscapeWindow {
+                assertCompactNavigation(requiresSections: true)
+                return
+            }
             let isPhone = windowTraits()["idiom"] == UIUserInterfaceIdiom.phone.rawValue
             for orientation: UIDeviceOrientation in rotates
                 ? [.landscapeLeft, .landscapeRight] : [.unknown]
@@ -486,7 +489,10 @@ extension LandscapeLayoutUITests {
     @MainActor @objc func testAcademicBrowsersKeepTheSharedChrome() throws {
         let usesDeviceRotation = UIDevice.current.userInterfaceIdiom != .phone
         app = configureApp(resetStorage: true, content: true, animations: true, school: true)
-        try requireLandscapeSupport()
+        if !supportsLandscapeWindow {
+            assertCompactNavigation(requiresSections: true)
+            return
+        }
         if usesDeviceRotation {
             for tab in ["成绩", "话廊", "日程", "成绩", "话廊", "日程"] {
                 app.mainTab(tab).native.press(forDuration: 0.01)

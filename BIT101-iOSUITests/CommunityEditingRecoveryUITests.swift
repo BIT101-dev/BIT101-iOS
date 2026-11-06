@@ -137,6 +137,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         assertUI(textElement("自动化测试评论").appears(timeout: 5), "评论区域的重试应恢复正文。")
         reveal(app.buttons["点赞课程"])
         app.scrollViews["interaction.CourseDetailViewScene.scroll"].swipeDown()
+        pullToRefresh()
         assertUI(app.navigationBars["课程详情"].exists, "详情下拉刷新应保留当前课程页面。")
     }
 

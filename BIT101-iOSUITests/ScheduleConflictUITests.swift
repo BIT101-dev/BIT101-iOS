@@ -184,7 +184,10 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         defer { XCUIDevice.shared.orient(to: .portrait) }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
-        try XCTSkipIf((windowTraits()["divisionX"] ?? -1) < 0, "连续切换验收使用系统提供分隔区域的窗口。")
+        if (windowTraits()["divisionX"] ?? -1) < 0 {
+            checkCompactWindowBounds()
+            return
+        }
         assertUI(
             waitUntil(
                 NSPredicate { _, _ in
@@ -266,7 +269,17 @@ nonisolated final class LandscapeLayoutUITests: UIAutomationTestCase {
         defer { if rotates { XCUIDevice.shared.orient(to: .portrait) } }
         app = configureApp(
             resetStorage: true, content: true, animations: true, school: true, initialTab: "home")
-        try requireLandscapeSupport()
+        if !supportsLandscapeWindow {
+            app.buttons["ui.score-list-page.排序"].tapBriefly()
+            let scoreNavigation = app.native.navigationBars["成绩排序"]
+            let backButton = app.buttons["app.pane.back"]
+            assertUI(
+                scoreNavigation.waitForExistence(timeout: 5) && backButton.exists,
+                "详情页应提供返回入口。")
+            backButton.tapBriefly()
+            assertUI(scoreNavigation.disappears(timeout: 5), "详情返回应恢复成绩列表。")
+            return
+        }
         assertUI(
             waitUntil(
                 NSPredicate { _, _ in

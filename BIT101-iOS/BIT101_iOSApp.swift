@@ -581,8 +581,15 @@ struct BIT101_iOSApp: App {
                     label: environment["label"] ?? "",
                     type: Int(environment["type"] ?? "") ?? 0,
                     scope: environment["scope"], instance: environment["instance"],
-                    action: environment["action"] ?? "activate")
+                    action: environment["action"] ?? "tap")
                 reply(Data((recorded ? "recorded" : "unobserved").utf8))
+                return
+            }
+            if environment["command"] == "callback" {
+                UITestAccessibilityActions.recordCallback(
+                    environment["identifier"] ?? "",
+                    action: environment["action"] ?? "tap")
+                reply(Data("recorded".utf8))
                 return
             }
             if environment["command"] == "state" {

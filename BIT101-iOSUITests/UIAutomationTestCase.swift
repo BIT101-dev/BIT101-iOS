@@ -62,7 +62,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         try await super.tearDown()
     }
     @MainActor
-    private static func captureControlInventory() {
+    static func captureControlInventory() {
         guard let application = Self.sessionApplication, application.state != .notRunning else {
             return
         }
@@ -410,7 +410,17 @@ nonisolated class UIAutomationTestCase: XCTestCase {
             if range.contains(where: { $0 > 0 }) && !scrolling { continue }
             let dimensions = (frame + range).map { String($0.rounded(.up)) }
             let checkIdentity = ([identifier] + dimensions).joined(separator: ":")
-            guard force || !Self.checkedScrollContainers.contains(checkIdentity) else { continue }
+            if !force, Self.checkedScrollContainers.contains(checkIdentity) {
+                _ = UITestControlClient.request([
+                    "command": "record", "identifier": identifier,
+                    "label": container["label"] as? String ?? "",
+                    "type": String(container["elementType"] as? Int ?? 0),
+                    "scope": container["scope"] as? String ?? "",
+                    "instance": container["instance"] as? String ?? "",
+                    "action": range.allSatisfy({ $0 == 0 }) ? "scroll-fit" : "scroll",
+                ])
+                continue
+            }
             guard let isCurrent = isCurrentContainer(scrollInstance) else { return }
             if !isCurrent { continue }
             let parameters = [

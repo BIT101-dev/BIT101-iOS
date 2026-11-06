@@ -139,11 +139,6 @@ struct GallerySettingsPage: View {
             TextField("缓存上限", value: $imageCacheLimitMB, format: .number)
                 .keyboardType(.numberPad)
                 .focused($imageCacheLimitFocused)
-                .onSubmit {
-                    interactionEvidence?(
-                        "interaction.GallerySettingsPage.cacheLimitSubmit", "submit")
-                    applyCacheLimit()
-                }
                 .onChange(of: imageCacheLimitFocused) { _, focused in
                     if !focused { applyCacheLimit() }
                 }

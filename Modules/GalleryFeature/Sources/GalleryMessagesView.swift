@@ -148,6 +148,7 @@ struct GalleryMessagesView: View {
         }
         .contentShape(Rectangle())
         .simultaneousGesture(messageSwitchGesture)
+        .appAccessibilitySurface()
         .accessibilityIdentifier("gallery.message-surface")
         .navigationTitle("消息")
         .navigationBarTitleDisplayMode(.inline)

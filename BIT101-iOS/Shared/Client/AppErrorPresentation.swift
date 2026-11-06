@@ -443,6 +443,7 @@ extension View {
 }
 
 struct DiagnosticRecoveryActions: View {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     let title: String
     let message: String
     let allowsDiagnostics: Bool
@@ -473,7 +474,10 @@ struct DiagnosticRecoveryActions: View {
             }
             if presentation.allowsDiagnostics {
                 Link("查看是否有更新", destination: BIT101AppStore.url)
+                    .accessibilityIdentifier("ui.diagnostic-recovery-actions.update")
                 Button("向开发者分享错误信息") {
+                    interactionEvidence?("diagnostic.school-service", "tap")
+                    interactionEvidence?("ui.diagnostic-recovery-actions.update", "tap")
                     reportAlert = AppAlert(
                         title: title, message: message, underlyingError: underlyingError)
                 }
@@ -492,6 +496,7 @@ private enum ErrorReportConfirmation: String, Identifiable {
 
 private struct AppErrorReportSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @State private var viewModel: ErrorReportViewModel
     @State private var confirmation: ErrorReportConfirmation?
     @State private var submissionTask: Task<Void, Never>?
@@ -583,6 +588,10 @@ private struct AppErrorReportSheet: View {
             .pickerStyle(.inline)
             .labelsHidden()
             .appSelectionFeedback(trigger: viewModel.mode)
+            .onChange(of: viewModel.mode) { _, _ in
+                interactionEvidence?("ui.app-error-report-sheet.mode", "selection")
+            }
+            .accessibilityIdentifier("ui.app-error-report-sheet.mode")
             .appInteractiveListRow()
             modeExplanation
         } header: {

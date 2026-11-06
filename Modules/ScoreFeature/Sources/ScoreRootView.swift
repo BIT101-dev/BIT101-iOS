@@ -56,7 +56,7 @@ public struct ScoreListPage: View {
             selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal"
         ) {
             content.simultaneousGesture(horizontalSwitchGesture { onSurfaceStep?($0) })
-                .accessibilityElement(children: .contain)
+                .appAccessibilitySurface()
                 .accessibilityIdentifier("score.browse")
         } detail: { page in
             detail(page).appReadableContent(fillsAvailableWidth: true)

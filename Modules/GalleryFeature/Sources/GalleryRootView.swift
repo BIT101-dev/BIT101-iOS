@@ -405,6 +405,7 @@ private struct GalleryRootViewScene: View {
             .onPreferenceChange(AppHorizontalControlFramesKey.self) {
                 horizontalControlFrames = $0
             }
+            .appAccessibilitySurface()
             .accessibilityIdentifier("gallery.feed-surface")
 
         }

@@ -356,8 +356,10 @@ def source_runtime_interaction_findings(
                 and bool(accepted_actions & set(row.get("actions", [])))
                 and any(
                     re.fullmatch(pattern, value) is not None
+                    or kind == "identifier"
+                    and re.fullmatch(pattern + r"-(?:Increment|Decrement)", value) is not None
                     or kind == "label"
-                    and re.match(pattern + r",\s", value) is not None
+                    and re.match(pattern + r"(?:,\s|、)", value) is not None
                     for pattern in patterns
                 )
             )

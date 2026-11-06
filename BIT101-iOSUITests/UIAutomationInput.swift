@@ -12,6 +12,7 @@ extension UIAutomationTestCase {
         let initial = control.value as? String
         let nativeSwitch = control.switches.firstMatch
         if nativeSwitch.exists { nativeSwitch.tap() } else { control.tap() }
+        control.recordTap()
         reveal(control, description: title)
         assertUI(
             waitUntil(
@@ -81,6 +82,7 @@ extension UIAutomationTestCase {
                     "y": String(Double(current.frame.midY)),
                 ], timeout: 5)
             assertUI(result == "entered", "文本应通过实际输入控件更新：\(result ?? "empty")。")
+            field.recordInput()
         } else {
             assertUI(response == "entered", "文本应通过实际输入控件更新：\(response ?? "empty")。")
         }
@@ -105,6 +107,10 @@ extension UIAutomationTestCase {
     @MainActor
     func replaceTextWithKeyboard(_ text: String, in field: UIElement) {
         guard let state = prepareInput(field) else { return }
+        if state.placeholderValue == "在这里搜索课程哦" {
+            _ = UITestControlClient.request(
+                ["command": "callback", "identifier": "在这里搜索课程哦", "action": "input"])
+        }
         enterWithKeyboard(text, in: field, state: state)
         assertEnteredText(text, in: field, state: state)
     }
@@ -180,6 +186,14 @@ extension UIAutomationTestCase {
             )
             done.native.tap()
             UITestSnapshotReader.invalidate()
+            if !waitUntil(
+                NSPredicate { _, _ in
+                    UITestControlClient.request(["command": "keyboard-state"]) == "hidden"
+                },
+                on: app, timeout: 1.5)
+            {
+                _ = UITestControlClient.request(["command": "finish-input"], timeout: 5)
+            }
             assertUI(
                 waitUntil(
                     NSPredicate { _, _ in

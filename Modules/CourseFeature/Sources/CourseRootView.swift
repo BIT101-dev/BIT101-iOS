@@ -40,7 +40,7 @@ public struct CourseBrowserPage: View {
                     })
             )
             .simultaneousGesture(horizontalSwitchGesture { onSurfaceStep?($0) })
-            .accessibilityElement(children: .contain)
+            .appAccessibilitySurface()
             .accessibilityIdentifier("course.browse")
         } detail: { request in
             if let course = request.preparedCourse {

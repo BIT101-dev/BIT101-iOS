@@ -234,13 +234,11 @@ extension UIAutomationTestCase {
         return traits.compactMapValues { ($0 as? NSNumber)?.intValue }
     }
 
-    func requireLandscapeSupport() throws {
+    var supportsLandscapeWindow: Bool {
         let traits = windowTraits()
-        try XCTSkipIf(
-            traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
-                && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
-                    || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue),
-            "当前手机窗口按 App 方向策略采用竖屏；横屏约定由支持横屏的窗口验收。")
+        return !(traits["idiom"] == UIUserInterfaceIdiom.phone.rawValue
+            && (traits["horizontal"] != UIUserInterfaceSizeClass.regular.rawValue
+                || traits["vertical"] != UIUserInterfaceSizeClass.regular.rawValue))
     }
 
     @MainActor

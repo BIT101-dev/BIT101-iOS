@@ -12,6 +12,7 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
 }
 
 struct CourseScheduleRefreshStatusRow: View {
+    @Environment(\.appInteractionEvidence) var interactionEvidence
     var viewModel: ScheduleViewModel
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule

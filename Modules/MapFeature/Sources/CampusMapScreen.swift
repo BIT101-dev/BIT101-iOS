@@ -253,42 +253,33 @@ private struct FloatingMapLabelButton: View {
 
     /// 校区切换按钮主体。
     var body: some View {
-        Group {
+        Button(action: performAction) {
             if usesNativeToolbar {
-                Button(
+                Label(
                     accessibilityLabel,
-                    systemImage: isSelected ? "building.2.fill" : "building.2",
-                    action: performAction
+                    systemImage: isSelected ? "building.2.fill" : "building.2"
                 )
                 .labelStyle(.iconOnly)
-                .accessibilityLabel(accessibilityLabel)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-                .accessibilityIdentifier("ui.floating-map-label-button.toolbar-action")
             } else {
-                customButton
-            }
-        }
-        .appImpactFeedback(trigger: feedbackToken)
-    }
-
-    private var customButton: some View {
-        Button(action: performAction) {
-            AppFloatingActionButtonSurface(
-                fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil
-            ) {
-                Text(label)
-                    .font(AppDesignSystem.Typography.floatingLabel)
-                    .foregroundStyle(
-                        isSelected
-                            ? AppDesignSystem.Palette.Highlight.foreground
-                            : AppDesignSystem.Foreground.primaryColor)
+                AppFloatingActionButtonSurface(
+                    fill: isSelected ? AppDesignSystem.Palette.Accent.primary : nil
+                ) {
+                    Text(label)
+                        .font(AppDesignSystem.Typography.floatingLabel)
+                        .foregroundStyle(
+                            isSelected
+                                ? AppDesignSystem.Palette.Highlight.foreground
+                                : AppDesignSystem.Foreground.primaryColor)
+                }
             }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("ui.floating-map-label-button.action")
+        .appImpactFeedback(trigger: feedbackToken)
     }
+
     private func performAction() {
         feedbackToken &+= 1
         action()

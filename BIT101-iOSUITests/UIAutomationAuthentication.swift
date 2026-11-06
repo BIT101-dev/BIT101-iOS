@@ -11,11 +11,10 @@ extension UIAutomationTestCase {
         let submit = application.buttons["login.submit"]
         assertUI(studentID.appears(timeout: 10), "测试启动后应展示登录页。")
 
-        replaceTextWithKeyboard(inputStudentID, in: studentID)
+        replaceTextWithKeyboard(inputStudentID + "\n", in: studentID)
         replaceTextWithKeyboard("ui-test-password", in: password)
         assertUI(submit.isEnabled, "完整填写账号信息后，登录按钮应启用。")
-        dismissKeyboard()
-        submit.tapBriefly()
+        password.typeText("\n")
         dismissCredentialSavePrompt(in: application)
         assertUI(
             application.mainTab("日程").appears(timeout: 10),
