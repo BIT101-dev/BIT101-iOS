@@ -401,7 +401,7 @@ private struct GalleryRootViewScene: View {
                     }),
                 onPreview: { feedImageViewer = $0 }
             )
-            .simultaneousGesture(feedSwitchGesture)
+            .appHorizontalPageSwitch(excluding: horizontalControlFrames, onStep: switchFeed)
             .onPreferenceChange(AppHorizontalControlFramesKey.self) {
                 horizontalControlFrames = $0
             }
@@ -453,13 +453,6 @@ private struct GalleryRootViewScene: View {
         let count = messageViewModel.totalUnreadCount
         guard count > 0 else { return nil }
         return count > 99 ? "99+" : String(count)
-    }
-
-    /// feed 左右轻扫切换手势。
-    ///
-    /// 当前布局使用底部全覆盖内容、顶部 segmented 和横向拖拽手势完成分区切换。
-    private var feedSwitchGesture: some Gesture {
-        horizontalSwitchGesture(excluding: horizontalControlFrames, onStep: switchFeed)
     }
 
     private var visibleFeeds: [GalleryFeedKind] {

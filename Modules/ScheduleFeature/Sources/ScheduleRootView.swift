@@ -96,13 +96,11 @@ public struct ScheduleRootView: View {
             .onPreferenceChange(AppHorizontalControlFramesKey.self) {
                 horizontalControlFrames = $0
             }
-            .simultaneousGesture(
-                sectionSwitchGesture(
-                    topDisabledY: proxy.frame(in: .global).minY
-                        + (viewModel.selectedSection == .courses
-                            ? proxy.size.height * 0.25
-                            : 0)
-                )
+            .appHorizontalPageSwitch(
+                excluding: horizontalControlFrames,
+                minimumY: proxy.frame(in: .global).minY
+                    + (viewModel.selectedSection == .courses ? proxy.size.height * 0.25 : 0),
+                onStep: switchSection
             )
             .appAccessibilitySurface()
             .accessibilityIdentifier("schedule.section-surface")
@@ -231,25 +229,6 @@ public struct ScheduleRootView: View {
                 selectedSection: $viewModel.selectedSection,
                 courseTitle: viewModel.activeCourseScheduleTitle)
         }
-    }
-
-    /// 轻扫切换课表 / DDL / 空教室的手势。
-    ///
-    /// 课表上方四分之一专用于周次滑动条，剩余区域支持横向轻扫切换分区。
-    private func sectionSwitchGesture(topDisabledY: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 24, coordinateSpace: .global)
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-                guard abs(horizontal) > abs(vertical), abs(horizontal) >= 56 else { return }
-                guard value.startLocation.y >= topDisabledY else { return }
-                guard
-                    !horizontalControlFrames.contains(where: {
-                        $0.contains(value.startLocation)
-                    })
-                else { return }
-                switchSection(step: horizontal < 0 ? 1 : -1)
-            }
     }
 
     /// 根据方向切换一级分区。

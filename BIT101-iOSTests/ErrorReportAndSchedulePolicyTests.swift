@@ -420,7 +420,9 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         first?.resume()
         try await waitUntil("恢复输入") { findInput(controller.view)?.isEnabled == true }
         XCTAssertEqual(submissions.count, 1)
-        try fill("123456")
+        let autofillInput = try XCTUnwrap(findInput(controller.view))
+        autofillInput.text = "123456"
+        autofillInput.sendActions(for: .editingChanged)
         try await waitUntil("再次提交") {
             submissions.count == 2 && findInput(controller.view)?.isEnabled == false
         }

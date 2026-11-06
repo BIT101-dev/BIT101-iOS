@@ -6,8 +6,8 @@ export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONOPTIMIZE
 if command -v brew >/dev/null 2>&1; then
   bit101_python_prefix="$(brew --prefix)/opt/python@3"
-  if [[ -x "$bit101_python_prefix/libexec/bin/python3" ]]; then
-    export PATH="$bit101_python_prefix/libexec/bin:$PATH"
+  if [[ -x "$bit101_python_prefix/bin/python3" ]]; then
+    export PATH="$bit101_python_prefix/bin:$PATH"
   fi
   unset bit101_python_prefix
 fi

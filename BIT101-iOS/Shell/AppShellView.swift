@@ -240,7 +240,7 @@ struct AppShellView: View {
 
     private var mainTabs: some View {
         Group {
-            if #available(iOS 18.0, *) { nativeTabs } else { compactTabs }
+            if #available(iOS 18.0, *), usesExpandedNavigation { nativeTabs } else { compactTabs }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
@@ -309,13 +309,12 @@ struct AppShellView: View {
                             \.appPageIsVisible, destination == destinationSelection.wrappedValue)
                 } label: {
                     Label(
-                        usesExpandedNavigation ? destination.title : destination.tab.title,
+                        destination.title,
                         systemImage: destination.systemImage
                     )
                     .accessibilityIdentifier(destination.accessibilityIdentifier)
                 }
                 .accessibilityIdentifier(destination.accessibilityIdentifier)
-                .hidden(isHidden(destination))
             }
         }
         .accessibilityIdentifier("app.navigation.adaptive")
@@ -346,19 +345,6 @@ struct AppShellView: View {
         .tabItem {
             Label(tab.title, systemImage: tab.systemImage)
                 .accessibilityIdentifier("app.tab.\(tab.rawValue)")
-        }
-    }
-
-    private func isHidden(_ destination: AppDestination) -> Bool {
-        guard !usesExpandedNavigation else { return false }
-        switch destination {
-        case .schedule: return scheduleViewModel.selectedSection == .classroom
-        case .classroom: return scheduleViewModel.selectedSection != .classroom
-        case .topics: return gallerySurface == .paper
-        case .papers: return gallerySurface != .paper
-        case .scores: return scoreSurface != .score
-        case .courses: return scoreSurface != .course
-        default: return false
         }
     }
 

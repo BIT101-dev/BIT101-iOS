@@ -110,7 +110,8 @@ enum LoginScreenState: Equatable {
 
     /// 执行一次显式登录。
     ///
-    /// 登录成功后清空内存中的密码文本；`LoginStorage` 保存凭据，供后续静默重登学校 SSO。
+    /// 登录成功后清空内存中的密码文本；`LoginStorage` 分别保存社区密码摘要与验证成功的学校凭据。
+    /// 学校登录优先使用已有学校密码，需要补充时通过交互输入并验证。
     func login() async {
         guard !isSubmitting else { return }
         let trimmedStudentID = studentID.trimmingCharacters(in: .whitespacesAndNewlines)

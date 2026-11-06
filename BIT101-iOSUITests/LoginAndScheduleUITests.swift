@@ -34,6 +34,37 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     }
 
     @MainActor
+    func testPageSwipesCancelRowOpening() {
+        app = configureApp(resetStorage: true, ddlFixture: "sources")
+        tapHeader(app.segmentedControls.buttons["DDL"])
+        let assignment = app.staticTexts["课程中心测试作业"]
+        assertUI(assignment.appears(timeout: 5), "DDL 应显示可打开网页的作业。")
+        assignment.swipeRight()
+        assertUI(app.segmentedControls.buttons["课表"].isSelected, "从作业起滑应切回课表。")
+        assertUI(app.buttons["schedule.add-content"].isHittable, "翻页后课表应直接可操作。")
+        let add = app.buttons["schedule.add-content"]
+        assertUI(add.frame.midX > app.frame.midX, "课表加号应位于右侧。")
+
+        app = configureApp(resetStorage: true, content: true, initialTab: "home")
+        tapHeader(app.segmentedControls.buttons["课程"])
+        let course = app.staticTexts["自动化测试课程"]
+        assertUI(course.appears(timeout: 5), "课程列表应展示测试课程。")
+        course.swipeRight()
+        assertUI(app.segmentedControls.buttons["成绩"].isSelected, "从课程起滑应回到成绩。")
+        assertUI(!app.navigationBars["课程详情"].exists, "翻页应取消课程点击。")
+
+        app.mainTab("话廊").tapBriefly()
+        tapHeader(app.segmentedControls.buttons["最新"])
+        let poster = app.descendants(matching: .any).matching(
+            identifier: "community.poster.1"
+        ).firstMatch
+        assertUI(poster.appears(timeout: 5), "话廊应展示测试话题。")
+        poster.swipeLeft()
+        assertUI(!app.segmentedControls.buttons["最新"].isSelected, "从话题正文起滑应切换分区。")
+        assertUI(!app.navigationBars["话题详情"].exists, "翻页应取消话题点击。")
+    }
+
+    @MainActor
     func testScheduleDayHolidayCancel() {
         app = configureApp(resetStorage: true)
         tap("第1周")

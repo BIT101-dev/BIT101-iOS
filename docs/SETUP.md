@@ -44,7 +44,7 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 ```sh
 brew install python
-export PATH="$(brew --prefix)/opt/python@3/libexec/bin:$PATH"
+export PATH="$(brew --prefix)/opt/python@3/bin:$PATH"
 git --version
 python3 --version
 ```
@@ -53,7 +53,6 @@ python3 --version
 
 ```sh
 brew install node gh ripgrep ruff prettier
-python3 -m pip install --break-system-packages -r Scripts/style-requirements.txt
 node --version
 npm --version
 gh --version
@@ -86,6 +85,12 @@ git pull --ff-only
 本地改动涉及远端更新的文件时，先提交或暂存这些改动，再拉取并恢复。提交钩子校验暂存内容的文件行数和文档引用。
 
 ### 4. 安装维护依赖
+
+在仓库根目录安装 Python 检查器依赖：
+
+```sh
+python3 -m pip install --break-system-packages -r Scripts/style-requirements.txt
+```
 
 Wrangler 与 Miniflare 共用仓库内的安装位置：
 

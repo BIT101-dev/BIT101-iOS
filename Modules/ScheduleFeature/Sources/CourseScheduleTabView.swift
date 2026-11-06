@@ -72,7 +72,6 @@ struct CourseScheduleTabView: View {
     @State var isShowingEditSchedule = false
     @State var isShowingCourseEditor = false
     @State var isShowingScheduleImport = false
-    @State private var isShowingAddContentMenu = false
     @State var exportedSchedule: ScheduleCodePresentation?
     @State var courseSharePresentation: CourseSharePresentation?
     @State var courseShareAlert: AppAlert?
@@ -102,15 +101,7 @@ struct CourseScheduleTabView: View {
 
     @ViewBuilder private var addContentAction: some View {
         if supportsEditingDisplayedSchedule {
-            AppFloatingActionButton(
-                systemImage: "plus", accessibilityLabel: "添加课表内容",
-                accessibilityIdentifier: "schedule.add-content"
-            ) { isShowingAddContentMenu = true }
-            .confirmationDialog(
-                "添加课表内容",
-                isPresented: $isShowingAddContentMenu,
-                titleVisibility: .hidden
-            ) {
+            Menu {
                 Button("添加日程") {
                     editingCustomScheduleID = nil
                     customScheduleDraft = viewModel.customScheduleDraft(for: nil)
@@ -122,7 +113,13 @@ struct CourseScheduleTabView: View {
                     courseDraft = viewModel.courseDraft(for: viewModel.selectedWeek)
                     isShowingCourseEditor = true
                 }
+            } label: {
+                AppFloatingActionButtonLabel(systemImage: "plus")
             }
+            .buttonStyle(.plain)
+            .tint(.primary)
+            .accessibilityLabel("添加课表内容")
+            .accessibilityIdentifier("schedule.add-content")
         }
     }
 

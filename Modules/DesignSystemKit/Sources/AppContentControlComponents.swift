@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 public enum AppInputPrompt {
     public static func text(_ value: String) -> Text {
@@ -395,25 +396,80 @@ public struct AppHorizontalControlFramesKey: PreferenceKey {
     }
 }
 
-/// 为 segmented 内容区提供一致的横向轻扫判定。
-public func horizontalSwitchGesture(
-    excluding controlFrames: [CGRect] = [], onStep: @escaping (Int) -> Void
-) -> some Gesture {
-    DragGesture(minimumDistance: 24, coordinateSpace: .global)
-        .onEnded { value in
-            guard !controlFrames.contains(where: { $0.contains(value.startLocation) }) else {
-                return
-            }
-            let horizontal = value.translation.width
-            let vertical = value.translation.height
-            let horizontalDistance = abs(horizontal)
-            let verticalDistance = abs(vertical)
-
-            guard horizontalDistance > verticalDistance, horizontalDistance >= 56 else {
-                return
-            }
-            onStep(horizontal < 0 ? 1 : -1)
+/// 横向翻页在起滑时确认方向，由原生识别器取消条目点击。
+extension View {
+    public func appHorizontalPageSwitch(
+        excluding controlFrames: [CGRect] = [], minimumY: CGFloat = -.infinity,
+        onStep: @escaping (Int) -> Void
+    ) -> some View {
+        background {
+            AppPageSwitchInput(controlFrames: controlFrames, minimumY: minimumY, onStep: onStep)
+                .allowsHitTesting(false)
         }
+    }
+}
+
+private struct AppPageSwitchInput: UIViewRepresentable {
+    @Environment(\.appPageIsVisible) private var isVisible
+    let controlFrames: [CGRect]
+    let minimumY: CGFloat
+    let onStep: (Int) -> Void
+
+    func makeUIView(context: Context) -> InputView { InputView() }
+
+    func updateUIView(_ view: InputView, context: Context) {
+        view.controlFrames = controlFrames
+        view.minimumY = minimumY
+        view.onStep = onStep
+        view.pan.isEnabled = isVisible
+    }
+
+    static func dismantleUIView(_ view: InputView, coordinator: ()) {
+        view.pan.view?.removeGestureRecognizer(view.pan)
+    }
+
+    final class InputView: UIView, UIGestureRecognizerDelegate {
+        var controlFrames: [CGRect] = []
+        var minimumY: CGFloat = -.infinity
+        var onStep: (Int) -> Void = { _ in }
+        lazy var pan: UIPanGestureRecognizer = {
+            let recognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
+            recognizer.maximumNumberOfTouches = 1
+            recognizer.cancelsTouchesInView = true
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            pan.view?.removeGestureRecognizer(pan)
+            if window != nil { superview?.addGestureRecognizer(pan) }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch
+        )
+            -> Bool
+        {
+            let local = touch.location(in: self)
+            let global = convert(local, to: nil)
+            return bounds.contains(local) && global.y >= minimumY
+                && !controlFrames.contains { $0.contains(global) }
+        }
+
+        override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool
+        {
+            let velocity = pan.velocity(in: self)
+            return abs(velocity.x) > abs(velocity.y)
+        }
+
+        @objc private func didPan() {
+            guard pan.state == .ended else { return }
+            let translation = pan.translation(in: self)
+            guard abs(translation.x) >= 56 else { return }
+            onStep(translation.x < 0 ? 1 : -1)
+        }
+    }
 }
 
 #endif

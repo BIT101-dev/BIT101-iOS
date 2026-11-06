@@ -39,7 +39,7 @@ public struct CourseBrowserPage: View {
                         }
                     })
             )
-            .simultaneousGesture(horizontalSwitchGesture { onSurfaceStep?($0) })
+            .appHorizontalPageSwitch { onSurfaceStep?($0) }
             .appAccessibilitySurface()
             .accessibilityIdentifier("course.browse")
         } detail: { request in
@@ -106,7 +106,6 @@ public struct CoursePageContent: View {
 
     @ViewBuilder
     private var courseSection: some View {
-        CommunityResultsContext(viewModel.displayedQueryDescription)
         switch viewModel.state.status {
         case .idle where viewModel.state.items.isEmpty,
             .loading where viewModel.state.items.isEmpty:

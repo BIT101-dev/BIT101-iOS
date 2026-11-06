@@ -61,9 +61,8 @@ private struct VerificationCodeField: UIViewRepresentable {
     func makeUIView(context: Context) -> CodeTextField {
         let field = CodeTextField()
         field.delegate = context.coordinator
-        NotificationCenter.default.addObserver(
-            context.coordinator, selector: #selector(Coordinator.textChanged),
-            name: UITextField.textDidChangeNotification, object: field)
+        field.addTarget(
+            context.coordinator, action: #selector(Coordinator.textChanged), for: .editingChanged)
         field.autocorrectionType = .no
         field.autocapitalizationType = .none
         field.textAlignment = .center
@@ -115,8 +114,8 @@ private struct VerificationCodeField: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ field: CodeTextField, coordinator: Coordinator) {
-        NotificationCenter.default.removeObserver(
-            coordinator, name: UITextField.textDidChangeNotification, object: field)
+        field.removeTarget(
+            coordinator, action: #selector(Coordinator.textChanged), for: .editingChanged)
         field.delegate = nil
         field.shouldFocus = false
         field.resignFirstResponder()
@@ -138,7 +137,7 @@ private struct VerificationCodeField: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         var parent: VerificationCodeField
-        private var insertedText = ""
+        private var insertedText: String?
 
         init(_ parent: VerificationCodeField) { self.parent = parent }
 
@@ -161,16 +160,19 @@ private struct VerificationCodeField: UIViewRepresentable {
             return true
         }
 
-        @objc func textChanged(_ notification: Notification) {
-            guard let field = notification.object as? CodeTextField else { return }
+        @objc func textChanged(_ field: CodeTextField) {
             let insertion = insertedText
-            insertedText = ""
+            insertedText = nil
             let digits = AppVerificationCode.normalize(
                 field.text ?? "", isCaptcha: parent.isCaptcha)
             if field.text != digits { field.text = digits }
             parent.code = digits
-            if AppVerificationCode.shouldSubmitAutomatically(
-                insertedText: insertion, code: digits, isCaptcha: parent.isCaptcha)
+            let isCompleteAutofill =
+                insertion == nil && !parent.isCaptcha
+                && AppVerificationCode.isValid(digits)
+            if isCompleteAutofill
+                || AppVerificationCode.shouldSubmitAutomatically(
+                    insertedText: insertion ?? "", code: digits, isCaptcha: parent.isCaptcha)
             {
                 field.shouldFocus = false
                 parent.isFocused = false
