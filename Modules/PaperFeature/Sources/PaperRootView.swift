@@ -229,7 +229,7 @@ private struct PaperRootViewScene: View {
 
                 await viewModel.enqueueRefresh().value
             }
-            .simultaneousGesture(sortSwitchGesture)
+            .appHorizontalPageSwitch(onStep: switchSortOrder)
             .accessibilityIdentifier("paper.sort-surface")
 
         }
@@ -276,13 +276,6 @@ private struct PaperRootViewScene: View {
     private func handleComposerCreated() {
         viewModel.selectedOrder = .newest
         viewModel.enqueueRefresh()
-    }
-
-    /// 文章排序左右轻扫切换手势。
-    ///
-    /// 当已经位于最左或最右的排序分区时，继续向外轻扫会切回“话题”页。
-    private var sortSwitchGesture: some Gesture {
-        horizontalSwitchGesture(onStep: switchSortOrder)
     }
 
     private func switchSortOrder(step: Int) {
