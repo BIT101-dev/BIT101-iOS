@@ -328,7 +328,7 @@ if [[ "$MODE" == "modules" ]]; then
   if $BUILD_ONLY; then
     echo "[编译] 模块消费者 · macOS 原生 Release"
     bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块编译" \
-      xcrun swift build --build-tests --enable-code-coverage \
+      xcrun swift build --build-tests --enable-code-coverage -Xswiftc -enable-testing \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
         --configuration release
@@ -342,7 +342,7 @@ if [[ "$MODE" == "modules" ]]; then
     fi
     rm -f "$DERIVED_ROOT/module-events.jsonl"
     bit101_run_logged "$DERIVED_ROOT/$validation_group.log" "模块离线测试" \
-      xcrun swift test --enable-code-coverage \
+      xcrun swift test --enable-code-coverage -Xswiftc -enable-testing \
         --event-stream-version 0 --event-stream-output-path "$DERIVED_ROOT/module-events.jsonl" \
         --package-path "$ROOT_DIR" \
         --scratch-path "$DERIVED_ROOT" \
