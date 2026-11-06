@@ -90,13 +90,13 @@ def gallery_search_queries(parameters: dict) -> list[dict]:
 
 
 def network_route_identity_self_test() -> None:
-    proof, required = verify_native_request_identity()
+    proof, required, complete = verify_native_request_identity()
 
-    writes = verify_session_request_coverage(proof, required)
-    variants = verify_course_request_parameters()
-    login, paper = verify_content_request_coverage(variants)
-    page, transcript = verify_comment_and_transcript_requests(login, paper, writes)
-    verify_final_redirect_queries(login, page, transcript)
+    writes = verify_session_request_coverage(complete, proof, required)
+    variants = verify_course_request_parameters(complete)
+    login, paper = verify_content_request_coverage(complete, variants)
+    page, transcript = verify_comment_and_transcript_requests(complete, login, paper, writes)
+    verify_final_redirect_queries(complete, login, page, transcript)
 
 
 def native_school_request_contracts_self_test() -> None:
@@ -372,12 +372,12 @@ def verify_native_request_identity():
             assert not network_requests_complete({probe}, changed), (probe, parameter)
     from network_request_contracts import SELECTORS
 
-    return proof, required
+    return proof, required, complete
 
 
-def verify_session_request_coverage(proof, required):
+def verify_session_request_coverage(complete, proof, required):
     from network_request_contracts import SELECTORS
-    from network_request_contracts import CONTRACTS, contracts_for, complete
+    from network_request_contracts import CONTRACTS, contracts_for
     from copy import deepcopy
     from validation_provenance import network_requests_complete
 
@@ -496,8 +496,8 @@ def verify_session_request_coverage(proof, required):
     return writes
 
 
-def verify_course_request_parameters():
-    from network_request_contracts import CONTRACTS, contracts_for, complete
+def verify_course_request_parameters(complete):
+    from network_request_contracts import CONTRACTS, contracts_for
     from copy import deepcopy
     from validation_provenance import network_requests_complete
 
@@ -632,8 +632,8 @@ def verify_course_request_parameters():
     return variants
 
 
-def verify_content_request_coverage(variants):
-    from network_request_contracts import CONTRACTS, contracts_for, complete
+def verify_content_request_coverage(complete, variants):
+    from network_request_contracts import CONTRACTS, contracts_for
     from copy import deepcopy
 
     for probe, parameters in variants.items():
@@ -793,8 +793,8 @@ def verify_content_request_coverage(variants):
     return login, paper
 
 
-def verify_comment_and_transcript_requests(login, paper, writes):
-    from network_request_contracts import CONTRACTS, contracts_for, complete
+def verify_comment_and_transcript_requests(complete, login, paper, writes):
+    from network_request_contracts import CONTRACTS, contracts_for
 
     comments = [
         dict(

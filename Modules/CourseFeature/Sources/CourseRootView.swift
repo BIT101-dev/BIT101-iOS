@@ -39,7 +39,7 @@ public struct CourseBrowserPage: View {
                         }
                     })
             )
-            .appHorizontalPageSwitch { onSurfaceStep?($0) }
+            .appPageSwitch { onSurfaceStep?($0) }
             .appAccessibilitySurface()
             .accessibilityIdentifier("course.browse")
         } detail: { request in

@@ -93,6 +93,13 @@ struct ScheduleInlineWeekSlider: View {
             .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
         }
         .accessibilityIdentifier("interaction.ScheduleInlineWeekSlider.scroll")
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: AppHorizontalControlFramesKey.self,
+                    value: [proxy.frame(in: .global)])
+            }
+        }
         .scrollIndicators(.hidden)
         .contentMargins(.horizontal, horizontalPadding, for: .scrollContent)
         .scrollTargetBehavior(weekScrollTargetBehavior)

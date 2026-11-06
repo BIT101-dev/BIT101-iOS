@@ -7,7 +7,23 @@ import os
 nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
     @MainActor
     func testScheduleWeekButtonsAndSectionSwipes() {
-        app = configureApp(resetStorage: true, school: true)
+        app = configureApp(resetStorage: true, animations: true, school: true)
+        let course = app.buttons["schedule.entry.course-ui-school"]
+        assertUI(course.appears(timeout: 5), "课表应显示学校测试课程。")
+        dragFrom(course, to: CGPoint(x: app.frame.minX + 8, y: course.frame.midY))
+        assertUI(app.segmentedControls.buttons["DDL"].isSelected, "从课程卡片横滑应切换到 DDL。")
+        assertUI(!app.navigationBars["课程详情"].exists, "横滑应取消课程点击。")
+        app.descendants(matching: .any)["schedule.section-surface"].swipeRight()
+        dragFrom(course, to: CGPoint(x: course.frame.midX, y: app.frame.midY))
+        assertUI(app.segmentedControls.buttons["课表"].isSelected, "单份课表竖滑应保留当前课表。")
+        assertUI(!app.navigationBars["课程详情"].exists, "竖滑应取消课程点击。")
+        let day = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "第1周，周一，")
+        ).firstMatch
+        dragFrom(day, to: CGPoint(x: app.frame.minX + 8, y: day.frame.midY))
+        assertUI(app.segmentedControls.buttons["DDL"].isSelected, "从日期标题横滑应切换分区。")
+        assertUI(!app.navigationBars["调休 / 放假"].exists, "横滑应取消日期点击。")
+        app.descendants(matching: .any)["schedule.section-surface"].swipeRight()
         let outside = app.scrollViews["schedule.calendar.outside-events"]
         assertUI(outside.appears(timeout: 5), "课间考试应提供课表展示入口。")
         outside.swipeLeft()
@@ -35,7 +51,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
 
     @MainActor
     func testPageSwipesCancelRowOpening() {
-        app = configureApp(resetStorage: true, ddlFixture: "sources")
+        app = configureApp(resetStorage: true, ddlFixture: "sources", animations: true)
         tapHeader(app.segmentedControls.buttons["DDL"])
         let assignment = app.staticTexts["课程中心测试作业"]
         assertUI(assignment.appears(timeout: 5), "DDL 应显示可打开网页的作业。")
@@ -45,7 +61,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         let add = app.buttons["schedule.add-content"]
         assertUI(add.frame.midX > app.frame.midX, "课表加号应位于右侧。")
 
-        app = configureApp(resetStorage: true, content: true, initialTab: "home")
+        app = configureApp(resetStorage: true, content: true, animations: true, initialTab: "home")
         tapHeader(app.segmentedControls.buttons["课程"])
         let course = app.staticTexts["自动化测试课程"]
         assertUI(course.appears(timeout: 5), "课程列表应展示测试课程。")
@@ -312,17 +328,20 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.mainTab("日程").tapBriefly()
         let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
         assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
-        app.swipeUp()
+        app.swipeDown()
         assertUI(
             waitUntil(
                 NSPredicate(format: "label == %@", "课表"),
                 on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
-            "向上滑动应从分享课表循环到主课表。")
-        app.swipeDown()
+            "向下滑动应从分享课表循环到主课表。")
+        let add = app.buttons["schedule.add-content"]
+        dragFrom(add, to: CGPoint(x: add.frame.midX, y: app.frame.midY))
         assertUI(
             waitUntil(
                 NSPredicate(format: "label == %@", "测试分享课表"),
-                on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5), "向下滑动应恢复分享课表。")
+                on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
+            "从加号向上滑动应恢复分享课表。")
+        assertUI(!app.buttons["添加课程"].exists, "从加号起滑应取消菜单点击。")
         let application = try XCTUnwrap(app.native as? XCUIApplication)
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
         application.launchEnvironment["BIT101_UI_TEST_SETTINGS"] = nil
@@ -372,6 +391,16 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         tap("滞留天数")
         assertUI(app.pickerWheels.firstMatch.value as? String == "5 天", "重新装载应保留滞留天数。")
         tap("取消")
+    }
+
+    @MainActor
+    private func dragFrom(_ element: UIElement, to point: CGPoint) {
+        let origin = element.native.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let destination = app.native.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
+        origin.press(
+            forDuration: 0, thenDragTo: destination, withVelocity: .fast, thenHoldForDuration: 0)
+        UITestSnapshotReader.invalidate()
     }
 
 }

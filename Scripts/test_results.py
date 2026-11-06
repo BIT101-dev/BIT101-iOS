@@ -492,7 +492,7 @@ def append_ui_interaction_report_lines(
     control_actions = [float(value) for value in re.findall(r"UI control action: ([\d.]+)", output)]
     lines.append(f"UIKit 控件事件：{len(control_actions)} 次；累计 {sum(control_actions):.1f} 秒")
     inventories = re.findall(r"UI control inventory: (\{[^\n]+\})", output)
-    if inventories:
+    if inventories and summary.get("failedTests", 0) == 0:
         from ui_inventory import merge
 
         inventory = merge([json.loads(value) for value in inventories], set(processes))
@@ -777,30 +777,6 @@ def module_filter(arguments: list[str]) -> None:
     print("|".join(r"(?:^|\.)" + re.escape(value) + r"(?:/|\(|$)" for value in arguments))
 
 
-if __name__ == "__main__":
-    commands = {
-        "report": report_test_results,
-        "elapsed": workflow_elapsed,
-        "start": workflow_start,
-        "ui-plan": ui_test_plan,
-        "ui-host-paths": ui_host_paths,
-        "failures": report_test_failures,
-        "native-metrics": record_native_metrics,
-        "module-metrics": export_module_metrics,
-        "select": selected_inventory,
-        "module-filter": module_filter,
-        "ui-timings": report_ui_timings,
-    }
-    if len(sys.argv) < 2 or sys.argv[1] not in commands:
-        raise SystemExit(
-            (
-                "用法：test_results.py report|ui-plan|failures|native-metrics|module-metrics|select|m"
-                "odule-filter 参数..."
-            )
-        )
-    commands[sys.argv[1]](sys.argv[2:])
-
-
 def append_native_coverage_lines(coverage, device_id, lines, report_path, root):
     from pathlib import Path
     import json
@@ -996,3 +972,27 @@ def report_test_activities(bundle, cli_arguments, diagnostics, result_root):
         else:
             print(f"当前用例包含零份文本诊断附件 · {bundle}")
         raise SystemExit(0)
+
+
+if __name__ == "__main__":
+    commands = {
+        "report": report_test_results,
+        "elapsed": workflow_elapsed,
+        "start": workflow_start,
+        "ui-plan": ui_test_plan,
+        "ui-host-paths": ui_host_paths,
+        "failures": report_test_failures,
+        "native-metrics": record_native_metrics,
+        "module-metrics": export_module_metrics,
+        "select": selected_inventory,
+        "module-filter": module_filter,
+        "ui-timings": report_ui_timings,
+    }
+    if len(sys.argv) < 2 or sys.argv[1] not in commands:
+        raise SystemExit(
+            (
+                "用法：test_results.py report|ui-plan|failures|native-metrics|module-metrics|select|m"
+                "odule-filter 参数..."
+            )
+        )
+    commands[sys.argv[1]](sys.argv[2:])

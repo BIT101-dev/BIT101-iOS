@@ -3,8 +3,8 @@
 from network_fixture_tests import network_trace_fixture
 
 
-def verify_final_redirect_queries(login, page, transcript):
-    from network_request_contracts import CONTRACTS, contracts_for, complete
+def verify_final_redirect_queries(complete, login, page, transcript):
+    from network_request_contracts import CONTRACTS, contracts_for
     from copy import deepcopy
 
     for field in ("query", "finalQuery"):

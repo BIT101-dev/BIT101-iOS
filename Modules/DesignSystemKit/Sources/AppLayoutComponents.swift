@@ -129,20 +129,33 @@ public struct AppPairedPages<First: View, Second: View>: View {
         let isPaired = pairsInLandscape && layout.isLandscape
         let firstVisible = isPaired || showsFirst
         let secondVisible = isPaired || !showsFirst
-        HStack(spacing: AppDesignSystem.Spacing.none) {
-            if hasShownFirst || firstVisible {
-                pane(first, visible: firstVisible)
-                    .frame(
-                        width: isPaired && layout.hasLandscapeDivision
-                            ? layout.sidebarWidth : nil
-                    )
-                    .environment(\.appContentColumn, isPaired ? .leading : nil)
+        GeometryReader { proxy in
+            let firstWidth =
+                isPaired
+                ? (layout.hasLandscapeDivision ? layout.sidebarWidth : nil)
+                : proxy.size.width
+            let arrangement =
+                isPaired
+                ? AnyLayout(HStackLayout(spacing: AppDesignSystem.Spacing.none))
+                : AnyLayout(ZStackLayout(alignment: .leading))
+            arrangement {
+                if hasShownFirst || firstVisible {
+                    pane(first, visible: firstVisible)
+                        .frame(width: firstWidth)
+                        .offset(x: isPaired || showsFirst ? 0 : -proxy.size.width)
+                        .transition(.move(edge: .leading))
+                        .environment(\.appContentColumn, isPaired ? .leading : nil)
+                }
+                if isPaired { Divider() }
+                if hasShownSecond || secondVisible {
+                    pane(second, visible: secondVisible)
+                        .frame(width: isPaired ? nil : proxy.size.width)
+                        .offset(x: isPaired || !showsFirst ? 0 : proxy.size.width)
+                        .transition(.move(edge: .trailing))
+                        .environment(\.appContentColumn, isPaired ? .trailing : nil)
+                }
             }
-            if isPaired { Divider() }
-            if hasShownSecond || secondVisible {
-                pane(second, visible: secondVisible).environment(
-                    \.appContentColumn, isPaired ? .trailing : nil)
-            }
+            .clipShape(pageColumnClip)
         }
         .onChange(of: firstVisible, initial: true) { _, visible in
             if visible { hasShownFirst = true }
@@ -155,14 +168,15 @@ public struct AppPairedPages<First: View, Second: View>: View {
         content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
             .environment(\.appPageIsVisible, visible && isVisible)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(width: visible ? nil : 0)
-            .clipShape(
-                AppPageColumnClip(
-                    windowHeight: (layout.availableHeight ?? 0) + layout.safeAreaInsets.top
-                        + layout.safeAreaInsets.bottom)
-            )
+            .clipShape(pageColumnClip)
             .allowsHitTesting(visible).accessibilityHidden(!visible)
     }
+    private var pageColumnClip: AppPageColumnClip {
+        AppPageColumnClip(
+            windowHeight: (layout.availableHeight ?? 0) + layout.safeAreaInsets.top
+                + layout.safeAreaInsets.bottom)
+    }
+
 }
 
 /// 保留分栏宽度，并允许底部绘制延伸至当前窗口。

@@ -396,34 +396,40 @@ public struct AppHorizontalControlFramesKey: PreferenceKey {
     }
 }
 
-/// 横向翻页在起滑时确认方向，由原生识别器取消条目点击。
+/// 翻页在起滑时确认轴向，由原生识别器取消条目点击。
 extension View {
-    public func appHorizontalPageSwitch(
-        excluding controlFrames: [CGRect] = [], minimumY: CGFloat = -.infinity,
+    public func appPageSwitch(
+        axis: Axis = .horizontal, isEnabled: Bool = true,
+        excluding controlFrames: [CGRect] = [],
         onStep: @escaping (Int) -> Void
     ) -> some View {
         background {
-            AppPageSwitchInput(controlFrames: controlFrames, minimumY: minimumY, onStep: onStep)
-                .allowsHitTesting(false)
+            AppPageSwitchInput(
+                axis: axis, isEnabled: isEnabled, controlFrames: controlFrames, onStep: onStep
+            )
+            .allowsHitTesting(false)
         }
     }
 }
 
 private struct AppPageSwitchInput: UIViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appPageIsVisible) private var isVisible
     @Environment(\.appInteractionEvidence) private var interactionEvidence
+    let axis: Axis
+    let isEnabled: Bool
     let controlFrames: [CGRect]
-    let minimumY: CGFloat
     let onStep: (Int) -> Void
 
     func makeUIView(context: Context) -> InputView { InputView() }
 
     func updateUIView(_ view: InputView, context: Context) {
         view.controlFrames = controlFrames
-        view.minimumY = minimumY
+        view.axis = axis
+        view.animation = AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)
         view.onStep = onStep
         view.interactionEvidence = interactionEvidence
-        view.pan.isEnabled = isVisible
+        view.pan.isEnabled = isVisible && isEnabled
     }
 
     static func dismantleUIView(_ view: InputView, coordinator: ()) {
@@ -433,7 +439,8 @@ private struct AppPageSwitchInput: UIViewRepresentable {
     final class InputView: UIView, UIGestureRecognizerDelegate {
         var interactionEvidence: ((String, String) -> Void)?
         var controlFrames: [CGRect] = []
-        var minimumY: CGFloat = -.infinity
+        var axis = Axis.horizontal
+        var animation: Animation?
         var onStep: (Int) -> Void = { _ in }
         lazy var pan: UIPanGestureRecognizer = {
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
@@ -465,14 +472,15 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         {
             let local = touch.location(in: self)
             let global = convert(local, to: nil)
-            return bounds.contains(local) && global.y >= minimumY
+            return bounds.contains(local)
                 && !controlFrames.contains { $0.contains(global) }
         }
 
         override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool
         {
             let velocity = pan.velocity(in: self)
-            return abs(velocity.x) > abs(velocity.y)
+            return axis == .horizontal
+                ? abs(velocity.x) > abs(velocity.y) : abs(velocity.y) > abs(velocity.x)
         }
 
         func gestureRecognizer(
@@ -486,9 +494,10 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         @objc private func didPan() {
             guard pan.state == .ended else { return }
             let translation = pan.translation(in: self)
-            guard abs(translation.x) >= 56 else { return }
+            let distance = axis == .horizontal ? translation.x : translation.y
+            guard abs(distance) >= 56 else { return }
             interactionEvidence?("interaction.AppPageSwitchInput.pan", "pan")
-            onStep(translation.x < 0 ? 1 : -1)
+            withAnimation(animation) { onStep(distance < 0 ? 1 : -1) }
         }
     }
 }

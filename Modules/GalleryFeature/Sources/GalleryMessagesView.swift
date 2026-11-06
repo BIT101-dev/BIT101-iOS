@@ -147,7 +147,7 @@ struct GalleryMessagesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .contentShape(Rectangle())
-        .appHorizontalPageSwitch(onStep: switchType)
+        .appPageSwitch(onStep: switchType)
         .appAccessibilitySurface()
         .accessibilityIdentifier("gallery.message-surface")
         .navigationTitle("消息")

@@ -866,13 +866,6 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    from validation_artifacts import static_audit_lock
-
-    with static_audit_lock(ROOT):
-        raise SystemExit(main())
-
-
 def check_test_consumers(errors, modules, root, support, tests):
     for name, info in (support | tests).items():
         source_root = root / info["path"]
@@ -942,3 +935,10 @@ def check_native_services(app_aliases, app_syntax, errors, module_aliases, netwo
                     else source.relative_to(root).as_posix(),
                 )
             )
+
+
+if __name__ == "__main__":
+    from validation_artifacts import static_audit_lock
+
+    with static_audit_lock(ROOT):
+        raise SystemExit(main())

@@ -229,7 +229,7 @@ private struct PaperRootViewScene: View {
 
                 await viewModel.enqueueRefresh().value
             }
-            .appHorizontalPageSwitch(onStep: switchSortOrder)
+            .appPageSwitch(onStep: switchSortOrder)
             .accessibilityIdentifier("paper.sort-surface")
 
         }

@@ -400,12 +400,8 @@
     "tests": ["CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleLayoutUITests/testScheduleKeepsWeek"]
   },
   "Modules/ScheduleFeature/Sources/CourseScheduleTabView.swift:CourseScheduleTabView": {
-    "controls": {"AppEmptyState":1,"Button":2,"List":2,"Menu":1,"simultaneousGesture":1},
+    "controls": {"AppEmptyState":1,"Button":2,"List":2,"Menu":1},
     "tests": ["CalendarInteractionUITests/testCourseAndExamSystemCalendarActions","CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails","InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleCopyImportRenameCycle","LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes","ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetail","ScheduleLayoutUITests/testAccessibilityQueryParity","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleNavigationUITests/testEmptyShareAndImportGuideCancel","ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations","ServiceInteractionUITests/testSchoolSmsCourseSyncValidationCancel"]
-  },
-  "Modules/ScheduleFeature/Sources/CourseScheduleTabViewActions.swift:CourseScheduleTabView": {
-    "controls": {"DragGesture":1},
-    "tests": ["CalendarInteractionUITests/testCourseAndExamSystemCalendarActions","CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails","InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout","LoginAndScheduleUITests/testScheduleCopyImportRenameCycle","LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes","ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetail","ScheduleLayoutUITests/testAccessibilityQueryParity","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleNavigationUITests/testEmptyShareAndImportGuideCancel","ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations","ServiceInteractionUITests/testSchoolSmsCourseSyncValidationCancel"]
   },
   "Modules/ScheduleFeature/Sources/DDLSettingsPage.swift:DDLSettingsNumberPickerSheet": {
     "controls": {"Button":2,"Picker":1},

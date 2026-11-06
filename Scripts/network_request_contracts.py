@@ -601,16 +601,6 @@ def community_writes_complete(requests) -> bool:
     )
 
 
-if __name__ == "__main__":
-    import json
-
-    payload = json.load(sys.stdin)
-    passed = complete(payload["probe"], payload["requests"], payload.get("expectedParameters"))
-    if not passed:
-        print("生产请求与 Smoke 约定存在差异：" + payload["probe"], file=sys.stderr)
-    raise SystemExit(0 if passed else 1)
-
-
 def extend_school_session_contracts(allow_sms, probe, rows, school_session):
     if school_session:
         rows.extend(
@@ -727,3 +717,13 @@ def extend_school_session_contracts(allow_sms, probe, rows, school_session):
                 ]
             )
             rows.extend(contract for name in NATIVE_CONTRACTS for contract in CONTRACTS[name])
+
+
+if __name__ == "__main__":
+    import json
+
+    payload = json.load(sys.stdin)
+    passed = complete(payload["probe"], payload["requests"], payload.get("expectedParameters"))
+    if not passed:
+        print("生产请求与 Smoke 约定存在差异：" + payload["probe"], file=sys.stderr)
+    raise SystemExit(0 if passed else 1)

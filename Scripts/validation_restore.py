@@ -845,33 +845,6 @@ def self_test() -> None:
         saved.assert_not_called()
 
 
-if __name__ == "__main__":
-    import sys
-
-    try:
-        if sys.argv[1:] == ["simulator-verify"]:
-            sys.exit(verify_simulator())
-        if sys.argv[1:] == ["invalidate"]:
-            invalidate()
-            sys.exit(0)
-        if sys.argv[1:2] == ["mac-pids"]:
-            sys.stdout.write("".join(f"{pid}\n" for pid in mac_app_pids(Path(sys.argv[2]))))
-            sys.exit(0)
-        if sys.argv[1:2] == ["mac-ready"]:
-            sys.exit(
-                0
-                if mac_ready(Path(sys.argv[2]), Path(sys.argv[3]), *sys.argv[4:], diagnose=True)
-                else 1
-            )
-        result = summary(*sys.argv[1:])
-        if not result["passed"]:
-            readiness_diagnostic(result)
-        sys.exit(0 if result["passed"] else 1)
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
-        print(f"App 就绪采样失败：{type(error).__name__}：{error}", file=sys.stderr)
-        sys.exit(1)
-
-
 def simulator_operation_startup_findings(device_program, runtime):
     from io import StringIO
     import os
@@ -998,3 +971,30 @@ def simulator_restore_preparation_findings(findings, restoration, simulator_sour
             finally:
                 os.close(reader)
                 os.close(writer)
+
+
+if __name__ == "__main__":
+    import sys
+
+    try:
+        if sys.argv[1:] == ["simulator-verify"]:
+            sys.exit(verify_simulator())
+        if sys.argv[1:] == ["invalidate"]:
+            invalidate()
+            sys.exit(0)
+        if sys.argv[1:2] == ["mac-pids"]:
+            sys.stdout.write("".join(f"{pid}\n" for pid in mac_app_pids(Path(sys.argv[2]))))
+            sys.exit(0)
+        if sys.argv[1:2] == ["mac-ready"]:
+            sys.exit(
+                0
+                if mac_ready(Path(sys.argv[2]), Path(sys.argv[3]), *sys.argv[4:], diagnose=True)
+                else 1
+            )
+        result = summary(*sys.argv[1:])
+        if not result["passed"]:
+            readiness_diagnostic(result)
+        sys.exit(0 if result["passed"] else 1)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        print(f"App 就绪采样失败：{type(error).__name__}：{error}", file=sys.stderr)
+        sys.exit(1)

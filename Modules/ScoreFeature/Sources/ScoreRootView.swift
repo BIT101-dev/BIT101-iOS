@@ -55,7 +55,7 @@ public struct ScoreListPage: View {
         AppBrowserLayout(
             selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal"
         ) {
-            content.appHorizontalPageSwitch { onSurfaceStep?($0) }
+            content.appPageSwitch { onSurfaceStep?($0) }
                 .appAccessibilitySurface()
                 .accessibilityIdentifier("score.browse")
         } detail: { page in

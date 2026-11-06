@@ -78,6 +78,7 @@ TEST_AREA_SUITES = {
         "AppDeepLinkRouteTests",
         "AppLocalDataOwnershipTests",
         "AppLocalDataResourceTests",
+        "AppPageInteractionTests",
         "AppSettingsPersistenceBoundaryTests",
         "AppUpdateCheckerTests",
         "CampusMapLocationTests",

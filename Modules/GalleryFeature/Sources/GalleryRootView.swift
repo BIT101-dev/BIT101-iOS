@@ -401,7 +401,7 @@ private struct GalleryRootViewScene: View {
                     }),
                 onPreview: { feedImageViewer = $0 }
             )
-            .appHorizontalPageSwitch(excluding: horizontalControlFrames, onStep: switchFeed)
+            .appPageSwitch(excluding: horizontalControlFrames, onStep: switchFeed)
             .onPreferenceChange(AppHorizontalControlFramesKey.self) {
                 horizontalControlFrames = $0
             }

@@ -424,7 +424,12 @@ struct CourseScheduleTabView: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
         }
         .appSideToolbarActions { addContentAction }
-        .simultaneousGesture(scheduleSwitchGesture)
+        .appPageSwitch(
+            axis: .vertical,
+            isEnabled: viewModel.presentationPreferences.scheduleDisplayMode == .weekly
+                && calendarAxisMode == .quantized,
+            onStep: viewModel.cycleCourseSchedule
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")
         .sheet(

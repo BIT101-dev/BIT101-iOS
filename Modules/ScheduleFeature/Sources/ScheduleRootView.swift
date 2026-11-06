@@ -96,10 +96,8 @@ public struct ScheduleRootView: View {
             .onPreferenceChange(AppHorizontalControlFramesKey.self) {
                 horizontalControlFrames = $0
             }
-            .appHorizontalPageSwitch(
+            .appPageSwitch(
                 excluding: horizontalControlFrames,
-                minimumY: proxy.frame(in: .global).minY
-                    + (viewModel.selectedSection == .courses ? proxy.size.height * 0.25 : 0),
                 onStep: switchSection
             )
             .appAccessibilitySurface()

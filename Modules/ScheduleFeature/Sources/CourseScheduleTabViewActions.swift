@@ -254,29 +254,6 @@ extension CourseScheduleTabView {
         }
     }
 
-    /// 课表之间的上下滑循环切换。
-    ///
-    /// 手势在“课表”分区内处理上下滑循环切换，与上方一级分栏的左右滑切换保持独立。
-    var scheduleSwitchGesture: some Gesture {
-        DragGesture(minimumDistance: 24, coordinateSpace: .local)
-            .onEnded { value in
-                let horizontal = value.translation.width
-                let vertical = value.translation.height
-
-                guard abs(vertical) > abs(horizontal), abs(vertical) >= 56 else { return }
-                guard viewModel.presentationPreferences.scheduleDisplayMode == .weekly else {
-                    return
-                }
-                guard calendarAxisMode == .quantized else { return }
-
-                if vertical < 0 {
-                    viewModel.cycleCourseSchedule(step: 1)
-                } else {
-                    viewModel.cycleCourseSchedule(step: -1)
-                }
-            }
-    }
-
 }
 
 #endif
