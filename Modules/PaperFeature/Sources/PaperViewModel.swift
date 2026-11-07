@@ -34,7 +34,8 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         else { return nil }
         return "\(pageQuery.search.map { "“\($0)”的文章" } ?? "全部文章") · \(pageQuery.order.title)"
     }
-    @ObservationIgnored private var previewLoadingIDs: Set<Int> = []
+    @ObservationIgnored private var previewTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var previewLoadGeneration = 0
     @ObservationIgnored private var previewRevalidationIDs: Set<Int> = []
     private(set) var refreshGeneration = 0
     private(set) var previewGeneration = 0
@@ -58,14 +59,16 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         }
     }
 
-    deinit { refreshTask?.cancel() }
+    deinit {
+        refreshTask?.cancel()
+        for task in previewTasks.values { task.cancel() }
+    }
 
     func cancelRefreshOperations() {
         refreshTask?.cancel()
         refreshTask = nil
         refreshGeneration &+= 1
-        previewRevalidationIDs.formUnion(previewLoadingIDs)
-        previewLoadingIDs.removeAll()
+        cancelPreviewLoads()
         if let refreshPreviousState {
             let items = refreshPreviousState.state.items.preservingMetrics(from: state.items)
             state = refreshPreviousState.state
@@ -118,7 +121,7 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         let previousFailures = previewFailedIDs
         state.failureCause = nil
         refreshPreviousState = (previousState, previousMetadata, previousFailures)
-        previewLoadingIDs = []
+        cancelPreviewLoads()
         defer {
             if refreshGeneration == generation {
                 refreshPreviousState = nil
@@ -150,7 +153,6 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
             previewMetadataByPaperID = previousMetadata.filter { unchanged.contains($0.key) }
             previewRevalidationIDs = Set(previewMetadataByPaperID.keys)
             previewFailedIDs = []
-            previewLoadingIDs = []
             state.applyFirstPage(papers)
             pageQuery = query
             needsRefresh = false
@@ -232,24 +234,42 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         guard state.status == .loaded else { return }
         guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id)
         else { return }
-        guard !previewLoadingIDs.contains(paper.id), !previewFailedIDs.contains(paper.id) else {
+        guard !previewFailedIDs.contains(paper.id) else { return }
+        if let pending = previewTasks[paper.id] {
+            await pending.value
             return
         }
-        let generation = refreshGeneration
-        previewLoadingIDs.insert(paper.id)
-        previewFailedIDs.remove(paper.id)
-        defer { if refreshGeneration == generation { previewLoadingIDs.remove(paper.id) } }
-
-        do {
-            let metadata = try await service.fetchPreviewMetadata(id: paper.id)
-            try Task.checkCancellation()
-            guard refreshGeneration == generation else { return }
-            previewMetadataByPaperID[paper.id] = metadata
-            previewRevalidationIDs.remove(paper.id)
-        } catch {
-            guard refreshGeneration == generation, !TaskCancellation.matches(error) else { return }
-            previewFailedIDs.insert(paper.id)
+        let generation = previewLoadGeneration
+        let task = Task { [weak self, service] in
+            defer {
+                if self?.previewLoadGeneration == generation {
+                    self?.previewTasks.removeValue(forKey: paper.id)
+                }
+            }
+            do {
+                let metadata = try await service.fetchPreviewMetadata(id: paper.id)
+                try Task.checkCancellation()
+                guard let self, self.previewLoadGeneration == generation else { return }
+                self.previewMetadataByPaperID[paper.id] = metadata
+                self.previewRevalidationIDs.remove(paper.id)
+            } catch {
+                guard let self, self.previewLoadGeneration == generation else { return }
+                if TaskCancellation.matches(error) {
+                    self.previewRevalidationIDs.insert(paper.id)
+                } else {
+                    self.previewFailedIDs.insert(paper.id)
+                }
+            }
         }
+        previewTasks[paper.id] = task
+        await task.value
+    }
+
+    private func cancelPreviewLoads() {
+        previewRevalidationIDs.formUnion(previewTasks.keys)
+        for task in previewTasks.values { task.cancel() }
+        previewTasks.removeAll()
+        previewLoadGeneration &+= 1
     }
 
     func previewMetadata(for paperID: Int) -> PaperPreviewMetadata? {
@@ -267,7 +287,6 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
         cancelRefreshOperations()
         previewMetadataByPaperID = [:]
         previewFailedIDs = []
-        previewLoadingIDs = []
         previewRevalidationIDs = []
         state = PaperListState()
         needsRefresh = false

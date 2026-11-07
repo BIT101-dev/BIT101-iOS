@@ -104,7 +104,7 @@ extension FeatureCompositionTests {
         let selectedMedia = media()
         let profiles = CommunityProfileDestination { AnyView(Text("profile \($0)")) }
         let papers = CommunityPaperDestination(
-            papers: { _ in AnyView(Text("paper")) },
+            papers: { _, _ in AnyView(Text("paper")) },
             detail: { AnyView(Text("paper \($0)")) })
         let courses = CommunityCourseDestination { AnyView(Text("course \($0)")) }
         try await replace(

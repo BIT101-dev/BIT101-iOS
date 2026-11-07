@@ -322,16 +322,28 @@ struct CommunityRecoveryCompositionTests {
 
     private final class PaperReads: PaperListServicing {
         var calls = 0, offline = true
+        var suppliesSortedItems = false
+        var previewIDs: [Int] = []
         func fetchPapers(search: String?, order: PaperSortOrder, page: Int) async throws
             -> [PaperSummary]
         {
             calls += 1
             if offline { throw URLError(.notConnectedToInternet) }
-            return []
+            guard suppliesSortedItems, page == 0 else { return [] }
+            await Task.yield()
+            let id = (PaperSortOrder.allCases.firstIndex(of: order) ?? 0) + 1
+            return [1, id + 1].map {
+                .init(
+                    id: $0, title: "排序文章", intro: "", likeNum: 0, commentNum: 0,
+                    updateTime: "stable")
+            }
         }
         func fetchPaper(id: Int) async throws -> PaperDetail { throw URLError(.unsupportedURL) }
         func fetchPreviewMetadata(id: Int) async throws -> PaperPreviewMetadata {
-            throw URLError(.unsupportedURL)
+            guard suppliesSortedItems else { throw URLError(.unsupportedURL) }
+            try await Task.sleep(for: .milliseconds(25))
+            previewIDs.append(id)
+            return .init(authorName: "排序作者\(id)", avatarURL: nil, isAnonymous: false)
         }
     }
 
@@ -429,6 +441,49 @@ struct CommunityRecoveryCompositionTests {
         #expect(service.calls == 2)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func paperSortsLoadTheirAuthors() async throws {
+        let reads = PaperReads()
+        reads.offline = false
+        reads.suppliesSortedItems = true
+        let paperSession = session()
+        let details = PaperService(session: paperSession)
+        let dependencies = PaperDependencies(
+            list: reads, detail: details, composer: details,
+            drafts: ComposerDraftStore(
+                files: PreferenceMemoryFiles(),
+                applicationSupport: URL(fileURLWithPath: "/paper-draft"),
+                session: { AppStorageSession(accountIdentifier: "composition-recovery") },
+                prepareImageData: { $0 }),
+            networkPath: .init(snapshot: .init(status: .connected)),
+            currentIdentity: { paperSession.currentCredentials.identity })
+        let (window, controller) = try window(
+            PaperRootView(dependencies: dependencies, media: media()))
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        func picker(in view: UIView) -> UISegmentedControl? {
+            (view as? UISegmentedControl) ?? view.subviews.lazy.compactMap { picker(in: $0) }.first
+        }
+        for index in PaperSortOrder.allCases.indices {
+            if index > 0 {
+                let control = try #require(picker(in: controller.view))
+                control.selectedSegmentIndex = index
+                control.sendActions(for: .valueChanged)
+            }
+            do {
+                try await waitForTestEvent {
+                    reads.previewIDs.contains(1) && reads.previewIDs.contains(index + 2)
+                }
+            } catch {
+                Issue.record("排序索引：\(index)，列表读取：\(reads.calls)，作者读取：\(reads.previewIDs)")
+                throw error
+            }
+        }
+        #expect(Set(reads.previewIDs) == [1, 2, 3, 4])
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func messageRecoveryCancelKeepsWindowRetryable(changeType: Bool) async throws {
         let domain = "BIT101Tests.message-owner-recovery"
@@ -460,7 +515,7 @@ struct CommunityRecoveryCompositionTests {
             networkPath: path)
         let view = GalleryMessagesView(
             papers: .init(
-                papers: { _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }
+                papers: { _, _ in AnyView(Text("papers")) }, detail: { _ in AnyView(Text("paper")) }
             ),
             courses: .init { _ in AnyView(Text("course")) }, viewModel: model
         )

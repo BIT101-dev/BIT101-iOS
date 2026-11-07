@@ -39,11 +39,11 @@ final class AppCommunityDestinations {
         profiles = Self.profiles(dependencies: dependencies, media: media)
         posters = Self.posters(dependencies: dependencies, media: media)
         papers = CommunityPaperDestination(
-            papers: { requestedID in
+            papers: { requestedID, onShowFeed in
                 AnyView(
                     PaperRootView(
                         dependencies: dependencies.paper, media: media,
-                        requestedPaperID: requestedID))
+                        requestedPaperID: requestedID, onShowFeed: onShowFeed))
             },
             detail: { id in
                 AnyView(

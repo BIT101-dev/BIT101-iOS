@@ -131,6 +131,35 @@ struct PaperSearchViewModelTests {
         #expect(feeds.models.count == PaperSortOrder.allCases.count)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func replacingPreviewWaiterKeepsAuthorLoad() async throws {
+        let paper = PaperSummary(
+            id: 1, title: "作者加载", intro: "", likeNum: 0, commentNum: 0, updateTime: "version")
+        let service = ServiceStub(result: .success([paper]))
+        let model = PaperListViewModel(service: service)
+        await model.refresh()
+        let gate = ListRequestGate<PaperDetail>()
+        service.metadata = { _ in try await gate.request() }
+        let first = Task { await model.loadPreviewMetadata(for: paper) }
+        try await gate.waitUntilRequested()
+        first.cancel()
+        var secondStarted = false
+        let second = Task {
+            secondStarted = true
+            await model.loadPreviewMetadata(for: paper)
+        }
+        while !secondStarted { await Task.yield() }
+        let detail = PaperDetail(
+            id: 1, title: "作者加载", intro: "", content: "", createTime: "", updateTime: "version",
+            updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0,
+            publicEdit: true, like: false, own: true)
+        gate.finish(detail)
+        await first.value
+        await second.value
+        #expect(model.previewMetadata(for: paper.id) == detail.previewMetadata)
+        #expect(service.metadataRequests == 1 && model.previewFailedIDs.isEmpty)
+    }
+
     private final class ServiceStub: PaperListServicing {
         private(set) var requests: [(search: String?, order: PaperSortOrder, page: Int)] = []
         private(set) var metadataRequests = 0

@@ -147,12 +147,17 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(app.mainTab("日程").isHittable, "分区容器应保留 App 底部导航。")
         var feed: UIElement { visiblePaperFeed() }
         feed.swipeRight()
-        assertUI(app.sectionTab("文章").isSelected, "文章首项向外滑动应停留文章。")
-        assertUI(visibleSegment("最新").isSelected, "文章首项应保持最新排序。")
+        assertUI(app.sectionTab("话题").isSelected, "文章首项向前滑动应返回话题。")
+        tapHeader(app.sectionTab("文章"))
+        assertUI(visibleSegment("最新").isSelected, "返回文章应保留最新排序。")
         var positions: [String: CGFloat] = [:]
         for title in ["高赞", "热评"] {
             tapHeader(visibleSegment(title))
             assertUI(visibleSegment(title).isSelected, "文章应选中\(title)。")
+            let author = feed.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS %@", "自动化测试用户")
+            ).firstMatch
+            assertUI(author.appears(timeout: 10), "\(title)排序应完成作者信息加载。")
             let article = feed.descendants(matching: .any).matching(
                 NSPredicate(format: "label CONTAINS %@", "分页文章 10")
             ).firstMatch
@@ -188,8 +193,9 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(visibleSegment("关注").isSelected, "话题首项应保持关注分类。")
         tapHeader(visibleSegment("最热"))
         topics.swipeLeft()
-        assertUI(app.sectionTab("话题").isSelected, "话题末项向外滑动应停留话题。")
-        assertUI(visibleSegment("最热").isSelected, "话题末项应保持最热分类。")
+        assertUI(app.sectionTab("文章").isSelected, "话题末项向后滑动应进入文章。")
+        tapHeader(app.sectionTab("话题"))
+        assertUI(visibleSegment("最热").isSelected, "返回话题应保持最热分类。")
         let screenshot = XCTAttachment(screenshot: app.screenshot())
         screenshot.name = "界面截图"
         screenshot.lifetime = .keepAlways
@@ -291,8 +297,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         paper.swipeRight()
         assertUI(visibleSegment("最新").isSelected, "反向横滑应返回首个文章排序。")
         paper.swipeRight()
-        assertUI(app.sectionTab("文章").isSelected, "文章首个排序向外横滑应保持文章。")
-        tapHeader(app.sectionTab("话题"))
+        assertUI(app.sectionTab("话题").isSelected, "文章首个排序向前横滑应返回话题。")
         tapHeader(visibleSegment("关注"))
         feed.swipeRight()
         assertUI(app.sectionTab("话题").isSelected, "话题首个分类向外横滑应保持话题。")
@@ -303,8 +308,7 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         tapHeader(app.sectionTab("话题"))
         tapHeader(visibleSegment("最热"))
         feed.swipeLeft()
-        assertUI(app.sectionTab("话题").isSelected, "话题末尾分类向外横滑应保持话题。")
-        tapHeader(app.sectionTab("文章"))
+        assertUI(app.sectionTab("文章").isSelected, "话题末尾分类向后横滑应进入文章。")
         tap("搜索文章")
         let paperSearch = app.textFields.firstMatch
         replaceText("文章\n", in: paperSearch)

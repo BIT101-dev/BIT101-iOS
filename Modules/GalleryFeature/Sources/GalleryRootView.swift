@@ -163,7 +163,7 @@ private struct GalleryRootViewScene: View {
                 AppPairedPages(showsFirst: selectedSurface == .gallery, pairsInLandscape: false) {
                     topicSurface
                 } second: {
-                    destinations.papers($requestedPaperID)
+                    destinations.papers($requestedPaperID, { selectedSurface = .gallery })
                 }
                 .accessibilityIdentifier("gallery.surfaces")
             } else {
@@ -461,6 +461,12 @@ private struct GalleryRootViewScene: View {
         let allFeeds = visibleFeeds
         guard let currentIndex = allFeeds.firstIndex(of: viewModel.selectedFeed) else { return }
         let nextIndex = currentIndex + step
+        if nextIndex == allFeeds.count {
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+                selectedSurface = .paper
+            }
+            return
+        }
         guard allFeeds.indices.contains(nextIndex) else { return }
 
         withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {

@@ -16,10 +16,12 @@ public struct PaperRootView: View {
     public init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
-        requestedPaperID: Binding<Int?> = .constant(nil)
+        requestedPaperID: Binding<Int?> = .constant(nil),
+        onShowFeed: @escaping () -> Void = {}
     ) {
         scene = PaperRootViewScene(
-            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID)
+            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
+            onShowFeed: onShowFeed)
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
@@ -37,15 +39,18 @@ private struct PaperRootViewScene: View {
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
     @Binding var requestedPaperID: Int?
+    private let onShowFeed: () -> Void
     private var viewModel: PaperListViewModel { feeds.current }
 
     init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
-        requestedPaperID: Binding<Int?> = .constant(nil)
+        requestedPaperID: Binding<Int?> = .constant(nil),
+        onShowFeed: @escaping () -> Void = {}
     ) {
         self.dependencies = dependencies
         self.media = media
+        self.onShowFeed = onShowFeed
         _requestedPaperID = requestedPaperID
         _feeds = State(initialValue: PaperSortFeeds(service: dependencies.list))
     }
@@ -161,6 +166,12 @@ private struct PaperRootViewScene: View {
             return
         }
         let nextIndex = currentIndex + step
+        if nextIndex == -1 {
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+                onShowFeed()
+            }
+            return
+        }
         guard allOrders.indices.contains(nextIndex) else { return }
 
         withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {

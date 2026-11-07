@@ -540,12 +540,12 @@ struct FeatureCompositionTests {
         let selectedMedia = media()
         var routedIDs: [Int] = []
         let paperRoute = CommunityPaperDestination(
-            papers: { requestedID in
+            papers: { requestedID, onShowFeed in
                 if let id = requestedID.wrappedValue { routedIDs.append(id) }
                 return AnyView(
                     PaperRootView(
                         dependencies: paper(paperTransport), media: selectedMedia,
-                        requestedPaperID: requestedID))
+                        requestedPaperID: requestedID, onShowFeed: onShowFeed))
             }, detail: { AnyView(Text("paper \($0)")) })
         let view = GalleryRootView(
             dependencies: gallery(galleryTransport), media: selectedMedia,
@@ -566,7 +566,7 @@ struct FeatureCompositionTests {
         let dependencies = gallery(TraceTransport())
         var paperAppearances = 0
         let papers = CommunityPaperDestination(
-            papers: { _ in
+            papers: { _, _ in
                 AnyView(Text("paper").onAppear { paperAppearances += 1 })
             }, detail: { _ in AnyView(Text("paper")) })
         let view = GalleryRootView(
