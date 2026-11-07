@@ -544,10 +544,14 @@ def verify_ui_ast_ownership():
     haptic_source = """
 extension View {
     public func appSelectionFeedback<T: Equatable>(trigger: T) -> some View {
-        onChange(of: trigger) { _, _ in UISelectionFeedbackGenerator().selectionChanged() }
+        modifier(AppHapticFeedbackModifier(trigger: trigger) {
+            UISelectionFeedbackGenerator().selectionChanged()
+        })
     }
     public func appImpactFeedback<T: Equatable>(trigger: T) -> some View {
-        onChange(of: trigger) { _, _ in UIImpactFeedbackGenerator().impactOccurred() }
+        modifier(AppHapticFeedbackModifier(trigger: trigger) {
+            UIImpactFeedbackGenerator().impactOccurred()
+        })
     }
 }
 """
@@ -560,6 +564,10 @@ extension View {
     wrong_syntax = swift_syntax_index_sources({str(haptic_path): wrong_source})
     if len(haptic_entry_findings({haptic_path: wrong_source}, wrong_syntax)[0]) != 1:
         findings.append("UI 契约规则界限自检失败：公共触感声明需要对应系统动作")
+    bypass_source = haptic_source.replace("AppHapticFeedbackModifier", "OtherFeedbackModifier")
+    bypass_syntax = swift_syntax_index_sources({str(haptic_path): bypass_source})
+    if len(haptic_entry_findings({haptic_path: bypass_source}, bypass_syntax)[0]) != 2:
+        findings.append("公共触感声明应统一经过页面可见性控制")
     if not ast_has_marker(facts, "AppFailureState"):
         findings.append("UI 契约规则界限自检失败：组件调用识别")
     if ast_has_marker(facts, "AppFailureStates"):

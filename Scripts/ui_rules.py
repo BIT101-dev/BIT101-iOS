@@ -300,10 +300,10 @@ def haptic_entry_findings(
         ]:
             findings.append(f"公共触感接口 {name} 归 DesignSystemKit 的 View 扩展维护")
         if not (
-            re.search(r"\bonChange\s*\(\s*of\s*:\s*trigger\s*\)", code)
+            re.search(r"\bAppHapticFeedbackModifier\s*\(\s*trigger\s*:\s*trigger\b", code)
             and re.search(rf"\b{generator}\s*\(\s*\)\s*\.\s*{action}\s*\(", code)
         ):
-            findings.append(f"公共触感接口 {name} 需要调用对应系统触感")
+            findings.append(f"公共触感接口 {name} 需要经过页面可见性控制调用对应系统触感")
         owners.add(path)
     return findings, owners
 

@@ -411,7 +411,6 @@ struct CourseScheduleCalendarView: View {
             .background(AppDesignSystem.Palette.Background.system)
             // 课表主体沿用 List 分组内容的圆角；其它卡片使用各自样式。
             .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
-            .appSelectionFeedback(trigger: week)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
         }
     }

@@ -1,10 +1,34 @@
-import DesignSystemKit
 import Observation
 import SwiftUI
 import UIKit
 import XCTest
 
+@testable import DesignSystemKit
+
 nonisolated final class AppPageInteractionTests: XCTestCase {
+    @MainActor
+    func testOnlyVisiblePageRequestsHaptics() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let selection = PageSelection()
+        let controller = UIHostingController(rootView: HapticFixture(selection: selection))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        try await waitForTestEvent { selection.hapticViewsReady == 2 }
+        selection.hapticValue = 1
+        try await waitForTestEvent { selection.feedbackPages == [true] }
+        selection.showsFirst = false
+        selection.hapticValue = 2
+        try await waitForTestEvent { selection.feedbackPages == [true, false] }
+        selection.hapticValue = 3
+        try await waitForTestEvent { selection.feedbackPages == [true, false, false] }
+    }
+
     @MainActor
     func testPairedPagesDrawIntoBottomInset() async throws {
         let scene = try XCTUnwrap(
@@ -221,6 +245,29 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
 @Observable
 private final class PageSelection {
     var showsFirst = true
+    var hapticValue = 0
+    var hapticViewsReady = 0
+    var feedbackPages: [Bool] = []
+}
+
+private struct HapticFixture: View {
+    let selection: PageSelection
+    var body: some View {
+        VStack {
+            forPage(true)
+            forPage(false)
+        }
+    }
+    private func forPage(_ first: Bool) -> some View {
+        Text(first ? "首页" : "次页")
+            .modifier(
+                AppHapticFeedbackModifier(trigger: selection.hapticValue) {
+                    selection.feedbackPages.append(first)
+                }
+            )
+            .environment(\.appPageIsVisible, selection.showsFirst == first)
+            .onAppear { selection.hapticViewsReady += 1 }
+    }
 }
 
 private struct PageFixture: View {

@@ -432,7 +432,9 @@ struct CourseScheduleTabView: View {
                 && calendarAxisMode == .quantized,
             onStep: viewModel.cycleCourseSchedule
         )
-        .appSelectionFeedback(trigger: viewModel.selectedCourseScheduleIndex)
+        .appSelectionFeedback(trigger: [
+            viewModel.selectedCourseScheduleIndex, viewModel.selectedWeek,
+        ])
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")
         .sheet(
