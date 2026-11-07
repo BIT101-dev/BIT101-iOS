@@ -257,16 +257,19 @@ struct GalleryMessagesView: View {
     }
 
     /// 把消息分类切换到相邻页签。
-    private func switchType(step: Int) {
+    private func switchType(step: Int) -> Bool {
         let allTypes = GalleryMessageType.allCases
-        guard let currentIndex = allTypes.firstIndex(of: viewModel.selectedType) else { return }
+        guard let currentIndex = allTypes.firstIndex(of: viewModel.selectedType) else {
+            return false
+        }
 
         let nextIndex = currentIndex + step
-        guard allTypes.indices.contains(nextIndex) else { return }
+        guard allTypes.indices.contains(nextIndex) else { return false }
 
         withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedType = allTypes[nextIndex]
         }
+        return true
     }
 
 }

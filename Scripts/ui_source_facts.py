@@ -526,6 +526,8 @@ def image_only_button_findings(path: Path, facts: dict) -> list[str]:
 
 
 def selection_control_has_feedback(control: dict, modifiers: list[dict]) -> bool:
+    if re.search(r"\bselection\s*:\s*\$?\w+\.appSelectionAction\s*\(\s*\)", control["invocation"]):
+        return True
     prefix = re.compile(rf"^(?:SwiftUI\.)?{re.escape(control['name'])}\s*\(")
     return any(
         modifier["name"] == "appSelectionFeedback"

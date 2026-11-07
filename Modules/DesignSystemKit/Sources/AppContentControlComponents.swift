@@ -82,13 +82,12 @@ public struct AppSegmentedPicker<Selection: Hashable, Content: View>: View {
     }
 
     public var body: some View {
-        Picker(title, selection: $selection) {
+        Picker(title, selection: $selection.appSelectionAction()) {
             content
         }
         .pickerStyle(.segmented)
         .transaction { $0.animation = nil }
         .frame(maxWidth: .infinity)
-        .appSelectionFeedback(trigger: selection)
         .accessibilityIdentifier("ui.app-segmented-picker.value")
     }
 }
@@ -402,7 +401,7 @@ extension View {
     public func appPageSwitch(
         axis: Axis = .horizontal, isEnabled: Bool = true,
         excluding controlFrames: [CGRect] = [],
-        onStep: @escaping (Int) -> Void
+        onStep: @escaping (Int) -> Bool
     ) -> some View {
         background {
             AppPageSwitchInput(
@@ -420,7 +419,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
     let axis: Axis
     let isEnabled: Bool
     let controlFrames: [CGRect]
-    let onStep: (Int) -> Void
+    let onStep: (Int) -> Bool
 
     func makeUIView(context: Context) -> InputView { InputView() }
 
@@ -442,7 +441,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         var controlFrames: [CGRect] = []
         var axis = Axis.horizontal
         var animation: Animation?
-        var onStep: (Int) -> Void = { _ in }
+        var onStep: (Int) -> Bool = { _ in false }
         lazy var pan: UIPanGestureRecognizer = {
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
             recognizer.name = "app.page-switch"
@@ -498,7 +497,9 @@ private struct AppPageSwitchInput: UIViewRepresentable {
             let distance = axis == .horizontal ? translation.x : translation.y
             guard abs(distance) >= 56 else { return }
             interactionEvidence?("interaction.AppPageSwitchInput.pan", "pan")
-            withAnimation(animation) { onStep(distance < 0 ? 1 : -1) }
+            AppHapticFeedback.selection {
+                withAnimation(animation) { onStep(distance < 0 ? 1 : -1) }
+            }
         }
     }
 }

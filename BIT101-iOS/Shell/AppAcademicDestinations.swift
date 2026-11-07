@@ -170,15 +170,16 @@ private struct AppScoreSurfaceScene: View {
     }
 
     /// 该方法按步长将当前分区切换到相邻分区。
-    private func switchSurface(step: Int) {
-        guard !expandedNavigation else { return }
+    private func switchSurface(step: Int) -> Bool {
+        guard !expandedNavigation else { return false }
         let allSurfaces = ScoreSurface.allCases
-        guard let currentIndex = allSurfaces.firstIndex(of: selectedSurface) else { return }
+        guard let currentIndex = allSurfaces.firstIndex(of: selectedSurface) else { return false }
 
         let nextIndex = currentIndex + step
-        guard allSurfaces.indices.contains(nextIndex) else { return }
+        guard allSurfaces.indices.contains(nextIndex) else { return false }
 
         switchSurface(to: allSurfaces[nextIndex])
+        return true
     }
 
     /// 该方法切换指定分区。

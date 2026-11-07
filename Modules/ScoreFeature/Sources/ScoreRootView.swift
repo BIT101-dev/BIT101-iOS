@@ -30,7 +30,7 @@ public struct ScoreListPage: View {
     @Bindable var viewModel: ScoreViewModel
     let onSearchCourse: (String) -> Void
     let transcriptService: any TrustedTranscriptServicing
-    private let onSurfaceStep: ((Int) -> Void)?
+    private let onSurfaceStep: ((Int) -> Bool)?
     @State private var selectedPage: ScorePageSelection?
 
     private enum ScorePageSelection: Hashable {
@@ -43,7 +43,7 @@ public struct ScoreListPage: View {
 
     public init(
         viewModel: ScoreViewModel, transcriptService: any TrustedTranscriptServicing,
-        onSurfaceStep: ((Int) -> Void)? = nil, onSearchCourse: @escaping (String) -> Void
+        onSurfaceStep: ((Int) -> Bool)? = nil, onSearchCourse: @escaping (String) -> Void
     ) {
         self.viewModel = viewModel
         self.transcriptService = transcriptService
@@ -55,7 +55,7 @@ public struct ScoreListPage: View {
         AppBrowserLayout(
             selection: $selectedPage, title: "选择一项成绩", symbol: "chart.bar.doc.horizontal"
         ) {
-            content.appPageSwitch { onSurfaceStep?($0) }
+            content.appPageSwitch { onSurfaceStep?($0) ?? false }
                 .appAccessibilitySurface()
                 .accessibilityIdentifier("score.browse")
         } detail: { page in

@@ -11,13 +11,13 @@ public struct CourseBrowserPage: View {
     private let dependencies: CourseDependencies
     private let media: MediaEnvironment
     private let profiles: CommunityProfileDestination
-    private let onSurfaceStep: ((Int) -> Void)?
+    private let onSurfaceStep: ((Int) -> Bool)?
 
     public init(
         viewModel: CourseListViewModel, dependencies: CourseDependencies,
         media: MediaEnvironment,
         profiles: CommunityProfileDestination, selection: Binding<CourseNavigationRequest?>,
-        onSurfaceStep: ((Int) -> Void)? = nil
+        onSurfaceStep: ((Int) -> Bool)? = nil
     ) {
         self.viewModel = viewModel
         self.dependencies = dependencies
@@ -39,7 +39,7 @@ public struct CourseBrowserPage: View {
                         }
                     })
             )
-            .appPageSwitch { onSurfaceStep?($0) }
+            .appPageSwitch { onSurfaceStep?($0) ?? false }
             .appAccessibilitySurface()
             .accessibilityIdentifier("course.browse")
         } detail: { request in

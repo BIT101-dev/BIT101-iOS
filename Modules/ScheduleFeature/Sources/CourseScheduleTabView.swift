@@ -272,7 +272,10 @@ struct CourseScheduleTabView: View {
                         )
                     },
                     onSelectWeekValue: { week in
-                        viewModel.selectedWeek = week
+                        Binding(
+                            get: { viewModel.selectedWeek }, set: { viewModel.selectedWeek = $0 }
+                        )
+                        .appSelectionAction().wrappedValue = week
                     },
                     onLongPressCourse: { entry in
                         shareCourse(from: entry)
@@ -430,11 +433,12 @@ struct CourseScheduleTabView: View {
             axis: .vertical,
             isEnabled: viewModel.presentationPreferences.scheduleDisplayMode == .weekly
                 && calendarAxisMode == .quantized,
-            onStep: viewModel.cycleCourseSchedule
+            onStep: { step in
+                let previous = viewModel.selectedCourseScheduleIndex
+                viewModel.cycleCourseSchedule(step: step)
+                return previous != viewModel.selectedCourseScheduleIndex
+            }
         )
-        .appSelectionFeedback(trigger: [
-            viewModel.selectedCourseScheduleIndex, viewModel.selectedWeek,
-        ])
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("schedule.variant-surface")
         .sheet(

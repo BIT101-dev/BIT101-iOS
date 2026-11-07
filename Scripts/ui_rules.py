@@ -325,6 +325,7 @@ def check_haptic_consistency(errors: list[str], syntax: dict[str, dict]) -> None
     }
     for path, source in sources.items():
         facts = syntax[str(path)]
+        errors.extend(page_haptic_findings(str(path.relative_to(ROOT)), source))
         for control in facts["selectionControls"]:
             if not selection_control_has_feedback(control, facts["feedbackModifiers"]):
                 errors.append(
@@ -756,6 +757,35 @@ from ui_native_interactions import (
     native_interaction_inventory,
     native_runtime_controls,
 )
+
+
+def page_haptic_findings(relative: str, source: str) -> list[str]:
+    errors = []
+    source = mask_literals_and_comments(source)
+    if relative == "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift":
+        if not re.search(
+            ("Picker\\(title,\\s*selection:\\s*\\$selection\\.appSelectionAction\\(\\)\\)"), source
+        ):
+            errors.append("分栏触感必须从用户操作绑定触发")
+        if not re.search(r"onStep:\s*@escaping\s*\(Int\)\s*->\s*Bool", source):
+            errors.append("页面切换必须报告操作是否成功")
+        if not re.search(
+            (
+                "AppHapticFeedback\\.selection\\s*\\{\\s*withAnimation\\(animation\\)\\s*\\{"
+                "\\s*onStep\\("
+            ),
+            source,
+        ):
+            errors.append("翻页触感必须由成功切换操作统一发出")
+        if re.search(r"appSelectionFeedback\(trigger:\s*selection\)", source):
+            errors.append("分栏使用操作反馈后，须清理选择状态监听反馈")
+    if relative in PAGE_CONTAINER_OWNERS or relative in {
+        "Modules/ScheduleFeature/Sources/CourseScheduleTabView.swift",
+        "Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift",
+    }:
+        if re.search(r"\.appSelectionFeedback\s*\(", source):
+            errors.append(f"{relative}: 页面切换触感统一由操作发出，须清理页面状态监听反馈")
+    return errors
 
 
 PAGE_CONTAINER_OWNERS = {

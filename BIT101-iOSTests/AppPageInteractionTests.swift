@@ -7,6 +7,56 @@ import XCTest
 
 nonisolated final class AppPageInteractionTests: XCTestCase {
     @MainActor
+    func testRetainedPickersOnlyEmitForUserActions() async throws {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let selection = PageSelection()
+        var feedbackCount = 0
+        let originalFeedback = AppHapticFeedback.selectionFeedback
+        AppHapticFeedback.selectionFeedback = { feedbackCount += 1 }
+        let controller = UIHostingController(rootView: SelectionActionFixture(selection: selection))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            AppHapticFeedback.selectionFeedback = originalFeedback
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        func controls(in view: UIView) -> [UISegmentedControl] {
+            if let control = view as? UISegmentedControl { return [control] }
+            return view.subviews.flatMap { controls(in: $0) }
+        }
+        try await waitForTestEvent { controls(in: controller.view).count == 1 }
+        selection.showsFirst = false
+        try await waitForTestEvent { controls(in: controller.view).count == 2 }
+        selection.hapticValue = 1
+        try await waitForTestEvent {
+            controls(in: controller.view).allSatisfy { $0.selectedSegmentIndex == 1 }
+        }
+        XCTAssertEqual(feedbackCount, 0, "程序更新和页面保留应保持静默。")
+        let control = try XCTUnwrap(controls(in: controller.view).last)
+        control.selectedSegmentIndex = 0
+        control.sendActions(for: .valueChanged)
+        try await waitForTestEvent { selection.hapticValue == 0 }
+        XCTAssertEqual(feedbackCount, 1, "用户点击只应由当前控件发出一次反馈。")
+        control.sendActions(for: .valueChanged)
+        XCTAssertEqual(feedbackCount, 1, "重复选择当前项应保持静默。")
+        AppHapticFeedback.selection {
+            selection.showsFirst = true
+            selection.hapticValue = 1
+            return true
+        }
+        try await waitForTestEvent {
+            controls(in: controller.view).allSatisfy { $0.selectedSegmentIndex == 1 }
+        }
+        XCTAssertEqual(feedbackCount, 2, "一次操作更新页面及选择后，只应新增一次反馈。")
+        let rejected = Binding(get: { selection.hapticValue }, set: { _ in }).appSelectionAction()
+        rejected.wrappedValue = 0
+        XCTAssertEqual(feedbackCount, 2, "操作未改变选择时应保持静默。")
+    }
+
+    @MainActor
     func testOnlyVisiblePageRequestsHaptics() async throws {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -84,7 +134,7 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
         let controller = UIHostingController(
             rootView: Button("条目") {}.frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .appPageSwitch { _ in })
+                .appPageSwitch { _ in false })
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -267,6 +317,27 @@ private struct HapticFixture: View {
             )
             .environment(\.appPageIsVisible, selection.showsFirst == first)
             .onAppear { selection.hapticViewsReady += 1 }
+    }
+}
+
+private struct SelectionActionFixture: View {
+    let selection: PageSelection
+    var body: some View {
+        AppPairedPages(showsFirst: selection.showsFirst, pairsInLandscape: false) {
+            picker
+        } second: {
+            picker
+        }
+    }
+    private var picker: some View {
+        AppSegmentedPicker(
+            title: "选择",
+            selection: Binding(
+                get: { selection.hapticValue }, set: { selection.hapticValue = $0 })
+        ) {
+            Text("第一项").tag(0)
+            Text("第二项").tag(1)
+        }
     }
 }
 

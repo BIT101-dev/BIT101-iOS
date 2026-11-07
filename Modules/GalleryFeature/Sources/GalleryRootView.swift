@@ -457,21 +457,24 @@ private struct GalleryRootViewScene: View {
     }
 
     /// 把当前 feed 切换到相邻分区。
-    private func switchFeed(step: Int) {
+    private func switchFeed(step: Int) -> Bool {
         let allFeeds = visibleFeeds
-        guard let currentIndex = allFeeds.firstIndex(of: viewModel.selectedFeed) else { return }
+        guard let currentIndex = allFeeds.firstIndex(of: viewModel.selectedFeed) else {
+            return false
+        }
         let nextIndex = currentIndex + step
         if nextIndex == allFeeds.count {
             withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
                 selectedSurface = .paper
             }
-            return
+            return true
         }
-        guard allFeeds.indices.contains(nextIndex) else { return }
+        guard allFeeds.indices.contains(nextIndex) else { return false }
 
         withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             viewModel.selectedFeed = allFeeds[nextIndex]
         }
+        return true
     }
 
 }

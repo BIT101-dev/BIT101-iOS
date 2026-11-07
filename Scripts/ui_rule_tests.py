@@ -56,6 +56,7 @@ from ui_source_facts import (
 from ui_rules import (
     alert_coverage_findings,
     haptic_entry_findings,
+    page_haptic_findings,
     interactive_list_row_findings,
     is_registered_map_theme_color_definition,
     is_reviewed_fixed_geometry,
@@ -568,6 +569,29 @@ extension View {
     bypass_syntax = swift_syntax_index_sources({str(haptic_path): bypass_source})
     if len(haptic_entry_findings({haptic_path: bypass_source}, bypass_syntax)[0]) != 2:
         findings.append("公共触感声明应统一经过页面可见性控制")
+    page_path = "Modules/DesignSystemKit/Sources/AppContentControlComponents.swift"
+    page_source = """
+    Picker(title, selection: $selection.appSelectionAction())
+    onStep: @escaping (Int) -> Bool
+    AppHapticFeedback.selection { withAnimation(animation) { onStep(step) } }
+    """
+    if page_haptic_findings(page_path, page_source):
+        findings.append("操作触感应支持分栏绑定与成功翻页")
+    for original, replacement in (
+        ("$selection.appSelectionAction()", "$selection"),
+        ("-> Bool", "-> Void"),
+        ("AppHapticFeedback.selection", "untrackedFeedback"),
+    ):
+        if len(page_haptic_findings(page_path, page_source.replace(original, replacement))) != 1:
+            findings.append("操作触感检查应检出缺少反馈或缺少成功结果的切换")
+    duplicate = page_source + ".appSelectionFeedback(trigger: selection)"
+    if len(page_haptic_findings(page_path, duplicate)) != 1:
+        findings.append("操作触感检查应检出分栏重复的状态监听")
+    if not page_haptic_findings(
+        "Modules/ScheduleFeature/Sources/CourseScheduleTabView.swift",
+        ".appSelectionFeedback(trigger: selectedWeek)",
+    ):
+        findings.append("课表切换应禁止状态监听额外发出触感")
     if not ast_has_marker(facts, "AppFailureState"):
         findings.append("UI 契约规则界限自检失败：组件调用识别")
     if ast_has_marker(facts, "AppFailureStates"):

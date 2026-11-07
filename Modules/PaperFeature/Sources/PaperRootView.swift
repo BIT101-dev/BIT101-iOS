@@ -17,7 +17,7 @@ public struct PaperRootView: View {
         dependencies: PaperDependencies,
         media: MediaEnvironment,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        onShowFeed: @escaping () -> Void = {}
+        onShowFeed: (() -> Void)? = nil
     ) {
         scene = PaperRootViewScene(
             dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
@@ -39,14 +39,14 @@ private struct PaperRootViewScene: View {
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
     @Binding var requestedPaperID: Int?
-    private let onShowFeed: () -> Void
+    private let onShowFeed: (() -> Void)?
     private var viewModel: PaperListViewModel { feeds.current }
 
     init(
         dependencies: PaperDependencies,
         media: MediaEnvironment,
         requestedPaperID: Binding<Int?> = .constant(nil),
-        onShowFeed: @escaping () -> Void = {}
+        onShowFeed: (() -> Void)? = nil
     ) {
         self.dependencies = dependencies
         self.media = media
@@ -160,23 +160,25 @@ private struct PaperRootViewScene: View {
         viewModel.enqueueRefresh()
     }
 
-    private func switchSortOrder(step: Int) {
+    private func switchSortOrder(step: Int) -> Bool {
         let allOrders = PaperSortOrder.allCases
         guard let currentIndex = allOrders.firstIndex(of: viewModel.selectedOrder) else {
-            return
+            return false
         }
         let nextIndex = currentIndex + step
         if nextIndex == -1 {
+            guard let onShowFeed else { return false }
             withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
                 onShowFeed()
             }
-            return
+            return true
         }
-        guard allOrders.indices.contains(nextIndex) else { return }
+        guard allOrders.indices.contains(nextIndex) else { return false }
 
         withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
             feeds.select(allOrders[nextIndex])
         }
+        return true
     }
 }
 
@@ -185,7 +187,7 @@ private struct PaperFeedPage: View {
     @Environment(\.appPageIsVisible) private var isVisible
     @Bindable var viewModel: PaperListViewModel
     @Binding var selectedPaper: PaperSummary?
-    let onStep: (Int) -> Void
+    let onStep: (Int) -> Bool
     @State private var currentTopPaperID: Int?
 
     @ViewBuilder

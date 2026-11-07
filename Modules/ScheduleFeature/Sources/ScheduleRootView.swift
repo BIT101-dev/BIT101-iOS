@@ -235,18 +235,19 @@ public struct ScheduleRootView: View {
     }
 
     /// 根据方向切换一级分区。
-    private func switchSection(step: Int) {
+    private func switchSection(step: Int) -> Bool {
         let allSections: [ScheduleSection] =
             layout.isLandscape ? [.courses, .classroom] : ScheduleSection.allCases
         let currentSection =
             layout.isLandscape && viewModel.selectedSection == .ddl
             ? ScheduleSection.courses : viewModel.selectedSection
-        guard let currentIndex = allSections.firstIndex(of: currentSection) else { return }
+        guard let currentIndex = allSections.firstIndex(of: currentSection) else { return false }
 
         let nextIndex = currentIndex + step
-        guard allSections.indices.contains(nextIndex) else { return }
+        guard allSections.indices.contains(nextIndex) else { return false }
 
         viewModel.selectedSection = allSections[nextIndex]
+        return true
     }
 
     /// 消费来自 App 壳层的深链跳转请求。
