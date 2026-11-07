@@ -348,6 +348,13 @@ def command_dispatch_inputs(valid_fixture):
             "run-extended-tests.sh",
             ["ui", "Schedule"],
             86,
+            "MaintenancePerformanceUITests",
+            "DEVICE",
+        ),
+        (
+            "run-extended-tests.sh",
+            ["ui", "LoginAndScheduleUITests"],
+            86,
             "testScheduleWeekButtonsAndSectionSwipes",
             "DEVICE",
         ),
@@ -390,7 +397,7 @@ def command_dispatch_inputs(valid_fixture):
         BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture),
         BIT101_COMMUNITY_SMOKE_ACCOUNT="1",
     )
-    return cases, environment, ui_test_count
+    return cases, environment
 
 
 def check_workflow_failure_recording(environment, findings, frame):
@@ -465,7 +472,7 @@ bit101_run_logged() { print BUILD; return 79; }
             )
 
 
-def check_command_dispatch(cases, environment, findings, frame, support, ui_test_count):
+def check_command_dispatch(cases, environment, findings, frame, support):
     for filename, arguments, expected, marker, device in cases:
         path = SCRIPT_ROOT / filename
         source = path.read_text().replace(
@@ -597,11 +604,14 @@ def check_command_dispatch(cases, environment, findings, frame, support, ui_test
             findings.append("命令自测：重复 UI 关键词合并为一个用例")
         if arguments == ["ui", "Schedule"] and "testAboutLicense" in result.stdout:
             findings.append("命令自测：方法关键词按实际流程筛选")
-        if (
-            arguments == ["ui", "test"]
-            and command_output.count("-only-testing:BIT101-iOSUITests/") != ui_test_count
-        ):
-            findings.append("命令自测：两个测试类的全部交互用例可通过关键词选择")
+        if arguments == ["ui", "test"]:
+            from validation_test_areas import test_inventory
+
+            expected = {item for item in test_inventory("ui")
+                        if item.startswith("MaintenancePerformanceUITests/")}
+            selected = set(re.findall(r"-only-testing:BIT101-iOSUITests/([^\s]+)", command_output))
+            if selected != expected:
+                findings.append("命令自测：完整 UI 选择先执行全部性能用例")
 
 
 def check_invalid_command_arguments(findings):

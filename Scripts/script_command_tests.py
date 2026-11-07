@@ -56,9 +56,9 @@ def script_command_boundary_findings() -> list[str]:
     check_archive_installation(frame)
     export_source, valid_fixture = check_network_command_configuration(findings, frame)
     check_export_locks_and_tools(export_source, findings)
-    cases, environment, ui_test_count = command_dispatch_inputs(valid_fixture)
+    cases, environment = command_dispatch_inputs(valid_fixture)
     check_workflow_failure_recording(environment, findings, frame)
-    check_command_dispatch(cases, environment, findings, frame, support, ui_test_count)
+    check_command_dispatch(cases, environment, findings, frame, support)
     check_invalid_command_arguments(findings)
     check_ui_test_plan_selection(findings)
 

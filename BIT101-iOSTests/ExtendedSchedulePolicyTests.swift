@@ -15,6 +15,46 @@ import UserNotifications
 
 @Suite("Extended schedule invariants")
 struct ExtendedSchedulePolicyTests {
+    @Test func widgetTimelineKeepsLastCourseUntilEnd() throws {
+        let firstDay = try #require(ScheduleSharedDateCodec.parseDate("2024-02-26"))
+        func time(_ value: String) throws -> Date {
+            try #require(ScheduleSharedDateCodec.combine(date: firstDay, time: value))
+        }
+        let now = try time("07:55")
+        let snapshot = ScheduleExternalSnapshot(
+            isLoggedIn: true, studentID: "student", firstDayString: "2024-02-26",
+            timeTable: [.init(id: 1, start: "08:00", end: "08:45"),
+                        .init(id: 2, start: "10:00", end: "10:45")],
+            courses: [.init(id: "first", name: "高数", classroom: "文萃楼", teacher: "教师",
+                            weeks: [1], weekday: 1, startSection: 1, endSection: 1),
+                      .init(id: "last", name: "物理", classroom: "文萃楼", teacher: "教师",
+                            weeks: [1], weekday: 1, startSection: 2, endSection: 2)])
+        let entries = ScheduleOccurrenceResolver.resolvedTimeline(
+            from: snapshot, now: now, includeDisplayUntilDates: true, limit: 1)
+        func entry(_ value: String) throws -> ScheduleExternalTimelineEntry {
+            let date = try time(value)
+            return try #require(entries.first { $0.date == date })
+        }
+        #expect(try entry("08:00").resolved.nextOccurrence?.title == "高数")
+        #expect(try entry("08:05").resolved.nextOccurrence?.title == "物理")
+        let lastEntry = try entry("10:00")
+        let last = try #require(lastEntry.resolved.nextOccurrence)
+        let current = try time("10:30")
+        let end = try time("10:45")
+        #expect(last.isCurrent(at: current))
+        #expect(last.countdownTargetDate(at: current) == end)
+        #expect(try entry("10:45").resolved.contentState == .rest)
+        #expect(entries.last?.date == now.addingTimeInterval(24 * 60 * 60))
+        #expect(entries.allSatisfy { $0.resolved.upcomingOccurrences.count <= 1 })
+        let withoutHandoff = ScheduleOccurrenceResolver.resolvedTimeline(
+            from: snapshot, now: now, includeDisplayUntilDates: false, limit: 1)
+        let handoff = try time("08:05")
+        #expect(!withoutHandoff.contains { $0.date == handoff })
+        let missing = ScheduleOccurrenceResolver.resolvedTimeline(
+            from: nil, now: now, includeDisplayUntilDates: true)
+        #expect(missing.count == 1 && missing.first?.resolved.contentState == .missing)
+    }
+
     @Test func deadlineExportKeepsPendingSources() throws {
         var cache = ScheduleCache()
         cache.ddlEvents = [

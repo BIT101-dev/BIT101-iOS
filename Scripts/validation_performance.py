@@ -56,7 +56,7 @@ def bundle_identity(bundle: Path) -> str:
     ).decode("ascii")
 
 
-def merge_result_bundles(retained: Path, merged: Path) -> None:
+def merge_result_bundles(retained: Path, merged: Path, *, bind_pending: bool = True) -> None:
     shutil.rmtree(merged, ignore_errors=True)
     try:
         subprocess.run(
@@ -80,7 +80,8 @@ def merge_result_bundles(retained: Path, merged: Path) -> None:
     except BaseException:
         shutil.rmtree(merged, ignore_errors=True)
         raise
-    bind_pending_result_merge(merged)
+    if bind_pending:
+        bind_pending_result_merge(merged)
     shutil.rmtree(retained)
     shutil.rmtree(BUNDLE)
     shutil.move(str(merged), str(BUNDLE))
@@ -118,6 +119,17 @@ def recover_result_bundle() -> None:
         shutil.move(str(retained), str(BUNDLE))
     shutil.rmtree(retained, ignore_errors=True)
     shutil.rmtree(merged, ignore_errors=True)
+
+
+def native_performance_phase(*, merge: bool) -> None:
+    retained = BUNDLE.with_suffix(".performance.xcresult")
+    if merge:
+        merge_result_bundles(
+            retained, BUNDLE.with_suffix(".incoming.xcresult"), bind_pending=False)
+    else:
+        bundle_identity(BUNDLE)
+        shutil.rmtree(retained, ignore_errors=True)
+        BUNDLE.rename(retained)
 
 
 def bind_pending_result_merge(bundle: Path) -> None:
@@ -743,6 +755,12 @@ def update_baseline_records(proof: dict, approver: str, limit: float | None) -> 
 
 
 def main(arguments: list[str]) -> int:
+    if arguments == ["stage-native-performance"]:
+        native_performance_phase(merge=False)
+        return 0
+    if arguments == ["merge-native-performance"]:
+        native_performance_phase(merge=True)
+        return 0
     if len(arguments) == 2 and arguments[0] == "begin-full":
         print("\n".join(begin_selected_result_step(replacing_group=arguments[1])))
         return 0

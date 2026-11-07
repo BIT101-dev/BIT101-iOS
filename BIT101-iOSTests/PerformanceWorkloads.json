@@ -1,11 +1,17 @@
 {
   "app-shell-tab-switching": {
     "testIdentifier": "MaintenancePerformanceTests/testAppShellTabSwitchingPerformance",
-    "input": {"courses": 200, "passes": 2, "maximumResponseSeconds": 0.1}
+    "input": {
+      "courses": 200, "passes": 2,
+      "maximumResponseSeconds": 0.1, "maximumFirstResponseSeconds": 0.5
+    }
   },
   "compact-app-shell-tab-switching": {
     "testIdentifier": "MaintenancePerformanceTests/testCompactAppShellTabSwitchingPerformance",
-    "input": {"courses": 200, "passes": 2, "maximumResponseSeconds": 0.1}
+    "input": {
+      "courses": 200, "passes": 2,
+      "maximumResponseSeconds": 0.1, "maximumFirstResponseSeconds": 0.5
+    }
   },
   "article-tab-switching": {
     "testIdentifier": "MaintenancePerformanceTests/testArticleTabSwitchingPerformance",

@@ -75,6 +75,7 @@ extension MaintenancePerformanceTests {
         let workload = try PerformanceWorkload(workloadID, bundle: Bundle(for: Self.self))
         let passes = try workload.value("passes", as: Int.self)
         let maximumDelay = try workload.value("maximumResponseSeconds", as: Double.self)
+        let maximumFirstDelay = try workload.value("maximumFirstResponseSeconds", as: Double.self)
         let tabCount = expanded ? 8 : 5
         let factory = ExperimentalPreferenceCloudSyncTests()
         let (sync, defaults, _, account) = try factory.context(
@@ -104,7 +105,7 @@ extension MaintenancePerformanceTests {
             window.rootViewController = nil
             previousWindow?.makeKeyAndVisible()
         }
-        let ready = expectation(description: "完整壳层预热")
+        let ready = expectation(description: "完整壳层就绪")
         var tabs: UITabBarController?
         var firstVisits: [String] = []
         Task { @MainActor in
@@ -119,13 +120,27 @@ extension MaintenancePerformanceTests {
                 }
                 let mountedTabs = try XCTUnwrap(self.shellTabs(in: controller))
                 XCTAssertEqual(self.shellTabCount(mountedTabs), tabCount)
-                for index in 0..<tabCount {
+                let initialPage = try XCTUnwrap(mountedTabs.selectedViewController)
+                let initialStart = ProcessInfo.processInfo.systemUptime
+                _ = await PerformanceDisplayFrame().next {
+                    self.shellViewIsDisplayed(initialPage.viewIfLoaded)
+                }
+                XCTAssertTrue(self.shellViewIsDisplayed(initialPage.viewIfLoaded))
+                let initialDisplay = await PerformanceDisplayFrame().next()
+                let initialDuration = initialDisplay - initialStart
+                firstVisits.append("initial,0,\(initialDuration),0,\(initialDuration)")
+                for index in Array(1..<tabCount) + [0] {
                     let timing = try await self.selectShellTab(index, in: mountedTabs)
                     firstVisits.append(
-                        "warmup,\(index),\(timing.response),\(timing.selection),\(timing.display)")
+                        "first-visit,\(index),\(timing.response),"
+                            + "\(timing.selection),\(timing.display)")
+                    XCTAssertLessThan(
+                        timing.response, maximumFirstDelay,
+                        "首次显示 Tab \(index): selection=\(timing.selection)s, "
+                            + "display=\(timing.display)s, response=\(timing.response)s")
                 }
                 tabs = mountedTabs
-            } catch { XCTFail("完整壳层预热失败：\(error)") }
+            } catch { XCTFail("完整壳层就绪失败：\(error)") }
         }
         wait(for: [ready], timeout: 30)
         let mountedTabs = try XCTUnwrap(tabs)

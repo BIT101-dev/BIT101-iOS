@@ -251,6 +251,105 @@ def performance_coverage_findings() -> list[str]:
                 succeeded = False
             if succeeded != accepted or coverage.called == performance:
                 findings.append("性能专项排除覆盖率开销，同时保留功能测试的覆盖率要求。")
+    return findings + native_test_batch_findings()
+
+
+def native_test_batch_findings() -> list[str]:
+    source = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
+    functions = "\n".join(
+        re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}$", source)[0]
+        for name in ("run_native_test_batch", "run_tests")
+    )
+    harness = r'''
+set -euo pipefail
+MODE="$1"
+BUILD_ONLY="$2"
+shift 2
+TEST_SELECTIONS=("$@")
+ROOT_DIR=/project
+DERIVED_ROOT=/unused
+PROJECT=/project/App.xcodeproj
+TEST_SCHEME=App
+TEST_DESTINATION=destination
+TEST_BUNDLE=BIT101-iOSTests
+if [[ "$MODE" == ui ]]; then TEST_BUNDLE=BIT101-iOSUITests; fi
+RESULT_BUNDLE=/unused/test-results.xcresult
+SIGNING_ARGS=()
+validation_group="$MODE"
+validation_scope=full
+TEST_DURATION_SECONDS=0
+bit101_xcode_test_selections() { print -rl -- "${@:2}"; }
+bit101_invalidate_restore() { return 0; }
+ui_test_plan() { print -r -- /plan.xctestrun; }
+record_metrics() { print -r -- METRICS; }
+rm() { return "${PROFILE_REMOVE_EXIT:-0}"; }
+python3() {
+  [[ "$2" != "${PHASE_FAILURE:-}" ]] || return 11
+  if [[ "$2" == runtime-suites ]]; then print -r -- ProductionAssemblyTests
+  elif [[ "$2" != failures ]]; then print -r -- "PHASE:$2"; fi
+}
+bit101_run_logged() {
+  shift 2
+  print -r -- "COMMAND:$BIT101_TEST_PERFORMANCE_ONLY:${(j:|:)@}"
+  return "${BATCH_TEST_EXIT:-0}"
+}
+'''
+    findings = []
+    for mode, build, selections, expected_flags in (
+        ("catalyst", "false", [], [1, 0]),
+        ("catalyst", "false", ["MaintenancePerformanceTests/testSwitch",
+                               "FeatureTests/testFunction"], [1, 0]),
+        ("catalyst", "false", ["FeatureTests/testFunction"], [0]),
+        ("catalyst", "false", ["MaintenancePerformanceTests/testSwitch"], [1]),
+        ("ui", "false", [], [1, 1, 0, 0]),
+        ("catalyst-release-runtime", "false", [], [0]),
+        ("catalyst", "true", [], [0]),
+    ):
+        group = "ReleaseRuntimeContractTests" if "release-runtime" in mode else "all-tests"
+        program = (
+            harness + functions
+            + f'\nif run_tests {group} conditions; then :; else exit $?; fi\n'
+        )
+        program += 'print -r -- "FINAL:$BIT101_TEST_PERFORMANCE_ONLY"\n'
+        result = subprocess.run(
+            ["zsh", "-c", program, "native-test-batches", mode, build, *selections],
+            capture_output=True, text=True)
+        rows = [line.split(":", 2) for line in result.stdout.splitlines()
+                if line.startswith("COMMAND:")]
+        if result.returncode or [int(row[1]) for row in rows] != expected_flags:
+            findings.append(f"原生测试批次需要保留测试范围：{mode} {selections} {result.stderr}")
+            continue
+        for _, flag, command in rows:
+            arguments = command.split("|")
+            coverage = arguments[arguments.index("-enableCodeCoverage") + 1]
+            if coverage != ("NO" if flag == "1" else "YES"):
+                findings.append("功能批次采集覆盖率，性能批次独立测量。")
+        mixed = 0 in expected_flags and 1 in expected_flags
+        phases = [line for line in result.stdout.splitlines() if line.startswith("PHASE:")]
+        if phases != (["PHASE:stage-native-performance", "PHASE:merge-native-performance"]
+                      if mixed else []):
+            findings.append("混合测试需要合并两个批次的全部原生结果。")
+        final = 1 if expected_flags == [1] else 0
+        if f"FINAL:{final}" not in result.stdout:
+            findings.append("合并结果需要保留功能测试的覆盖率验收。")
+        if mode == "catalyst" and not selections and build == "false":
+            failed = subprocess.run(
+                ["zsh", "-c", "BATCH_TEST_EXIT=7\n" + program,
+                 "native-test-batches", mode, build], capture_output=True, text=True)
+            if failed.returncode != 1 or "METRICS" not in failed.stdout:
+                findings.append("任一测试批次失败时保留失败状态与结果汇总。")
+            failed = subprocess.run(
+                ["zsh", "-c", "PROFILE_REMOVE_EXIT=9\n" + program,
+                 "native-test-batches", mode, build], capture_output=True, text=True)
+            if failed.returncode != 1 or "COMMAND:" in failed.stdout:
+                findings.append("覆盖率准备失败时停止测试并保留失败状态。")
+            for phase, commands in (("stage-native-performance", 1),
+                                    ("merge-native-performance", 2)):
+                failed = subprocess.run(
+                    ["zsh", "-c", f"PHASE_FAILURE={phase}\n" + program,
+                     "native-test-batches", mode, build], capture_output=True, text=True)
+                if failed.returncode != 11 or failed.stdout.count("COMMAND:") != commands:
+                    findings.append("结果暂存或合并失败时立即停止原生测试流程。")
     return findings
 
 

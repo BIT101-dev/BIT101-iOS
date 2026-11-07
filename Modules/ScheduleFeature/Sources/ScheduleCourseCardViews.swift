@@ -4,10 +4,11 @@ import DesignSystemKit
 import SwiftUI
 import UIKit
 
-/// 课表卡片为名称和地点分配独立文字区域。
-final class ScheduleCardTextView: UIView {
-    private let titleLabel = UILabel()
-    private let locationLabel = UILabel()
+/// 用 UILabel 排版并缓存文字图像，日历在原生图层中复用。
+@MainActor
+final class ScheduleCardTextRenderer {
+    let titleLabel = UILabel()
+    let locationLabel = UILabel()
     private var title = ""
     private var location = ""
     private var scheduleContentMode = ScheduleCardContentMode.nameAndLocation
@@ -15,26 +16,22 @@ final class ScheduleCardTextView: UIView {
         forTextStyle: AppDesignSystem.Typography.uiCaption)
     private var laidOutSize: CGSize?
     private var laidOutScale: CGFloat = 0
+    private(set) var bounds: CGRect = .zero
+    private var contentScaleFactor = UIGraphicsImageRendererFormat().scale
+    private var textColor = UIColor.label
+    private var cachedImage: CGImage?
+    private var imageColor: UIColor?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        clipsToBounds = true
-        isOpaque = false
-        isAccessibilityElement = false
+    init() {
         [titleLabel, locationLabel].forEach { label in
             label.textAlignment = .center
-            label.adjustsFontForContentSizeCategory = true
+            label.adjustsFontForContentSizeCategory = false
             label.adjustsFontSizeToFitWidth = false
             label.allowsDefaultTighteningForTruncation = true
             label.clipsToBounds = true
-            addSubview(label)
         }
         titleLabel.lineBreakMode = .byTruncatingTail
         locationLabel.lineBreakMode = .byTruncatingTail
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 
     func configure(
@@ -44,9 +41,11 @@ final class ScheduleCardTextView: UIView {
         font: UIFont,
         textColor: UIColor
     ) {
-        if titleLabel.textColor != textColor {
+        if self.textColor != textColor {
+            self.textColor = textColor
             titleLabel.textColor = textColor
             locationLabel.textColor = textColor
+            cachedImage = nil
         }
         guard self.title != title || self.location != location
             || scheduleContentMode != contentMode || baseFont != font
@@ -55,18 +54,20 @@ final class ScheduleCardTextView: UIView {
         self.location = location
         scheduleContentMode = contentMode
         baseFont = font
-        accessibilityLabel = title.isEmpty ? location : title
-        accessibilityValue = title.isEmpty || location.isEmpty ? nil : "地点：\(location)"
         laidOutSize = nil
-        setNeedsLayout()
+        cachedImage = nil
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard bounds.width > 0, bounds.height > 0 else { return }
-        guard laidOutSize != bounds.size || laidOutScale != contentScaleFactor else { return }
-        laidOutSize = bounds.size
-        laidOutScale = contentScaleFactor
+    func layout(size: CGSize, scale: CGFloat) {
+        guard size.width > 0, size.height > 0 else { return }
+        guard laidOutSize != size || laidOutScale != scale else { return }
+        bounds = CGRect(origin: .zero, size: size)
+        contentScaleFactor = scale
+        laidOutSize = size
+        laidOutScale = scale
+        titleLabel.contentScaleFactor = scale
+        locationLabel.contentScaleFactor = scale
+        cachedImage = nil
 
         switch scheduleContentMode {
         case .name:
@@ -82,6 +83,28 @@ final class ScheduleCardTextView: UIView {
         case .nameAndLocation:
             layoutCombined()
         }
+    }
+
+    func image(size: CGSize, scale: CGFloat, traits: UITraitCollection) -> CGImage? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        layout(size: size, scale: scale)
+        let color = textColor.resolvedColor(with: traits)
+        if let cachedImage, imageColor == color { return cachedImage }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        cachedImage = renderer.image { context in
+            for label in [titleLabel, locationLabel] where !label.isHidden {
+                if label.textColor != color { label.textColor = color }
+                context.cgContext.saveGState()
+                context.cgContext.translateBy(x: label.frame.minX, y: label.frame.minY)
+                label.layer.displayIfNeeded()
+                label.layer.render(in: context.cgContext)
+                context.cgContext.restoreGState()
+            }
+        }.cgImage
+        imageColor = color
+        return cachedImage
     }
 
     private func layoutCombined() {
@@ -213,6 +236,7 @@ struct ScheduleCalendarCard {
 /// 整个日历只使用一个 UIKit 桥接，按条目身份复用文字和交互控件。
 struct ScheduleCalendarCardsView: UIViewRepresentable {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
+    @Environment(\.appPageIsVisible) private var isVisible
     let cards: [ScheduleCalendarCard]
     let contentMode: ScheduleCardContentMode
     let onSelect: (ScheduleCalendarEntry) -> Void
@@ -224,6 +248,9 @@ struct ScheduleCalendarCardsView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ScheduleCalendarCardsControl, context: Context) {
+        view.isContentVisible = isVisible
+        guard isVisible else { return }
+        view.interactionEvidence = interactionEvidence
         let onSelect = onSelect
         let onMenuWillPresent = onMenuWillPresent
         let onShare = onShare
@@ -240,9 +267,70 @@ struct ScheduleCalendarCardsView: UIViewRepresentable {
     }
 }
 
-final class ScheduleCalendarCardsControl: UIView {
+final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelegate {
+    var interactionEvidence: ((String, String) -> Void)?
+    var isContentVisible = true {
+        didSet {
+            guard isContentVisible != oldValue else { return }
+            controls.values.forEach { $0.isContentVisible = isContentVisible }
+        }
+    }
     private var controls: [String: ScheduleBlankContextMenuControl] = [:]
     private var orderedIDs: [String] = []
+    private weak var menuCard: ScheduleBlankContextMenuControl?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(openCard(_:)))
+        tap.cancelsTouchesInView = false
+        addGestureRecognizer(tap)
+        addInteraction(UIContextMenuInteraction(delegate: self))
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc private func openCard(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: self)
+        guard let card = hitTest(point, with: nil) as? ScheduleBlankContextMenuControl else {
+            return
+        }
+        interactionEvidence?("interaction.ScheduleCalendarCardsControl.tap", "tap")
+        card.onTap?()
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        menuCard = hitTest(location, with: nil) as? ScheduleBlankContextMenuControl
+        guard let card = menuCard, card.onShare != nil else { return nil }
+        return card.contextMenuInteraction(
+            interaction, configurationForMenuAtLocation: card.convert(location, from: self))
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        menuCard.map { UITargetedPreview(view: $0) }
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        menuCard.map { UITargetedPreview(view: $0) }
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: (any UIContextMenuInteractionAnimating)?
+    ) {
+        menuCard?.onMenuWillPresent?()
+    }
 
     func update(
         cards: [ScheduleCalendarCard],
@@ -265,6 +353,8 @@ final class ScheduleCalendarCardsControl: UIView {
                 control = retained
             } else {
                 control = ScheduleBlankContextMenuControl()
+                control.isContentVisible = isContentVisible
+                control.useSharedInteractionHandling()
                 controls[card.entry.id] = control
                 addSubview(control)
             }

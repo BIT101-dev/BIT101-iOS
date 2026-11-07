@@ -125,7 +125,12 @@ def verification_finish_findings() -> list[str]:
 ROOT_DIR=/fixture verification_audit_pid=
 completed_result_groups=()
 python3() {{ return 0; }}
-audit_probe() {{ [[ "${{1:-}}" == prepare ]] && return 0; return {audit_status}; }}
+audit_probe() {{
+  [[ "${{1:-}}" == prepare ]] && return 0
+  sleep 0.02
+  print AUDIT_FINISHED
+  return {audit_status}
+}}
 child() {{ print NEXT_PHASE; }}
 """
         result = subprocess.run(
@@ -136,7 +141,6 @@ child() {{ print NEXT_PHASE; }}
                 + step
                 + """
 bit101_verify_step audit audit_probe
-while kill -0 "$verification_audit_pid" 2>/dev/null; do sleep 0.01; done
 bit101_verify_step all child
 """,
             ],
@@ -146,6 +150,8 @@ bit101_verify_step all child
         )
         assert bool(result.returncode) == bool(audit_status), result.stderr
         assert ("NEXT_PHASE" in result.stdout) == (audit_status == 0)
+        if audit_status == 0:
+            assert result.stdout.index("AUDIT_FINISHED") < result.stdout.index("NEXT_PHASE")
     return findings
 
 

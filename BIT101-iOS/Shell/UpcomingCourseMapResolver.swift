@@ -6,15 +6,17 @@ import ScheduleDomain
 @MainActor
 final class UpcomingCourseMapProjection {
     private var snapshot: ScheduleCourseSnapshot?
-    private var minute: Date?
+    private var resolvedAt: Date?
     private var target: UpcomingCourseMapTarget?
 
     func resolve(in snapshot: ScheduleCourseSnapshot, now: Date) -> UpcomingCourseMapTarget? {
-        let minute = ScheduleDateCodec.calendar.dateInterval(of: .minute, for: now)?.start ?? now
-        if self.snapshot != snapshot || self.minute != minute {
-            target = UpcomingCourseMapResolver.nextTarget(in: snapshot, now: minute)
+        let timeMovedBackwards = resolvedAt.map { now < $0 } ?? true
+        if self.snapshot != snapshot || timeMovedBackwards
+            || target.map({ now >= $0.startDate }) == true
+        {
+            target = UpcomingCourseMapResolver.nextTarget(in: snapshot, now: now)
             self.snapshot = snapshot
-            self.minute = minute
+            resolvedAt = now
         }
         return target
     }

@@ -363,66 +363,23 @@ ui_test_plan() {
   python3 "$ROOT_DIR/Scripts/test_results.py" ui-plan "$DERIVED_ROOT/Build/Products"
 }
 
-run_tests() {
-  local group="$1"
+run_native_test_batch() {
+  local conditions="$1" performance_only="$2"
+  shift 2
+  local only_testing=("$@")
   local log="$DERIVED_ROOT/$validation_group.log"
-  local conditions="$2"
-  local only_testing=("-only-testing:$TEST_BUNDLE")
-  local failure_summary
-  local exit_code
-  local diagnostics="never"
-  local test_action=test
-  local execution_args=()
-  local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
-  export BIT101_TEST_PERFORMANCE_ONLY=0
-  local started_at=$SECONDS
+  local exit_code diagnostics=never test_action=test
+  local execution_args=() coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
+  export BIT101_TEST_PERFORMANCE_ONLY="$performance_only"
+  if (( performance_only )); then
+    coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
+  fi
   if $BUILD_ONLY; then
     test_action=build-for-testing
   else
-    execution_args+=(-resultBundlePath "$RESULT_BUNDLE")
-    rm -f "$DERIVED_ROOT/Build/ProfileData/"*/*.profdata(N)
+    execution_args+=(-resultBundlePath "$RESULT_BUNDLE" -parallel-testing-enabled NO)
+    rm -f "$DERIVED_ROOT/Build/ProfileData/"*/*.profdata(N) || return $?
   fi
-  if ! $BUILD_ONLY; then
-    execution_args+=(-parallel-testing-enabled NO)
-  fi
-  if (( ${#TEST_SELECTIONS[@]} > 0 )); then
-    only_testing=()
-    local selection
-    local resolved_selections
-    resolved_selections="$(bit101_xcode_test_selections "$MODE" "${TEST_SELECTIONS[@]}")" || \
-      return 64
-    for selection in "${(@f)resolved_selections}"; do
-      only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
-    done
-  elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then
-    if [[ "$MODE" == release-runtime || "$MODE" == catalyst-release-runtime ]]; then
-      only_testing=()
-      local runtime_suites
-      runtime_suites="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" runtime-suites)"
-      for selection in "${(@f)runtime_suites}"; do
-        only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
-      done
-    else
-      only_testing=("-only-testing:$TEST_BUNDLE/$group")
-    fi
-  fi
-
-  if (( ${#TEST_SELECTIONS[@]} > 0 )); then
-    local performance_only=true
-    local selected_test
-    for selected_test in "${only_testing[@]}"; do
-      case "$selected_test" in
-        */MaintenancePerformanceTests|*/MaintenancePerformanceTests/*|\
-        */MaintenancePerformanceUITests|*/MaintenancePerformanceUITests/*) ;;
-        *) performance_only=false; break ;;
-      esac
-    done
-    if $performance_only; then
-      coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
-      export BIT101_TEST_PERFORMANCE_ONLY=1
-    fi
-  fi
-
   local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Release \
     -derivedDataPath "$DERIVED_ROOT")
   if [[ "$BUILD_ONLY" == false ]]; then project_args+=(ONLY_ACTIVE_ARCH=YES); fi
@@ -445,9 +402,10 @@ run_tests() {
     bit101_invalidate_restore || return $?
   fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
-  local inventory_label="$MODE · 完整库存"
+  local inventory_label="$MODE · 功能覆盖率"
+  if (( performance_only )); then inventory_label="$MODE · 性能测量"; fi
   if [[ "${validation_scope:-}" == selected ]]; then \
-    inventory_label="$MODE · 定向复测 · ${#TEST_SELECTIONS[@]} 个筛选"; fi
+    inventory_label+=" · 定向复测 · ${#only_testing[@]} 个筛选"; fi
   echo "[$test_action] $inventory_label"
   local verbosity_args=(-quiet)
   if [[ "$MODE" == ui ]]; then
@@ -469,6 +427,66 @@ run_tests() {
     exit_code=0
   else
     exit_code=$?
+  fi
+  return "$exit_code"
+}
+
+run_tests() {
+  local group="$1" conditions="$2"
+  local only_testing=("-only-testing:$TEST_BUNDLE")
+  local failure_summary exit_code=0 started_at=$SECONDS
+  if (( ${#TEST_SELECTIONS[@]} > 0 )); then
+    only_testing=()
+    local selection
+    local resolved_selections
+    resolved_selections="$(bit101_xcode_test_selections "$MODE" "${TEST_SELECTIONS[@]}")" || \
+      return 64
+    for selection in "${(@f)resolved_selections}"; do
+      only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
+    done
+  elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then
+    if [[ "$MODE" == release-runtime || "$MODE" == catalyst-release-runtime ]]; then
+      only_testing=()
+      local runtime_suites
+      runtime_suites="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" runtime-suites)"
+      for selection in "${(@f)runtime_suites}"; do
+        only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
+      done
+    else
+      only_testing=("-only-testing:$TEST_BUNDLE/$group")
+    fi
+  fi
+
+  local performance_testing=() functional_testing=()
+  local selected_test performance_suite="$TEST_BUNDLE/MaintenancePerformanceTests"
+  if [[ "$MODE" == ui ]]; then performance_suite="$TEST_BUNDLE/MaintenancePerformanceUITests"; fi
+  if ! $BUILD_ONLY && (( ${#only_testing[@]} == 1 )) \
+    && [[ "${only_testing[1]}" == "-only-testing:$TEST_BUNDLE" ]]; then
+    performance_testing=("-only-testing:$performance_suite")
+    functional_testing=("${only_testing[@]}" "-skip-testing:$performance_suite")
+  else
+    for selected_test in "${only_testing[@]}"; do
+      case "$selected_test" in
+        */MaintenancePerformanceTests|*/MaintenancePerformanceTests/*|\
+        */MaintenancePerformanceUITests|*/MaintenancePerformanceUITests/*)
+          performance_testing+=("$selected_test") ;;
+        *) functional_testing+=("$selected_test") ;;
+      esac
+    done
+  fi
+  if ! $BUILD_ONLY && (( ${#performance_testing[@]} && ${#functional_testing[@]} )); then
+    if run_native_test_batch "$conditions" 1 "${performance_testing[@]}"; then :
+    else exit_code=$?; fi
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" stage-native-performance || return $?
+    if run_native_test_batch "$conditions" 0 "${functional_testing[@]}"; then :
+    else exit_code=$?; fi
+    python3 "$ROOT_DIR/Scripts/validation_performance.py" merge-native-performance || return $?
+    export BIT101_TEST_PERFORMANCE_ONLY=0
+  else
+    local performance_only=0
+    if ! $BUILD_ONLY && (( ${#performance_testing[@]} )); then performance_only=1; fi
+    if run_native_test_batch "$conditions" "$performance_only" "${only_testing[@]}"; then :
+    else exit_code=$?; fi
   fi
   TEST_DURATION_SECONDS=$(( SECONDS - started_at ))
 

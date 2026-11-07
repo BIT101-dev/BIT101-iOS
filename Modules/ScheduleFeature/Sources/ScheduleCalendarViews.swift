@@ -62,6 +62,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
     var showsImport = true
     var onTap: (() -> Void)? {
         didSet {
+            guard !usesSharedInteractions else { return }
             if tapGesture.isEnabled != (onTap != nil) { tapGesture.isEnabled = onTap != nil }
         }
     }
@@ -70,7 +71,15 @@ final class ScheduleBlankContextMenuControl: UIControl {
     var onImport: (() -> Void)?
     private var lastInteractionLocation: CGPoint = .zero
     private let tapGesture = UITapGestureRecognizer()
-    private var cardText: ScheduleCardTextView?
+    private var usesSharedInteractions = false
+    private(set) var cardText: ScheduleCardTextRenderer?
+    private let cardTextLayer = CALayer()
+    private var displayedTextImage: CGImage?
+    var isContentVisible = true {
+        didSet {
+            if isContentVisible && !oldValue { setNeedsLayout() }
+        }
+    }
     private let cardBackground = CALayer()
     private var backgroundLayers: [CALayer] = []
     private var backgroundFrames: [CGRect] = []
@@ -83,6 +92,8 @@ final class ScheduleBlankContextMenuControl: UIControl {
         super.init(frame: frame)
         isOpaque = false
         layer.insertSublayer(cardBackground, at: 0)
+        cardTextLayer.contentsGravity = .topLeft
+        cardTextLayer.masksToBounds = true
         isMultipleTouchEnabled = true
         tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
@@ -93,11 +104,10 @@ final class ScheduleBlankContextMenuControl: UIControl {
         registerForTraitChanges([
             UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self,
             UITraitUserInterfaceLevel.self, UITraitPreferredContentSizeCategory.self,
+            UITraitLegibilityWeight.self,
         ]) { (view: ScheduleBlankContextMenuControl, _: UITraitCollection) in
             view.applyBackgroundAppearance()
-            if let entry = view.textEntry {
-                view.configureText(entry: entry, contentMode: view.textMode)
-            }
+            view.updateTextAppearance()
         }
     }
 
@@ -110,29 +120,30 @@ final class ScheduleBlankContextMenuControl: UIControl {
         onTap: @escaping () -> Void, onMenuWillPresent: (() -> Void)?, onShare: (() -> Void)?,
         interactionEvidence: ((String, String) -> Void)?
     ) {
-        let identifier = "schedule.entry.\(entry.id)"
-        if accessibilityIdentifier != identifier {
-            isAccessibilityElement = true
-            accessibilityIdentifier = identifier
-            accessibilityHint = "双击打开详情"
-            accessibilityTraits = .button
-            shareTitle = "分享课程"
-            showsImport = false
+        if textEntry != entry {
+            let identifier = "schedule.entry.\(entry.id)"
+            if accessibilityIdentifier != identifier {
+                isAccessibilityElement = true
+                accessibilityIdentifier = identifier
+                accessibilityHint = "双击打开详情"
+                accessibilityTraits = .button
+                shareTitle = "分享课程"
+                showsImport = false
+            }
+            let title = entry.title.isEmpty ? "未命名日程" : entry.title
+            switch entry.kind {
+            case .course: accessibilityLabel = title
+            case .exam: accessibilityLabel = "考试，\(title)"
+            case .custom: accessibilityLabel = "自定义日程，\(title)"
+            }
+            accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
         }
-        let needsOwnMenu = onShare != nil
-        if isContextMenuInteractionEnabled != needsOwnMenu {
-            isContextMenuInteractionEnabled = needsOwnMenu
+        if !usesSharedInteractions {
+            let needsOwnMenu = onShare != nil
+            if isContextMenuInteractionEnabled != needsOwnMenu {
+                isContextMenuInteractionEnabled = needsOwnMenu
+            }
         }
-        let title = entry.title.isEmpty ? "未命名日程" : entry.title
-        let label: String
-        switch entry.kind {
-        case .course: label = title
-        case .exam: label = "考试，\(title)"
-        case .custom: label = "自定义日程，\(title)"
-        }
-        if accessibilityLabel != label { accessibilityLabel = label }
-        let value = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
-        if accessibilityValue != value { accessibilityValue = value }
         self.onTap = onTap
         self.onMenuWillPresent = onMenuWillPresent
         self.onShare = onShare
@@ -195,23 +206,28 @@ final class ScheduleBlankContextMenuControl: UIControl {
     }
 
     func configureText(entry: ScheduleCalendarEntry, contentMode: ScheduleCardContentMode?) {
-        textEntry = contentMode == nil ? nil : entry
+        let nextEntry = contentMode == nil ? nil : entry
+        guard textEntry != nextEntry || textMode != contentMode else { return }
+        textEntry = nextEntry
         textMode = contentMode
-        guard let contentMode else {
-            cardText?.removeFromSuperview()
+        updateTextAppearance()
+    }
+
+    private func updateTextAppearance() {
+        guard let entry = textEntry, let contentMode = textMode else {
+            cardTextLayer.removeFromSuperlayer()
+            cardTextLayer.contents = nil
+            displayedTextImage = nil
             cardText = nil
             return
         }
-        let text: ScheduleCardTextView
+        let text: ScheduleCardTextRenderer
         if let cardText {
             text = cardText
         } else {
-            text = ScheduleCardTextView()
-            text.isUserInteractionEnabled = false
-            text.accessibilityElementsHidden = true
+            text = ScheduleCardTextRenderer()
             cardText = text
-            addSubview(text)
-            setNeedsLayout()
+            layer.addSublayer(cardTextLayer)
         }
         let color: UIColor
         switch entry.kind {
@@ -225,13 +241,39 @@ final class ScheduleBlankContextMenuControl: UIControl {
                 forTextStyle: AppDesignSystem.Typography.uiCaption,
                 compatibleWith: traitCollection),
             textColor: color)
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        cardText?.frame = bounds.insetBy(
+        guard isContentVisible, let cardText else { return }
+        var frame = bounds.insetBy(
             dx: min(AppDesignSystem.Spacing.micro, bounds.width / 2),
             dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
+        let image = cardText.image(
+            size: frame.size, scale: contentScaleFactor, traits: traitCollection)
+        if let image {
+            frame.size = CGSize(
+                width: CGFloat(image.width) / contentScaleFactor,
+                height: CGFloat(image.height) / contentScaleFactor)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if cardTextLayer.frame != frame { cardTextLayer.frame = frame }
+        if cardTextLayer.contentsScale != contentScaleFactor {
+            cardTextLayer.contentsScale = contentScaleFactor
+        }
+        if displayedTextImage !== image {
+            cardTextLayer.contents = image
+            displayedTextImage = image
+        }
+        CATransaction.commit()
+    }
+
+    func useSharedInteractionHandling() {
+        usesSharedInteractions = true
+        isContextMenuInteractionEnabled = false
+        removeGestureRecognizer(tapGesture)
     }
 
     @objc private func handleTap() {

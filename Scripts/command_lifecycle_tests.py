@@ -25,9 +25,16 @@ def test_build_argument_findings(output: str, *, testing_device: bool = False) -
             continue
         arguments = shlex.split(line)[3:]
         if arguments[:1] == ["xcodebuild"]:
+            selected = [value.partition(":")[2] for value in arguments
+                        if value.startswith("-only-testing:")]
+            performance = bool(selected) and all(
+                value.partition("/")[2].split("/")[0]
+                in {"MaintenancePerformanceTests", "MaintenancePerformanceUITests"}
+                for value in selected)
+            coverage = "NO" if performance else "YES"
             required = (
-                "-enableCodeCoverage YES",
-                "ENABLE_CODE_COVERAGE=YES",
+                f"-enableCodeCoverage {coverage}",
+                f"ENABLE_CODE_COVERAGE={coverage}",
                 "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
                 "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
                 "-configuration Release",

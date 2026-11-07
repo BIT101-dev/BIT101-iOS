@@ -174,23 +174,33 @@ public struct AppPairedPages<First: View, Second: View>: View {
 
 }
 
+/// 首次构建同步记录页面保留状态。
+@MainActor
+private final class AppRetainedPageLifetime {
+    private var hasShown = false
+
+    func retainIfVisible(_ isVisible: Bool) -> Bool {
+        hasShown = hasShown || isVisible
+        return hasShown
+    }
+}
+
 /// 页面首次访问后保留视图与滚动状态，以统一的淡入淡出切换可见性。
 public struct AppRetainedPage<Content: View>: View {
     @Environment(\.appPageIsVisible) private var parentIsVisible
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var hasShown: Bool
+    @State private var lifetime = AppRetainedPageLifetime()
     private let isVisible: Bool
     private let content: () -> Content
 
     public init(isVisible: Bool, @ViewBuilder content: @escaping () -> Content) {
         self.isVisible = isVisible
         self.content = content
-        _hasShown = State(initialValue: false)
     }
 
     public var body: some View {
         Group {
-            if hasShown || (parentIsVisible && isVisible) {
+            if lifetime.retainIfVisible(parentIsVisible && isVisible) {
                 AppRetainedPageContent(content: content)
                     .environment(\.appPageIsVisible, parentIsVisible && isVisible)
                     .opacity(isVisible ? 1 : 0)
@@ -203,9 +213,6 @@ public struct AppRetainedPage<Content: View>: View {
             }
         }
         .animation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion), value: isVisible)
-        .onChange(of: parentIsVisible && isVisible, initial: true) { _, visible in
-            if visible { hasShown = true }
-        }
     }
 }
 

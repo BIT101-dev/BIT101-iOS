@@ -224,8 +224,10 @@ struct CampusNativeMapView: UIViewRepresentable {
         /// 页面可见且场景活跃时处理定位请求，结束时释放地图定位资源。
         func updateLocation(in mapView: MKMapView, active: Bool, requestID: UUID?) {
             guard active, let requestID else {
-                mapView.setUserTrackingMode(.none, animated: false)
-                mapView.showsUserLocation = false
+                if mapView.userTrackingMode != .none {
+                    mapView.setUserTrackingMode(.none, animated: false)
+                }
+                if mapView.showsUserLocation { mapView.showsUserLocation = false }
                 pendingCenterOnUserRequestID = nil
                 lastCenterOnUserRequestID = nil
                 return

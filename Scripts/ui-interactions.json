@@ -431,6 +431,10 @@
     "controls": {"UIAction":2,"UITapGestureRecognizer":1},
     "tests": ["ScheduleEditingUITests/testLongPressOpensScheduleContextMenu","ScheduleNavigationUITests/testScheduleWeekStripScroll"]
   },
+  "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift:ScheduleCalendarCardsControl": {
+    "controls": {"UITapGestureRecognizer":1},
+    "tests": ["ScheduleEditingUITests/testLongPressOpensScheduleContextMenu","ScheduleNavigationUITests/testScheduleWeekStripScroll"]
+  },
   "Modules/ScheduleFeature/Sources/ScheduleDDLViews.swift:DDLEditSheet": {
     "controls": {"AppCancelEditingButton":1,"Button":1,"DatePicker":1,"PhotosPicker":1,"TextField":2},
     "tests": ["CommunityEditingRecoveryUITests/testDdlPhotosSurviveRelaunch","ScheduleEditingUITests/testScheduleEditorsProtectChangedInput","ScheduleNavigationUITests/testDdlEditorDetailsCancelEditingEditing"]

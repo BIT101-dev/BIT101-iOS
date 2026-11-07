@@ -27,17 +27,27 @@ private final class MapViewLocationFixture: MKMapView {
     private(set) var centered: CLLocationCoordinate2D?
     private(set) var tracking: MKUserTrackingMode = .none
     var cameraAnimations: [Bool] = []
+    private(set) var trackingUpdates = 0
+    private(set) var locationDisplayUpdates = 0
     private var displayingLocation = false
     override var userLocation: MKUserLocation { position }
     override var showsUserLocation: Bool {
         get { displayingLocation }
-        set { displayingLocation = newValue }
+        set {
+            displayingLocation = newValue
+            locationDisplayUpdates += 1
+        }
+    }
+    override var userTrackingMode: MKUserTrackingMode {
+        get { tracking }
+        set { tracking = newValue }
     }
     override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) {
         centered = coordinate
     }
     override func setUserTrackingMode(_ mode: MKUserTrackingMode, animated: Bool) {
         tracking = mode
+        trackingUpdates += 1
     }
     override func setCamera(_ camera: MKMapCamera, animated: Bool) {
         cameraAnimations.append(animated)
@@ -58,11 +68,21 @@ struct CampusMapLocationTests {
     @MainActor func hiddenMapStopsLocation() {
         let map = MapViewLocationFixture()
         let coordinator = CampusNativeMapView.Coordinator()
+        let initialTrackingUpdates = map.trackingUpdates
+        let initialDisplayUpdates = map.locationDisplayUpdates
+        coordinator.updateLocation(in: map, active: false, requestID: nil)
+        #expect(map.trackingUpdates == initialTrackingUpdates)
+        #expect(map.locationDisplayUpdates == initialDisplayUpdates)
         let request = UUID()
         coordinator.updateLocation(in: map, active: true, requestID: request)
         #expect(map.showsUserLocation && map.tracking == .follow)
         coordinator.updateLocation(in: map, active: false, requestID: request)
         #expect(!map.showsUserLocation && map.tracking == .none)
+        let stoppedTrackingUpdates = map.trackingUpdates
+        let stoppedDisplayUpdates = map.locationDisplayUpdates
+        coordinator.updateLocation(in: map, active: false, requestID: request)
+        #expect(map.trackingUpdates == stoppedTrackingUpdates)
+        #expect(map.locationDisplayUpdates == stoppedDisplayUpdates)
         map.position.position = CLLocation(latitude: 39.9, longitude: 116.3)
         coordinator.mapView(map, didUpdate: map.position)
         #expect(map.centered == nil)

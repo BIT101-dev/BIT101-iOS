@@ -237,7 +237,8 @@ bit101_require_device() {
 
 bit101_check_verification_audit() {
   local audit_status=0
-  if [[ -n "${verification_audit_pid:-}" ]] && ! kill -0 "$verification_audit_pid" 2>/dev/null; then
+  if [[ -n "${verification_audit_pid:-}" ]] \
+    && { [[ "${1:-}" == wait ]] || ! kill -0 "$verification_audit_pid" 2>/dev/null; }; then
     wait "$verification_audit_pid" || audit_status=$?
     verification_audit_pid=
   fi
@@ -262,6 +263,9 @@ bit101_verify_step() {
   local label="$1"
   shift
   bit101_check_verification_audit || return $?
+  case "$label" in
+    all|catalyst|ui) bit101_check_verification_audit wait || return $? ;;
+  esac
   if [[ "$label" == audit && "${BIT101_AUDIT_BACKGROUND:-0}" != 1 ]]; then
     local audit_command="$1"
     "$audit_command" prepare || return $?
