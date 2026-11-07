@@ -1,4 +1,4 @@
-#if RELEASE_NETWORK_SMOKE
+#if DEBUG
 @testable import BIT101_iOS
 import Darwin
 import Foundation

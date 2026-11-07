@@ -422,6 +422,8 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         XCTAssertEqual(submissions.count, 1)
         let autofillInput = try XCTUnwrap(findInput(controller.view))
         autofillInput.text = "123456"
+        NotificationCenter.default.post(
+            name: UITextField.textDidChangeNotification, object: autofillInput)
         autofillInput.sendActions(for: .editingChanged)
         try await waitUntil("再次提交") {
             submissions.count == 2 && findInput(controller.view)?.isEnabled == false

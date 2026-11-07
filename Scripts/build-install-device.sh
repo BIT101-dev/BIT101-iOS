@@ -122,8 +122,8 @@ fi
 if [[ "$ACTION" == mac ]]; then
   MAC_INPUT_DIGEST="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest catalyst)"
   MAC_RUN_ID="$(uuidgen)"
-    MAC_DOCUMENTS="$HOME/Library/Containers/BIT101-dev.BIT101-iOS/Data/Documents"
-    MAC_READINESS="$MAC_DOCUMENTS/restore-readiness.json"
+  MAC_DOCUMENTS="$HOME/Documents"
+  MAC_READINESS="$MAC_DOCUMENTS/restore-readiness.json"
   mkdir -p "$DERIVED_DATA"
   bit101_run_logged "$DERIVED_DATA/build.log" "Catalyst Release 编译" xcodebuild build \
     -quiet \
