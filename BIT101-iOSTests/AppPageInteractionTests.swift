@@ -7,6 +7,36 @@ import XCTest
 
 nonisolated final class AppPageInteractionTests: XCTestCase {
     @MainActor
+    func testPairedPagesBuildContentOnFirstVisit() async throws {
+        var builds: [Bool] = []
+        func pages(_ showsFirst: Bool) -> AppPairedPages<Text, Text> {
+            AppPairedPages(showsFirst: showsFirst, pairsInLandscape: false) {
+                builds.append(true)
+                return Text("first")
+            } second: {
+                builds.append(false)
+                return Text("second")
+            }
+        }
+        let initial = pages(true)
+        XCTAssertTrue(builds.isEmpty, "创建容器时应延后内容构造。")
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(rootView: initial)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        try await waitForTestEvent { builds.contains(true) }
+        XCTAssertFalse(builds.contains(false), "首次进入只应构造可见分区。")
+        controller.rootView = pages(false)
+        try await waitForTestEvent { builds.contains(false) }
+    }
+
+    @MainActor
     func testRetainedPickersOnlyEmitForUserActions() async throws {
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -69,14 +99,32 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
             window.isHidden = true
             window.rootViewController = nil
         }
-        try await waitForTestEvent { selection.hapticViewsReady == 2 }
+        func waitForFeedback(_ expected: [Bool]) async throws {
+            do {
+                try await waitForTestEvent {
+                    controller.view.setNeedsLayout()
+                    controller.view.layoutIfNeeded()
+                    return selection.feedbackPages == expected
+                }
+            } catch {
+                XCTFail(
+                    "触感事件：\(selection.feedbackPages)，预期：\(expected)，"
+                        + "页面数：\(selection.hapticViewsReady)")
+                throw error
+            }
+        }
+        try await waitForTestEvent {
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            return selection.hapticViewsReady == 2
+        }
         selection.hapticValue = 1
-        try await waitForTestEvent { selection.feedbackPages == [true] }
+        try await waitForFeedback([true])
         selection.showsFirst = false
         selection.hapticValue = 2
-        try await waitForTestEvent { selection.feedbackPages == [true, false] }
+        try await waitForFeedback([true, false])
         selection.hapticValue = 3
-        try await waitForTestEvent { selection.feedbackPages == [true, false, false] }
+        try await waitForFeedback([true, false, false])
     }
 
     @MainActor

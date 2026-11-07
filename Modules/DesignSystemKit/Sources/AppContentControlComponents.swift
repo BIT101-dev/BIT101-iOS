@@ -400,14 +400,32 @@ public struct AppHorizontalControlFramesKey: PreferenceKey {
 extension View {
     public func appPageSwitch(
         axis: Axis = .horizontal, isEnabled: Bool = true,
-        excluding controlFrames: [CGRect] = [],
+        excluding controlFrames: [CGRect]? = nil,
         onStep: @escaping (Int) -> Bool
     ) -> some View {
-        background {
+        modifier(AppPageSwitchControls(
+            axis: axis, isEnabled: isEnabled, controlFrames: controlFrames, onStep: onStep))
+    }
+}
+
+private struct AppPageSwitchControls: ViewModifier {
+    @State private var measuredFrames: [CGRect] = []
+    let axis: Axis
+    let isEnabled: Bool
+    let controlFrames: [CGRect]?
+    let onStep: (Int) -> Bool
+
+    func body(content: Content) -> some View {
+        content.background {
             AppPageSwitchInput(
-                axis: axis, isEnabled: isEnabled, controlFrames: controlFrames, onStep: onStep
-            )
-            .allowsHitTesting(false)
+                axis: axis, isEnabled: isEnabled,
+                controlFrames: controlFrames ?? measuredFrames, onStep: onStep)
+                .allowsHitTesting(false)
+        }
+        .onPreferenceChange(AppHorizontalControlFramesKey.self) { frames in
+            if axis == .horizontal, controlFrames == nil, measuredFrames != frames {
+                measuredFrames = frames
+            }
         }
     }
 }
@@ -429,7 +447,8 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         view.animation = AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)
         view.onStep = onStep
         view.interactionEvidence = interactionEvidence
-        view.pan.isEnabled = isVisible && isEnabled
+        let enabled = isVisible && isEnabled
+        if view.pan.isEnabled != enabled { view.pan.isEnabled = enabled }
     }
 
     static func dismantleUIView(_ view: InputView, coordinator: ()) {
@@ -453,12 +472,14 @@ private struct AppPageSwitchInput: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            pan.view?.removeGestureRecognizer(pan)
             guard window != nil else { return }
             var responder: UIResponder? = next
             while let current = responder {
                 if let controller = current as? UIViewController {
-                    controller.view.addGestureRecognizer(pan)
+                    if pan.view !== controller.view {
+                        pan.view?.removeGestureRecognizer(pan)
+                        controller.view.addGestureRecognizer(pan)
+                    }
                     break
                 }
                 responder = current.next

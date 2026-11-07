@@ -505,17 +505,24 @@ private struct LinearScheduleCanvasView: View {
                 )
                 .frame(width: proxy.size.width, height: contentHeight, alignment: .topLeading)
 
-                ForEach(configuration.entries.filter { visibleWeekdays.contains($0.dayOfWeek) }) {
-                    entry in
-                    entryView(
-                        entry,
-                        leftWidth: columnWidth,
-                        dayWidth: columnWidth,
-                        contentHeight: contentHeight,
-                        timelineStart: timelineStart,
-                        timelineEnd: timelineEnd
-                    )
-                }
+                ScheduleCalendarCardsView(
+                    cards: configuration.entries.filter {
+                        visibleWeekdays.contains($0.dayOfWeek)
+                    }.map { entry in
+                        calendarCard(
+                            entry, leftWidth: columnWidth, dayWidth: columnWidth,
+                            contentHeight: contentHeight, timelineStart: timelineStart,
+                            timelineEnd: timelineEnd)
+                    },
+                    contentMode: configuration.cardContentMode,
+                    onSelect: configuration.onSelect,
+                    onMenuWillPresent: { entry in
+                        contextMenuFeedbackToken &+= 1
+                        configuration.onPrepareCourseShare(entry)
+                    },
+                    onShare: configuration.onLongPressCourse)
+                .frame(width: proxy.size.width, height: contentHeight)
+
             }
             .frame(width: proxy.size.width, height: contentHeight)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
@@ -607,14 +614,14 @@ private struct LinearScheduleCanvasView: View {
         }
     }
 
-    private func entryView(
+    private func calendarCard(
         _ entry: ScheduleCalendarEntry,
         leftWidth: CGFloat,
         dayWidth: CGFloat,
         contentHeight: CGFloat,
         timelineStart: Int,
         timelineEnd: Int
-    ) -> some View {
+    ) -> ScheduleCalendarCard {
         let start =
             entry.startMinutes
             ?? fallbackMinute(for: entry.startSection, start: timelineStart, end: timelineEnd)
@@ -639,35 +646,16 @@ private struct LinearScheduleCanvasView: View {
         let cardHeight = max(
             endY - startY - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 18)
 
-        return ZStack(alignment: .topLeading) {
-            CourseScheduleBackgroundView(entry: entry)
-                .frame(width: cardWidth, height: cardHeight)
-
-            CourseScheduleBlockView(entry: entry, contentMode: configuration.cardContentMode)
-                .frame(width: cardWidth, height: cardHeight)
-
-            ScheduleEntryInteractionView(
-                entry: entry,
-                onTap: { configuration.onSelect(entry) },
-                onMenuWillPresent: entry.kind == .course
-                    ? {
-                        contextMenuFeedbackToken &+= 1
-                        configuration.onPrepareCourseShare(entry)
-                    } : nil,
-                onShare: entry.kind == .course
-                    ? { configuration.onLongPressCourse(entry) } : nil
-            )
-            .frame(width: cardWidth, height: cardHeight)
-        }
-        .frame(width: cardWidth, height: cardHeight)
-        .contentShape(Rectangle())
-        .offset(
-            x: leftWidth + dayWidth
-                * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
-                + AppDesignSystem.Schedule.Grid.lineWidth,
-            y: startY + AppDesignSystem.Schedule.Grid.lineWidth
-        )
-        .zIndex(entry.kind == .custom ? 1.5 : 1)
+        return ScheduleCalendarCard(
+            entry: entry,
+            frame: CGRect(
+                x: leftWidth + dayWidth
+                    * CGFloat(visibleWeekdayValues.firstIndex(of: entry.dayOfWeek) ?? 0)
+                    + AppDesignSystem.Schedule.Grid.lineWidth,
+                y: startY + AppDesignSystem.Schedule.Grid.lineWidth,
+                width: cardWidth, height: cardHeight),
+            backgrounds: [CGRect(x: 0, y: 0, width: cardWidth, height: cardHeight)],
+            zIndex: entry.kind == .custom ? 1.5 : 1)
     }
 
     private func fallbackMinute(for section: CGFloat, start: Int, end: Int) -> Int {

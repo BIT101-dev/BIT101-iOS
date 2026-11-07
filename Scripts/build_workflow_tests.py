@@ -72,7 +72,7 @@ def command_logging_boundary_findings() -> list[str]:
 
 
 def script_output_boundary_findings() -> list[str]:
-    findings = command_logging_boundary_findings()
+    findings = command_logging_boundary_findings() + performance_coverage_findings()
     script = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     from test_results import report_result_summary, record_native_metrics
 
@@ -218,6 +218,39 @@ bit101_start_audit_group() { bit101_run_audit_group "$1" "$2" & group_processes+
                 findings.append("静态审计自测：产物准备、并行分组执行完整性与多个失败汇总")
     finally:
         shutil.rmtree(fixture)
+    return findings
+
+
+def performance_coverage_findings() -> list[str]:
+    from test_results import record_native_metrics
+
+    findings = []
+    for performance, identifier, accepted in (
+        (True, "MaintenancePerformanceTests/testSwitch()", True),
+        (True, "FunctionalTests/testSwitch()", False),
+        (False, "FunctionalTests/testSwitch()", True),
+    ):
+        tree = {"nodeType": "Test Case", "nodeIdentifier": identifier, "duration": "1 s"}
+        summary = {"totalTestCount": 1, "passedTests": 1, "result": "Passed"}
+        with (
+            patch.dict(os.environ, BIT101_TEST_PERFORMANCE_ONLY="1" if performance else "0",
+                       BIT101_VALIDATION_INPUT_IDENTITY="input", BIT101_VALIDATION_RUN_ID="run"),
+            patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, json.dumps(summary), "")),
+            patch.object(subprocess, "check_output", return_value=json.dumps(tree)),
+            patch("test_results.append_catalyst_coverage_lines") as coverage,
+            patch("validation_evidence.native_case_summary", return_value={}),
+            patch("validation_evidence.validate_community_write_test_output"),
+            patch.object(Path, "write_text"),
+            redirect_stdout(StringIO()),
+        ):
+            try:
+                record_native_metrics(["/result", "/report", "catalyst", "1", "", str(ROOT)])
+                succeeded = True
+            except SystemExit:
+                succeeded = False
+            if succeeded != accepted or coverage.called == performance:
+                findings.append("性能专项排除覆盖率开销，同时保留功能测试的覆盖率要求。")
     return findings
 
 

@@ -374,6 +374,7 @@ run_tests() {
   local test_action=test
   local execution_args=()
   local coverage_args=(-enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES)
+  export BIT101_TEST_PERFORMANCE_ONLY=0
   local started_at=$SECONDS
   if $BUILD_ONLY; then
     test_action=build-for-testing
@@ -403,6 +404,22 @@ run_tests() {
       done
     else
       only_testing=("-only-testing:$TEST_BUNDLE/$group")
+    fi
+  fi
+
+  if (( ${#TEST_SELECTIONS[@]} > 0 )); then
+    local performance_only=true
+    local selected_test
+    for selected_test in "${only_testing[@]}"; do
+      case "$selected_test" in
+        */MaintenancePerformanceTests|*/MaintenancePerformanceTests/*|\
+        */MaintenancePerformanceUITests|*/MaintenancePerformanceUITests/*) ;;
+        *) performance_only=false; break ;;
+      esac
+    done
+    if $performance_only; then
+      coverage_args=(-enableCodeCoverage NO ENABLE_CODE_COVERAGE=NO)
+      export BIT101_TEST_PERFORMANCE_ONLY=1
     fi
   fi
 

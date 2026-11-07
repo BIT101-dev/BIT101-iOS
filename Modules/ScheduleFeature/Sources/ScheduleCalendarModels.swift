@@ -4,7 +4,7 @@ import ScheduleDomain
 /// 课表网格内部统一使用的条目类型。
 ///
 /// 课程、考试和自定义日程统一投影为日历块，并分别使用对应的颜色和详情逻辑。
-enum ScheduleCalendarKind {
+enum ScheduleCalendarKind: Equatable {
     case course
     case exam
     case custom
@@ -13,7 +13,7 @@ enum ScheduleCalendarKind {
 /// 供课表网格渲染的统一条目模型。
 ///
 /// 这是课表 UI 层内部的适配模型，数据生命周期止于展示流程。
-struct ScheduleCalendarEntry: Identifiable {
+struct ScheduleCalendarEntry: Identifiable, Equatable {
     let id: String
     let sourceID: String
     /// 叠加模式下，一个格子可能对应多门课程；普通模式只有一个元素。
@@ -90,7 +90,8 @@ struct ScheduleCalendarEntry: Identifiable {
 
     /// 重叠课程按中心位置绘制：中心更靠前的课程最后绘制，位于上层。
     var orderedBackgroundLayers: [ScheduleCalendarLayer] {
-        backgroundLayers.sorted { lhs, rhs in
+        guard backgroundLayers.count > 1 else { return backgroundLayers }
+        return backgroundLayers.sorted { lhs, rhs in
             let lhsCenter = (lhs.startSection + lhs.endSection) / 2
             let rhsCenter = (rhs.startSection + rhs.endSection) / 2
             if lhsCenter == rhsCenter {
@@ -104,7 +105,7 @@ struct ScheduleCalendarEntry: Identifiable {
     }
 }
 
-struct ScheduleCalendarLayer: Identifiable {
+struct ScheduleCalendarLayer: Identifiable, Equatable {
     let id: String
     let startSection: CGFloat
     let endSection: CGFloat
@@ -211,4 +212,28 @@ func calendarPlacements(entries: [ScheduleCalendarEntry], separateOverlaps: Bool
     }
 
     return result
+}
+
+@MainActor
+final class ScheduleCalendarPlacementProjection {
+    struct Layout {
+        let placements: [ScheduleCalendarPlacement]
+        let outside: [ScheduleCalendarEntry]
+    }
+    private var entries: [ScheduleCalendarEntry]?
+    private var separatesOverlaps = true
+    private var layout = Layout(placements: [], outside: [])
+
+    func resolve(entries: [ScheduleCalendarEntry], separateOverlaps: Bool) -> Layout {
+        guard self.entries != entries || separatesOverlaps != separateOverlaps
+        else { return layout }
+        let groups = quantizedCalendarGroups(entries: entries)
+        layout = Layout(
+            placements: calendarPlacements(
+                entries: groups.grid, separateOverlaps: separateOverlaps),
+            outside: groups.outside)
+        self.entries = entries
+        separatesOverlaps = separateOverlaps
+        return layout
+    }
 }

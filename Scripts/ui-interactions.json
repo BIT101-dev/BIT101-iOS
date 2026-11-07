@@ -69,7 +69,7 @@
   },
   "BIT101-iOS/Shell/AppShellView.swift:AppShellView": {
     "controls": {"TabView":2},
-    "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes","ScheduleEditingUITests/testMainTabsRemainType"]
+    "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes","MaintenancePerformanceUITests/testTabSwitchingPerformance","ScheduleEditingUITests/testMainTabsRemainType"]
   },
   "BIT101Watch/WatchScheduleRootView.swift:WatchScheduleEmptyStateView": {
     "controls": {"Button":1},
@@ -404,7 +404,7 @@
     "tests": ["CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleLayoutUITests/testScheduleKeepsWeek"]
   },
   "Modules/ScheduleFeature/Sources/CourseScheduleTabView.swift:CourseScheduleTabView": {
-    "controls": {"AppEmptyState":1,"Button":2,"List":2,"Menu":1},
+    "controls": {"AppEmptyState":1,"Button":2,"Menu":1,"ScrollView":1},
     "tests": ["CalendarInteractionUITests/testCourseAndExamSystemCalendarActions","CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails","InteractionCoverageUITests/testAccountProfileSaveLoginCheckAndLogout","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleCopyImportRenameCycle","LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes","ScheduleEditingUITests/testCourseEditorFieldsPickersSaveDetail","ScheduleLayoutUITests/testAccessibilityQueryParity","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry","ScheduleNavigationUITests/testEmptyShareAndImportGuideCancel","ScheduleNavigationUITests/testHolidayAndTransferConfirmedMutations","ServiceInteractionUITests/testSchoolSmsCourseSyncValidationCancel"]
   },
   "Modules/ScheduleFeature/Sources/DDLSettingsPage.swift:DDLSettingsNumberPickerSheet": {
@@ -512,7 +512,11 @@
     "tests": ["ScheduleConflictUITests/testKeepLocalConflictContentPersists","ScheduleConflictUITests/testUseSyncedConflictContentPersists"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView": {
-    "controls": {"AppSegmentedPicker":1,"AppVerificationSheet":1},
+    "controls": {"AppSegmentedPicker":1},
+    "tests": ["LandscapeLayoutUITests/testClassroomSmsUsesNativeDestination","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
+  },
+  "Modules/ScheduleFeature/Sources/ScheduleRootView.swift:ScheduleRootView.PagePresentation": {
+    "controls": {"AppVerificationSheet":1},
     "tests": ["LandscapeLayoutUITests/testClassroomSmsUsesNativeDestination","LandscapeLayoutUITests/testWindowUsesAdaptivePanes","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleSchoolVerification.swift:ScheduleSchoolVerification": {

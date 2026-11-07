@@ -397,6 +397,7 @@ struct ExperimentalPreferenceCloudSyncTests {
 
     func lifecycle(
         sync: ExperimentalPreferenceCloudSync, account: Account, displays: ExternalDisplays,
+        scheduleCache: ScheduleCache? = nil,
         changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(),
         prompts: AppPromptCoordinator = AppPromptCoordinator(),
         loadCourses:
@@ -405,7 +406,9 @@ struct ExperimentalPreferenceCloudSyncTests {
             }, refreshCloud: @escaping @MainActor () async -> Void = {}
     ) -> AppAccountLifecycle {
         let repository = ScheduleRepository(
-            session: { account.session }, load: { _ in .missing }, save: { _, _, _ in })
+            session: { account.session },
+            load: { _ in scheduleCache.map(ScheduleCacheLoadResult.loaded) ?? .missing },
+            save: { _, _, _ in })
         let service = SemesterStartDateService()
         let schedule = ScheduleViewModel(
             service: service, repository: repository, ddlService: service,

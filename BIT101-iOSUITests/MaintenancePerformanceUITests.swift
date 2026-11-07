@@ -80,4 +80,29 @@ nonisolated final class MaintenancePerformanceUITests: XCTestCase {
             }
         }
     }
+
+    @MainActor
+    func testTabSwitchingPerformance() throws {
+        let workload = try PerformanceWorkload("tab-switching", bundle: Bundle(for: Self.self))
+        let titles = try workload.value("tabs", as: [String].self)
+        let passes = try workload.value("passes", as: Int.self)
+        let app = application()
+        app.launchEnvironment["BIT101_UI_TEST_CONTENT"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        func select(_ title: String) {
+            let tab = app.tabBars.buttons[title].firstMatch
+            XCTAssertTrue(tab.waitForExistence(timeout: 5))
+            tab.press(forDuration: 0.01)
+            XCTAssertTrue(tab.isSelected)
+        }
+        for title in titles { select(title) }
+        measure(metrics: [
+            XCTClockMetric(), XCTMemoryMetric(application: app), XCTCPUMetric(application: app),
+        ]) {
+            for _ in 0..<passes {
+                for title in titles { select(title) }
+            }
+        }
+    }
 }

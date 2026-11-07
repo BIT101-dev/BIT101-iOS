@@ -340,6 +340,25 @@ struct NetworkSmokeRegressionContractTests {
                 == cookie
         }
         #expect(webView.configuration.userContentController.userScripts.count == 1)
+        _ = try await webView.evaluateJavaScript("true")
+        _ = try await webView.evaluateJavaScript(
+            """
+            window.credentialReads = 0;
+            const originalGetItem = Storage.prototype.getItem;
+            Storage.prototype.getItem = function(key) {
+                if (key === 'store') window.credentialReads++;
+                return originalGetItem.call(this, key);
+            };
+            true;
+            """)
+        for _ in 0..<20 {
+            coordinator.update(in: webView, to: AppURL.required("https://bit101.cn/gallery"))
+        }
+        let reads = try await webView.evaluateJavaScript("window.credentialReads") as? Int
+        #expect(reads == 0)
+        let article = AppURL.required("https://bit101.cn/paper")
+        coordinator.update(in: webView, to: article)
+        try await waitForTestEvent { webView.request?.url == article }
     }
 
     @Test(arguments: PaperSortOrder.allCases)

@@ -44,7 +44,15 @@ public struct GallerySurfacePicker: View {
 ///
 /// 顶部负责 feed 切换，下方负责承载当前选中的帖子流，并支持左右轻扫切换分区。
 public struct GalleryRootView: View {
-    private let scene: GalleryRootViewScene
+    private let dependencies: GalleryDependencies
+    private let media: MediaEnvironment
+    private let profiles: CommunityProfileDestination
+    private let papers: CommunityPaperDestination
+    private let courses: CommunityCourseDestination
+    private let requestedPaperID: Binding<Int?>
+    private let requestedPosterID: Binding<Int?>
+    private let selection: Binding<GallerySurface>?
+    private let includesPaperSurface: Bool
     private let identity: [ObjectIdentifier]
 
     public init(
@@ -58,16 +66,25 @@ public struct GalleryRootView: View {
         selection: Binding<GallerySurface>? = nil,
         includesPaperSurface: Bool = true
     ) {
-        scene = GalleryRootViewScene(
-            dependencies: dependencies, media: media, profiles: profiles, papers: papers,
-            courses: courses, requestedPaperID: requestedPaperID,
-            requestedPosterID: requestedPosterID, selection: selection,
-            includesPaperSurface: includesPaperSurface)
+        self.dependencies = dependencies
+        self.media = media
+        self.profiles = profiles
+        self.papers = papers
+        self.courses = courses
+        self.requestedPaperID = requestedPaperID
+        self.requestedPosterID = requestedPosterID
+        self.selection = selection
+        self.includesPaperSurface = includesPaperSurface
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
     public var body: some View {
-        scene.id(identity)
+        GalleryRootViewScene(
+            dependencies: dependencies, media: media, profiles: profiles, papers: papers,
+            courses: courses, requestedPaperID: requestedPaperID,
+            requestedPosterID: requestedPosterID, selection: selection,
+            includesPaperSurface: includesPaperSurface
+        ).id(identity)
     }
 }
 
@@ -81,9 +98,11 @@ private struct GalleryRootViewScene: View {
     private let media: MediaEnvironment
     @Environment(\.scenePhase) private var scenePhase
     /// 主 feed 视图模型，负责帖子流、搜索和详情入口状态。
-    @State private var viewModel: GalleryViewModel
+    @State private var ownedViewModel: AppViewModelOwner<GalleryViewModel>
+    private var viewModel: GalleryViewModel { ownedViewModel.model }
     /// 消息中心独立维护视图模型和加载状态。
-    @State private var messageViewModel: GalleryMessageViewModel
+    @State private var ownedMessageViewModel: AppViewModelOwner<GalleryMessageViewModel>
+    private var messageViewModel: GalleryMessageViewModel { ownedMessageViewModel.model }
     /// 监听网络从断开恢复为可用，帮助失败态自动重试。
     private var networkObserver: NetworkPathState { dependencies.networkPath }
     private var appSettings: CommunityPreferences
@@ -100,7 +119,6 @@ private struct GalleryRootViewScene: View {
     @State private var isShowingMessages = false
     @State private var isShowingSubscriptions = false
     @State private var unreadRefreshGeneration = 0
-    @State private var horizontalControlFrames: [CGRect] = []
     @Binding private var requestedPaperID: Int?
     @Binding private var requestedPosterID: Int?
     @Environment(\.appExpandedNavigation) private var expandedNavigation
@@ -140,10 +158,11 @@ private struct GalleryRootViewScene: View {
         self.profiles = profiles
         self.destinations = papers
         self.courses = courses
-        _viewModel = State(initialValue: GalleryViewModel(service: dependencies.feed))
-        _messageViewModel = State(
-            initialValue: GalleryMessageViewModel(
-                service: dependencies.messageService, readStore: dependencies.messages))
+        _ownedViewModel = State(
+            initialValue: AppViewModelOwner(GalleryViewModel(service: dependencies.feed)))
+        _ownedMessageViewModel = State(
+            initialValue: AppViewModelOwner(GalleryMessageViewModel(
+                service: dependencies.messageService, readStore: dependencies.messages)))
         self.appSettings = dependencies.preferences
     }
 
@@ -163,7 +182,7 @@ private struct GalleryRootViewScene: View {
                 AppPairedPages(showsFirst: selectedSurface == .gallery, pairsInLandscape: false) {
                     topicSurface
                 } second: {
-                    destinations.papers($requestedPaperID, { selectedSurface = .gallery })
+                    paperSurface
                 }
                 .accessibilityIdentifier("gallery.surfaces")
             } else {
@@ -202,46 +221,23 @@ private struct GalleryRootViewScene: View {
     }
 
     @ViewBuilder
+    private var paperSurface: some View {
+        if appSettings.galleryUseWebView {
+            GalleryWebContentView(
+                dependencies: dependencies, surface: .paper,
+                requestedPaperID: $requestedPaperID)
+        } else {
+            destinations.papers($requestedPaperID, { selectedSurface = .gallery })
+        }
+    }
+
+    @ViewBuilder
     private var topicSurface: some View {
         if appSettings.galleryUseWebView && selectedContent == nil {
-            GalleryWebContentView()
+            GalleryWebContentView(dependencies: dependencies, surface: .gallery)
         } else {
             galleryContent
         }
-    }
-
-    private struct GalleryWebContentView: View {
-        var body: some View {
-            GalleryWebView(url: AppEndpoints.bit101Web.appendingPathComponent("gallery"))
-                .ignoresSafeArea(.container, edges: .bottom)
-        }
-    }
-
-    private struct GalleryWebView: UIViewRepresentable {
-        @Environment(GalleryDependencies.self) private var dependencies
-        @Environment(\.openURL) private var openURL
-        let url: URL
-
-        func makeCoordinator() -> GalleryWebCoordinator {
-            GalleryWebCoordinator(
-                credentials: dependencies.webCredentials, openExternal: { url in openURL(url) })
-        }
-
-        func makeUIView(context: Context) -> WKWebView {
-            let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
-            let webView = WKWebView(frame: .zero, configuration: configuration)
-            webView.navigationDelegate = context.coordinator
-            webView.uiDelegate = context.coordinator
-            webView.allowsBackForwardNavigationGestures = true
-            context.coordinator.start(in: webView, url: url)
-            return webView
-        }
-
-        func updateUIView(_ webView: WKWebView, context: Context) {
-            context.coordinator.synchronizeCredentials(in: webView)
-        }
-
     }
 
     private func openRequestedPoster() {
@@ -315,7 +311,7 @@ private struct GalleryRootViewScene: View {
                     for: viewModel.selectedFeed, currentPoster: state.posters.last)
             }
         }
-        .sheet(isPresented: $viewModel.isShowingSearch) {
+        .sheet(isPresented: Bindable(viewModel).isShowingSearch) {
             NavigationStack {
                 GallerySearchView(viewModel: viewModel)
             }
@@ -346,7 +342,7 @@ private struct GalleryRootViewScene: View {
                 viewModel.enqueueComposerRefresh()
             }
         }
-        .diagnosticAlert(item: $viewModel.alert)
+        .diagnosticAlert(item: Bindable(viewModel).alert)
         .onDisappear { viewModel.cancelPendingOperations() }
     }
 
@@ -396,10 +392,7 @@ private struct GalleryRootViewScene: View {
                     }),
                 onPreview: { feedImageViewer = $0 }
             )
-            .appPageSwitch(excluding: horizontalControlFrames, onStep: switchFeed)
-            .onPreferenceChange(AppHorizontalControlFramesKey.self) {
-                horizontalControlFrames = $0
-            }
+            .appPageSwitch(onStep: switchFeed)
             .appAccessibilitySurface()
             .accessibilityIdentifier("gallery.feed-surface")
 
@@ -430,7 +423,7 @@ private struct GalleryRootViewScene: View {
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             AppTopSegmentedPicker(
                 title: "话廊分区",
-                selection: $viewModel.selectedFeed,
+                selection: Bindable(viewModel).selectedFeed,
                 variant: .stacked
             ) {
                 ForEach(visibleFeeds) { feed in
@@ -479,6 +472,63 @@ private struct GalleryRootViewScene: View {
 
 }
 
+/// 网页话廊的两个内容分区共用登录、导航和恢复行为。
+public struct GalleryWebContentView: View {
+    private let dependencies: GalleryDependencies
+    private let surface: GallerySurface
+    @Binding private var requestedPaperID: Int?
+    @State private var destinationID: Int?
+
+    public init(
+        dependencies: GalleryDependencies, surface: GallerySurface,
+        requestedPaperID: Binding<Int?> = .constant(nil)
+    ) {
+        self.dependencies = dependencies
+        self.surface = surface
+        _requestedPaperID = requestedPaperID
+        _destinationID = State(initialValue: requestedPaperID.wrappedValue)
+    }
+
+    public var body: some View {
+        let base = AppEndpoints.bit101Web.appendingPathComponent(surface.rawValue)
+        GalleryWebView(url: destinationID.map { base.appendingPathComponent(String($0)) } ?? base)
+            .environment(dependencies)
+            .ignoresSafeArea(.container, edges: .bottom)
+            .accessibilityIdentifier("gallery.web.\(surface.rawValue)")
+            .onChange(of: requestedPaperID, initial: true) { _, id in
+                guard let id else { return }
+                destinationID = id
+                requestedPaperID = nil
+            }
+    }
+}
+
+private struct GalleryWebView: UIViewRepresentable {
+    @Environment(GalleryDependencies.self) private var dependencies
+    @Environment(\.openURL) private var openURL
+    let url: URL
+
+    func makeCoordinator() -> GalleryWebCoordinator {
+        GalleryWebCoordinator(
+            credentials: dependencies.webCredentials, openExternal: { url in openURL(url) })
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        context.coordinator.start(in: webView, url: url)
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.update(in: webView, to: url)
+    }
+}
+
 final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private static let logger = Logger(subsystem: "BIT101", category: "GalleryWeb")
     let credentials: GalleryWebCredentials
@@ -494,10 +544,13 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
     private var credentialsUpdateInFlight = false
     private var failedCredentialCookie: String?
     private var hasLoadedDocument = false
+    private(set) var requestedURL: URL?
+    private var synchronizedCookie: String?
     private var retryURL = AppEndpoints.bit101Web.appendingPathComponent("gallery")
     private weak var recoveryAlert: UIAlertController?
 
     func start(in webView: WKWebView, url: URL) {
+        requestedURL = url
         retryURL = url
         do { try configureBootstrap(in: webView, cookie: credentials.cookie()) } catch {
             showLoadFailure(in: webView, error: error)
@@ -508,6 +561,18 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
             self?.synchronizeCredentials(in: webView)
         }
         webView.load(GalleryWebRequestFactory.request(for: url))
+    }
+
+    func update(in webView: WKWebView, to url: URL) {
+        if requestedURL != url {
+            requestedURL = url
+            retryURL = url
+            isShowingFailure = false
+            webView.load(GalleryWebRequestFactory.request(for: url))
+        }
+        if synchronizedCookie != credentials.cookie() {
+            synchronizeCredentials(in: webView)
+        }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction)
@@ -574,6 +639,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
         if !isShowingFailure, GalleryWebRequestFactory.isTrustedPage(webView.url) {
             hasLoadedDocument = true
         }
+        synchronizedCookie = nil
         synchronizeCredentials(in: webView)
     }
 
@@ -638,8 +704,9 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate 
             if let error {
                 self.failedCredentialCookie = fakeCookie
                 self.showLoadFailure(in: webView, error: error)
-            } else if result as? Bool == true {
-                webView.reload()
+            } else {
+                self.synchronizedCookie = fakeCookie
+                if result as? Bool == true { webView.reload() }
             }
         }
     }

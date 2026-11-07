@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
 from test_module_metrics import export_module_metrics, module_result, report_ui_timings
+from validation_result_readers import append_catalyst_coverage_lines
 
 
 def workflow_start(arguments: list[str]) -> None:
@@ -556,24 +557,6 @@ def append_ui_interaction_report_lines(
         lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
 
 
-def append_catalyst_coverage_lines(lines: list[str], report_path: str) -> None:
-    from validation_evidence import native_source_coverage
-
-    build = Path(report_path).parent / "Build"
-    profiles = list((build / "ProfileData").glob("*/Coverage.profdata"))
-    if len(profiles) != 1:
-        raise SystemExit("Catalyst 覆盖率需要本次运行的唯一采样。")
-    modules = native_source_coverage(
-        build / "Products/Release-maccatalyst", profiles[0], catalyst=True
-    )
-    for name, (covered, executable) in sorted(modules.items()):
-        if executable:
-            label = name if name == "BIT101-iOS.app" else "Catalyst/" + name
-            lines.append(
-                f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)"
-            )
-
-
 def record_native_metrics(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -584,6 +567,7 @@ def record_native_metrics(arguments: list[str]) -> None:
     from pathlib import Path
 
     result_bundle, report_path, mode, elapsed_seconds, device_id, root = cli_arguments[1:]
+    performance_only = os.environ.get("BIT101_TEST_PERFORMANCE_ONLY") == "1"
     if mode in {"catalyst", "catalyst-release-runtime"}:
         device_id = ""
     sys.path.insert(0, str(Path(root) / "Scripts"))
@@ -612,7 +596,7 @@ def record_native_metrics(arguments: list[str]) -> None:
 
     coverage = None
     coverage_error = None
-    if mode not in {"catalyst", "catalyst-release-runtime"}:
+    if not performance_only and mode not in {"catalyst", "catalyst-release-runtime"}:
         coverage_result = subprocess.run(
             [
                 "xcrun",
@@ -656,7 +640,9 @@ def record_native_metrics(arguments: list[str]) -> None:
         "",
         "## UI 交互覆盖" if mode == "ui" else "## 逐 target 行覆盖率",
     ]
-    if coverage is None or mode == "ui":
+    if performance_only:
+        lines.append("性能专项：关闭代码覆盖率统计。")
+    elif coverage is None or mode == "ui":
         if mode == "ui":
             append_ui_interaction_report_lines(lines, result_bundle, summary, report_path)
         elif mode in {"catalyst", "catalyst-release-runtime"}:
@@ -712,6 +698,13 @@ def record_native_metrics(arguments: list[str]) -> None:
                 visit_tests(child)
 
     visit_tests(test_tree)
+    if performance_only and (
+        not executed or any(
+            not name.startswith(("MaintenancePerformanceTests/", "MaintenancePerformanceUITests/"))
+            for name in executed
+        )
+    ):
+        raise SystemExit("性能专项只接受性能测试用例。")
     if summary.get("result") == "Passed":
         validate_community_write_test_output(Path(result_bundle), set(executed))
     lines.append("已执行用例：" + json.dumps(sorted(set(executed)), ensure_ascii=False))
@@ -755,7 +748,10 @@ def record_native_metrics(arguments: list[str]) -> None:
     report = "\n".join(lines) + "\n"
     Path(report_path).write_text(report, encoding="utf-8")
     print(lines[4])
-    if mode not in {"catalyst", "catalyst-release-runtime"} and coverage is None:
+    if (
+        not performance_only and mode not in {"catalyst", "catalyst-release-runtime"}
+        and coverage is None
+    ):
         if coverage_error:
             print(coverage_error)
         raise SystemExit("覆盖率采集失败。")

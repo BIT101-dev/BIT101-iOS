@@ -1,6 +1,7 @@
 import DesignSystemKit
 import Foundation
 import ScheduleDomain
+import ScheduleContracts
 import StorageCore
 import SwiftUI
 import Testing
@@ -12,6 +13,29 @@ import UIKit
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
+    @Test @MainActor func mapTargetTracksStartAndCourseEdits() throws {
+        let firstDayString = "2026-09-07"
+        let courses = try ScheduleCourseEditor.adding(
+            CourseDraft(title: "高数", weekday: 1, weeksText: "1-20"),
+            to: [], term: "2026-2027-1", id: "map-course")
+        let snapshot = ScheduleCourseSnapshot(
+            firstDayString: firstDayString, timeTable: TimeSlot.default, courses: courses)
+        let firstDay = try #require(snapshot.firstDay)
+        let slot = try #require(TimeSlot.default.first)
+        let start = try #require(ScheduleSharedDateCodec.combine(
+            firstDay: firstDay, week: 1, weekday: 1, time: slot.start))
+        let projection = UpcomingCourseMapProjection()
+        let before = try #require(
+            projection.resolve(in: snapshot, now: start.addingTimeInterval(-1)))
+        #expect(before.startDate == start)
+        let after = try #require(projection.resolve(in: snapshot, now: start))
+        #expect(after.startDate > start)
+        let cleared = ScheduleCourseSnapshot(
+            firstDayString: firstDayString, timeTable: TimeSlot.default, courses: [])
+        #expect(projection.resolve(in: cleared, now: start) == nil)
+        #expect(projection.resolve(in: snapshot, now: start) != nil)
+    }
+
     @Test(
         "Calendar entries keep the same rendered height across display frames", .serialized,
         .timeLimit(.minutes(1)),
@@ -71,22 +95,30 @@ struct ScheduleTimelineViewportTests {
             window.isHidden = true
             window.rootViewController = nil
         }
-        func collection(in view: UIView) -> UICollectionView? {
-            if let list = view as? UICollectionView, list.numberOfSections > 1 { return list }
-            return view.subviews.lazy.compactMap { collection(in: $0) }.first
+        func calendar(in view: UIView) -> ScheduleCalendarCardsControl? {
+            if let calendar = view as? ScheduleCalendarCardsControl { return calendar }
+            return view.subviews.lazy.compactMap { calendar(in: $0) }.first
+        }
+        func viewport(for cards: UIView) -> UIView {
+            guard linear else { return cards }
+            var ancestor = cards.superview
+            while let current = ancestor {
+                if current is UIScrollView { return current }
+                ancestor = current.superview
+            }
+            return cards
         }
         for _ in 0..<2 {
             tabs.selectedIndex = 0
             let sampler = ScheduleRenderedFrameSampler {
-                guard let list = collection(in: host.view), list.numberOfItems(inSection: 1) > 0,
-                    let cell = list.cellForItem(at: IndexPath(item: 0, section: 1)),
-                    let layer = cell.layer.presentation(), layer.bounds.height > 0
-                else { return nil }
-                return layer.bounds.size.height
+                guard let cards = calendar(in: host.view), cards.window != nil else { return nil }
+                guard let layer = viewport(for: cards).layer.presentation(),
+                    layer.bounds.height > 0,
+                    layer.opacity > 0 else { return nil }
+                return layer.bounds.height
             }
             let heights = await sampler.sample()
-            print("Calendar entry rendered heights: \(heights)")
-            #expect(heights.count >= 2, "逐帧验收需要真实渲染的课表行。")
+            #expect(heights.count >= 2, "逐帧验收需要真实渲染的课表。")
             if let minimum = heights.min(), let maximum = heights.max() {
                 #expect(maximum - minimum <= 1, "课表进入期间的渲染高度：\(heights)")
             }
@@ -245,6 +277,27 @@ private final class ScheduleRenderedFrameSampler: NSObject {
 @MainActor
 @Suite("Schedule card location priority")
 struct ScheduleCardTextLayoutTests {
+    @Test func calendarLayoutTracksCourseAndModeChanges() {
+        func entry(_ id: String, title: String, start: CGFloat = 1) -> ScheduleCalendarEntry {
+            ScheduleCalendarEntry(
+                id: id, sourceID: id, sourceIDs: [id], dayOfWeek: 1,
+                startSection: start, endSection: start + 2, title: title, subtitle: "",
+                detailLines: [], kind: .course)
+        }
+        let projection = ScheduleCalendarPlacementProjection()
+        let courses = [entry("a", title: "高数"), entry("b", title: "物理")]
+        let separated = projection.resolve(entries: courses, separateOverlaps: true)
+        #expect(separated.placements.map(\.columnCount) == [2, 2])
+        let stacked = projection.resolve(entries: courses, separateOverlaps: false)
+        #expect(stacked.placements.map(\.columnCount) == [1, 1])
+        let updated = projection.resolve(
+            entries: [entry("a", title: "新名称", start: 5)], separateOverlaps: true)
+        #expect(updated.placements.count == 1)
+        #expect(updated.placements.first?.entry.title == "新名称")
+        #expect(updated.placements.first?.entry.startSection == 5)
+        #expect(projection.resolve(entries: [], separateOverlaps: true).placements.isEmpty)
+    }
+
     @Test func building() throws {
         let location = "文萃楼A\n101"
         for font in [
@@ -252,7 +305,7 @@ struct ScheduleCardTextLayoutTests {
             UIFont.preferredFont(forTextStyle: .title1),
         ] {
             for height: CGFloat in [18, 40, 120] {
-                let view = ScheduleCardTextView.AdaptiveCardTextView(
+                let view = ScheduleCardTextView(
                     frame: CGRect(x: 0, y: 0, width: 72, height: height))
                 view.configure(
                     title: String(repeating: "计算机网络与通信原理", count: 5), location: location,
@@ -284,8 +337,72 @@ struct ScheduleCardTextLayoutTests {
         }
     }
 
+    @Test func courseControlRetainsTextAndOpensDetails() throws {
+        let entry = ScheduleCalendarEntry(
+            id: "course", sourceID: "course", sourceIDs: ["course"], dayOfWeek: 1,
+            startSection: 1, endSection: 3, title: "高等数学", subtitle: "文萃楼A\n101",
+            detailLines: [], kind: .course)
+        let control = ScheduleBlankContextMenuControl(
+            frame: CGRect(x: 0, y: 0, width: 72, height: 100))
+        var opens = 0
+        control.onTap = { opens += 1 }
+        control.configureText(entry: entry, contentMode: .nameAndLocation)
+        control.layoutIfNeeded()
+        let text = try #require(control.subviews.first as? ScheduleCardTextView)
+        text.layoutIfNeeded()
+        let room = try #require(text.subviews.last as? UILabel)
+        #expect(room.text == entry.subtitle && !room.isHidden)
+        #expect(text.accessibilityElementsHidden && !text.isUserInteractionEnabled)
+        #expect(control.accessibilityActivate() && opens == 1)
+        control.configureText(entry: entry, contentMode: .location)
+        text.layoutIfNeeded()
+        #expect(control.subviews.count == 1 && control.subviews.first === text)
+        #expect(text.subviews.first?.isHidden == true && !room.isHidden)
+        control.configureText(entry: entry, contentMode: nil)
+        #expect(control.subviews.isEmpty)
+    }
+
+    @Test func calendarCardReuseAndBlankHitTesting() throws {
+        func card(_ id: String, title: String, zIndex: Double = 1) -> ScheduleCalendarCard {
+            let entry = ScheduleCalendarEntry(
+                id: id, sourceID: id, sourceIDs: [id], dayOfWeek: 1,
+                startSection: 1, endSection: 3, title: title, subtitle: "文萃楼A\n101",
+                detailLines: [], kind: .course)
+            return ScheduleCalendarCard(
+                entry: entry, frame: CGRect(x: 20, y: 20, width: 72, height: 100),
+                backgrounds: [CGRect(x: 0, y: 0, width: 72, height: 100)], zIndex: zIndex)
+        }
+        let view = ScheduleCalendarCardsControl(
+            frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        var opened: [String] = []
+        func update(_ cards: [ScheduleCalendarCard]) {
+            view.update(cards: cards) { control, card in
+                control.configure(
+                    entry: card.entry, contentMode: .nameAndLocation,
+                    onTap: { opened.append(card.entry.title) },
+                    onMenuWillPresent: nil, onShare: nil, interactionEvidence: nil)
+                control.configureBackgrounds(card.backgrounds, entry: card.entry)
+            }
+            view.layoutIfNeeded()
+        }
+        update([card("above", title: "上层", zIndex: 2), card("course", title: "原课程")])
+        let above = try #require(view.subviews.last as? ScheduleBlankContextMenuControl)
+        let retained = try #require(view.subviews.first as? ScheduleBlankContextMenuControl)
+        #expect(view.hitTest(CGPoint(x: 30, y: 30), with: nil) === above)
+        #expect(view.hitTest(CGPoint(x: 180, y: 180), with: nil) == nil)
+        update([card("course", title: "更新课程")])
+        #expect(view.subviews.count == 1 && view.subviews.first === retained)
+        #expect(retained.accessibilityLabel == "更新课程")
+        #expect(retained.accessibilityActivate() && opened == ["更新课程"])
+        let background = try #require(retained.layer.sublayers?.first?.sublayers?.first)
+        #expect(background.frame == CGRect(x: 0, y: 0, width: 72, height: 100))
+        #expect(background.cornerCurve == .continuous)
+        update([])
+        #expect(view.subviews.isEmpty && view.hitTest(CGPoint(x: 30, y: 30), with: nil) == nil)
+    }
+
     @Test func changingCourseNamePreservesRoomSpace() throws {
-        let view = ScheduleCardTextView.AdaptiveCardTextView(
+        let view = ScheduleCardTextView(
             frame: CGRect(x: 0, y: 0, width: 72, height: 100))
         let font = UIFont.preferredFont(forTextStyle: .caption1)
         let location = "文萃楼A\n101"
@@ -305,5 +422,15 @@ struct ScheduleCardTextLayoutTests {
         #expect(room.isHidden && !title.isHidden)
         configure("高数", .location)
         #expect(title.isHidden && !room.isHidden && room.numberOfLines >= 2)
+        view.bounds.size = CGSize(width: 144, height: 140)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        #expect(room.frame.width == 144 && view.bounds.contains(room.frame))
+        let largerFont = UIFont.preferredFont(forTextStyle: .title1)
+        view.configure(
+            title: "高数", location: location, contentMode: .location,
+            font: largerFont, textColor: .systemRed)
+        view.layoutIfNeeded()
+        #expect(room.font == largerFont && room.textColor == .systemRed)
     }
 }

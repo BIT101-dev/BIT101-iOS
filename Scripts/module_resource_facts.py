@@ -157,7 +157,7 @@ def expanded_resource_source(
 
 SERVICE_RESOURCE_OWNERS = {
     "web": {
-        ("GalleryFeature", "GalleryRootViewScene.GalleryWebView"),
+        ("GalleryFeature", "GalleryWebView"),
         ("GalleryFeature", "GalleryWebCoordinator"),
     },
     "transport": {

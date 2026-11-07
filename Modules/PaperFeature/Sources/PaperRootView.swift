@@ -10,7 +10,10 @@ import SwiftUI
 ///
 /// 话廊中的文章场景，负责文章列表、搜索和详情跳转。
 public struct PaperRootView: View {
-    private let scene: PaperRootViewScene
+    private let dependencies: PaperDependencies
+    private let media: MediaEnvironment
+    private let requestedPaperID: Binding<Int?>
+    private let onShowFeed: (() -> Void)?
     private let identity: [ObjectIdentifier]
 
     public init(
@@ -19,14 +22,18 @@ public struct PaperRootView: View {
         requestedPaperID: Binding<Int?> = .constant(nil),
         onShowFeed: (() -> Void)? = nil
     ) {
-        scene = PaperRootViewScene(
-            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
-            onShowFeed: onShowFeed)
+        self.dependencies = dependencies
+        self.media = media
+        self.requestedPaperID = requestedPaperID
+        self.onShowFeed = onShowFeed
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
     public var body: some View {
-        scene.id(identity)
+        PaperRootViewScene(
+            dependencies: dependencies, media: media, requestedPaperID: requestedPaperID,
+            onShowFeed: onShowFeed
+        ).id(identity)
     }
 }
 
@@ -34,7 +41,8 @@ private struct PaperRootViewScene: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let dependencies: PaperDependencies
     private let media: MediaEnvironment
-    @State private var feeds: PaperSortFeeds
+    @State private var ownedFeeds: AppViewModelOwner<PaperSortFeeds>
+    private var feeds: PaperSortFeeds { ownedFeeds.model }
     @State private var isShowingComposer = false
     @State private var isShowingSearch = false
     @State private var selectedPaper: PaperSummary?
@@ -52,7 +60,8 @@ private struct PaperRootViewScene: View {
         self.media = media
         self.onShowFeed = onShowFeed
         _requestedPaperID = requestedPaperID
-        _feeds = State(initialValue: PaperSortFeeds(service: dependencies.list))
+        _ownedFeeds = State(
+            initialValue: AppViewModelOwner(PaperSortFeeds(service: dependencies.list)))
     }
 
     var body: some View {

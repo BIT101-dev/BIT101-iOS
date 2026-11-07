@@ -6,6 +6,7 @@ import DesignSystemKit
 import GalleryFeature
 import MapFeature
 import MineFeature
+import Observation
 import ScheduleDomain
 import ScheduleFeature
 import ScoreDomain
@@ -178,8 +179,25 @@ private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
 struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
     @Environment(\.appWindowLayout) private var layout
-    @State private var scoreSurface: ScoreSurface = .score
-    @State private var gallerySurface: GallerySurface = .gallery
+    @State private var navigation = AppShellNavigation()
+    private var scoreSurface: ScoreSurface {
+        get { navigation.scoreSurface }
+        nonmutating set { navigation.scoreSurface = newValue }
+    }
+    private var gallerySurface: GallerySurface {
+        get { navigation.gallerySurface }
+        nonmutating set { navigation.gallerySurface = newValue }
+    }
+    private var selectedTab: AppTab {
+        get { navigation.selectedTab }
+        nonmutating set { navigation.selectedTab = newValue }
+    }
+    private var scoreSelection: Binding<ScoreSurface> {
+        Binding(get: { scoreSurface }, set: { scoreSurface = $0 })
+    }
+    private var gallerySelection: Binding<GallerySurface> {
+        Binding(get: { gallerySurface }, set: { gallerySurface = $0 })
+    }
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
     private static let startupNoticeBody = """
@@ -200,22 +218,15 @@ struct AppShellView: View {
     let onLogout: () -> Void
 
     @Environment(\.openURL) private var openURL
-    @Environment(\.appInteractionEvidence) private var interactionEvidence
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppSettingsStore.self) private var settings: AppSettingsStore
     @Environment(ScheduleViewModel.self) private var scheduleViewModel: ScheduleViewModel
     @Environment(AppAccountLifecycle.self) private var lifecycle: AppAccountLifecycle
     @Environment(AppPromptCoordinator.self) private var promptCoordinator: AppPromptCoordinator
     #if BIT101_UI_TESTING
-    @State private var selectedTab: AppTab =
-        AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
-        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule")
-            ?? .schedule : .mine
     @State private var uiTestSettingsRoute = AppUITestBootstrap.environment[
         "BIT101_UI_TEST_SETTINGS"
     ].flatMap(SettingsRoute.init(rawValue:))
-    #else
-    @State private var selectedTab: AppTab = .schedule
     #endif
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedCalendarRoute: AppDeepLinkRoute?
@@ -235,7 +246,6 @@ struct AppShellView: View {
     var body: some View {
         mainTabs
             .environment(\.appExpandedNavigation, usesExpandedNavigation)
-            .tint(selectedTab.tintColor)
     }
 
     private var mainTabs: some View {
@@ -244,7 +254,7 @@ struct AppShellView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
-        .appSelectionFeedback(trigger: selectedTab.rawValue)
+        .modifier(AppShellSelectionPresentation(navigation: navigation))
         .task(id: requestedCalendarRoute) {
             guard let route = requestedCalendarRoute,
                 case .calendarEvent(let markerID, let term, let account) = route
@@ -257,11 +267,6 @@ struct AppShellView: View {
                 account == AppAccountSession.currentSession.accountStorageIdentifier
             else { return }
             scheduleViewModel.requestCalendarEntry(markerID: markerID, term: term)
-        }
-        .onChange(of: selectedTab) { _, _ in
-            interactionEvidence?("app.shell", "tab-switch")
-            interactionEvidence?("app.navigation.adaptive", "tab-switch")
-            interactionEvidence?("app.navigation.grouped", "tab-switch")
         }
         .onAppear {
             #if BIT101_UI_TESTING
@@ -305,8 +310,9 @@ struct AppShellView: View {
                     destinationContent(destination)
                         .tint(destination.tab.tintColor)
                         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        .environment(
-                            \.appPageIsVisible, destination == destinationSelection.wrappedValue)
+                        .modifier(AppShellPageVisibility {
+                            destination == destinationSelection.wrappedValue
+                        })
                 } label: {
                     Label(
                         destination.title,
@@ -321,7 +327,7 @@ struct AppShellView: View {
     }
 
     private var compactTabs: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(get: { selectedTab }, set: { selectedTab = $0 })) {
             ForEach(AppTab.allCases) { tab in
                 tabItemView(for: tab)
             }
@@ -338,7 +344,7 @@ struct AppShellView: View {
                 NavigationStack { tabContent(tab) }
             }
         }
-        .environment(\.appPageIsVisible, tab == selectedTab)
+        .modifier(AppShellPageVisibility { tab == selectedTab })
         .tint(tab.tintColor)
         .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
         .tag(tab)
@@ -352,9 +358,9 @@ struct AppShellView: View {
         switch destination {
         case .topics: galleryContent(includesPaperSurface: false)
         case .papers:
-            destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
+            paperContent
                 .appBrowserHeader(isPresented: !usesExpandedNavigation) {
-                    GallerySurfacePicker(selection: $gallerySurface)
+                    GallerySurfacePicker(selection: gallerySelection)
                 }
         case .schedule, .classroom:
             scheduleContent(showingClassrooms: destination == .classroom)
@@ -362,7 +368,7 @@ struct AppShellView: View {
             AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
                 requestedCourse: $requestedCourse,
-                selection: $scoreSurface, showingCourses: destination == .courses)
+                selection: scoreSelection, showingCourses: destination == .courses)
         case .mine: tabContent(.mine)
         default:
             NavigationStack { tabContent(destination.tab) }
@@ -374,18 +380,12 @@ struct AppShellView: View {
         case .schedule:
             scheduleContent()
         case .map:
-            TimelineView(.everyMinute) { context in
-                CampusMapScreen(
-                    nextCourseTarget: UpcomingCourseMapResolver.nextTarget(
-                        in: scheduleViewModel.courseSnapshot, now: context.date),
-                    requestedLocation: requestedMapLocation
-                )
-            }
-            .task { await scheduleViewModel.loadIfNeeded() }
+            AppMapSurfaceView(
+                schedule: scheduleViewModel, requestedLocation: requestedMapLocation)
         case .score:
             AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
-                requestedCourse: $requestedCourse, selection: $scoreSurface)
+                requestedCourse: $requestedCourse, selection: scoreSelection)
         case .gallery:
             galleryContent()
         case .mine:
@@ -432,8 +432,18 @@ struct AppShellView: View {
             profiles: destinations.profiles, papers: destinations.papers,
             courses: destinations.courses,
             requestedPaperID: includesPaperSurface ? $requestedPaperID : .constant(nil),
-            requestedPosterID: $requestedPosterID, selection: $gallerySurface,
+            requestedPosterID: $requestedPosterID, selection: gallerySelection,
             includesPaperSurface: includesPaperSurface)
+    }
+
+    @ViewBuilder private var paperContent: some View {
+        if settings.galleryUseWebView {
+            GalleryWebContentView(
+                dependencies: community.gallery, surface: .paper,
+                requestedPaperID: $requestedPaperID)
+        } else {
+            destinations.papers.papers($requestedPaperID, { gallerySurface = .gallery })
+        }
     }
 
     private var destinationSelection: Binding<AppDestination> {
@@ -591,5 +601,57 @@ struct AppShellView: View {
                 ],
                 account: account
             ))
+    }
+}
+
+@MainActor
+@Observable
+private final class AppShellNavigation {
+    var scoreSurface: ScoreSurface = .score
+    var gallerySurface: GallerySurface = .gallery
+    #if BIT101_UI_TESTING
+    var selectedTab: AppTab =
+        AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
+        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule")
+            ?? .schedule : .mine
+    #else
+    var selectedTab: AppTab = .schedule
+    #endif
+}
+
+private struct AppShellPageVisibility: ViewModifier {
+    let isVisible: () -> Bool
+    func body(content: Content) -> some View {
+        content.environment(\.appPageIsVisible, isVisible())
+    }
+}
+
+private struct AppShellSelectionPresentation: ViewModifier {
+    @Environment(\.appInteractionEvidence) private var interactionEvidence
+    let navigation: AppShellNavigation
+    func body(content: Content) -> some View {
+        content
+            .appSelectionFeedback(trigger: navigation.selectedTab.rawValue)
+            .onChange(of: navigation.selectedTab) { _, _ in
+                interactionEvidence?("app.shell", "tab-switch")
+                interactionEvidence?("app.navigation.adaptive", "tab-switch")
+                interactionEvidence?("app.navigation.grouped", "tab-switch")
+            }
+    }
+}
+
+private struct AppMapSurfaceView: View {
+    let schedule: ScheduleViewModel
+    let requestedLocation: CampusMapLocationRequest?
+    @State private var courseTarget = UpcomingCourseMapProjection()
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            CampusMapScreen(
+                nextCourseTarget: courseTarget.resolve(
+                    in: schedule.courseSnapshot, now: context.date),
+                requestedLocation: requestedLocation)
+        }
+        .task { await schedule.loadIfNeeded() }
     }
 }

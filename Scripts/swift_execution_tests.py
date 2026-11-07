@@ -234,7 +234,8 @@ def network_composition_self_test() -> None:
     rules = runpy.run_path(str(ROOT / "Scripts/check-module-boundaries.py"))
     for owner, permitted in [
         ("GalleryWebCoordinator", True),
-        ("GalleryRootViewScene.GalleryWebView", True),
+        ("GalleryWebView", True),
+        ("GalleryRootViewScene.GalleryWebView", False),
         ("OtherView", False),
     ]:
         parts = owner.split(".")

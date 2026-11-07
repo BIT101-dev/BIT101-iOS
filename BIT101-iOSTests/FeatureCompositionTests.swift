@@ -501,7 +501,8 @@ struct FeatureCompositionTests {
     }
 
     func host<V: View>(
-        _ view: V, navigation: Bool = true, operation: () async throws -> Void
+        _ view: V, navigation: Bool = true, prepare: ((UIViewController) -> Void)? = nil,
+        operation: () async throws -> Void
     ) async throws {
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -513,6 +514,7 @@ struct FeatureCompositionTests {
             }.environment(\.scenePhase, .active))
         window.rootViewController = controller
         window.makeKeyAndVisible()
+        prepare?(controller)
         defer {
             window.isHidden = true
             window.rootViewController = nil
@@ -562,7 +564,7 @@ struct FeatureCompositionTests {
 
     @Test(.timeLimit(.minutes(1)))
     func galleryWebPrefTakesEffect() async throws {
-        var requestedPaperID: Int? = 42
+        let request = PaperRequest()
         let dependencies = gallery(TraceTransport())
         var paperAppearances = 0
         let papers = CommunityPaperDestination(
@@ -573,7 +575,7 @@ struct FeatureCompositionTests {
             dependencies: dependencies, media: media(),
             profiles: CommunityProfileDestination { _ in AnyView(Text("profile")) }, papers: papers,
             courses: CommunityCourseDestination { _ in AnyView(Text("course")) },
-            requestedPaperID: Binding(get: { requestedPaperID }, set: { requestedPaperID = $0 }))
+            requestedPaperID: Binding(get: { request.id }, set: { request.id = $0 }))
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
@@ -602,15 +604,31 @@ struct FeatureCompositionTests {
             flushWindow()
             return paperAppearances > 0
         }
-        requestedPaperID = nil
+        request.id = nil
         #expect(webViews(in: controller.view).isEmpty)
         var snapshot = dependencies.preferences.snapshot
         snapshot.galleryUseWebView = true
         dependencies.preferences.apply(snapshot)
         try await waitForTestEvent {
             flushWindow()
-            return webViews(in: controller.view).count == 1
+            return Set(webViews(in: controller.view).compactMap {
+                ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
+            })
+                == ["/gallery", "/paper"]
         }
+        let paperWebView = try #require(
+            webViews(in: controller.view).first {
+                ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path == "/paper"
+            })
+        let nativeAppearances = paperAppearances
+        request.id = 17
+        try await waitForTestEvent {
+            flushWindow()
+            return (paperWebView.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
+                == "/paper/17" && request.id == nil
+        }
+        #expect(paperAppearances == nativeAppearances)
+        #expect(webViews(in: controller.view).contains { $0 === paperWebView })
         webViews(in: controller.view).forEach { $0.stopLoading() }
         snapshot.galleryUseWebView = false
         dependencies.preferences.apply(snapshot)
@@ -632,6 +650,11 @@ struct FeatureCompositionTests {
     }
 
     final class PaperPreviewService: PaperListServicing {
+        var resourcePublisherRequests = 0
+        var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+            resourcePublisherRequests += 1
+            return Empty().eraseToAnyPublisher()
+        }
         let summary = PaperSummary(
             id: 1, title: "页面返回验收", intro: "", likeNum: 0, commentNum: 0, updateTime: "")
         var pages: [Int] = []
@@ -651,10 +674,15 @@ struct FeatureCompositionTests {
         }
     }
 
+    @Observable final class PaperRequest {
+        var id: Int? = 42
+    }
+
     @Observable final class TabRoute {
         var selection = 0
         @ObservationIgnored var otherAppeared = false
         @ObservationIgnored var paperDisappeared = false
+        @ObservationIgnored var visibleSelection: Int?
     }
 
     struct PaperTabs: View {
@@ -664,9 +692,13 @@ struct FeatureCompositionTests {
         var body: some View {
             TabView(selection: $route.selection) {
                 PaperRootView(dependencies: dependencies, media: media)
+                    .onAppear { route.visibleSelection = 0 }
                     .onDisappear { route.paperDisappeared = true }
                     .tabItem { Text("文章") }.tag(0)
-                Text("其他页面").onAppear { route.otherAppeared = true }
+                Text("其他页面").onAppear {
+                    route.otherAppeared = true
+                    route.visibleSelection = 1
+                }
                     .tabItem { Text("其他") }.tag(1)
             }
         }
@@ -724,6 +756,11 @@ struct FeatureCompositionTests {
     }
 
     final class GalleryFeed: GalleryFeedServicing {
+        var resourcePublisherRequests = 0
+        var resourceChanges: AnyPublisher<[CommunityResourceMetrics], Never> {
+            resourcePublisherRequests += 1
+            return Empty().eraseToAnyPublisher()
+        }
         var pages: [Int] = []
         var pending: CheckedContinuation<GalleryPageBatch<CommunityPoster>, Never>?
         var suspend = false

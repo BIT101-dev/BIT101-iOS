@@ -1,4 +1,20 @@
 {
+  "app-shell-tab-switching": {
+    "testIdentifier": "MaintenancePerformanceTests/testAppShellTabSwitchingPerformance",
+    "input": {"courses": 200, "passes": 2, "maximumResponseSeconds": 0.1}
+  },
+  "compact-app-shell-tab-switching": {
+    "testIdentifier": "MaintenancePerformanceTests/testCompactAppShellTabSwitchingPerformance",
+    "input": {"courses": 200, "passes": 2, "maximumResponseSeconds": 0.1}
+  },
+  "article-tab-switching": {
+    "testIdentifier": "MaintenancePerformanceTests/testArticleTabSwitchingPerformance",
+    "input": {"switchPairs": 5, "maximumResponseSeconds": 0.1}
+  },
+  "tab-switching": {
+    "testIdentifier": "MaintenancePerformanceUITests/testTabSwitchingPerformance",
+    "input": {"tabs": ["日程", "成绩", "话廊", "我的", "地图"], "passes": 1}
+  },
   "comment-thread": {
     "testIdentifier": "MaintenancePerformanceTests/testLongCommentThreadPerformance",
     "input": {"threads": 10, "repliesPerThread": 1000, "depth": 8}

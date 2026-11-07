@@ -15,6 +15,7 @@ struct ScheduleInlineWeekSlider: View {
     let onSelectWeek: (Int) -> Void
     @State private var selectedWeek: Int?
     @State private var viewportSize = CGSize.zero
+    @State private var centeredViewport: CGSize?
     #if targetEnvironment(macCatalyst)
     @State private var dragStartIndex: Int?
     #endif
@@ -113,7 +114,7 @@ struct ScheduleInlineWeekSlider: View {
         } action: {
             viewportSize = $0
         }
-        .task(id: viewportSize) {
+        .task(id: CGSize(width: viewportSize.width, height: itemWidth)) {
             await scrollToCurrentWeek(reader: reader)
         }
     }
@@ -201,9 +202,11 @@ struct ScheduleInlineWeekSlider: View {
     #endif
 
     private func scrollToCurrentWeek(reader: ScrollViewProxy) async {
-        guard viewportSize.width > 0 else { return }
+        let viewport = CGSize(width: viewportSize.width, height: itemWidth)
+        guard viewport.width > 0, centeredViewport != viewport else { return }
         await Task.yield()
         guard !Task.isCancelled else { return }
+        centeredViewport = viewport
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {

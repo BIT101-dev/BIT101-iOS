@@ -41,44 +41,19 @@ struct ScheduleEntryInteractionView: UIViewRepresentable {
     let onTap: () -> Void
     var onMenuWillPresent: (() -> Void)? = nil
     var onShare: (() -> Void)? = nil
+    var contentMode: ScheduleCardContentMode? = nil
 
     func makeUIView(context: Context) -> ScheduleBlankContextMenuControl {
-        let view = ScheduleBlankContextMenuControl()
-        view.isAccessibilityElement = true
-        view.isContextMenuInteractionEnabled = onShare != nil
-        view.accessibilityLabel = accessibilityLabel
-        view.accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
-        view.accessibilityIdentifier = "schedule.entry.\(entry.id)"
-        view.accessibilityHint = "双击打开详情"
-        view.accessibilityTraits = .button
-        view.shareTitle = "分享课程"
-        view.showsImport = false
-        view.onTap = onTap
-        view.onMenuWillPresent = onMenuWillPresent
-        view.onShare = onShare
-        view.interactionEvidence = interactionEvidence
-        return view
+        ScheduleBlankContextMenuControl()
     }
 
     func updateUIView(_ uiView: ScheduleBlankContextMenuControl, context: Context) {
-        uiView.onTap = onTap
-        uiView.onMenuWillPresent = onMenuWillPresent
-        uiView.onShare = onShare
-        uiView.interactionEvidence = interactionEvidence
-        uiView.isContextMenuInteractionEnabled = onShare != nil
-        uiView.accessibilityLabel = accessibilityLabel
-        uiView.accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
-        uiView.accessibilityIdentifier = "schedule.entry.\(entry.id)"
+        uiView.configure(
+            entry: entry, contentMode: contentMode, onTap: onTap,
+            onMenuWillPresent: onMenuWillPresent, onShare: onShare,
+            interactionEvidence: interactionEvidence)
     }
 
-    private var accessibilityLabel: String {
-        let title = entry.title.isEmpty ? "未命名日程" : entry.title
-        switch entry.kind {
-        case .course: return title
-        case .exam: return "考试，\(title)"
-        case .custom: return "自定义日程，\(title)"
-        }
-    }
 }
 
 final class ScheduleBlankContextMenuControl: UIControl {
@@ -86,17 +61,28 @@ final class ScheduleBlankContextMenuControl: UIControl {
     var shareTitle = "分享课表"
     var showsImport = true
     var onTap: (() -> Void)? {
-        didSet { tapGesture.isEnabled = onTap != nil }
+        didSet {
+            if tapGesture.isEnabled != (onTap != nil) { tapGesture.isEnabled = onTap != nil }
+        }
     }
     var onMenuWillPresent: (() -> Void)?
     var onShare: (() -> Void)?
     var onImport: (() -> Void)?
     private var lastInteractionLocation: CGPoint = .zero
     private let tapGesture = UITapGestureRecognizer()
+    private var cardText: ScheduleCardTextView?
+    private let cardBackground = CALayer()
+    private var backgroundLayers: [CALayer] = []
+    private var backgroundFrames: [CGRect] = []
+    private var backgroundKind: ScheduleCalendarKind?
+    private var backgroundOpacity: Float = 1
+    private var textEntry: ScheduleCalendarEntry?
+    private var textMode: ScheduleCardContentMode?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
+        layer.insertSublayer(cardBackground, at: 0)
         isMultipleTouchEnabled = true
         tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
@@ -104,10 +90,148 @@ final class ScheduleBlankContextMenuControl: UIControl {
         tapGesture.cancelsTouchesInView = false
         tapGesture.isEnabled = false
         addGestureRecognizer(tapGesture)
+        registerForTraitChanges([
+            UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self,
+            UITraitUserInterfaceLevel.self, UITraitPreferredContentSizeCategory.self,
+        ]) { (view: ScheduleBlankContextMenuControl, _: UITraitCollection) in
+            view.applyBackgroundAppearance()
+            if let entry = view.textEntry {
+                view.configureText(entry: entry, contentMode: view.textMode)
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        entry: ScheduleCalendarEntry, contentMode: ScheduleCardContentMode?,
+        onTap: @escaping () -> Void, onMenuWillPresent: (() -> Void)?, onShare: (() -> Void)?,
+        interactionEvidence: ((String, String) -> Void)?
+    ) {
+        let identifier = "schedule.entry.\(entry.id)"
+        if accessibilityIdentifier != identifier {
+            isAccessibilityElement = true
+            accessibilityIdentifier = identifier
+            accessibilityHint = "双击打开详情"
+            accessibilityTraits = .button
+            shareTitle = "分享课程"
+            showsImport = false
+        }
+        let needsOwnMenu = onShare != nil
+        if isContextMenuInteractionEnabled != needsOwnMenu {
+            isContextMenuInteractionEnabled = needsOwnMenu
+        }
+        let title = entry.title.isEmpty ? "未命名日程" : entry.title
+        let label: String
+        switch entry.kind {
+        case .course: label = title
+        case .exam: label = "考试，\(title)"
+        case .custom: label = "自定义日程，\(title)"
+        }
+        if accessibilityLabel != label { accessibilityLabel = label }
+        let value = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
+        if accessibilityValue != value { accessibilityValue = value }
+        self.onTap = onTap
+        self.onMenuWillPresent = onMenuWillPresent
+        self.onShare = onShare
+        self.interactionEvidence = interactionEvidence
+        configureText(entry: entry, contentMode: contentMode)
+    }
+
+    func configureBackgrounds(_ frames: [CGRect], entry: ScheduleCalendarEntry) {
+        let opacity = Float(
+            entry.kind == .course || entry.backgroundLayers.count <= 1
+                ? AppDesignSystem.Opacity.full
+                : AppDesignSystem.Schedule.CoursePalette.secondaryLayerOpacity)
+        guard frames != backgroundFrames || entry.kind != backgroundKind
+            || opacity != backgroundOpacity else { return }
+        backgroundFrames = frames
+        backgroundKind = entry.kind
+        backgroundOpacity = opacity
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        while backgroundLayers.count > frames.count {
+            backgroundLayers.removeLast().removeFromSuperlayer()
+        }
+        while backgroundLayers.count < frames.count {
+            let background = CALayer()
+            background.cornerRadius = AppDesignSystem.Radius.small
+            background.cornerCurve = .continuous
+            cardBackground.addSublayer(background)
+            backgroundLayers.append(background)
+        }
+        for (background, frame) in zip(backgroundLayers, frames) { background.frame = frame }
+        applyBackgroundAppearance()
+        CATransaction.commit()
+    }
+
+    private func applyBackgroundAppearance() {
+        guard let backgroundKind else { return }
+        let fill: UIColor
+        let border: UIColor
+        switch backgroundKind {
+        case .course:
+            fill = UIColor(AppDesignSystem.Palette.Background.secondary)
+            border = UIColor(AppDesignSystem.Schedule.GridPalette.courseBorder)
+        case .exam:
+            fill = UIColor(AppDesignSystem.Schedule.CoursePalette.examSurface)
+            border = UIColor(AppDesignSystem.Schedule.CoursePalette.examBorder)
+        case .custom:
+            fill = UIColor(AppDesignSystem.Schedule.CoursePalette.customSurface)
+            border = UIColor(AppDesignSystem.Schedule.CoursePalette.customBorder)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for background in backgroundLayers {
+            background.backgroundColor = fill.resolvedColor(with: traitCollection).cgColor
+            background.borderColor = border.resolvedColor(with: traitCollection).cgColor
+            background.borderWidth = backgroundKind == .course
+                ? 0 : AppDesignSystem.Schedule.Grid.courseBorderWidth
+            background.opacity = backgroundOpacity
+        }
+        CATransaction.commit()
+    }
+
+    func configureText(entry: ScheduleCalendarEntry, contentMode: ScheduleCardContentMode?) {
+        textEntry = contentMode == nil ? nil : entry
+        textMode = contentMode
+        guard let contentMode else {
+            cardText?.removeFromSuperview()
+            cardText = nil
+            return
+        }
+        let text: ScheduleCardTextView
+        if let cardText {
+            text = cardText
+        } else {
+            text = ScheduleCardTextView()
+            text.isUserInteractionEnabled = false
+            text.accessibilityElementsHidden = true
+            cardText = text
+            addSubview(text)
+            setNeedsLayout()
+        }
+        let color: UIColor
+        switch entry.kind {
+        case .course: color = .label
+        case .exam: color = UIColor(AppDesignSystem.Palette.Highlight.primary)
+        case .custom: color = UIColor(AppDesignSystem.Palette.Status.info)
+        }
+        text.configure(
+            title: entry.title, location: entry.subtitle, contentMode: contentMode,
+            font: UIFont.preferredFont(
+                forTextStyle: AppDesignSystem.Typography.uiCaption,
+                compatibleWith: traitCollection),
+            textColor: color)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        cardText?.frame = bounds.insetBy(
+            dx: min(AppDesignSystem.Spacing.micro, bounds.width / 2),
+            dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
     }
 
     @objc private func handleTap() {
@@ -195,6 +319,7 @@ struct CourseScheduleCalendarView: View {
     let currentWeek: Int
     let showSaturday: Bool
     let showSunday: Bool
+    @State private var placementProjection = ScheduleCalendarPlacementProjection()
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onSelectDay: (Date, Int) -> Void
     let onSelectWeekValue: (Int) -> Void
@@ -241,7 +366,8 @@ struct CourseScheduleCalendarView: View {
                 displayMode == .weekly
                 ? weekSliderHeight + dateHeaderHeight
                 : metrics.compactHeaderHeight
-            let groups = quantizedCalendarGroups(entries: entries)
+            let groups = placementProjection.resolve(
+                entries: entries, separateOverlaps: displayMode == .weekly)
             let outsideHeight =
                 groups.outside.isEmpty ? 0 : AppDesignSystem.Size.Control.touchTarget
             let usableHeight = max(proxy.size.height - headerHeight - outsideHeight, 1)
@@ -374,29 +500,24 @@ struct CourseScheduleCalendarView: View {
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
 
-                ForEach(
-                    calendarPlacements(
-                        entries: groups.grid.filter { visibleWeekdays.contains($0.dayOfWeek) },
-                        separateOverlaps: displayMode == .weekly)
-                ) { placement in
-                    let entry = placement.entry
-                    let laneWidth = dayWidth / CGFloat(placement.columnCount)
-                    quantizedPlacementCell(
-                        placement: placement,
-                        dayWidth: dayWidth,
-                        rowHeight: rowHeight,
-                        gridLineWidth: gridLineWidth
-                    )
-                    .offset(
-                        x: leftWidth + dayWidth
-                            * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
-                            + laneWidth * CGFloat(placement.column)
-                            + gridLineWidth,
-                        y: headerHeight + rowHeight * entry.startSection
-                            + gridLineWidth
-                    )
-                    .zIndex(1)
-                }
+                ScheduleCalendarCardsView(
+                    cards: groups.placements.filter {
+                        visibleWeekdays.contains($0.entry.dayOfWeek)
+                    }.map { placement in
+                        quantizedCard(
+                            placement: placement, dayWidth: dayWidth, rowHeight: rowHeight,
+                            gridLineWidth: gridLineWidth, leftWidth: leftWidth,
+                            headerHeight: headerHeight, visibleWeekdays: visibleWeekdays)
+                    },
+                    contentMode: cardContentMode,
+                    onSelect: onSelect,
+                    onMenuWillPresent: { entry in
+                        contextMenuFeedbackToken &+= 1
+                        onPrepareCourseShare(entry)
+                    },
+                    onShare: onLongPressCourse)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .zIndex(1)
 
                 outsideEventsSection(
                     outside: groups.outside,
@@ -575,79 +696,33 @@ struct CourseScheduleCalendarView: View {
         }
     }
 
-    private func quantizedPlacementCell(
-        placement: ScheduleCalendarPlacement,
-        dayWidth: CGFloat,
-        rowHeight: CGFloat,
-        gridLineWidth: CGFloat
-    ) -> some View {
+    private func quantizedCard(
+        placement: ScheduleCalendarPlacement, dayWidth: CGFloat, rowHeight: CGFloat,
+        gridLineWidth: CGFloat, leftWidth: CGFloat, headerHeight: CGFloat,
+        visibleWeekdays: [Int]
+    ) -> ScheduleCalendarCard {
         let entry = placement.entry
         let laneWidth = dayWidth / CGFloat(placement.columnCount)
-        let cardWidth = max(
-            laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
-        return ZStack(alignment: .topLeading) {
-            ForEach(entry.orderedBackgroundLayers) { layer in
-                // 课程背景使用不透明系统色，网格线保持在卡片后方。
-                CourseScheduleBackgroundView(entry: entry)
-                    .frame(
-                        width: cardWidth,
-                        height: max(
-                            rowHeight * (layer.endSection - layer.startSection)
-                                - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                            1
-                        )
-                    )
-                    .offset(
-                        y: rowHeight * (layer.startSection - entry.startSection)
-                            + gridLineWidth
-                    )
-                    .zIndex(layer.displayZIndex)
-            }
-
-            CourseScheduleBlockView(entry: entry, contentMode: cardContentMode)
-                .frame(
-                    width: cardWidth,
+        let width = max(laneWidth - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
+        let height = max(
+            rowHeight * (entry.endSection - entry.startSection)
+                - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1)
+        let frame = CGRect(
+            x: leftWidth + dayWidth
+                * CGFloat(visibleWeekdays.firstIndex(of: entry.dayOfWeek) ?? 0)
+                + laneWidth * CGFloat(placement.column) + gridLineWidth,
+            y: headerHeight + rowHeight * entry.startSection + gridLineWidth,
+            width: width, height: height)
+        return ScheduleCalendarCard(
+            entry: entry, frame: frame,
+            backgrounds: entry.orderedBackgroundLayers.map { layer in
+                CGRect(
+                    x: 0, y: rowHeight * (layer.startSection - entry.startSection) + gridLineWidth,
+                    width: width,
                     height: max(
-                        rowHeight * (entry.endSection - entry.startSection)
-                            - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                        1
-                    )
-                )
-
-            quantizedEntryInteractionView(entry: entry)
-                .frame(
-                    width: cardWidth,
-                    height: max(
-                        rowHeight * (entry.endSection - entry.startSection)
-                            - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                        1
-                    )
-                )
-        }
-        .frame(
-            width: cardWidth,
-            height: max(
-                rowHeight * (entry.endSection - entry.startSection)
-                    - AppDesignSystem.Schedule.Grid.courseCardTotalInset,
-                1
-            )
-        )
-        .contentShape(Rectangle())
-    }
-
-    private func quantizedEntryInteractionView(
-        entry: ScheduleCalendarEntry
-    ) -> some View {
-        ScheduleEntryInteractionView(
-            entry: entry,
-            onTap: { onSelect(entry) },
-            onMenuWillPresent: entry.kind == .course
-                ? {
-                    contextMenuFeedbackToken &+= 1
-                    onPrepareCourseShare(entry)
-                } : nil,
-            onShare: entry.kind == .course ? { onLongPressCourse(entry) } : nil
-        )
+                        rowHeight * (layer.endSection - layer.startSection)
+                            - AppDesignSystem.Schedule.Grid.courseCardTotalInset, 1))
+            })
     }
 
     @ViewBuilder

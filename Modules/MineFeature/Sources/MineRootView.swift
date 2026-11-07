@@ -23,7 +23,13 @@ private enum MineRoute: Hashable, Identifiable {
 ///
 /// 页面包含资料卡、入口列表和子页面，交互使用 iOS 导航和列表样式。
 public struct MineRootView: View {
-    private let scene: MineRootViewScene
+    private let dependencies: MineDependencies
+    private let media: MediaEnvironment
+    private let posters: CommunityPosterDestination
+    private let settings: CommunitySettingsDestinations
+    private let fallbackStudentID: String
+    private let onLogout: () -> Void
+    private let requestedSettings: Binding<CommunitySettingsEntry?>
     private let identity: [ObjectIdentifier]
 
     public init(
@@ -32,15 +38,22 @@ public struct MineRootView: View {
         fallbackStudentID: String, onLogout: @escaping () -> Void,
         requestedSettings: Binding<CommunitySettingsEntry?> = .constant(nil)
     ) {
-        scene = MineRootViewScene(
-            dependencies: dependencies, media: media, posters: posters, settings: settings,
-            fallbackStudentID: fallbackStudentID, onLogout: onLogout,
-            requestedSettings: requestedSettings)
+        self.dependencies = dependencies
+        self.media = media
+        self.posters = posters
+        self.settings = settings
+        self.fallbackStudentID = fallbackStudentID
+        self.onLogout = onLogout
+        self.requestedSettings = requestedSettings
         identity = [ObjectIdentifier(dependencies), ObjectIdentifier(media)]
     }
 
     public var body: some View {
-        scene.id(identity)
+        MineRootViewScene(
+            dependencies: dependencies, media: media, posters: posters, settings: settings,
+            fallbackStudentID: fallbackStudentID, onLogout: onLogout,
+            requestedSettings: requestedSettings
+        ).id(identity)
     }
 }
 
@@ -55,7 +68,8 @@ private struct MineRootViewScene: View {
     let onLogout: () -> Void
 
     /// “我的”主页状态机。
-    @State private var viewModel: MineViewModel
+    @State private var ownedViewModel: AppViewModelOwner<MineViewModel>
+    private var viewModel: MineViewModel { ownedViewModel.model }
 
     init(
         dependencies: MineDependencies, media: MediaEnvironment,
@@ -67,7 +81,8 @@ private struct MineRootViewScene: View {
         self.media = media
         self.posters = posters
         self.destinations = settings
-        _viewModel = State(initialValue: MineViewModel(service: dependencies.overview))
+        _ownedViewModel = State(
+            initialValue: AppViewModelOwner(MineViewModel(service: dependencies.overview)))
         self.fallbackStudentID = fallbackStudentID
         self.onLogout = onLogout
         _requestedSettings = requestedSettings
@@ -171,7 +186,7 @@ private struct MineRootViewScene: View {
             if viewModel.profileNeedsRefresh { await viewModel.refreshProfile() }
             if viewModel.posterState.needsRefresh { await viewModel.refreshPosters() }
         }
-        .diagnosticAlert(item: $viewModel.alert)
+        .diagnosticAlert(item: Bindable(viewModel).alert)
     }
 
     /// 资料卡区域，根据加载状态展示骨架、错误页或真实内容。

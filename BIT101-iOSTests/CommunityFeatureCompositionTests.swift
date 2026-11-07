@@ -5,6 +5,7 @@ import CommunityTransport
 import CommunityUI
 import DesignSystemKit
 import Foundation
+import Observation
 import ScheduleDomain
 import ScoreDomain
 import ScoreInfrastructure
@@ -26,6 +27,101 @@ import WebKit
 @testable import ScoreFeature
 
 extension FeatureCompositionTests {
+    @Observable
+    final class RootCallbackChanges {
+        var revision = 0
+        @ObservationIgnored var renderedRevision = -1
+        @ObservationIgnored var handledRevision = -1
+    }
+
+    struct PaperWithChangingCallback: View {
+        let changes: RootCallbackChanges
+        let dependencies: PaperDependencies
+        let media: MediaEnvironment
+        var body: some View {
+            let revision = changes.revision
+            PaperRootView(
+                dependencies: dependencies, media: media,
+                onShowFeed: { changes.handledRevision = revision })
+                .onChange(of: revision, initial: true) { _, revision in
+                    changes.renderedRevision = revision
+                }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rootDescriptionsDeferModelSubscriptions() async throws {
+        let paperSource = paper(TraceTransport())
+        let paperService = PaperPreviewService()
+        defer {
+            paperService.pending?.resume(
+                returning: .init(authorName: "author", avatarURL: nil, isAnonymous: false))
+        }
+        let paperDependencies = PaperDependencies(
+            list: paperService, detail: paperSource.detail, composer: paperSource.composer,
+            drafts: paperSource.drafts, networkPath: paperSource.networkPath,
+            currentIdentity: paperSource.currentIdentity)
+        let gallerySource = gallery(TraceTransport())
+        let galleryService = GalleryFeed()
+        let galleryDependencies = GalleryDependencies(
+            webCredentials: gallerySource.webCredentials,
+            currentIdentity: gallerySource.currentIdentity, feed: galleryService,
+            messageService: gallerySource.messageService, posterDetail: gallerySource.posterDetail,
+            subscriptions: gallerySource.subscriptions, reporting: gallerySource.reporting,
+            composer: gallerySource.composer, images: gallerySource.images,
+            preferences: gallerySource.preferences, messages: gallerySource.messages,
+            drafts: gallerySource.drafts, networkPath: gallerySource.networkPath)
+        let selectedMedia = media()
+        func galleryView() -> GalleryRootView {
+            GalleryRootView(
+                dependencies: galleryDependencies, media: selectedMedia,
+                profiles: CommunityProfileDestination { _ in AnyView(Text("profile")) },
+                papers: CommunityPaperDestination(
+                    papers: { _, _ in AnyView(Text("paper")) },
+                    detail: { _ in AnyView(Text("paper")) }),
+                courses: CommunityCourseDestination { _ in AnyView(Text("course")) })
+        }
+        for _ in 0..<20 {
+            _ = PaperRootView(dependencies: paperDependencies, media: selectedMedia)
+            _ = galleryView()
+        }
+        #expect(paperService.resourcePublisherRequests == 0)
+        #expect(galleryService.resourcePublisherRequests == 0)
+        let changes = RootCallbackChanges()
+        weak var renderedController: UIViewController?
+        func waitForRevision(_ revision: Int) async throws {
+            do {
+                try await waitForTestEvent {
+                    renderedController?.view.setNeedsLayout()
+                    renderedController?.view.layoutIfNeeded()
+                    return changes.renderedRevision == revision
+                }
+            } catch {
+                let rendered = changes.renderedRevision
+                let subscriptions = paperService.resourcePublisherRequests
+                Issue.record(
+                    """
+                    revision=\(revision), rendered=\(rendered), subscriptions=\(subscriptions)
+                    """)
+                throw error
+            }
+        }
+        try await host(PaperWithChangingCallback(
+            changes: changes, dependencies: paperDependencies, media: selectedMedia),
+            prepare: { renderedController = $0 }) {
+            try await waitForRevision(0)
+            #expect(paperService.resourcePublisherRequests == PaperSortOrder.allCases.count)
+            for revision in 1...10 {
+                changes.revision = revision
+                try await waitForRevision(revision)
+            }
+            #expect(paperService.resourcePublisherRequests == PaperSortOrder.allCases.count)
+        }
+        try await host(galleryView()) {
+            #expect(galleryService.resourcePublisherRequests == 1)
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [ScheduleSection.courses, .ddl, .classroom])
     func scheduleRootOwnsItsConstructorViewModel(section: ScheduleSection) async throws {
         var selectedLoads = 0

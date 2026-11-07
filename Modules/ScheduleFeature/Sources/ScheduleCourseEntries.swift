@@ -13,8 +13,37 @@ private func normalizeCourseTitle(_ value: String) -> String {
     ScheduleDisplayNormalizer.normalizeCourseTitle(value)
 }
 
+@MainActor
+final class ScheduleCalendarEntryProjection {
+    struct Key: Equatable {
+        let schedule: ScheduleViewModel.CourseScheduleVariant
+        let week: Int
+        let displayMode: ScheduleDisplayMode
+        let showExams: Bool
+    }
+    private var key: Key?
+    private var entries: [ScheduleCalendarEntry] = []
+
+    func resolve(_ key: Key, build: () -> [ScheduleCalendarEntry]) -> [ScheduleCalendarEntry] {
+        if self.key != key {
+            entries = build()
+            self.key = key
+        }
+        return entries
+    }
+}
+
 extension CourseScheduleTabView {
     var scheduleEntries: [ScheduleCalendarEntry] {
+        calendarEntryProjection.resolve(
+            .init(
+                schedule: activeSchedule, week: viewModel.selectedWeek,
+                displayMode: viewModel.presentationPreferences.scheduleDisplayMode,
+                showExams: viewModel.presentationPreferences.showExamInfo)
+        ) { makeScheduleEntries() }
+    }
+
+    private func makeScheduleEntries() -> [ScheduleCalendarEntry] {
         guard let firstDay = activeSchedule.firstDay else {
             return []
         }

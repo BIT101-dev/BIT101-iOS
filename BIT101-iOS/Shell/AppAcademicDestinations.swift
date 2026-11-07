@@ -25,7 +25,11 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 
 /// 成绩与课程入口共享分区选择与课程路由，各自沿原生浏览分栏呈现。
 struct AppScoreSurfaceView: View {
-    private let scene: AppScoreSurfaceScene
+    private let courses: CourseDependencies
+    private let transcriptService: any TrustedTranscriptServicing
+    private let requestedCourse: Binding<CourseNavigationRequest?>
+    private let selection: Binding<ScoreSurface>?
+    private let showingCourses: Bool?
     private let identity: ObjectIdentifier
 
     init(
@@ -34,21 +38,29 @@ struct AppScoreSurfaceView: View {
         selection: Binding<ScoreSurface>? = nil,
         showingCourses: Bool? = nil
     ) {
-        scene = AppScoreSurfaceScene(
-            courses: courses, transcriptService: transcriptService,
-            requestedCourse: requestedCourse,
-            selection: selection, showingCourses: showingCourses)
+        self.courses = courses
+        self.transcriptService = transcriptService
+        self.requestedCourse = requestedCourse
+        self.selection = selection
+        self.showingCourses = showingCourses
         identity = ObjectIdentifier(courses)
     }
 
-    var body: some View { scene.id(identity) }
+    var body: some View {
+        AppScoreSurfaceScene(
+            courses: courses, transcriptService: transcriptService,
+            requestedCourse: requestedCourse,
+            selection: selection, showingCourses: showingCourses
+        ).id(identity)
+    }
 }
 
 private struct AppScoreSurfaceScene: View {
     @Environment(AppCommunityDestinations.self) private var destinations
     private let courses: CourseDependencies
     @Environment(ScoreViewModel.self) private var scoreViewModel: ScoreViewModel
-    @State private var courseViewModel: CourseListViewModel
+    @State private var ownedCourseViewModel: AppViewModelOwner<CourseListViewModel>
+    private var courseViewModel: CourseListViewModel { ownedCourseViewModel.model }
     private let transcriptService: any TrustedTranscriptServicing
     @Environment(\.appExpandedNavigation) private var expandedNavigation
     private let showingCourses: Bool?
@@ -72,7 +84,7 @@ private struct AppScoreSurfaceScene: View {
         self.courses = courses
         self.selection = selection
         self.showingCourses = showingCourses
-        _courseViewModel = State(initialValue: courses.makeListViewModel())
+        _ownedCourseViewModel = State(initialValue: AppViewModelOwner(courses.makeListViewModel()))
         self.transcriptService = transcriptService
         _requestedCourse = requestedCourse
     }

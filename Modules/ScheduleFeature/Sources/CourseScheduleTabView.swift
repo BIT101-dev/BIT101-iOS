@@ -3,7 +3,7 @@ import ScheduleDomain
 import DesignSystemKit
 import SwiftUI
 
-private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
+private struct ScheduleRefreshStatusHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -14,6 +14,7 @@ private struct ScheduleRefreshStatusContentHeightKey: PreferenceKey {
 struct CourseScheduleRefreshStatusRow: View {
     @Environment(\.appInteractionEvidence) var interactionEvidence
     var viewModel: ScheduleViewModel
+    var isStandalone = false
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
     }
@@ -31,7 +32,8 @@ struct CourseScheduleRefreshStatusRow: View {
                 actionTitle: "刷新",
                 onRefresh: {
                     Task { await viewModel.syncSelectedTerm() }
-                }
+                },
+                isStandalone: isStandalone
             )
         } else {
             AppRefreshStatusRow(
@@ -40,7 +42,8 @@ struct CourseScheduleRefreshStatusRow: View {
                 lastUpdatedText: activeSchedule.importedAt.map {
                     "导入时间：\($0.formatted(.dateTime.month().day().hour().minute()))"
                 } ?? "分享课表",
-                trailingText: "只读"
+                trailingText: "只读",
+                isStandalone: isStandalone
             )
         }
     }
@@ -82,10 +85,12 @@ struct CourseScheduleTabView: View {
     @State var courseShareGeneration = 0
     @State var prefetchedCourseID: String?
     @State var prefetchedCourseResolution: ScheduleCourseShare?
-    @State var refreshStatusContentHeight = AppDesignSystem.Size.Control.touchTarget
+    @State var refreshStatusRowHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
+        contentHeight: AppDesignSystem.Size.Control.touchTarget)
     @AppStorage("schedule.calendar.axisMode") var storedCalendarAxisMode =
         ScheduleCalendarAxisMode.quantized.rawValue
     @State var calendarAxisZoomScale: CGFloat = AppDesignSystem.Schedule.timelineDefaultScale
+    @State var calendarEntryProjection = ScheduleCalendarEntryProjection()
 
     var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
@@ -311,24 +316,18 @@ struct CourseScheduleTabView: View {
     }
 
     private func landscapeCalendarContent(
-        refreshStatusHeight: CGFloat,
         calendarHeight: CGFloat
     ) -> some View {
         VStack(spacing: AppDesignSystem.Spacing.content) {
-            List { refreshStatusSection }
+            refreshStatusCard
                 .accessibilityIdentifier("interaction.CourseScheduleTabView.refresh")
-                .appGroupedListStyle()
-                .scrollContentBackground(.hidden)
-                .scrollDisabled(true)
-                .frame(height: refreshStatusHeight)
+                .padding(.horizontal, AppDesignSystem.Spacing.regular)
             calendarSurface(height: calendarHeight)
-                .clipShape(
-                    AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped)
-                )
+                .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
                 .padding(.horizontal, AppDesignSystem.Spacing.section)
         }
-        .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
-            updateRefreshStatusContentHeight(height)
+        .onPreferenceChange(ScheduleRefreshStatusHeightKey.self) { height in
+            updateRefreshStatusRowHeight(height)
         }
     }
 
@@ -336,31 +335,26 @@ struct CourseScheduleTabView: View {
         listHeight: CGFloat,
         calendarHeight: CGFloat
     ) -> some View {
-        List {
-            refreshStatusSection
-            // 学校尚未发布未来学期课表时，课程接口通常正常返回空数组。
-            // 首周日期有效时，页面展示空课表网格和右下角操作按钮，周次浏览以及
-            // 手动添加日程入口保持可用。
-            Section {
+        ScrollView {
+            VStack(spacing: AppDesignSystem.Spacing.content) {
+                refreshStatusCard
                 calendarSurface(height: calendarHeight)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(AppDesignSystem.Palette.Background.grouped)
+                    .clipShape(AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
             }
+            .padding(.horizontal, AppDesignSystem.Spacing.regular)
         }
         .accessibilityIdentifier("interaction.CourseScheduleTabView.list")
-        .appGroupedListStyle()
-        .scrollContentBackground(.hidden)
         .scrollDisabled(calendarAxisMode == .quantized || activeSchedule.firstDay != nil)
         .frame(height: listHeight, alignment: .top)
         .zIndex(0)
-        .onPreferenceChange(ScheduleRefreshStatusContentHeightKey.self) { height in
-            updateRefreshStatusContentHeight(height)
+        .onPreferenceChange(ScheduleRefreshStatusHeightKey.self) { height in
+            updateRefreshStatusRowHeight(height)
         }
     }
 
-    private func updateRefreshStatusContentHeight(_ height: CGFloat) {
+    private func updateRefreshStatusRowHeight(_ height: CGFloat) {
         guard height > 0 else { return }
-        refreshStatusContentHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
+        refreshStatusRowHeight = max(height, AppDesignSystem.Size.Control.touchTarget)
     }
 
     private func saveCourseArrangements(
@@ -400,9 +394,7 @@ struct CourseScheduleTabView: View {
             let scheduleSectionGap = AppDesignSystem.Spacing.content
             let usesLandscapeCalendar =
                 layout.isLandscapeWindow && !layout.usesAccessibilityText
-            let refreshStatusHeight = AppDesignSystem.Schedule.refreshStatusRowHeight(
-                contentHeight: refreshStatusContentHeight
-            )
+            let refreshStatusHeight = refreshStatusRowHeight
             let calendarHeight = max(
                 listHeight
                     - refreshStatusHeight
@@ -415,7 +407,6 @@ struct CourseScheduleTabView: View {
             ZStack(alignment: .bottomTrailing) {
                 if usesLandscapeCalendar {
                     landscapeCalendarContent(
-                        refreshStatusHeight: refreshStatusHeight,
                         calendarHeight: calendarHeight
                     )
                 } else {
@@ -549,17 +540,14 @@ struct CourseScheduleTabView: View {
         }
     }
 
-    private var refreshStatusSection: some View {
-        Section {
-            CourseScheduleRefreshStatusRow(viewModel: viewModel)
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: ScheduleRefreshStatusContentHeightKey.self,
-                            value: proxy.size.height)
-                    }
+    private var refreshStatusCard: some View {
+        CourseScheduleRefreshStatusRow(viewModel: viewModel, isStandalone: true)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: ScheduleRefreshStatusHeightKey.self, value: proxy.size.height)
                 }
-        }
+            }
     }
 
 }

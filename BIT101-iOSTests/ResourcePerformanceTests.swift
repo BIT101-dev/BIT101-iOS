@@ -18,8 +18,358 @@ import ScheduleDomain
 @testable import GalleryFeature
 import TransportCore
 import StorageCore
+@testable import ScheduleFeature
+
+private typealias ShellSwitchTiming = (
+    response: Double, selection: Double, display: Double, firstFrame: Double, gap: Double)
+
+@MainActor
+private final class PerformanceDisplayFrame: NSObject {
+    private var continuation: CheckedContinuation<Double, Never>?
+    private var isReady: () -> Bool = { true }
+    private var started: Double = 0
+    private var previousFrame: Double = 0
+    private(set) var firstFrame: Double?
+    private(set) var maximumGap: Double = 0
+    func next(
+        startedAt: Double? = nil, when isReady: @escaping () -> Bool = { true }
+    ) async -> Double {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            self.isReady = isReady
+            started = startedAt ?? ProcessInfo.processInfo.systemUptime
+            previousFrame = started
+            firstFrame = nil
+            maximumGap = 0
+            let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+            link.add(to: .main, forMode: .common)
+        }
+    }
+    @objc private func frame(_ link: CADisplayLink) {
+        let displayed = ProcessInfo.processInfo.systemUptime
+        if firstFrame == nil { firstFrame = displayed }
+        maximumGap = max(maximumGap, displayed - previousFrame)
+        previousFrame = displayed
+        guard isReady() || displayed - started >= 1 else { return }
+        link.invalidate()
+        continuation?.resume(returning: displayed)
+        continuation = nil
+    }
+}
 
 extension MaintenancePerformanceTests {
+    @MainActor
+    func testAppShellTabSwitchingPerformance() throws {
+        try measureAppShellSwitching(workloadID: "app-shell-tab-switching", expanded: true)
+    }
+
+    @MainActor
+    func testCompactAppShellTabSwitchingPerformance() throws {
+        try measureAppShellSwitching(workloadID: "compact-app-shell-tab-switching", expanded: false)
+    }
+
+    @MainActor
+    private func measureAppShellSwitching(
+        workloadID: String, expanded: Bool
+    ) throws {
+        let workload = try PerformanceWorkload(workloadID, bundle: Bundle(for: Self.self))
+        let passes = try workload.value("passes", as: Int.self)
+        let maximumDelay = try workload.value("maximumResponseSeconds", as: Double.self)
+        let tabCount = expanded ? 8 : 5
+        let factory = ExperimentalPreferenceCloudSyncTests()
+        let (sync, defaults, _, account) = try factory.context(
+            domain: "BIT101Tests.shell-performance")
+        defer { defaults.removePersistentDomain(forName: "BIT101Tests.shell-performance") }
+        sync.settings.markStartupNoticeSeen()
+        sync.settings.markThanksNoticeShown(for: account.session)
+        let lifecycle = factory.lifecycle(
+            sync: sync, account: account, displays: .init(),
+            scheduleCache: try shellPerformanceCache(
+                courses: workload.value("courses", as: Int.self)))
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(
+            rootView: shellPerformanceView(lifecycle, expanded: expanded))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        if scene.activationState != .foregroundActive {
+            UIApplication.shared.activateSceneSession(
+                for: UISceneSessionActivationRequest(session: scene.session)
+            ) { error in XCTFail("测试窗口激活失败：\(error)") }
+        }
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        let ready = expectation(description: "完整壳层预热")
+        var tabs: UITabBarController?
+        var firstVisits: [String] = []
+        Task { @MainActor in
+            defer { ready.fulfill() }
+            do {
+                await lifecycle.scheduleViewModel.loadIfNeeded()
+                try await waitForTestEvent {
+                    scene.activationState == .foregroundActive
+                        && self.shellTabs(in: controller).map {
+                            self.shellTabCount($0) == tabCount
+                        } == true
+                }
+                let mountedTabs = try XCTUnwrap(self.shellTabs(in: controller))
+                XCTAssertEqual(self.shellTabCount(mountedTabs), tabCount)
+                for index in 0..<tabCount {
+                    let timing = try await self.selectShellTab(index, in: mountedTabs)
+                    firstVisits.append(
+                        "warmup,\(index),\(timing.response),\(timing.selection),\(timing.display)")
+                }
+                tabs = mountedTabs
+            } catch { XCTFail("完整壳层预热失败：\(error)") }
+        }
+        wait(for: [ready], timeout: 30)
+        let mountedTabs = try XCTUnwrap(tabs)
+        XCTAssertEqual(scene.activationState, .foregroundActive)
+        var timings: [Int: [ShellSwitchTiming]] = [:]
+        var frameOverheads: [Double] = []
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric(), XCTCPUMetric()]) {
+            let completed = expectation(description: "完整壳层切换")
+            Task { @MainActor in
+                defer { completed.fulfill() }
+                do {
+                    let controlStart = ProcessInfo.processInfo.systemUptime
+                    let controlFrame = await PerformanceDisplayFrame().next()
+                    frameOverheads.append(controlFrame - controlStart)
+                    let samples = try await self.sampleShellTabs(
+                        passes: passes, tabs: mountedTabs)
+                    timings.merge(samples) { $0 + $1 }
+                } catch { XCTFail("完整壳层切换失败：\(error)") }
+            }
+            wait(for: [completed], timeout: 30)
+        }
+        XCTAssertEqual(scene.activationState, .foregroundActive)
+        let rows = (0..<tabCount).flatMap { index in
+            (timings[index] ?? []).map {
+                "measured,\(index),\($0.response),\($0.selection),\($0.display)"
+            }
+        }
+        let attachment = XCTAttachment(
+            string: (["phase,tab,responseSeconds,selectionSeconds,displaySeconds"]
+                + firstVisits + rows).joined(separator: "\n"))
+        attachment.name = workloadID
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        for index in 0..<tabCount {
+            let samples = timings[index] ?? []
+            XCTAssertFalse(samples.isEmpty)
+            let maximum = try XCTUnwrap(samples.max { $0.response < $1.response })
+            let details = [
+                "selection=\(maximum.selection)s", "display=\(maximum.display)s",
+                "firstFrame=\(maximum.firstFrame)s", "gap=\(maximum.gap)s",
+                "emptyFrame=\(frameOverheads.max() ?? 0)s",
+                "scene=\(scene.activationState.rawValue)", "responses=\(samples.map(\.response))",
+            ].joined(separator: ", ")
+            XCTAssertLessThan(
+                maximum.response, maximumDelay, "Tab \(index): \(details)")
+        }
+    }
+
+    @MainActor
+    private func sampleShellTabs(
+        passes: Int, tabs: UITabBarController
+    ) async throws -> [Int: [ShellSwitchTiming]] {
+        var samples: [Int: [ShellSwitchTiming]] = [:]
+        for _ in 0..<passes {
+            for index in 0..<shellTabCount(tabs) {
+                samples[index, default: []].append(try await selectShellTab(index, in: tabs))
+            }
+        }
+        return samples
+    }
+
+    @MainActor
+    private func shellPerformanceView(
+        _ lifecycle: AppAccountLifecycle, expanded: Bool
+    ) -> some View {
+        let size = expanded ? CGSize(width: 1024, height: 768) : CGSize(width: 390, height: 844)
+        return AppShellView(
+            transcriptService: lifecycle.transcriptService, studentID: "performance", onLogout: {})
+            .environment(lifecycle.communityDestinations)
+            .environment(lifecycle.community)
+            .environment(lifecycle.communityDestinations.media)
+            .environment(lifecycle.scheduleViewModel)
+            .environment(lifecycle)
+            .environment(lifecycle.scheduleViewModel.ddl)
+            .environment(lifecycle.scoreViewModel)
+            .environment(lifecycle.settings)
+            .environment(lifecycle.preferenceCloudSync)
+            .environment(lifecycle.prompts)
+            .environment(
+                \.appWindowLayout,
+                AppWindowLayout(
+                    size: size, isRegularWidth: expanded,
+                    interfaceIdiom: expanded ? .pad : .phone))
+            .frame(width: size.width, height: size.height)
+    }
+
+    @MainActor
+    private func shellTabs(in controller: UIViewController) -> UITabBarController? {
+        if let tabs = controller as? UITabBarController { return tabs }
+        return controller.children.lazy.compactMap { self.shellTabs(in: $0) }.first
+    }
+
+    @MainActor
+    private func shellTabCount(_ tabs: UITabBarController) -> Int {
+        if #available(iOS 18.0, *), !tabs.tabs.isEmpty { return tabs.tabs.count }
+        return tabs.viewControllers?.count ?? 0
+    }
+
+    @MainActor
+    @discardableResult
+    private func selectShellTab(
+        _ index: Int, in tabs: UITabBarController
+    ) async throws -> ShellSwitchTiming {
+        let start = ProcessInfo.processInfo.systemUptime
+        let destination: UIViewController
+        if #available(iOS 18.0, *), !tabs.tabs.isEmpty {
+            let previous = tabs.selectedTab
+            let tab = tabs.tabs[index]
+            tabs.selectedTab = tab
+            tabs.delegate?.tabBarController?(tabs, didSelectTab: tab, previousTab: previous)
+            destination = try XCTUnwrap(tab.viewController)
+        } else {
+            destination = try XCTUnwrap(tabs.viewControllers?[index])
+            tabs.selectedViewController = destination
+            tabs.delegate?.tabBarController?(tabs, didSelect: destination)
+        }
+        let selected = ProcessInfo.processInfo.systemUptime
+        let frame = PerformanceDisplayFrame()
+        let displayed = await frame.next(startedAt: start) {
+            self.shellViewIsDisplayed(destination.viewIfLoaded)
+        }
+        XCTAssertTrue(shellViewIsDisplayed(destination.viewIfLoaded))
+        return (
+            displayed - start, selected - start, displayed - selected,
+            try XCTUnwrap(frame.firstFrame) - start, frame.maximumGap)
+    }
+
+    @MainActor
+    private func shellViewIsDisplayed(_ view: UIView?) -> Bool {
+        guard let view, let window = view.window,
+            let presentation = view.layer.presentation(), !presentation.isHidden,
+            presentation.opacity > 0,
+            view.convert(view.bounds, to: window).intersects(window.bounds)
+        else { return false }
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            if current.isHidden || current.alpha == 0
+                || current.layer.presentation()?.opacity == 0 {
+                return false
+            }
+            ancestor = current.superview
+        }
+        return true
+    }
+
+    private func shellPerformanceCache(courses count: Int) throws -> ScheduleCache {
+        let term = "2026-2027-1"
+        let courses = try (0..<count).map { index in
+            let position = index / 4
+            let section = TimeSlot.default[(position / 7) % TimeSlot.default.count].id
+            return try XCTUnwrap(
+                ScheduleCourseEditor.adding(
+                    CourseDraft(
+                        title: "课程\(index)", classroom: "良乡校区文萃楼A-201",
+                        weekday: position % 7 + 1, startSection: section, endSection: section,
+                        weeksText: "1-20"),
+                    to: [], term: term, id: "course-\(index)").first)
+        }
+        var cache = ScheduleCache()
+        cache.currentTerm = term
+        cache.courseData.store(
+            .init(
+                term: term, firstDayString: "2026-09-07", courses: courses, exams: [],
+                updatedAt: .now))
+        return cache
+    }
+
+    @MainActor
+    func testArticleTabSwitchingPerformance() throws {
+        let workload = try PerformanceWorkload(
+            "article-tab-switching", bundle: Bundle(for: Self.self))
+        let pairs = try workload.value("switchPairs", as: Int.self)
+        let maximumDelay = try workload.value("maximumResponseSeconds", as: Double.self)
+        let factory = FeatureCompositionTests()
+        let source = factory.paper(FeatureCompositionTests.TraceTransport())
+        let service = FeatureCompositionTests.PaperPreviewService()
+        let dependencies = PaperDependencies(
+            list: service, detail: source.detail, composer: source.composer,
+            drafts: source.drafts, networkPath: source.networkPath,
+            currentIdentity: source.currentIdentity)
+        let route = FeatureCompositionTests.TabRoute()
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIHostingController(
+            rootView: FeatureCompositionTests.PaperTabs(
+                route: route, dependencies: dependencies, media: factory.media()))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            service.pending?.resume(
+                returning: .init(authorName: "author", avatarURL: nil, isAnonymous: false))
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        let ready = expectation(description: "预热文章 Tab")
+        Task { @MainActor in
+            defer { ready.fulfill() }
+            do {
+                try await waitForTestEvent { service.pending != nil }
+                let pending = service.pending
+                service.pending = nil
+                pending?.resume(
+                    returning: .init(authorName: "author", avatarURL: nil, isAnonymous: false))
+                for selection in [1, 0] {
+                    route.selection = selection
+                    try await waitForTestEvent { route.visibleSelection == selection }
+                }
+            } catch { XCTFail("文章预热失败：\(error)") }
+        }
+        wait(for: [ready], timeout: 30)
+        let subscriptions = service.resourcePublisherRequests
+        let pageRequests = service.pages.count
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric(), XCTCPUMetric()]) {
+            let completed = expectation(description: "文章 Tab 切换")
+            Task { @MainActor in
+                defer { completed.fulfill() }
+                do {
+                    try await self.switchArticleTabs(
+                        route: route, pairs: pairs, maximumDelay: maximumDelay)
+                } catch { XCTFail("文章 Tab 切换失败：\(error)") }
+            }
+            wait(for: [completed], timeout: 30)
+        }
+        XCTAssertEqual(service.resourcePublisherRequests, subscriptions)
+        XCTAssertEqual(service.pages.count, pageRequests)
+    }
+
+    @MainActor
+    private func switchArticleTabs(
+        route: FeatureCompositionTests.TabRoute, pairs: Int, maximumDelay: Double
+    ) async throws {
+        for _ in 0..<pairs {
+            for selection in [1, 0] {
+                let start = ProcessInfo.processInfo.systemUptime
+                route.selection = selection
+                try await waitForTestEvent { route.visibleSelection == selection }
+                XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, maximumDelay)
+            }
+        }
+    }
+
     @MainActor
     func testLocalPreviewFirstPagePerformance() throws {
         let workload = try PerformanceWorkload("local-preview", bundle: Bundle(for: Self.self))

@@ -1,6 +1,7 @@
 #if os(iOS)
 import ClientCore
 import DesignSystemKit
+import ScheduleDomain
 import SwiftUI
 
 private struct ScheduleCurrentDateKey: EnvironmentKey {
@@ -14,6 +15,22 @@ extension EnvironmentValues {
     }
 }
 
+struct ScheduleCourseSectionTracking: ViewModifier {
+    let viewModel: ScheduleViewModel
+    let showingClassrooms: Bool?
+    @Binding var selection: ScheduleSection
+
+    func body(content: Content) -> some View {
+        content.onChange(
+            of: showingClassrooms == true ? nil : viewModel.selectedSection, initial: true
+        ) { _, section in
+            guard let section else { return }
+            let next = showingClassrooms == false && section == .classroom ? .courses : section
+            if next != .classroom, selection != next { selection = next }
+        }
+    }
+}
+
 // MARK: - Schedule Root
 
 /// 日程页根视图。
@@ -22,7 +39,6 @@ extension EnvironmentValues {
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
-    @Environment(\.appPageIsVisible) private var isPageVisible
     @Environment(\.appWindowLayout) private var layout
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
@@ -31,15 +47,45 @@ public struct ScheduleRootView: View {
     private var displayedSection: ScheduleSection {
         guard let showingClassrooms else { return viewModel.selectedSection }
         if showingClassrooms { return .classroom }
-        return viewModel.selectedSection == .ddl ? .ddl : .courses
-    }
-    private var isCurrentSectionVisible: Bool {
-        isPageVisible && displayedSection == viewModel.selectedSection
+        return lastCourseSection
     }
     @Bindable private var viewModel: ScheduleViewModel
     @State private var lastCourseSection: ScheduleSection = .courses
     @State private var courseTabResetSignal = 0
-    @State private var horizontalControlFrames: [CGRect] = []
+
+    private struct PagePresentation: ViewModifier {
+        @Environment(\.appPageIsVisible) private var isPageVisible
+        let viewModel: ScheduleViewModel
+        let section: ScheduleSection
+        private var isVisible: Bool { isPageVisible && section == viewModel.selectedSection }
+
+        func body(content: Content) -> some View {
+            content
+                .task(id: isVisible && section == .classroom && !viewModel.isLoadingCache) {
+                    guard isVisible, section == .classroom, !viewModel.isLoadingCache
+                    else { return }
+                    viewModel.classroom.startClassroomPageRefresh()
+                }
+                .sheet(
+                    item: Binding(
+                        get: { isVisible ? viewModel.verificationChallenge : nil },
+                        set: { challenge in
+                            if isVisible, challenge == nil { viewModel.dismissChallenge() }
+                        })
+                ) { challenge in
+                    AppVerificationSheet(
+                        maskedPhone: challenge.maskedPhone,
+                        isSubmitting: viewModel.isSubmittingVerificationCode,
+                        errorMessage: viewModel.verificationError,
+                        submitTitle: "验证并继续",
+                        onCancel: viewModel.dismissChallenge,
+                        onSubmit: { code in await viewModel.submitVerificationCode(code) },
+                        isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData)
+                }
+                .verifySchoolChallengeStep(
+                    viewModel: viewModel.ddl, isEnabled: isVisible && section != .classroom)
+        }
+    }
 
     public init(
         viewModel: ScheduleViewModel, requestedSection: Binding<ScheduleSection?>,
@@ -54,31 +100,19 @@ public struct ScheduleRootView: View {
 
     /// 日程主页主体。
     public var body: some View {
-        TimelineView(.everyMinute) { context in
-            ZStack {
-                AppRetainedPage(isVisible: displayedSection != .classroom) {
-                    rootNavigationStack
-                }
-                AppRetainedPage(isVisible: displayedSection == .classroom) {
-                    content(showingClassroom: true)
-                }
+        ZStack {
+            AppRetainedPage(isVisible: displayedSection != .classroom) {
+                rootNavigationStack
             }
-            .environment(\.scheduleCurrentDate, context.date)
+            AppRetainedPage(isVisible: displayedSection == .classroom) {
+                content(showingClassroom: true)
+            }
         }
+        .modifier(ScheduleClock())
         .background(AppDesignSystem.Palette.Background.grouped)
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .task {
             await viewModel.loadIfNeeded()
-        }
-        .task(
-            id: isCurrentSectionVisible && displayedSection == .classroom
-                && !viewModel.isLoadingCache
-        ) {
-            guard isCurrentSectionVisible, displayedSection == .classroom,
-                !viewModel.isLoadingCache
-            else { return }
-            // 每个自然日首次进入更新学校数据，其余进入复用当天缓存。
-            viewModel.classroom.startClassroomPageRefresh()
         }
         .onAppear {
             consumeSectionRequest()
@@ -86,37 +120,13 @@ public struct ScheduleRootView: View {
         .onChange(of: requestedSection) { _, _ in
             consumeSectionRequest()
         }
-        .sheet(
-            item: Binding(
-                get: { isCurrentSectionVisible ? viewModel.verificationChallenge : nil },
-                set: { challenge in
-                    if isCurrentSectionVisible, challenge == nil {
-                        viewModel.dismissChallenge()
-                    }
-                }
-            )
-        ) { challenge in
-            AppVerificationSheet(
-                maskedPhone: challenge.maskedPhone,
-                isSubmitting: viewModel.isSubmittingVerificationCode,
-                errorMessage: viewModel.verificationError,
-                submitTitle: "验证并继续",
-                onCancel: viewModel.dismissChallenge,
-                onSubmit: { code in
-                    await viewModel.submitVerificationCode(code)
-                },
-                isCaptcha: challenge.isCaptcha, captchaImage: challenge.captchaImageData
-            )
-        }
-        .verifySchoolChallengeStep(
-            viewModel: viewModel.ddl,
-            isEnabled: isCurrentSectionVisible && displayedSection != .classroom
-        )
+        .modifier(PagePresentation(
+            viewModel: viewModel, section: displayedSection))
         .environment(viewModel)
         .environment(viewModel.ddl)
-        .onChange(of: displayedSection, initial: true) { _, section in
-            if section != .classroom { lastCourseSection = section }
-        }
+        .modifier(ScheduleCourseSectionTracking(
+            viewModel: viewModel, showingClassrooms: showingClassrooms,
+            selection: $lastCourseSection))
     }
 
     private var navigationContentTopPadding: CGFloat {
@@ -145,13 +155,7 @@ public struct ScheduleRootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .contentShape(Rectangle())
-            .onPreferenceChange(AppHorizontalControlFramesKey.self) {
-                horizontalControlFrames = $0
-            }
-            .appPageSwitch(
-                excluding: horizontalControlFrames,
-                onStep: switchSection
-            )
+            .appPageSwitch(onStep: switchSection)
             .appAccessibilitySurface()
             .accessibilityIdentifier("schedule.section-surface")
         }
@@ -344,6 +348,17 @@ private struct ScheduleSectionTabs: View {
             Text(courseTitle).tag(ScheduleSection.courses)
             Text(ScheduleSection.ddl.title).tag(ScheduleSection.ddl)
             Text(ScheduleSection.classroom.title).tag(ScheduleSection.classroom)
+        }
+    }
+}
+
+private struct ScheduleClock: ViewModifier {
+    func body(content: Content) -> some View {
+        TimelineView(.everyMinute) { context in
+            content.environment(
+                \.scheduleCurrentDate,
+                ScheduleDateCodec.calendar.dateInterval(of: .minute, for: context.date)?.start
+                    ?? context.date)
         }
     }
 }

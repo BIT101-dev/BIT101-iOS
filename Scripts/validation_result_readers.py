@@ -507,3 +507,19 @@ def native_source_coverage(
     if not modules:
         raise ValueError("原生覆盖率需要包含生产源码。")
     return modules
+
+
+def append_catalyst_coverage_lines(lines: list[str], report_path: str) -> None:
+    build = Path(report_path).parent / "Build"
+    profiles = list((build / "ProfileData").glob("*/Coverage.profdata"))
+    if len(profiles) != 1:
+        raise SystemExit("Catalyst 覆盖率需要本次运行的唯一采样。")
+    modules = native_source_coverage(
+        build / "Products/Release-maccatalyst", profiles[0], catalyst=True
+    )
+    for name, (covered, executable) in sorted(modules.items()):
+        if executable:
+            label = name if name == "BIT101-iOS.app" else "Catalyst/" + name
+            lines.append(
+                f"- {label}: {covered * 100 / executable:.2f}% ({covered}/{executable} lines)"
+            )

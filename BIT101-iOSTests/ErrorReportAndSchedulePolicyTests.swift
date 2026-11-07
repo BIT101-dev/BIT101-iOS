@@ -348,7 +348,6 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
     @MainActor
     func testVerifyAutoFillCapturesCode() async throws {
         executionTimeAllowance = 60
-        let deadline = ContinuousClock.now.advanced(by: .seconds(executionTimeAllowance))
         var submissions: [String] = []
         var pending: CheckedContinuation<Void, Never>?
         let scene = try XCTUnwrap(
@@ -380,6 +379,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             return view.subviews.lazy.compactMap(findInput).first
         }
         func waitUntil(_ description: String, _ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
             while !condition(), ContinuousClock.now < deadline {
                 controller.view.setNeedsLayout()
                 controller.view.layoutIfNeeded()
@@ -424,10 +424,10 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         autofillInput.text = "123456"
         NotificationCenter.default.post(
             name: UITextField.textDidChangeNotification, object: autofillInput)
-        autofillInput.sendActions(for: .editingChanged)
         try await waitUntil("再次提交") {
             submissions.count == 2 && findInput(controller.view)?.isEnabled == false
         }
+        autofillInput.sendActions(for: .editingChanged)
         XCTAssertEqual(submissions, ["123456", "123456"])
     }
 

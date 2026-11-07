@@ -2,6 +2,17 @@
 import SwiftUI
 import UIKit
 
+/// 首次使用时创建模型，随视图身份保留；模型自身负责属性观察。
+@MainActor
+public final class AppViewModelOwner<Model: AnyObject> {
+    private let makeModel: () -> Model
+    public lazy var model: Model = makeModel()
+
+    public init(_ makeModel: @autoclosure @escaping () -> Model) {
+        self.makeModel = makeModel
+    }
+}
+
 public struct AppWindowLayout: Equatable {
     public var size: CGSize = .zero
     public var isRegularWidth = false
@@ -109,15 +120,15 @@ public struct AppPairedPages<First: View, Second: View>: View {
     @Environment(\.appWindowLayout) private var layout
     private let showsFirst: Bool
     private let pairsInLandscape: Bool
-    private let first: First
-    private let second: Second
+    private let first: () -> First
+    private let second: () -> Second
     public init(
         showsFirst: Bool, pairsInLandscape: Bool = true,
-        @ViewBuilder first: () -> First, @ViewBuilder second: () -> Second
+        @ViewBuilder first: @escaping () -> First, @ViewBuilder second: @escaping () -> Second
     ) {
         self.showsFirst = showsFirst
-        self.first = first()
-        self.second = second()
+        self.first = first
+        self.second = second
         self.pairsInLandscape = pairsInLandscape
     }
     public var body: some View {
@@ -145,9 +156,12 @@ public struct AppPairedPages<First: View, Second: View>: View {
             .clipShape(pageColumnClip)
         }
     }
-    private func pane(_ content: some View, visible: Bool) -> some View {
+    private func pane<Content: View>(
+        _ content: @escaping () -> Content, visible: Bool
+    ) -> some View {
         AppRetainedPage(isVisible: visible) {
-            content.environment(\.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
+            content().environment(
+                \.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(pageColumnClip)
         }
@@ -166,18 +180,18 @@ public struct AppRetainedPage<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hasShown: Bool
     private let isVisible: Bool
-    private let content: Content
+    private let content: () -> Content
 
-    public init(isVisible: Bool, @ViewBuilder content: () -> Content) {
+    public init(isVisible: Bool, @ViewBuilder content: @escaping () -> Content) {
         self.isVisible = isVisible
-        self.content = content()
+        self.content = content
         _hasShown = State(initialValue: false)
     }
 
     public var body: some View {
         Group {
             if hasShown || (parentIsVisible && isVisible) {
-                content
+                AppRetainedPageContent(content: content)
                     .environment(\.appPageIsVisible, parentIsVisible && isVisible)
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isVisible)
@@ -193,6 +207,11 @@ public struct AppRetainedPage<Content: View>: View {
             if visible { hasShown = true }
         }
     }
+}
+
+private struct AppRetainedPageContent<Content: View>: View {
+    let content: () -> Content
+    var body: some View { content() }
 }
 
 extension View {

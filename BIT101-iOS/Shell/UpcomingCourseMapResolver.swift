@@ -3,6 +3,23 @@ import MapFeature
 import ScheduleContracts
 import ScheduleDomain
 
+@MainActor
+final class UpcomingCourseMapProjection {
+    private var snapshot: ScheduleCourseSnapshot?
+    private var minute: Date?
+    private var target: UpcomingCourseMapTarget?
+
+    func resolve(in snapshot: ScheduleCourseSnapshot, now: Date) -> UpcomingCourseMapTarget? {
+        let minute = ScheduleDateCodec.calendar.dateInterval(of: .minute, for: now)?.start ?? now
+        if self.snapshot != snapshot || self.minute != minute {
+            target = UpcomingCourseMapResolver.nextTarget(in: snapshot, now: minute)
+            self.snapshot = snapshot
+            self.minute = minute
+        }
+        return target
+    }
+}
+
 /// 从本地课表缓存中解析“下一节课 + 校区 + 建筑”。
 enum UpcomingCourseMapResolver {
     static func nextTarget(in snapshot: ScheduleCourseSnapshot, now: Date = Date())
