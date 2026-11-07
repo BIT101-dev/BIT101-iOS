@@ -187,12 +187,24 @@ nonisolated final class InteractionCoverageUITests: UIAutomationTestCase {
         assertUI(visibleSegment("热评").isSelected, "文章滑动应恢复热评。")
         tapHeader(app.sectionTab("话题"))
         let topics = app.descendants(matching: .any)["gallery.feed-surface"]
+        func swipeTopics(towardEnd: Bool) {
+            let title = textElement("分页话题 1")
+            assertUI(title.appears(timeout: 5), "话题列表应展示首条内容。")
+            let y = (title.frame.midY - topics.frame.minY) / topics.frame.height
+            let start = topics.coordinate(
+                withNormalizedOffset: CGVector(dx: towardEnd ? 0.8 : 0.2, dy: y))
+            start.press(
+                forDuration: 0.01,
+                thenDragTo: start.withOffset(
+                    CGVector(dx: topics.frame.width * (towardEnd ? -0.6 : 0.6), dy: 0)),
+                withVelocity: .fast, thenHoldForDuration: 0.1)
+        }
         tapHeader(visibleSegment("关注"))
-        topics.swipeRight()
+        swipeTopics(towardEnd: false)
         assertUI(app.sectionTab("话题").isSelected, "话题首项向外滑动应停留话题。")
         assertUI(visibleSegment("关注").isSelected, "话题首项应保持关注分类。")
         tapHeader(visibleSegment("最热"))
-        topics.swipeLeft()
+        swipeTopics(towardEnd: true)
         assertUI(app.sectionTab("文章").isSelected, "话题末项向后滑动应进入文章。")
         tapHeader(app.sectionTab("话题"))
         assertUI(visibleSegment("最热").isSelected, "返回话题应保持最热分类。")
