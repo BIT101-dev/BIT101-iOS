@@ -1,3 +1,4 @@
+import BIT101TestSupport
 import CommunityCore
 import DesignSystemKit
 import Foundation
@@ -148,7 +149,7 @@ struct PaperSearchViewModelTests {
             secondStarted = true
             await model.loadPreviewMetadata(for: paper)
         }
-        while !secondStarted { await Task.yield() }
+        try await waitForTestEvent { secondStarted }
         let detail = PaperDetail(
             id: 1, title: "作者加载", intro: "", content: "", createTime: "", updateTime: "version",
             updateUser: listUser(1), anonymous: false, likeNum: 0, commentNum: 0,
