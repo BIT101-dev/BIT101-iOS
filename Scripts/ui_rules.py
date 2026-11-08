@@ -234,6 +234,29 @@ def check_scope_component_contracts(
         errors.append(f"{path.relative_to(ROOT)}: {'.'.join(scope)} 头像页面必须使用 AppAvatarView")
 
 
+def native_ui_rendering_findings(relative: str, code: str, facts: dict) -> list[str]:
+    if not re.match(
+        r"(?:Modules/(?:DesignSystemKit|CommunityUI|[^/]*Feature)/Sources/|BIT101-iOS/Shell/)",
+        relative,
+    ):
+        return []
+    findings = []
+    for call in facts.get("invocations", []):
+        expression = call["calledExpression"]
+        if call_name(expression) in {
+            "UIGraphicsImageRenderer",
+            "ImageRenderer",
+            "drawingGroup",
+            "drawHierarchy",
+        } or re.search(r"\.layer\s*\.\s*render\b", expression):
+            findings.append(
+                f"{relative}:{call.get('line', 1)}: 界面文字与控件必须保留原生视图，禁止位图替代"
+            )
+    if re.search(r"\b(?:shouldRasterize|rasterizationScale)\s*=", code):
+        findings.append(f"{relative}: 界面组件禁止手动栅格化和降低渲染精度")
+    return findings
+
+
 def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> None:
     errors.extend(list_row_layout_findings(syntax))
     errors.extend(text_loading_state_findings(syntax))
@@ -257,6 +280,7 @@ def check_component_contracts(errors: list[str], syntax: dict[str, dict]) -> Non
     # 页面级公共规则按含义模式发现。
     for path, source in code_sources.items():
         facts = syntax[str(path)]
+        errors.extend(native_ui_rendering_findings(str(path.relative_to(ROOT)), source, facts))
         for scope in view_scopes(facts):
             check_scope_component_contracts(path, facts, scope, syntax, errors)
 

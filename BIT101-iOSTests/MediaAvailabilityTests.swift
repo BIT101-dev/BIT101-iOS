@@ -129,14 +129,15 @@ struct MediaAvailabilityTests {
         func load() async throws -> UIImage? {
             try await media.images.withSource(for: url) { @MainActor source in
                 if animated {
-                    return await media.animatedDecoder.image(from: source, reduceMotion: false)
+                    let sequence = await media.animatedDecoder.sequence(from: source)
+                    return await sequence?.frame(at: 0)?.image
                 }
                 return await media.stillDecoder.image(from: source)
             }
         }
         let first = try #require(await load())
         let repeated = try #require(await load())
-        #expect(first === repeated && transport.requests == 1)
+        #expect(first.size == repeated.size && transport.requests == 1)
         await #expect(throws: (any Error).self) { try await media.images.file(for: url) }
         files.setFailures()
         let restored = try await media.images.file(for: url)

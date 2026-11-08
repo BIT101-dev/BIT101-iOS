@@ -316,7 +316,8 @@ public final class MediaEnvironment {
         let galleryBytes = try await images.withFile(for: url) { @MainActor [self] file in
             guard let data = RemoteImageResourceLimits.cachedData(at: file, using: cacheFiles),
                 await stillDecoder.image(at: file) != nil,
-                await animatedDecoder.image(at: file, reduceMotion: false) != nil
+                let sequence = await animatedDecoder.sequence(at: file),
+                await sequence.frame(at: 0) != nil
             else { throw URLError(.cannotDecodeContentData) }
             return data.count
         }

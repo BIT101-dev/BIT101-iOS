@@ -183,7 +183,7 @@ def artifact_bytes(artifact: dict) -> bytes:
         type(artifact.get("byteCount")) is not int
         or not 0 < artifact["byteCount"] <= MAXIMUM_ATTACHMENT_BYTES
     ):
-        raise ValueError("验收附件需要符合字节预算。")
+        raise ValueError("验收附件需要符合字节额度。")
     fields = {"dataUTF8", "dataBase64"} & artifact.keys()
     if len(fields) != 1:
         raise ValueError("验收附件需要唯一的数据编码。")
@@ -194,7 +194,7 @@ def artifact_bytes(artifact: dict) -> bytes:
         else 4 * ((MAXIMUM_ATTACHMENT_BYTES + 2) // 3)
     )
     if not isinstance(artifact[field], str) or len(artifact[field]) > limit:
-        raise ValueError("验收附件编码需要符合字节预算。")
+        raise ValueError("验收附件编码需要符合字节额度。")
     data = (
         artifact[field].encode("utf-8")
         if field == "dataUTF8"

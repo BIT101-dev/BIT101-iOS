@@ -420,16 +420,7 @@ struct BIT101_iOSApp: App {
             #if BIT101_UI_TESTING
             .uiTestExternalURLs()
             #endif
-            .environment(lifecycle.communityDestinations)
-            .environment(lifecycle.community)
-            .environment(lifecycle.communityDestinations.media)
-            .environment(lifecycle.scheduleViewModel)
-            .environment(lifecycle)
-            .environment(lifecycle.scheduleViewModel.ddl)
-            .environment(lifecycle.scoreViewModel)
-            .environment(lifecycle.settings)
-            .environment(lifecycle.preferenceCloudSync)
-            .environment(lifecycle.prompts)
+            .modifier(AppAccountEnvironment(lifecycle: lifecycle))
             .appKeyboardDismissSupport()
             #if BIT101_UI_TESTING
             .environment(\.appInteractionEvidence) { identifier, action in

@@ -311,7 +311,7 @@ extension ScheduleService {
         }
     }
 
-    /// 组装最终请求 URL，兼容绝对路径与相对路径。
+    /// 组合最终请求 URL，兼容绝对路径与相对路径。
     private func buildURL(baseURL: URL, path: String) -> URL {
         if baseURL.host == "webvpn.bit.edu.cn", path.hasPrefix("/") {
             return URL(string: baseURL.absoluteString + path) ?? baseURL

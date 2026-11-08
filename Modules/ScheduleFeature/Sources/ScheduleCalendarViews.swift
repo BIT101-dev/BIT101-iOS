@@ -72,9 +72,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
     private var lastInteractionLocation: CGPoint = .zero
     private let tapGesture = UITapGestureRecognizer()
     private var usesSharedInteractions = false
-    private(set) var cardText: ScheduleCardTextRenderer?
-    private let cardTextLayer = CALayer()
-    private var displayedTextImage: CGImage?
+    private(set) var cardText: ScheduleCardTextView?
     var isContentVisible = true {
         didSet {
             if isContentVisible && !oldValue && hasDeferredLayout { setNeedsLayout() }
@@ -93,8 +91,6 @@ final class ScheduleBlankContextMenuControl: UIControl {
         super.init(frame: frame)
         isOpaque = false
         layer.insertSublayer(cardBackground, at: 0)
-        cardTextLayer.contentsGravity = .topLeft
-        cardTextLayer.masksToBounds = true
         isMultipleTouchEnabled = true
         tintColor = UIColor(AppDesignSystem.Palette.Accent.primary)
         isContextMenuInteractionEnabled = true
@@ -105,7 +101,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
         registerForTraitChanges([
             UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self,
             UITraitUserInterfaceLevel.self, UITraitPreferredContentSizeCategory.self,
-            UITraitLegibilityWeight.self,
+            UITraitLegibilityWeight.self, UITraitDisplayScale.self,
         ]) { (view: ScheduleBlankContextMenuControl, _: UITraitCollection) in
             view.applyBackgroundAppearance()
             view.updateTextAppearance()
@@ -216,19 +212,17 @@ final class ScheduleBlankContextMenuControl: UIControl {
 
     private func updateTextAppearance() {
         guard let entry = textEntry, let contentMode = textMode else {
-            cardTextLayer.removeFromSuperlayer()
-            cardTextLayer.contents = nil
-            displayedTextImage = nil
+            cardText?.removeFromSuperview()
             cardText = nil
             return
         }
-        let text: ScheduleCardTextRenderer
+        let text: ScheduleCardTextView
         if let cardText {
             text = cardText
         } else {
-            text = ScheduleCardTextRenderer()
+            text = ScheduleCardTextView()
             cardText = text
-            layer.addSublayer(cardTextLayer)
+            addSubview(text)
         }
         let color: UIColor
         switch entry.kind {
@@ -253,27 +247,11 @@ final class ScheduleBlankContextMenuControl: UIControl {
         }
         hasDeferredLayout = false
         guard let cardText else { return }
-        var frame = bounds.insetBy(
+        let frame = bounds.insetBy(
             dx: min(AppDesignSystem.Spacing.micro, bounds.width / 2),
             dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
-        let image = cardText.image(
-            size: frame.size, scale: contentScaleFactor, traits: traitCollection)
-        if let image {
-            frame.size = CGSize(
-                width: CGFloat(image.width) / contentScaleFactor,
-                height: CGFloat(image.height) / contentScaleFactor)
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if cardTextLayer.frame != frame { cardTextLayer.frame = frame }
-        if cardTextLayer.contentsScale != contentScaleFactor {
-            cardTextLayer.contentsScale = contentScaleFactor
-        }
-        if displayedTextImage !== image {
-            cardTextLayer.contents = image
-            displayedTextImage = image
-        }
-        CATransaction.commit()
+        if cardText.frame != frame { cardText.frame = frame }
+        cardText.layout(size: frame.size, scale: window?.screen.scale ?? contentScaleFactor)
     }
 
     func useSharedInteractionHandling() {

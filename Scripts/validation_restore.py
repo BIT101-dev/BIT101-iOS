@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 from validation_provenance import sampling_evidence_current
-from restore_diagnostics import simulator_startup_diagnostics
+from restore_diagnostics import simulator_startup_diagnostics, mac_app_pids, mac_app_session
 
 ROOT = Path(__file__).resolve().parents[1]
 PROOF = ROOT / "build/DeviceInstall/restore-readiness.json"
@@ -125,17 +125,6 @@ def readiness_diagnostic(proof: dict) -> None:
         采样有效=sampling_evidence_current(proof),
     )
     print("App 就绪状态：" + json.dumps(state, ensure_ascii=False), file=sys.stderr)
-
-
-def mac_app_pids(app: Path) -> list[int]:
-    expected = str(app / "Contents/MacOS/BIT101-iOS")
-    processes = subprocess.check_output(["/bin/ps", "-ww", "-axo", "pid=,comm="], text=True)
-    result = []
-    for line in processes.splitlines():
-        pid, _, executable = line.lstrip().partition(" ")
-        if executable.strip() == expected:
-            result.append(int(pid))
-    return result
 
 
 def mac_ready(
@@ -508,7 +497,7 @@ def verify_simulator_startup_case(
     if complete and app_ready:
         complete = rows.index("APPREADY") > max(rows.index("BUILD"), rows.index("PREPARE"))
     if not complete:
-        findings.append("模拟器启动自测：两项完成后初始化 App，失败状态归集后结束")
+        findings.append("模拟器启动自测：两项完成后初始化 App，失败状态汇总后结束")
 
 
 def simulator_startup_findings(source: str) -> list[str]:
@@ -691,7 +680,7 @@ def simulator_startup_findings(source: str) -> list[str]:
                         rows.index("PREPARE"), rows.index("PERMISSIONS")
                     )
                 if not complete:
-                    findings.append("共享宿主自测：恢复执行权限，归集系统就绪状态后执行 App 初始化")
+                    findings.append("共享宿主自测：恢复执行权限，汇总系统就绪状态后执行 App 初始化")
     finally:
         import shutil
 
@@ -966,7 +955,7 @@ def simulator_restore_preparation_findings(findings, restoration, simulator_sour
                     operation == "app"
                 ):
                     findings.append(
-                        "恢复准备自测：原生测试与主机编译重叠，设备操作完成后归集子进程及失败状态"
+                        "恢复准备自测：原生测试与主机编译重叠，设备操作完成后汇总子进程及失败状态"
                     )
             finally:
                 os.close(reader)
@@ -982,6 +971,9 @@ if __name__ == "__main__":
         if sys.argv[1:] == ["invalidate"]:
             invalidate()
             sys.exit(0)
+        if sys.argv[1:2] in (["mac-pause"], ["mac-resume"]):
+            mac_app_session(*sys.argv[1:])
+            sys.exit(0)
         if sys.argv[1:2] == ["mac-pids"]:
             sys.stdout.write("".join(f"{pid}\n" for pid in mac_app_pids(Path(sys.argv[2]))))
             sys.exit(0)
@@ -995,6 +987,13 @@ if __name__ == "__main__":
         if not result["passed"]:
             readiness_diagnostic(result)
         sys.exit(0 if result["passed"] else 1)
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+    except (
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        RuntimeError,
+        subprocess.SubprocessError,
+    ) as error:
         print(f"App 就绪采样失败：{type(error).__name__}：{error}", file=sys.stderr)
         sys.exit(1)

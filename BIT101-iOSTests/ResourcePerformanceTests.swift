@@ -21,7 +21,8 @@ import StorageCore
 @testable import ScheduleFeature
 
 private typealias ShellSwitchTiming = (
-    response: Double, selection: Double, display: Double, firstFrame: Double, gap: Double)
+    response: Double, selection: Double, display: Double, firstFrame: Double, gap: Double
+)
 
 @MainActor
 private final class PerformanceDisplayFrame: NSObject {
@@ -95,7 +96,8 @@ extension MaintenancePerformanceTests {
 
     @MainActor
     private func runCommunityFirstContent(expanded: Bool) throws {
-        let workloadID = expanded
+        let workloadID =
+            expanded
             ? "native-community-first-content" : "compact-community-first-content"
         let workload = try PerformanceWorkload(workloadID, bundle: Bundle(for: Self.self))
         let items = try workload.value("items", as: Int.self)
@@ -116,9 +118,11 @@ extension MaintenancePerformanceTests {
         var content: [String: (Double, Int)] = [:]
         let controller = UIHostingController(
             rootView: shellPerformanceView(lifecycle, expanded: expanded)
-                .environment(\.appPageLoadObserver, { page, stage, duration, count in
-                    if stage == "content-ready" { content[page] = (duration, count) }
-                }))
+                .environment(
+                    \.appPageLoadObserver,
+                    { page, stage, duration, count in
+                        if stage == "content-ready" { content[page] = (duration, count) }
+                    }))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         defer {
@@ -189,7 +193,9 @@ extension MaintenancePerformanceTests {
         if let picker = view as? UISegmentedControl,
             picker.numberOfSegments == 2,
             picker.titleForSegment(at: 0) == "话题", picker.titleForSegment(at: 1) == "文章"
-        { return picker }
+        {
+            return picker
+        }
         return view.subviews.lazy.compactMap { self.communityPicker(in: $0) }.first
     }
 
@@ -347,23 +353,16 @@ extension MaintenancePerformanceTests {
     ) -> some View {
         let size = expanded ? CGSize(width: 1024, height: 768) : CGSize(width: 390, height: 844)
         return AppShellView(
-            transcriptService: lifecycle.transcriptService, studentID: "performance", onLogout: {})
-            .environment(lifecycle.communityDestinations)
-            .environment(lifecycle.community)
-            .environment(lifecycle.communityDestinations.media)
-            .environment(lifecycle.scheduleViewModel)
-            .environment(lifecycle)
-            .environment(lifecycle.scheduleViewModel.ddl)
-            .environment(lifecycle.scoreViewModel)
-            .environment(lifecycle.settings)
-            .environment(lifecycle.preferenceCloudSync)
-            .environment(lifecycle.prompts)
-            .environment(
-                \.appWindowLayout,
-                AppWindowLayout(
-                    size: size, isRegularWidth: expanded,
-                    interfaceIdiom: expanded ? .pad : .phone))
-            .frame(width: size.width, height: size.height)
+            transcriptService: lifecycle.transcriptService, studentID: "performance", onLogout: {}
+        )
+        .modifier(AppAccountEnvironment(lifecycle: lifecycle))
+        .environment(
+            \.appWindowLayout,
+            AppWindowLayout(
+                size: size, isRegularWidth: expanded,
+                interfaceIdiom: expanded ? .pad : .phone)
+        )
+        .frame(width: size.width, height: size.height)
     }
 
     @MainActor
@@ -404,7 +403,8 @@ extension MaintenancePerformanceTests {
         XCTAssertTrue(shellViewIsDisplayed(destination.viewIfLoaded))
         return (
             displayed - start, selected - start, displayed - selected,
-            try XCTUnwrap(frame.firstFrame) - start, frame.maximumGap)
+            try XCTUnwrap(frame.firstFrame) - start, frame.maximumGap
+        )
     }
 
     @MainActor
@@ -417,7 +417,8 @@ extension MaintenancePerformanceTests {
         var ancestor: UIView? = view
         while let current = ancestor {
             if current.isHidden || current.alpha == 0
-                || current.layer.presentation()?.opacity == 0 {
+                || current.layer.presentation()?.opacity == 0
+            {
                 return false
             }
             ancestor = current.superview
@@ -436,7 +437,8 @@ extension MaintenancePerformanceTests {
                         title: "课程\(index)", classroom: "良乡校区文萃楼A-201",
                         weekday: position % 7 + 1, startSection: section, endSection: section,
                         weeksText: "1-20"),
-                    to: [], term: term, id: "course-\(index)").first)
+                    to: [], term: term, id: "course-\(index)"
+                ).first)
         }
         var cache = ScheduleCache()
         cache.currentTerm = term
@@ -642,8 +644,12 @@ extension MaintenancePerformanceTests {
             let completed = expectation(description: "GIF decoding")
             Task.detached {
                 await decoder.clear()
-                let image = await decoder.image(at: url, reduceMotion: false)
-                XCTAssertEqual(image?.images?.count, frames)
+                let sequence = await decoder.sequence(at: url)
+                XCTAssertEqual(sequence?.count, frames)
+                for index in 0..<frames {
+                    let frame = await sequence?.frame(at: index)
+                    XCTAssertNotNil(frame)
+                }
                 completed.fulfill()
             }
             wait(for: [completed], timeout: 5)

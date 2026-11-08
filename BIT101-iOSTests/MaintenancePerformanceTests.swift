@@ -109,7 +109,8 @@ final class RecoveryScanResponse: HTTPTransport {
                     "id": id, "user": user, "anonymous": false, "create_time": "",
                     "update_time": "",
                     "images": [], "like_num": 0, "comment_num": 0,
-                    "text": firstPageItems == nil ? "fixture"
+                    "text": firstPageItems == nil
+                        ? "fixture"
                         : String(repeating: "话题内容与课程交流。", count: 30),
                 ]
                 if url.path == "/posters" {
@@ -136,10 +137,10 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         let limit = RemoteImageResourceLimits.maximumEncodedBytes
         let url = files.temporaryDirectoryURL.appendingPathComponent("photo-source")
         try files.writeData(Data(repeating: 0, count: limit + 1), to: url, options: [])
-        files.interceptNextRead { XCTFail("源文件超过预算时应在读取内容前结束") }
+        files.interceptNextRead { XCTFail("源文件超过额度时应在读取内容前结束") }
         do {
             _ = try await PickedImageData.readFile(at: url, using: files)
-            XCTFail("照片源文件需要进入字节预算验收")
+            XCTFail("照片源文件需要进入字节额度验收")
         } catch PickedImageData.ImportError.tooLarge {
             XCTAssertEqual(files.regularFileSize(at: url), limit + 1)
         }
@@ -203,7 +204,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                     _ = try await operations.find(
                         kind == "poster" ? .poster : .paper, "fixture")
                 }
-                XCTFail("恢复扫描达到预算时需要保留恢复记录并报告样本问题")
+                XCTFail("恢复扫描达到额度时需要保留恢复记录并报告样本问题")
             } catch NetworkSmokePaging.SamplingError.budgetExceeded {
                 XCTAssertEqual(route.calls, large ? 1 : NetworkSmokePaging.maximumSamplePages)
             }
@@ -836,9 +837,9 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
                 let animation = files.temporaryDirectoryURL.appending(
                     path: "media-\(index).gif")
                 try files.writeData(gif as Data, to: animation, options: [.atomic])
-                let animated = await media.animatedDecoder.image(
-                    at: animation, reduceMotion: false)
-                XCTAssertNotNil(animated)
+                let animated = await media.animatedDecoder.sequence(at: animation)
+                let frame = await animated?.frame(at: 0)
+                XCTAssertNotNil(frame)
             }
         }
         XCTAssertEqual(

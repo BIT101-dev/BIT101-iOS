@@ -119,7 +119,7 @@ final class MediaDownloadCoordinator {
     }
 }
 
-/// 活跃视图共享位图预算，同一 UIImage 的多个展示归属共用一次记账。
+/// 活跃视图共享位图额度，同一 UIImage 的多个展示归属共用一次记账。
 @Observable
 @MainActor
 final class MediaDisplayBudget {

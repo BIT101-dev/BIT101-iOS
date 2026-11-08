@@ -23,10 +23,16 @@ public final class AppPageLoadMeasurement {
 
     public init() {}
 
+    public var elapsedDuration: Double {
+        ProcessInfo.processInfo.systemUptime - started
+    }
+
     @discardableResult
-    public func record(_ page: String, stage: String, count: Int = 0) -> Double? {
+    public func record(
+        _ page: String, stage: String, count: Int = 0, duration: Double? = nil
+    ) -> Double? {
         guard recorded.insert(stage).inserted else { return nil }
-        let duration = ProcessInfo.processInfo.systemUptime - started
+        let duration = duration ?? ProcessInfo.processInfo.systemUptime - started
         Self.logger.info(
             """
             page=\(page, privacy: .public) stage=\(stage, privacy: .public) \

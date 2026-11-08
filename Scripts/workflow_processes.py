@@ -58,7 +58,7 @@ def signal_groups(groups: set[int], signum: int, *, workers_only: bool = False) 
     supervisors = {
         pid for pid, (_, supervisor) in members.items() if pid != os.getpid() and supervisor
     }
-    # 锁持有者先接收退出请求并归集子进程；强制回收先结束工作进程。
+    # 锁持有者先接收退出请求并汇总子进程；强制回收先结束工作进程。
     if workers_only:
         targets = workers
     elif signum == signal.SIGKILL:
@@ -182,7 +182,7 @@ def supervise(
             expired = clock() >= deadline
             if interrupted is not None or expired:
                 if expired:
-                    print("[超时] 工作流已达到执行预算，正在恢复与结束。", flush=True)
+                    print("[超时] 工作流已达到执行额度，正在恢复与结束。", flush=True)
                 group = process.pid if owns_process_group else os.getpgrp()
                 children = descendant_groups(process.pid) - {group}
                 signal_groups(children, signal.SIGTERM)
@@ -254,7 +254,7 @@ def limit_ui_workflow(script_path: str, parameters: list[str]) -> int:
 
     timeout = float(os.environ.get("BIT101_WORKFLOW_TIMEOUT_SECONDS", UI_WORKFLOW_TIMEOUT_SECONDS))
     if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("工作流预算需要有限正数。")
+        raise ValueError("工作流额度需要有限正数。")
     timeout = min(timeout, UI_WORKFLOW_TIMEOUT_SECONDS)
     deadline = time.monotonic() + timeout
     inherited = float(os.environ.get("BIT101_WORKFLOW_DEADLINE", deadline))
@@ -297,7 +297,7 @@ def main(arguments: list[str]) -> int:
         timeout = float(os.environ.get("BIT101_WORKFLOW_TIMEOUT_SECONDS", 45 * 60))
         deadline = float(os.environ.get("BIT101_WORKFLOW_DEADLINE", time.monotonic() + timeout))
         if not math.isfinite(timeout) or timeout <= 0 or not math.isfinite(deadline):
-            raise ValueError("工作流预算与截止时间需要有限正数。")
+            raise ValueError("工作流额度与截止时间需要有限正数。")
         announced = False
         while True:
             try:
@@ -309,7 +309,7 @@ def main(arguments: list[str]) -> int:
                     announced = True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    print("[超时] 工作流锁等待已达到执行预算。", flush=True)
+                    print("[超时] 工作流锁等待已达到执行额度。", flush=True)
                     return 124
                 time.sleep(min(0.1, remaining))
         environment = dict(os.environ, **{flag: "1", "BIT101_WORKFLOW_DEADLINE": str(deadline)})

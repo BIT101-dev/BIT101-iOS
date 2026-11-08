@@ -161,9 +161,10 @@ public struct AppPairedPages<First: View, Second: View>: View {
     ) -> some View {
         AppRetainedPage(isVisible: visible) {
             content().environment(
-                \.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipShape(pageColumnClip)
+                \.appWindowLayout, pairsInLandscape ? layout.singleColumn : layout
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(pageColumnClip)
         }
     }
     private var pageColumnClip: AppPageColumnClip {
@@ -276,7 +277,7 @@ public struct AppBrowserLayout<
                 .background(AppDesignSystem.Palette.Background.grouped)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(.visible, for: .navigationBar)
-                .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+                .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)
                 .navigationDestination(for: Selection.self) { selected in
                     detailContent(selected)
                 }
@@ -352,7 +353,7 @@ public struct AppBrowserLayout<
         detail(selected)
             .background(AppDesignSystem.Palette.Background.grouped)
             .toolbar(.visible, for: .navigationBar)
-            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+            .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)
             .appPaneBackButton(isPresented: layout.isLandscapeWindow) {
                 selection = nil
             }
@@ -475,15 +476,22 @@ extension View {
     ) -> some View {
         environment(\.appBrowserHeader, isPresented ? AnyView(content()) : nil)
     }
-    public func appNativeBarBackground(isPresented: Bool) -> some View {
-        toolbarBackground(
-            isPresented
-                ? AnyShapeStyle(AppDesignSystem.Palette.Background.grouped)
-                : AnyShapeStyle(Material.bar),
-            for: .tabBar, .navigationBar
-        )
-        .toolbarBackground(isPresented ? .visible : .automatic, for: .tabBar, .navigationBar)
-        .navigationBarTitleDisplayMode(isPresented ? .inline : .automatic)
+    @ViewBuilder public func appNativeNavigationBarBackground(isPresented: Bool) -> some View {
+        if isPresented {
+            toolbarBackground(AppDesignSystem.Palette.Background.grouped, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            self
+        }
+    }
+    @ViewBuilder public func appNativeTabBarBackground(isPresented: Bool) -> some View {
+        if isPresented {
+            toolbarBackground(AppDesignSystem.Palette.Background.grouped, for: .tabBar)
+                .toolbarBackground(.visible, for: .tabBar)
+        } else {
+            self
+        }
     }
     public func appAccessibilitySurface() -> some View {
         overlay(alignment: .topLeading) {
@@ -829,7 +837,7 @@ private struct AppBrowserNavigationBarModifier: ViewModifier {
                 layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden,
                 for: .navigationBar
             )
-            .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+            .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)
     }
 }
 

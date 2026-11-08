@@ -2,7 +2,7 @@ import Foundation
 import ScheduleDomain
 import StorageCore
 
-/// 用户操作触发的平台能力，由应用组装层提供。
+/// 用户操作触发的平台能力，由应用组合层提供。
 @MainActor
 public protocol SchedulePlatformActions {
     func enableCloudSync(session: AppStorageSession) async

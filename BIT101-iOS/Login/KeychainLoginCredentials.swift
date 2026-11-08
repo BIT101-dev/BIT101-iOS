@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 import Security
 
-/// Keychain 的生产适配器，服务名由 App 组装入口选择。
+/// Keychain 的生产适配器，服务名由 App 组合入口选择。
 final class KeychainLoginCredentials: LoginCredentialsStoring {
     private static let logger = Logger(subsystem: "BIT101", category: "LoginKeychain")
     private let service: String

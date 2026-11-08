@@ -663,7 +663,7 @@ struct NativeSchoolScoreTests {
             deadline: .now)
         do {
             _ = try await reader.fetch(detail: true, session: session)
-            Issue.record("详情预算结束需要保留部分结果。")
+            Issue.record("详情额度结束需要保留部分结果。")
         } catch let partial as PartialScoreResult {
             #expect(partial.rows.count == 1 && (partial.failure as? URLError)?.code == .timedOut)
         }

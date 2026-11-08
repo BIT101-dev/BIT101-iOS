@@ -3,7 +3,7 @@ import Foundation
 import ScoreInfrastructure
 import TransportCore
 
-/// 生产组装入口选择凭据、认证传输和敏感下载传输。
+/// 生产组合入口选择凭据、认证传输和敏感下载传输。
 extension ScoreService {
     init(
         authenticationHTTPClient: HTTPClient = HTTPClient(

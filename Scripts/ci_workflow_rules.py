@@ -396,7 +396,7 @@ class _CIWorkflowAnalysis:
             "catalyst-tests": (
                 (
                     "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
-                    "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组装约定",
+                    "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组合约定",
                 ),
             ),
             "release-build": (
@@ -417,11 +417,11 @@ class _CIWorkflowAnalysis:
                 ),
             ),
             "ios-app-tests": (
-                ("Scripts/run-extended-tests.sh simulator prepare", "正式组装需要准备完整模拟器"),
+                ("Scripts/run-extended-tests.sh simulator prepare", "正式组合需要准备完整模拟器"),
                 ("Scripts/run-extended-tests.sh simulator app", "App 行为需要执行完整约定库存"),
                 (
                     "Scripts/run-extended-tests.sh simulator release-runtime",
-                    "正式组装需要执行完整约定库存",
+                    "正式组合需要执行完整约定库存",
                 ),
             ),
         }
@@ -524,7 +524,7 @@ class _CIWorkflowAnalysis:
             or "strategy" in self.formal_job
         ):
             self.errors.append(
-                ".github/workflows/ci.yml: App 与正式组装需要共用完整库存和单个工作进程"
+                ".github/workflows/ci.yml: App 与正式组合需要共用完整库存和单个工作进程"
             )
         app_steps = self.formal_job.get("steps", [])
         app_run = next(
@@ -571,7 +571,7 @@ class _CIWorkflowAnalysis:
             != DIAGNOSTIC_PATHS["ios-app-tests"]
         ):
             self.errors.append(
-                ".github/workflows/ci.yml: 同设备正式组装前需要顺序执行 App 库存并保留原始诊断上传"
+                ".github/workflows/ci.yml: 同设备正式组合前需要顺序执行 App 库存并保留原始诊断上传"
             )
 
     def check_permissions(self):
@@ -583,7 +583,7 @@ class _CIWorkflowAnalysis:
             timeout = workflow_mapping(self.jobs.get(job)).get("timeout-minutes")
             if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
                 self.errors.append(
-                    f".github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算"
+                    f".github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复额度"
                 )
         for job, minimum in (
             ("ios-app-tests", workflow_timeout_seconds(("all", "release-runtime")) // 60 + 10),
@@ -592,7 +592,7 @@ class _CIWorkflowAnalysis:
             timeout = workflow_mapping(self.jobs.get(job)).get("timeout-minutes")
             if type(timeout) is not int or timeout < minimum:
                 self.errors.append(
-                    f".github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复预算"
+                    f".github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复额度"
                 )
         if workflow_mapping(self.workflow.get("permissions")).get("actions") != "read":
             self.errors.append(".github/workflows/ci.yml: 提交证据读取需要 Actions 读取权限")

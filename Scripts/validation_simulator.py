@@ -382,7 +382,7 @@ def merge_ci_results(ci) -> None:
         )
         print(f"{group} 完整验收通过：{summary['passedTests']} 项。")
     if records["all"]["environment"] != records["release-runtime"]["environment"]:
-        raise ValueError("App 行为与正式组装需要同一模拟器环境。")
+        raise ValueError("App 行为与正式组合需要同一模拟器环境。")
     with report_lock(path=ci.REPORT):
         report = json.loads(ci.REPORT.read_text())
         report["simulatorResults"] = records

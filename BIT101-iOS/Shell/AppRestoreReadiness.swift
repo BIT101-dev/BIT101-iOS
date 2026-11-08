@@ -3,7 +3,7 @@ import OSLog
 import StorageCore
 import UIKit
 
-/// 正式组装完成且场景活跃时，向装机工作流提供单一就绪信号。
+/// 正式组合完成且场景活跃时，向装机工作流提供单一就绪信号。
 @MainActor
 enum AppRestoreReadiness {
     private static var initialized = false

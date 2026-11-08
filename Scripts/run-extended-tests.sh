@@ -16,8 +16,8 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
 运行时回收：simulator runtime prune [平台] 版本；平台默认 iOS"
   echo "Scripts/run-extended-tests.sh simulator devices remove 目标设备UDID...  移除已授权的指定设备"
   echo "Scripts/run-extended-tests.sh simulator devices clean 设备UDID...  保留登录与设置，清理缓存和临时文件"
-  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组装约定"
-  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组装约定"
+  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组合约定"
+  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组合约定"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
   echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
@@ -218,6 +218,7 @@ TEST_SELECTIONS=("$@")
 if [[ "$MODE" == network-smoke && "$BUILD_ONLY" == false && ${#TEST_SELECTIONS[@]} -eq 0 ]]; then
   echo "请提供定向网络测试类或方法。" >&2; exit 64
 fi
+
 if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   selections="$(bit101_ui_test_selections "${TEST_SELECTIONS[@]}")" || exit 64
   TEST_SELECTIONS=("${(@f)selections}")
@@ -265,9 +266,15 @@ BIT101_VALIDATION_INPUT_IDENTITY="$(python3 "$ROOT_DIR/Scripts/validation_eviden
   "$validation_group")"
 export BIT101_VALIDATION_RUN_ID BIT101_VALIDATION_INPUT_IDENTITY
 typeset -a retained_result_groups=()
+MAC_TEST_SESSION=0
+MAC_APP_RESTORE=0
 finish_validation() {
   local validation_status=$?
   trap - EXIT ZERR INT TERM
+  if [[ "$MAC_TEST_SESSION" == 1 ]]; then
+    python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-resume \
+      "$HOME/Applications/BIT101-iOS.app" "$MAC_APP_RESTORE" || validation_status=$?
+  fi
   export BIT101_VALIDATION_ELAPSED_SECONDS="$(( SECONDS - WORKFLOW_STARTED_SECONDS ))"
   if [[ "$validation_group" == modules && "$BUILD_ONLY" == false ]] && (( validation_status )); then
     python3 "$ROOT_DIR/Scripts/test_results.py" module-metrics "" "$DERIVED_ROOT/test-metrics.txt" \
@@ -292,6 +299,14 @@ finish_validation() {
 trap finish_validation EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+if [[ ( "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ) && "$BUILD_ONLY" == false ]]; \
+  then
+  MAC_APP_RESTORE="$(python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pause \
+    "$HOME/Applications/BIT101-iOS.app")"
+  MAC_TEST_SESSION=1
+fi
+
 
 if [[ "$MODE" == ui && ${#TEST_SELECTIONS[@]} -gt 0 ]]; then
   echo "[筛选] ${#TEST_SELECTIONS[@]} 项 UI 用例 · 同一批次执行"

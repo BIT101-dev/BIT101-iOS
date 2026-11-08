@@ -30,6 +30,37 @@ struct MediaDependencyTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+    func croppedImagesKeepDisplayPixels(portrait: Bool) async throws {
+        let data = try png(width: portrait ? 200 : 2000, height: portrait ? 2000 : 200)
+        let files = PreferenceMemoryFiles()
+        let file = files.temporaryDirectoryURL.appending(path: "viewport.png")
+        try files.writeData(data, to: file, options: [])
+        let decoder = GalleryThumbnailDecoder(files: files)
+        let size = CGSize(width: 80, height: 80)
+        let fit = MediaImageViewport(size: size, scale: 2, fills: false)
+        let fill = MediaImageViewport(size: size, scale: 2, fills: true)
+        let fitted = try #require(await decoder.image(at: file, viewport: fit)?.cgImage)
+        let filled = try #require(await decoder.image(at: file, viewport: fill)?.cgImage)
+        #expect(max(fitted.width, fitted.height) == 160)
+        #expect(min(filled.width, filled.height) == 160)
+        #expect(max(filled.width, filled.height) == 1600)
+        #expect(await decoder.image(at: file, viewport: fill)?.cgImage === filled)
+        #expect(await decoder.image(at: file, viewport: fit)?.cgImage === fitted)
+        let transport = Images(bytes: data)
+        let media = environment(
+            files: files, previewFiles: PreferenceMemoryFiles(), transport: transport)
+        let loader = CachedRemoteImageLoader()
+        let url = AppURL.required("https://example.invalid/viewport.png")
+        await loader.load(url: url, media: media, maximumPixelSize: 160, viewport: fit)
+        #expect(loader.image?.cgImage?.width == fitted.width)
+        await loader.load(url: url, media: media, maximumPixelSize: 160, viewport: fill)
+        #expect(loader.image?.cgImage?.width == filled.width)
+        #expect(loader.image?.cgImage?.height == filled.height)
+        #expect(transport.requests == 1)
+        loader.releaseDisplayImage()
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["success", "gallery", "cache"])
     func productionImageProbeReusesResourceDecoders(stage: String) async throws {
         let files = PreferenceMemoryFiles()
@@ -100,9 +131,9 @@ struct MediaDependencyTests {
         #expect(await media.stillDecoder.image(at: first) === image)
         #expect(files.readCount(at: first) == reads)
         let animated = try #require(
-            await media.animatedDecoder.image(at: first, reduceMotion: true))
+            await media.animatedDecoder.sequence(at: first))
         let animatedReads = files.readCount(at: first)
-        #expect(await media.animatedDecoder.image(at: first, reduceMotion: true) === animated)
+        #expect(await media.animatedDecoder.sequence(at: first) === animated)
         #expect(files.readCount(at: first) == animatedReads)
         _ = try await media.images.file(for: url)
         let cachedReads = files.readCount(at: first)
@@ -110,7 +141,8 @@ struct MediaDependencyTests {
         #expect(files.readCount(at: first) == cachedReads)
         try files.writeData(try png(width: 3), to: first, options: [.atomic])
         #expect(await media.stillDecoder.image(at: first)?.size.width == 3)
-        #expect(await media.animatedDecoder.image(at: first, reduceMotion: true)?.size.width == 3)
+        let updated = try #require(await media.animatedDecoder.sequence(at: first))
+        #expect(await updated.frame(at: 0)?.image.size.width == 3)
     }
 
     @Test(.timeLimit(.minutes(1))) func linkifiedTextPreservesLinksWithinBudget() async {
@@ -133,9 +165,8 @@ struct MediaDependencyTests {
         let pixels = try #require(image.cgImage)
         #expect(pixels.width == 16 && pixels.height == 16)
         let animated = RemoteAnimatedImageDecoder(files: files)
-        #expect(
-            await animated.image(at: file, reduceMotion: false, maximumPixelSize: 8)?.cgImage?.width
-                == 8)
+        let sequence = try #require(await animated.sequence(at: file, maximumPixelSize: 8))
+        #expect(await sequence.frame(at: 0)?.image.cgImage?.width == 8)
         let budget = MediaDisplayBudget(maximumBytes: pixels.bytesPerRow * pixels.height)
         let first = MediaDisplayedImage()
         let second = MediaDisplayedImage()
@@ -196,7 +227,7 @@ struct MediaDependencyTests {
         let decoder = GalleryThumbnailDecoder(files: files, maximumDecodedBytes: 4096)
         let image = try #require(await decoder.image(at: file)?.cgImage)
         #expect(image.bytesPerRow * image.height <= 4096)
-        #expect(image.width <= 32 && image.height <= 32)
+        #expect(image.width > 32 && image.width <= 44)
         #expect(image.width == image.height * 2)
         #expect(BoundedStillImageDecoder.image(from: data, maximumDecodedBytes: 3) == nil)
         #expect(
@@ -750,12 +781,12 @@ struct MediaDependencyTests {
         let original = try await media.images.file(for: url)
         let still = try #require(await media.stillDecoder.image(at: original))
         let animated = try #require(
-            await media.animatedDecoder.image(at: original, reduceMotion: true))
+            await media.animatedDecoder.sequence(at: original))
         await media.clearCaches()
         let restored = try await media.images.file(for: url)
         let newStill = try #require(await media.stillDecoder.image(at: restored))
         let newAnimated = try #require(
-            await media.animatedDecoder.image(at: restored, reduceMotion: true))
+            await media.animatedDecoder.sequence(at: restored))
         #expect(newStill !== still)
         #expect(newAnimated !== animated)
     }
@@ -768,7 +799,7 @@ struct MediaDependencyTests {
         let url = AppURL.required("https://example.invalid/pressure.png")
         let file = try await media.images.file(for: url)
         let still = try #require(await media.stillDecoder.image(at: file))
-        let animated = try #require(await media.animatedDecoder.image(at: file, reduceMotion: true))
+        let animated = try #require(await media.animatedDecoder.sequence(at: file))
         let avatar = try #require(await media.avatars.image(for: url))
         let display = MediaDisplayedImage()
         #expect(display.set(still, budget: media.displayBudget))
@@ -778,7 +809,7 @@ struct MediaDependencyTests {
         #expect(await media.images.cachedFile(for: url) == file)
         #expect(await media.avatars.diskData(for: url) == bytes)
         #expect(await media.stillDecoder.image(at: file) !== still)
-        #expect(await media.animatedDecoder.image(at: file, reduceMotion: true) !== animated)
+        #expect(await media.animatedDecoder.sequence(at: file) !== animated)
         #expect(await media.avatars.image(for: url) !== avatar)
         #expect(transport.requests == 1)
         display.clear()

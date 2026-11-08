@@ -253,7 +253,7 @@ struct CourseLookupMatcherTests {
     }
 }
 
-// 内存响应替身沿测试模块提供接收完成后的预算适配。
+// 内存响应替身沿测试模块提供接收完成后的额度适配。
 extension HTTPTransport {
     func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
         let result = try await data(for: request)

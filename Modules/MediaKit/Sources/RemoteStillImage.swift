@@ -2,6 +2,7 @@
 import DesignSystemKit
 import Foundation
 import Observation
+import StorageCore
 import SwiftUI
 import TransportCore
 import UIKit
@@ -22,12 +23,13 @@ final class RemoteStillImageLoader {
 
     func load(
         thumbnailURL: URL?, originalURL: URL?, loadsOriginal: Bool, media: MediaEnvironment,
-        pixelSize: Int, onAspectRatioResolved: ((CGFloat) -> Void)? = nil
+        pixelSize: Int, viewport: MediaImageViewport? = nil,
+        onAspectRatioResolved: ((CGFloat) -> Void)? = nil
     ) async {
         let urls = mediaImageURLs([thumbnailURL, originalURL])
         let resource = MediaImageLoadIdentity(
             urls: urls.map(Optional.some), environment: ObjectIdentifier(media),
-            pixelSize: pixelSize)
+            pixelSize: pixelSize, viewport: viewport)
         if currentResource != resource {
             clear()
             currentResource = resource
@@ -47,7 +49,8 @@ final class RemoteStillImageLoader {
         for url in urls.reversed() {
             let cached: UIImage?? = try? await media.images.withCachedSource(for: url) {
                 @MainActor source in
-                await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
+                await media.stillDecoder.image(
+                    from: source, maximumPixelSize: pixelSize, viewport: viewport)
             }
             guard isCurrent() else { return }
             if let decoded = cached ?? nil {
@@ -60,7 +63,8 @@ final class RemoteStillImageLoader {
             if image != nil && url == displayedURL { continue }
             do {
                 let decoded = try await media.images.withSource(for: url) { @MainActor source in
-                    await media.stillDecoder.image(from: source, maximumPixelSize: pixelSize)
+                    await media.stillDecoder.image(
+                        from: source, maximumPixelSize: pixelSize, viewport: viewport)
                 }
                 guard isCurrent() else { return }
                 guard let decoded else { continue }
@@ -76,7 +80,8 @@ final class RemoteStillImageLoader {
 private struct RemoteStillImage: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(\.displayScale) private var displayScale
-    @State private var pixelSize = 0
+    @State private var viewport = MediaImageViewport.zero
+    private var pixelSize: Int { viewport.maximumPixelSize }
     @State private var budgetRetryGeneration: UInt64 = 0
     @State private var loader = RemoteStillImageLoader()
     let thumbnailURL: URL?
@@ -98,22 +103,25 @@ private struct RemoteStillImage: View {
                     }
             }
         }
-        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
-            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
+        .onGeometryChange(for: MediaImageViewport.self) {
+            [scale = displayScale, fills = contentMode == .fill] geometry in
+            MediaImageViewport(size: geometry.size, scale: scale, fills: fills)
         } action: {
-            pixelSize = $0
+            viewport = $0
         }
         .task(
             id: MediaImageLoadIdentity(
                 urls: [thumbnailURL, originalURL], environment: ObjectIdentifier(media),
                 retryGeneration: media.imageRetryGeneration,
-                budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)
+                budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize,
+                viewport: viewport)
         ) {
             guard pixelSize > 0 else { return }
             await loader.load(
                 thumbnailURL: thumbnailURL, originalURL: originalURL,
                 loadsOriginal: loadsOriginal,
-                media: media, pixelSize: pixelSize, onAspectRatioResolved: onAspectRatioResolved
+                media: media, pixelSize: pixelSize, viewport: viewport,
+                onAspectRatioResolved: onAspectRatioResolved
             )
         }
         .onChange(of: media.displayBudget.releaseGeneration) {
@@ -170,4 +178,82 @@ public struct RemoteProgressiveStillImage: View {
             contentMode: contentMode, onAspectRatioResolved: onAspectRatioResolved)
     }
 }
+/// 在后台串行解码话廊缩略图。
+///
+/// ImageIO 在像素额度内生成显示位图，后台解码和内存缓存沿用同一额度。
+actor GalleryThumbnailDecoder {
+    private nonisolated let executor = StorageFileExecutor()
+    nonisolated var unownedExecutor: UnownedSerialExecutor {
+        executor.asUnownedSerialExecutor()
+    }
+    private let files: any AppFileService
+    func clear() { images.removeAllObjects() }
+
+    init(
+        files: any AppFileService,
+        maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes
+    ) {
+        self.files = files
+        images.totalCostLimit = maximumDecodedBytes
+    }
+
+    private let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 80
+        cache.totalCostLimit = RemoteImageResourceLimits.maximumDecodedBytes
+        return cache
+    }()
+
+    func image(
+        at file: URL, maximumPixelSize: Int? = nil,
+        viewport: MediaImageViewport? = nil
+    ) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        guard let identity = files.atomicFileIdentity(at: file) else { return nil }
+        let key =
+            """
+                \(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)|\
+                \(viewport?.cacheKey ?? "none")
+                """
+            as NSString
+        if let cached = images.object(forKey: key) {
+            return cached
+        }
+        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else {
+            return nil
+        }
+        return decode(data, key: key, maximumPixelSize: maximumPixelSize, viewport: viewport)
+    }
+
+    func image(
+        from source: RemoteImageSource, maximumPixelSize: Int? = nil,
+        viewport: MediaImageViewport? = nil
+    ) -> UIImage? {
+        guard !Task.isCancelled else { return nil }
+        switch source {
+        case .file(let file):
+            return image(at: file, maximumPixelSize: maximumPixelSize, viewport: viewport)
+        case .memory(let data, let identity):
+            let key =
+                "memory:\(identity)|pixels:\(maximumPixelSize ?? 0)|\(viewport?.cacheKey ?? "none")"
+                as NSString
+            if let cached = images.object(forKey: key) { return cached }
+            return decode(data, key: key, maximumPixelSize: maximumPixelSize, viewport: viewport)
+        }
+    }
+
+    private func decode(
+        _ data: Data, key: NSString, maximumPixelSize: Int?, viewport: MediaImageViewport?
+    ) -> UIImage? {
+        guard
+            let decoded = BoundedStillImageDecoder.image(
+                from: data, maximumDecodedBytes: images.totalCostLimit,
+                maximumPixelSize: maximumPixelSize, viewport: viewport),
+            let pixels = decoded.cgImage
+        else { return nil }
+        images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
+        return decoded
+    }
+}
+
 #endif

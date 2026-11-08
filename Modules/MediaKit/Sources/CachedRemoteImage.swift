@@ -6,12 +6,44 @@ import Observation
 import SwiftUI
 import UIKit
 
+public nonisolated struct MediaImageViewport: Hashable, Sendable {
+    let width: Int
+    let height: Int
+    let fills: Bool
+    static let zero = Self(size: .zero, scale: 1, fills: false)
+    var maximumPixelSize: Int { max(width, height) }
+    var cacheKey: String { "\(width)x\(height):\(fills)" }
+
+    public init(size: CGSize, scale: CGFloat, fills: Bool) {
+        let width = (size.width * scale).rounded(.up)
+        let height = (size.height * scale).rounded(.up)
+        self.fills = fills
+        if width.isFinite, height.isFinite, width > 0, height > 0,
+            width < CGFloat(Int.max), height < CGFloat(Int.max)
+        {
+            self.width = Int(width)
+            self.height = Int(height)
+        } else {
+            self.width = 0
+            self.height = 0
+        }
+    }
+
+    func maximumPixelSide(sourceWidth: Double, sourceHeight: Double) -> Int {
+        let horizontal = Double(width) / sourceWidth
+        let vertical = Double(height) / sourceHeight
+        let scale = min(fills ? max(horizontal, vertical) : min(horizontal, vertical), 1)
+        return Int((max(sourceWidth, sourceHeight) * scale).rounded(.up))
+    }
+}
+
 nonisolated struct MediaImageLoadIdentity: Hashable {
     let urls: [URL?]
     let environment: ObjectIdentifier
     var retryGeneration: UInt64 = 0
     var budgetRetryGeneration: UInt64 = 0
     var pixelSize: Int = 0
+    var viewport: MediaImageViewport?
 }
 
 /// 主 App 使用的远程图片缓存视图。
@@ -20,11 +52,13 @@ nonisolated struct MediaImageLoadIdentity: Hashable {
 public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     @Environment(MediaEnvironment.self) private var media
     @Environment(\.displayScale) private var displayScale
-    @State private var pixelSize = 0
+    @State private var viewport = MediaImageViewport.zero
+    private var pixelSize: Int { viewport.maximumPixelSize }
     @State private var budgetRetryGeneration: UInt64 = 0
     /// 需要加载的远程资源地址；为空时直接展示占位内容。
     let url: URL?
     let fallbackURL: URL?
+    let contentMode: ContentMode
     /// 成功加载后的渲染闭包，由调用方决定裁剪、圆角、缩放等样式。
     let content: (Image) -> Content
     /// 加载前或失败时的占位内容。
@@ -37,11 +71,13 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
     public init(
         url: URL?,
         fallbackURL: URL? = nil,
+        contentMode: ContentMode = .fit,
         @ViewBuilder content: @escaping (Image) -> Content,
         @ViewBuilder placeholder: @escaping () -> Placeholder
     ) {
         self.url = url
         self.fallbackURL = fallbackURL
+        self.contentMode = contentMode
         self.content = content
         self.placeholder = placeholder
     }
@@ -55,20 +91,23 @@ public struct CachedRemoteImage<Content: View, Placeholder: View>: View {
                 placeholder()
             }
         }
-        .onGeometryChange(for: Int.self) { [scale = displayScale] geometry in
-            Int((max(geometry.size.width, geometry.size.height) * scale).rounded(.up))
+        .onGeometryChange(for: MediaImageViewport.self) {
+            [scale = displayScale, fills = contentMode == .fill] geometry in
+            MediaImageViewport(size: geometry.size, scale: scale, fills: fills)
         } action: {
-            pixelSize = $0
+            viewport = $0
         }
         .task(
             id: MediaImageLoadIdentity(
                 urls: [url, fallbackURL], environment: ObjectIdentifier(media),
                 retryGeneration: media.imageRetryGeneration,
-                budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize)
+                budgetRetryGeneration: budgetRetryGeneration, pixelSize: pixelSize,
+                viewport: viewport)
         ) {
             guard pixelSize > 0 else { return }
             await loader.load(
-                url: url, fallbackURL: fallbackURL, media: media, maximumPixelSize: pixelSize)
+                url: url, fallbackURL: fallbackURL, media: media, maximumPixelSize: pixelSize,
+                viewport: viewport)
         }
         .onChange(of: media.displayBudget.releaseGeneration) {
             if loader.waitingForBudget { budgetRetryGeneration &+= 1 }
@@ -106,7 +145,9 @@ public struct AppAvatarView: View {
     }
 
     public var body: some View {
-        CachedRemoteImage(url: imageURL, fallbackURL: fallbackImageURL) { image in
+        CachedRemoteImage(
+            url: imageURL, fallbackURL: fallbackImageURL, contentMode: .fill
+        ) { image in
             AppAvatarContainer(
                 image: image,
                 size: size,
@@ -157,6 +198,7 @@ final class CachedRemoteImageLoader {
     private var currentURLs: [URL] = []
     private weak var currentMedia: MediaEnvironment?
     private var currentPixelSize: Int?
+    private var currentViewport: MediaImageViewport?
     func releaseDisplayImage() { displayed.clear() }
 
     private func display(_ value: UIImage, media: MediaEnvironment) {
@@ -166,11 +208,11 @@ final class CachedRemoteImageLoader {
     /// 先读取本地缓存，缓存未命中时下载。URL 更新时清空当前图片状态。
     func load(
         url: URL?, fallbackURL: URL? = nil, media: MediaEnvironment,
-        maximumPixelSize: Int? = nil
+        maximumPixelSize: Int? = nil, viewport: MediaImageViewport? = nil
     ) async {
         let urls = mediaImageURLs([url, fallbackURL])
         if currentURLs == urls, currentMedia === media, currentPixelSize == maximumPixelSize,
-            image != nil
+            currentViewport == viewport, image != nil
         {
             return
         }
@@ -178,17 +220,19 @@ final class CachedRemoteImageLoader {
         currentMedia = media
         currentURLs = urls
         currentPixelSize = maximumPixelSize
+        currentViewport = viewport
         releaseDisplayImage()
 
         let generation = await media.avatars.cacheGeneration
         func isCurrent() async -> Bool {
             let cacheGeneration = await media.avatars.cacheGeneration
             return !Task.isCancelled && currentURLs == urls && currentMedia === media
-                && currentPixelSize == maximumPixelSize && cacheGeneration == generation
+                && currentPixelSize == maximumPixelSize && currentViewport == viewport
+                && cacheGeneration == generation
         }
         for url in urls.reversed() {
             if let cachedImage = await media.avatars.image(
-                for: url, maximumPixelSize: maximumPixelSize)
+                for: url, maximumPixelSize: maximumPixelSize, viewport: viewport)
             {
                 guard await isCurrent() else { return }
                 display(cachedImage, media: media)
@@ -200,7 +244,7 @@ final class CachedRemoteImageLoader {
                 guard
                     let downloadedImage = try await media.avatars.loadImage(
                         for: url,
-                        maximumPixelSize: maximumPixelSize)
+                        maximumPixelSize: maximumPixelSize, viewport: viewport)
                 else { continue }
                 guard await isCurrent() else { return }
                 display(downloadedImage, media: media)
@@ -212,7 +256,7 @@ final class CachedRemoteImageLoader {
     }
 }
 
-/// 头像解码共享原始资源缓存与租约，位图沿头像展示预算复用。
+/// 头像解码共享原始资源缓存与租约，位图沿头像展示额度复用。
 actor CachedRemoteImageStore {
     private nonisolated let executor = StorageFileExecutor()
     nonisolated var unownedExecutor: UnownedSerialExecutor {
@@ -253,13 +297,15 @@ actor CachedRemoteImageStore {
         return data ?? nil
     }
 
-    func image(for url: URL, maximumPixelSize: Int? = nil) async -> UIImage? {
+    func image(
+        for url: URL, maximumPixelSize: Int? = nil, viewport: MediaImageViewport? = nil
+    ) async -> UIImage? {
         let generation = await cacheGeneration
         if decodedGeneration != generation {
             clearDecoded()
             decodedGeneration = generation
         }
-        let key = cacheKey(for: url, maximumPixelSize: maximumPixelSize)
+        let key = cacheKey(for: url, maximumPixelSize: maximumPixelSize, viewport: viewport)
         if let image = imageCache.object(forKey: key) {
             _ = try? await resources.withCachedSource(for: url) { _ in true }
             guard await cacheGeneration == generation, !Task.isCancelled else { return nil }
@@ -267,26 +313,32 @@ actor CachedRemoteImageStore {
         }
         guard let data = await data(for: url) else { return nil }
         return await decode(
-            data, for: url, generation: generation, maximumPixelSize: maximumPixelSize)
+            data, for: url, generation: generation, maximumPixelSize: maximumPixelSize,
+            viewport: viewport)
     }
 
-    func loadImage(for url: URL, maximumPixelSize: Int? = nil) async throws -> UIImage? {
+    func loadImage(
+        for url: URL, maximumPixelSize: Int? = nil, viewport: MediaImageViewport? = nil
+    ) async throws -> UIImage? {
         let generation = await cacheGeneration
         let data = try await resources.withSource(for: url, download: download) { [files] in
             Self.bytes(from: $0, using: files)
         }
         guard let data else { return nil }
         return await decode(
-            data, for: url, generation: generation, maximumPixelSize: maximumPixelSize)
+            data, for: url, generation: generation, maximumPixelSize: maximumPixelSize,
+            viewport: viewport)
     }
 
-    private func decode(_ data: Data, for url: URL, generation: UInt64, maximumPixelSize: Int?)
-        async -> UIImage?
-    {
+    private func decode(
+        _ data: Data, for url: URL, generation: UInt64, maximumPixelSize: Int?,
+        viewport: MediaImageViewport?
+    ) async -> UIImage? {
         guard data.count <= RemoteImageResourceLimits.maximumEncodedBytes,
             let image = BoundedStillImageDecoder.image(
                 from: data, maximumDecodedBytes: imageCache.totalCostLimit,
-                maximumPixelSize: maximumPixelSize), await cacheGeneration == generation,
+                maximumPixelSize: maximumPixelSize, viewport: viewport),
+            await cacheGeneration == generation,
             !Task.isCancelled
         else { return nil }
         if decodedGeneration != generation {
@@ -294,7 +346,8 @@ actor CachedRemoteImageStore {
             decodedGeneration = generation
         }
         imageCache.setObject(
-            image, forKey: cacheKey(for: url, maximumPixelSize: maximumPixelSize),
+            image,
+            forKey: cacheKey(for: url, maximumPixelSize: maximumPixelSize, viewport: viewport),
             cost: MediaDisplayBudget.pixelBytes(image))
         return image
     }
@@ -309,10 +362,12 @@ actor CachedRemoteImageStore {
         await resources.clearMemory()
     }
     private func clearDecoded() { imageCache.removeAllObjects() }
-    private func cacheKey(for url: URL, maximumPixelSize: Int?) -> NSString {
+    private func cacheKey(
+        for url: URL, maximumPixelSize: Int?, viewport: MediaImageViewport?
+    ) -> NSString {
         """
         \(HTTPSURLUpgrade.upgradedURL(from: url).absoluteString)|pixels:\
-        \(maximumPixelSize ?? 0)
+        \(maximumPixelSize ?? 0)|viewport:\(viewport?.cacheKey ?? "none")
         """
             as NSString
     }

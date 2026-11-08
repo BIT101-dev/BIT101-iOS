@@ -2,11 +2,13 @@ import CommunityCore
 
 #if os(iOS)
 import CommunityUI
+import DesignSystemKit
 import Combine
 import CommunityTransport
 import TransportCore
 import Observation
 import WebKit
+import UIKit
 
 /// 话廊按首页、消息、详情、举报、编辑和图片上传分别注入服务。
 public struct GalleryWebCredentials {
@@ -18,12 +20,107 @@ public struct GalleryWebCredentials {
     }
 }
 
+struct GalleryWebEntryTiming {
+    let measurement = AppPageLoadMeasurement()
+    let startedAt = Date().timeIntervalSince1970
+}
+
 @MainActor
 @Observable
 public final class GalleryDependencies {
     @ObservationIgnored private var cachedWebStore:
         (identity: CommunitySessionIdentity, store: WKWebsiteDataStore)?
     private let webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)?
+    @ObservationIgnored private var credentialsSubscription: AnyCancellable?
+    @ObservationIgnored private var memorySubscription: AnyCancellable?
+    @ObservationIgnored private weak var preparationHost: UIView?
+    @ObservationIgnored private var preparedIdentity: CommunitySessionIdentity?
+    @ObservationIgnored private var preparedWebViews:
+        [GallerySurface: (view: WKWebView, coordinator: GalleryWebCoordinator)] = [:]
+    @ObservationIgnored private var createdWebSurfaces: Set<GallerySurface> = []
+    @ObservationIgnored private var presentationTimings: [GallerySurface: GalleryWebEntryTiming] =
+        [:]
+
+    public func beginWebPresentation(for surface: GallerySurface) {
+        let timing = GalleryWebEntryTiming()
+        updatePreparedIdentity()
+        presentationTimings[surface] = timing
+    }
+
+    func takeWebPresentation(for surface: GallerySurface) -> GalleryWebEntryTiming? {
+        presentationTimings.removeValue(forKey: surface)
+    }
+
+    public func prepareWebContent(size: CGSize = .zero) {
+        updatePreparedIdentity()
+        for surface in [GallerySurface.gallery, .paper] where !createdWebSurfaces.contains(surface)
+        {
+            let view = makeWebView(for: surface)
+            view.frame = CGRect(origin: .zero, size: size)
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            preparationHost?.addSubview(view)
+            let coordinator = GalleryWebCoordinator(
+                credentials: webCredentials, openExternal: { _ in })
+            view.navigationDelegate = coordinator
+            view.uiDelegate = coordinator
+            coordinator.start(
+                in: view, url: AppEndpoints.bit101Web.appendingPathComponent(surface.rawValue),
+                preparing: true)
+            preparedWebViews[surface] = (view, coordinator)
+        }
+    }
+
+    public func releasePreparedWebContent() {
+        preparedWebViews.values.forEach {
+            $0.view.stopLoading()
+            $0.view.removeFromSuperview()
+        }
+        preparedWebViews.removeAll()
+        createdWebSurfaces.removeAll()
+        preparedIdentity = nil
+        presentationTimings.removeAll()
+    }
+
+    func attachPreparedWebContent(to host: UIView) {
+        preparationHost = host
+        prepareWebContent(size: host.bounds.size)
+        for prepared in preparedWebViews.values {
+            prepared.view.frame = host.bounds
+            if prepared.view.superview !== host { host.addSubview(prepared.view) }
+        }
+    }
+
+    private func updatePreparedIdentity() {
+        let identity = currentIdentity()
+        guard preparedIdentity != identity else { return }
+        releasePreparedWebContent()
+        preparedIdentity = identity
+    }
+
+    func makeWebView(for surface: GallerySurface) -> WKWebView {
+        updatePreparedIdentity()
+        createdWebSurfaces.insert(surface)
+        if let prepared = preparedWebViews.removeValue(forKey: surface) {
+            prepared.view.removeFromSuperview()
+            return prepared.view
+        }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = webDataStore
+        return webViewProvider?(configuration)
+            ?? WKWebView(frame: .zero, configuration: configuration)
+    }
+
+    func webCoordinator(
+        for surface: GallerySurface, openExternal: @escaping (URL) -> Void
+    ) -> GalleryWebCoordinator {
+        updatePreparedIdentity()
+        let coordinator =
+            preparedWebViews[surface]?.coordinator
+            ?? GalleryWebCoordinator(
+                credentials: webCredentials, openExternal: openExternal)
+        coordinator.openExternal = openExternal
+        return coordinator
+    }
 
     var webDataStore: WKWebsiteDataStore {
         let identity = currentIdentity()
@@ -34,6 +131,7 @@ public final class GalleryDependencies {
         return store
     }
 
+    private let webViewProvider: ((WKWebViewConfiguration) -> WKWebView)?
     let webCredentials: GalleryWebCredentials
     let currentIdentity: () -> CommunitySessionIdentity
     let feed: any GalleryFeedServicing
@@ -62,9 +160,11 @@ public final class GalleryDependencies {
         messages: any GalleryMessageReadStoring,
         drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring,
         networkPath: NetworkPathState,
-        webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)? = nil
+        webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)? = nil,
+        webViewProvider: ((WKWebViewConfiguration) -> WKWebView)? = nil
     ) {
         self.webDataStoreProvider = webDataStoreProvider
+        self.webViewProvider = webViewProvider
         self.webCredentials = webCredentials
         self.currentIdentity = currentIdentity
         self.feed = feed
@@ -78,6 +178,15 @@ public final class GalleryDependencies {
         self.messages = messages
         self.drafts = drafts
         self.networkPath = networkPath
+        credentialsSubscription = webCredentials.changes.sink { [weak self] _ in
+            guard let self, preparedIdentity != nil else { return }
+            if preparedIdentity != currentIdentity() || webCredentials.cookie().isEmpty {
+                releasePreparedWebContent()
+            }
+        }
+        memorySubscription = NotificationCenter.default.publisher(
+            for: UIApplication.didReceiveMemoryWarningNotification
+        ).sink { [weak self] _ in self?.releasePreparedWebContent() }
     }
 }
 

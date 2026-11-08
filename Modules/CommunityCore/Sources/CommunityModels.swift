@@ -157,7 +157,7 @@ private nonisolated struct CommunityImageList: Decodable {
 
 /// 信息流帖子卡片模型。
 ///
-/// 模型按列表预览预算保留正文，完整正文由详情请求承接。
+/// 模型按列表预览额度保留正文，完整正文由详情请求承接。
 public nonisolated struct CommunityPoster: CommunityResourceItem, Decodable, Identifiable, Hashable,
     Sendable
 {

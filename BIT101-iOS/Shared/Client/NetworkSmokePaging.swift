@@ -20,7 +20,7 @@ enum NetworkSmokePaging {
         case insufficientSample(String)
         var errorDescription: String? {
             switch self {
-            case .budgetExceeded: "维护样本扫描达到预算，请核对维护样本身份与所在页。"
+            case .budgetExceeded: "维护样本扫描达到额度，请核对维护样本身份与所在页。"
             case .insufficientSample(let message): message
             }
         }

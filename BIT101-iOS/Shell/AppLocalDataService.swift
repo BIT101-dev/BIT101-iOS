@@ -8,7 +8,7 @@ nonisolated struct AppCacheCleanupResult: Sendable {
     let succeeded: Bool
 }
 
-/// 清理能力与资源归属由应用组装入口选择。
+/// 清理能力与资源归属由应用组合入口选择。
 @MainActor
 struct AppLocalDataActions {
     let hasPendingRecovery: () -> Bool

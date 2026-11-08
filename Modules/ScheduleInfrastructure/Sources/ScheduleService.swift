@@ -40,7 +40,7 @@ public struct ScheduleService {
         let data: [String: String]
     }
 
-    /// 传输与 Cookie 容器由宿主组装，服务负责学校业务请求。
+    /// 传输与 Cookie 容器由宿主组合，服务负责学校业务请求。
     public init(
         credentials: any SchoolCredentialsProviding,
         crypto: any SchoolServiceCryptoProviding,

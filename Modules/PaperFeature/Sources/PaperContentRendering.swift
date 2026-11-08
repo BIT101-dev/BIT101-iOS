@@ -104,7 +104,7 @@ public enum PaperEditorContentBuilder {
             .replacingOccurrences(of: ">", with: "&gt;")
     }
 
-    /// 纯文本编辑能力同时校验原始结构与正文资源预算。
+    /// 纯文本编辑能力同时校验原始结构与正文资源额度。
     static func canEditAsPlainText(_ rawContent: String) -> Bool {
         guard rawContent.utf8.count <= PaperContentResourceLimits.maximumBodyBytes else {
             return false

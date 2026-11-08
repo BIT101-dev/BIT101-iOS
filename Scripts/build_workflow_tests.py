@@ -46,7 +46,7 @@ def command_logging_boundary_findings() -> list[str]:
             findings.append("日志自测：统一展示阈值与完整日志路径")
         expected_lines = min(count, OUTPUT_LINE_LIMIT)
         if sum(line.startswith("error:") for line in output.splitlines()) != expected_lines:
-            findings.append("日志自测：首尾错误与共享输出预算")
+            findings.append("日志自测：首尾错误与共享输出额度")
     for ci in (True, False):
         visible, log = StringIO(), StringIO()
         case = "Test Case '-[UITests testAction]' passed (1.234 seconds).\n"

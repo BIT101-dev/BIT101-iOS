@@ -644,9 +644,9 @@ def verify_ci_recovery_mutations(findings, workflow_source):
             r"(?s)(  " + job + r":.*?timeout-minutes:) \d+", r"\1 20", workflow_source, count=1
         )
         if not any(
-            job + " Job 需要覆盖所属执行及恢复预算" in item for item in ci_wiring_findings(changed)
+            job + " Job 需要覆盖所属执行及恢复额度" in item for item in ci_wiring_findings(changed)
         ):
-            findings.append(f"代码质量规则界限自检失败：{job} 执行预算")
+            findings.append(f"代码质量规则界限自检失败：{job} 执行额度")
     release_minimum = workflow_timeout_seconds(("build-archive", "network", "icloud")) // 60 + 10
     for timeout, expected in ((45, True), (release_minimum - 1, True), (release_minimum, False)):
         changed = re.sub(
@@ -656,8 +656,8 @@ def verify_ci_recovery_mutations(findings, workflow_source):
             count=1,
         )
         actual = any(
-            "release-build Job 需要覆盖所属执行及恢复预算" in item
+            "release-build Job 需要覆盖所属执行及恢复额度" in item
             for item in ci_wiring_findings(changed)
         )
         if actual != expected:
-            findings.append("代码质量规则界限自检失败：Release 多构建流程预算界限")
+            findings.append("代码质量规则界限自检失败：Release 多构建流程额度界限")

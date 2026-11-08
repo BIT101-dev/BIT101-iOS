@@ -848,27 +848,54 @@ public nonisolated enum BoundedStillImageDecoder {
     public static func image(
         from data: Data,
         maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes,
-        maximumPixelSize: Int? = nil
+        maximumPixelSize: Int? = nil, viewport: MediaImageViewport? = nil
     ) -> UIImage? {
         guard maximumDecodedBytes >= 4, !Task.isCancelled,
             let source = RemoteImageResourceLimits.completeImageSource(from: data)
         else { return nil }
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        return image(
+            from: source, at: 0, maximumDecodedBytes: maximumDecodedBytes,
+            maximumPixelSize: maximumPixelSize, viewport: viewport)
+    }
+
+    static func image(
+        from source: CGImageSource, at index: Int, maximumDecodedBytes: Int,
+        maximumPixelSize: Int?, viewport: MediaImageViewport?
+    ) -> UIImage? {
+        guard maximumDecodedBytes >= 4, !Task.isCancelled else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
         let depth = (properties?[kCGImagePropertyDepth] as? NSNumber)?.intValue ?? 8
         guard (1...32).contains(depth) else { return nil }
         let bytesPerPixel = max(4, ((depth + 7) / 8) * 4)
-        let budgetSide = Int(Double(maximumDecodedBytes / bytesPerPixel).squareRoot())
-        let side = min(budgetSide, maximumPixelSize ?? budgetSide)
+        guard let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
+            let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue,
+            width.isFinite, height.isFinite, width >= 1, height >= 1,
+            width < Double(Int.max), height < Double(Int.max)
+        else { return nil }
+        let longSide = max(width, height)
+        let ratio = longSide / min(width, height)
+        let budgetSide = Int(
+            min(
+                longSide,
+                (Double(maximumDecodedBytes / bytesPerPixel)
+                    * ratio).squareRoot()))
+        let orientation = (properties?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        let rotated = (5...8).contains(orientation)
+        let requestedSide =
+            viewport?.maximumPixelSide(
+                sourceWidth: rotated ? height : width, sourceHeight: rotated ? width : height)
+            ?? maximumPixelSize ?? budgetSide
+        let side = min(budgetSide, requestedSide)
         guard side > 0 else { return nil }
         guard
             let image = thumbnail(
-                from: source, at: 0, maximumPixelSize: side,
+                from: source, at: index, maximumPixelSize: side,
                 maximumDecodedBytes: maximumDecodedBytes)
         else { return nil }
         return UIImage(cgImage: image)
     }
 
-    /// 按实际行跨度收敛缩略图尺寸，将 ImageIO 的行对齐开销计入解码预算。
+    /// 按实际行跨度收敛缩略图尺寸，将 ImageIO 的行对齐开销计入解码额度。
     static func thumbnail(
         from source: CGImageSource, at index: Int, maximumPixelSize: Int,
         maximumDecodedBytes: Int
@@ -892,70 +919,6 @@ public nonisolated enum BoundedStillImageDecoder {
             side = min(side - 1, Int((Double(side) * scale).rounded(.down)))
         }
         return nil
-    }
-}
-
-/// 在后台串行解码话廊缩略图。
-///
-/// ImageIO 在像素预算内生成显示位图，后台解码和内存缓存沿用同一预算。
-actor GalleryThumbnailDecoder {
-    private nonisolated let executor = StorageFileExecutor()
-    nonisolated var unownedExecutor: UnownedSerialExecutor {
-        executor.asUnownedSerialExecutor()
-    }
-    private let files: any AppFileService
-    func clear() { images.removeAllObjects() }
-
-    init(
-        files: any AppFileService,
-        maximumDecodedBytes: Int = RemoteImageResourceLimits.maximumDecodedBytes
-    ) {
-        self.files = files
-        images.totalCostLimit = maximumDecodedBytes
-    }
-
-    private let images: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 80
-        cache.totalCostLimit = RemoteImageResourceLimits.maximumDecodedBytes
-        return cache
-    }()
-
-    func image(at file: URL, maximumPixelSize: Int? = nil) -> UIImage? {
-        guard !Task.isCancelled else { return nil }
-        guard let identity = files.atomicFileIdentity(at: file) else { return nil }
-        let key =
-            "\(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)"
-            as NSString
-        if let cached = images.object(forKey: key) {
-            return cached
-        }
-        guard let data = RemoteImageResourceLimits.cachedData(at: file, using: files) else {
-            return nil
-        }
-        return decode(data, key: key, maximumPixelSize: maximumPixelSize)
-    }
-
-    func image(from source: RemoteImageSource, maximumPixelSize: Int? = nil) -> UIImage? {
-        guard !Task.isCancelled else { return nil }
-        switch source {
-        case .file(let file): return image(at: file, maximumPixelSize: maximumPixelSize)
-        case .memory(let data, let identity):
-            let key = "memory:\(identity)|pixels:\(maximumPixelSize ?? 0)" as NSString
-            if let cached = images.object(forKey: key) { return cached }
-            return decode(data, key: key, maximumPixelSize: maximumPixelSize)
-        }
-    }
-
-    private func decode(_ data: Data, key: NSString, maximumPixelSize: Int?) -> UIImage? {
-        guard
-            let decoded = BoundedStillImageDecoder.image(
-                from: data, maximumDecodedBytes: images.totalCostLimit,
-                maximumPixelSize: maximumPixelSize),
-            let pixels = decoded.cgImage
-        else { return nil }
-        images.setObject(decoded, forKey: key, cost: pixels.bytesPerRow * pixels.height)
-        return decoded
     }
 }
 

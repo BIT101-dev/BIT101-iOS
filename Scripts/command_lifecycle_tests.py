@@ -560,7 +560,7 @@ def audit_cancellation_findings() -> list[str]:
                 raise ValueError("中断完成后后台检查需要结束")
         except (ValueError, AssertionError, subprocess.TimeoutExpired) as error:
             reason = (
-                "后台检查清理需要按测试预算完成"
+                "后台检查清理需要按测试额度完成"
                 if isinstance(error, subprocess.TimeoutExpired)
                 else str(error)
             )

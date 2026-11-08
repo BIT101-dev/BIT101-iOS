@@ -60,7 +60,7 @@ enum SettingsRoute: String, CaseIterable, Identifiable {
     }
 }
 
-/// 设置页面消费同一组装入口选择的媒体、账号与清理能力。
+/// 设置页面消费同一组合入口选择的媒体、账号与清理能力。
 struct SettingsDependencies {
     let settings: AppSettingsStore
     let schedule: ScheduleViewModel
@@ -238,7 +238,7 @@ private enum DeveloperSuggestionConfirmation: String, Identifiable {
     var id: String { rawValue }
 }
 
-/// 建议提交与所属草稿清理通过注入端口组装。
+/// 建议提交与所属草稿清理通过注入端口组合。
 struct DeveloperSuggestionDependencies {
     let drafts: any DeveloperSuggestionDraftStoring
     private let send: (DeveloperSuggestionPayload) async throws -> Void

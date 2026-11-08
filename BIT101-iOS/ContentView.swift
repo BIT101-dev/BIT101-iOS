@@ -11,7 +11,7 @@ enum AppLegalInfo {
     static let icpPublicNoticeURL = AppURL.required("https://beian.miit.gov.cn/")
 }
 
-/// 应用根容器持有会话状态，组装登录页和登录后壳层。
+/// 应用根容器持有会话状态，组合登录页和登录后壳层。
 struct ContentView: View {
     let transcriptService: any TrustedTranscriptServicing
     var localData: AppLocalDataService

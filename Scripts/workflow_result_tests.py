@@ -540,7 +540,7 @@ wait "$group_processes[1]"
         start_new_session=True,
     )
     try:
-        assert select.select([process.stdout], [], [], 5)[0], "后台聚合需要及时归集已完成的失败组。"
+        assert select.select([process.stdout], [], [], 5)[0], "后台聚合需要及时汇总已完成的失败组。"
         assert process.stdout.readline().strip() == "AGGREGATED fast" and process.poll() is None
     finally:
         os.killpg(process.pid, signal.SIGTERM)

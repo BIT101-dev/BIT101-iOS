@@ -107,7 +107,7 @@ def verification_finish_findings() -> list[str]:
             and result.stdout.index("PREPARE") > result.stdout.index("AUDIT_FINISHED")
             or "[完整验证总耗时] 17.0 秒" not in result.stdout
         ):
-            findings.append("聚合退出自测：归集后台审计、原始失败状态与完整耗时")
+            findings.append("聚合退出自测：汇总后台审计、原始失败状态与完整耗时")
     from test_results import workflow_elapsed
     from unittest.mock import patch
     from io import StringIO

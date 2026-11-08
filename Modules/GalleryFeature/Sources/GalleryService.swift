@@ -15,6 +15,72 @@ nonisolated enum GalleryWebRequestFactory {
     static func request(for url: URL) -> URLRequest {
         URLRequest(url: url)
     }
+
+    static func networkDuration(_ intervals: [[Double]], documentDuration: Double) -> Double? {
+        guard documentDuration.isFinite, documentDuration >= 0,
+            intervals.allSatisfy({
+                $0.count == 2 && $0.allSatisfy(\.isFinite)
+                    && $0[0] >= 0 && $0[1] >= $0[0] && $0[1] <= documentDuration
+            })
+        else { return nil }
+        var end = 0.0
+        var duration = 0.0
+        for interval in intervals.sorted(by: { $0[0] < $1[0] }) {
+            duration += max(interval[1] - max(interval[0], end), 0)
+            end = max(end, interval[1])
+        }
+        return duration
+    }
+
+    static func firstContentScript(entry: Int, startedAt: TimeInterval, preparing: Bool) -> String {
+        """
+        (() => {
+            if (location.origin !== '\(AppEndpoints.bit101Web.absoluteString)') return;
+            if (!['/gallery', '/gallery/', '/paper', '/paper/'].includes(location.pathname)) return;
+            const started = Math.max(0, \(startedAt * 1000) - performance.timeOrigin);
+            let sent = false;
+            const observer = new MutationObserver(check);
+            function report() {
+                const now = performance.now();
+                const entries = [...performance.getEntriesByType('navigation'),
+                    ...performance.getEntriesByType('resource').filter(entry => {
+                        const url = new URL(entry.name);
+                        return (url.origin === location.origin
+                            && /^\\/assets\\/.+\\.(js|css)$/.test(url.pathname))
+                            || (['fetch', 'xmlhttprequest'].includes(entry.initiatorType)
+                                && /^\\/(papers|posters)$/.test(url.pathname));
+                    })];
+                const network = entries.filter(entry => entry.deliveryType !== 'cache'
+                    && (entry.transferSize > 0 || (new URL(entry.name).origin !== location.origin
+                        && entry.decodedBodySize === 0)))
+                    .map(entry => [Math.max(entry.fetchStart, started) - started,
+                        Math.min(entry.responseEnd, now) - started])
+                    .filter(interval => interval[1] > interval[0]);
+                window.webkit.messageHandlers.firstContent.postMessage({
+                    stage: 'content-ready', entry: \(entry),
+                    documentDuration: (now - started) / 1000,
+                    network: network.map(interval => interval.map(value => value / 1000))
+                });
+            }
+            function check() {
+                if (sent) return;
+                const card = [...document.querySelectorAll('a[href]')].find(a =>
+                    /^\\/(gallery|paper)\\/\\d+/.test(new URL(a.href).pathname)
+                        && a.textContent.trim().length > 0
+                        && a.getClientRects().length > 0);
+                if (!card) return;
+                sent = true;
+                observer.disconnect();
+                if (\(preparing)) report();
+                else requestAnimationFrame(() => requestAnimationFrame(report));
+            }
+            observer.observe(document.documentElement, {childList: true, subtree: true});
+            addEventListener('pagehide', () => observer.disconnect(), {once: true});
+            check();
+        })();
+        """
+    }
+
 }
 
 /// 话廊接口层错误。

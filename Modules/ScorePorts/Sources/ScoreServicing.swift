@@ -155,7 +155,7 @@ public nonisolated enum ScoreCacheWriteError: LocalizedError {
     public var errorDescription: String? { "本机成绩缓存保存失败，原始记录已保留。请稍后重试同步。" }
 }
 
-/// 成绩场景消费的缓存能力，具体持久化由应用组装层选择。
+/// 成绩场景消费的缓存能力，具体持久化由应用组合层选择。
 @MainActor
 public protocol ScoreCaching: AnyObject {
     /// 成功写入本地或云端快照后发布所属账号。
@@ -192,7 +192,7 @@ public protocol ScoreFilterPreferencesStoring: AnyObject {
     ) -> Bool
 }
 
-/// 可信成绩单按页数、传输字节和完整页面集合的位图预算准备。
+/// 可信成绩单按页数、传输字节和完整页面集合的位图额度准备。
 public nonisolated struct TrustedTranscriptResourceLimits: Sendable {
     public let maximumPageCount: Int
     public let maximumEncodedBytes: Int

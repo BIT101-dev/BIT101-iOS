@@ -4,9 +4,9 @@ import DesignSystemKit
 import SwiftUI
 import UIKit
 
-/// 用 UILabel 排版并缓存文字图像，日历在原生图层中复用。
+/// 复用原生 UILabel 和排版结果，文字始终由 UIKit 显示。
 @MainActor
-final class ScheduleCardTextRenderer {
+final class ScheduleCardTextView: UIView {
     let titleLabel = UILabel()
     let locationLabel = UILabel()
     private var title = ""
@@ -16,14 +16,16 @@ final class ScheduleCardTextRenderer {
         forTextStyle: AppDesignSystem.Typography.uiCaption)
     private var laidOutSize: CGSize?
     private var laidOutScale: CGFloat = 0
-    private(set) var bounds: CGRect = .zero
-    private var contentScaleFactor = UIGraphicsImageRendererFormat().scale
+    private var layoutScale: CGFloat = 0
     private var textColor = UIColor.label
-    private var cachedImage: CGImage?
-    private var imageColor: UIColor?
 
     init() {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
         [titleLabel, locationLabel].forEach { label in
+            addSubview(label)
+            label.textColor = textColor
             label.textAlignment = .center
             label.adjustsFontForContentSizeCategory = false
             label.adjustsFontSizeToFitWidth = false
@@ -32,6 +34,10 @@ final class ScheduleCardTextRenderer {
         }
         titleLabel.lineBreakMode = .byTruncatingTail
         locationLabel.lineBreakMode = .byTruncatingTail
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     func configure(
@@ -45,29 +51,25 @@ final class ScheduleCardTextRenderer {
             self.textColor = textColor
             titleLabel.textColor = textColor
             locationLabel.textColor = textColor
-            cachedImage = nil
         }
-        guard self.title != title || self.location != location
-            || scheduleContentMode != contentMode || baseFont != font
+        guard
+            self.title != title || self.location != location
+                || scheduleContentMode != contentMode || baseFont != font
         else { return }
         self.title = title
         self.location = location
         scheduleContentMode = contentMode
         baseFont = font
         laidOutSize = nil
-        cachedImage = nil
     }
 
     func layout(size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
         guard laidOutSize != size || laidOutScale != scale else { return }
         bounds = CGRect(origin: .zero, size: size)
-        contentScaleFactor = scale
+        layoutScale = scale
         laidOutSize = size
         laidOutScale = scale
-        titleLabel.contentScaleFactor = scale
-        locationLabel.contentScaleFactor = scale
-        cachedImage = nil
 
         switch scheduleContentMode {
         case .name:
@@ -83,28 +85,6 @@ final class ScheduleCardTextRenderer {
         case .nameAndLocation:
             layoutCombined()
         }
-    }
-
-    func image(size: CGSize, scale: CGFloat, traits: UITraitCollection) -> CGImage? {
-        guard size.width > 0, size.height > 0 else { return nil }
-        layout(size: size, scale: scale)
-        let color = textColor.resolvedColor(with: traits)
-        if let cachedImage, imageColor == color { return cachedImage }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        cachedImage = renderer.image { context in
-            for label in [titleLabel, locationLabel] where !label.isHidden {
-                if label.textColor != color { label.textColor = color }
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: label.frame.minX, y: label.frame.minY)
-                label.layer.displayIfNeeded()
-                label.layer.render(in: context.cgContext)
-                context.cgContext.restoreGState()
-            }
-        }.cgImage
-        imageColor = color
-        return cachedImage
     }
 
     private func layoutCombined() {
@@ -176,10 +156,11 @@ final class ScheduleCardTextRenderer {
         if naturalHeight > rect.height {
             var lower = baseFont.pointSize * rect.height / naturalHeight
             var upper = baseFont.pointSize
-            while upper - lower > 1 / contentScaleFactor {
+            while upper - lower > 1 / layoutScale {
                 let size = (lower + upper) / 2
                 if measuredHeight(text: text, font: baseFont.withSize(size), width: rect.width)
-                    <= rect.height {
+                    <= rect.height
+                {
                     lower = size
                 } else {
                     upper = size

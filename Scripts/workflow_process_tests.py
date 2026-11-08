@@ -599,7 +599,7 @@ def verify_lock_recovery_and_cancellation(
     output, error = second.communicate(timeout=5)
     if second.returncode != 124 or "[超时]" not in output or "entered" in output:
         raise ValueError(
-            f"竞争工作流沿等待预算结束：{second.returncode} · {output.strip()} · {error.strip()}"
+            f"竞争工作流沿等待额度结束：{second.returncode} · {output.strip()} · {error.strip()}"
         )
     with release.open("w") as stream:
         stream.write("done\n")
@@ -616,7 +616,7 @@ def verify_lock_recovery_and_cancellation(
         timed_events = []
         while event := line(timed):
             if event not in {"entered", "cleanup"} and not event.startswith("[超时]"):
-                raise ValueError(f"执行预算需要已知的生命周期事件：{event}")
+                raise ValueError(f"执行额度需要已知的生命周期事件：{event}")
             timed_events.append(event)
             if event == "cleanup":
                 signal_release(release)
@@ -626,7 +626,7 @@ def verify_lock_recovery_and_cancellation(
             or "entered" in timed_events
             and ("cleanup" not in timed_events or mode == "startup")
         ):
-            raise ValueError("执行预算覆盖启动阶段，已启动工作流完成恢复清理")
+            raise ValueError("执行额度覆盖启动阶段，已启动工作流完成恢复清理")
         recovered = subprocess.run(
             ["zsh", str(worker)], capture_output=True, text=True, env=environment, timeout=5
         )
@@ -641,7 +641,7 @@ def verify_lock_recovery_and_cancellation(
     )
     processes.append(first)
     if line(first) != "entered":
-        raise ValueError("共享预算测试取得锁")
+        raise ValueError("共享额度测试取得锁")
     deadline = time.monotonic() + 2
     return deadline, first
 
@@ -664,7 +664,7 @@ def verify_lock_diagnostics(
     )
     processes.append(second)
     if not line(second).startswith("[等待]"):
-        raise ValueError("共享预算测试进入排队")
+        raise ValueError("共享额度测试进入排队")
     time.sleep(0.4)
     with release.open("w") as stream:
         stream.write("done\n")
@@ -676,5 +676,5 @@ def verify_lock_diagnostics(
         or "cleanup" not in output
         or f"deadline={deadline}" not in output
     ):
-        raise ValueError("等待与执行沿同一截止时间消费预算")
+        raise ValueError("等待与执行沿同一截止时间消费额度")
     findings.extend(process_group_boundary_findings(fixture, line))

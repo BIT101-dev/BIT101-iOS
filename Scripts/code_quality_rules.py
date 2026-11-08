@@ -296,7 +296,7 @@ def client_source_findings(
         path,
         code,
         re.compile(r"\.\s*loadTransferable\s*\(\s*type\s*:\s*(?:Foundation\.)?Data\s*\.\s*self"),
-        "照片原始数据读取使用 loadBoundedImageData 的容量预算",
+        "照片原始数据读取使用 loadBoundedImageData 的容量额度",
     )
     if name not in STDOUT_EXCEPTIONS:
         add_matches(errors, path, code, DIRECT_STDOUT_LOG, "诊断输出使用所属模块的 Logger")

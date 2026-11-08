@@ -9,11 +9,11 @@
 | 改动范围 | 常用命令 |
 | --- | --- |
 | 领域、服务、文件仓库、场景状态 | `Scripts/run-extended-tests.sh modules 测试类` |
-| App 组装与平台适配 | `Scripts/run-extended-tests.sh 测试类` |
+| App 组合与平台适配 | `Scripts/run-extended-tests.sh 测试类` |
 | 日程、基础设施、登录、扩展行为 | `Scripts/run-extended-tests.sh schedule`、`infrastructure`、`login`、`extensions` |
 | 页面交互 | `Scripts/run-extended-tests.sh ui 用例关键词...` |
-| 正式编译条件下的 App 组装 | `Scripts/run-extended-tests.sh release-runtime` |
-| Catalyst 行为与正式组装 | `Scripts/run-extended-tests.sh catalyst`、`catalyst-release-runtime` |
+| 正式编译条件下的 App 组合 | `Scripts/run-extended-tests.sh release-runtime` |
+| Catalyst 行为与正式组合 | `Scripts/run-extended-tests.sh catalyst`、`catalyst-release-runtime` |
 | 语法、架构、设计系统、脚本、文档 | `Scripts/run-static-audit.sh` |
 | 线上接口与跨端同步 | 本文的网络和 iCloud 专项入口 |
 
@@ -40,7 +40,7 @@ Scripts/build-install-device.sh screenshot
 Scripts/build-install-device.sh mac
 ```
 
-默认命令完成真机 Release 构建、安装与启动；`build` 编译 App、Widget、Watch App 和 Watch Widget；`archive` 使用工程正式归档配置，保存 dSYM。常规 App 使用正式业务组装与空工作流条件。Catalyst 安装到 `~/Applications/BIT101-iOS.app`，复制和原子交换在固定事务路径完成。
+默认命令完成真机 Release 构建、安装与启动；`build` 编译 App、Widget、Watch App 和 Watch Widget；`archive` 使用工程正式归档配置，保存 dSYM。常规 App 使用正式业务组合与空工作流条件。Catalyst 安装到 `~/Applications/BIT101-iOS.app`，复制和原子交换在固定事务路径完成。
 
 装机就绪采样覆盖写入 `.build/extended-automation/restore.log`，包含设备复制、App 身份、初始化、会话恢复与进程状态。超时展示最后一次采样的原因和日志路径。
 
@@ -76,7 +76,7 @@ Scripts/run-extended-tests.sh catalyst-release-runtime
 
 异步复验使用共享 `waitForTestEvent` 等待实际状态，并处理取消、超时及 continuation 释放。Swift Testing 套件或方法设置执行期限，XCTest 入口启用系统超时管理。账号、文件和偏好测试数据按固定用途隔离；真实系统共享资源由所属测试组串行验收。
 
-正式组装规范使用生产编译条件，覆盖登录恢复、凭据保存、退出清理、账号代际、页面依赖、生命周期同步、提醒上下文和网络环境。`NativeLoginTests` 核对 CAS 账号锁定响应、认证次数、密码提示和会话保存；`NetworkBusinessDiagnosticsTests` 核对学校错误来源、官方入口、锁定信号范围及上报限制；系统日历地点规范通过 `EKEvent` 核对完整教室标题和校区坐标。生产专用 suite 的库存在 [验证策略](../Scripts/validation_policy.py)登记。发布归档验证正式优化与符号配置。
+正式组合规范使用生产编译条件，覆盖登录恢复、凭据保存、退出清理、账号代际、页面依赖、生命周期同步、提醒上下文和网络环境。`NativeLoginTests` 核对 CAS 账号锁定响应、认证次数、密码提示和会话保存；`NetworkBusinessDiagnosticsTests` 核对学校错误来源、官方入口、锁定信号范围及上报限制；系统日历地点规范通过 `EKEvent` 核对完整教室标题和校区坐标。生产专用 suite 的库存在 [验证策略](../Scripts/validation_policy.py)登记。发布归档验证正式优化与符号配置。
 
 编译宿主时可使用：
 
@@ -95,7 +95,7 @@ Scripts/run-extended-tests.sh ui About
 Scripts/run-extended-tests.sh ui
 ```
 
-关键词按测试类与方法匹配，多个关键词合并为一批。UI 宿主使用 Release 配置、隔离存储与合成会话，测试 App 和 Runner 经固定回环通道配置场景。生产组装启动性能场景使用同一隔离资源和受控 HTTP 响应。
+关键词按测试类与方法匹配，多个关键词合并为一批。UI 宿主使用 Release 配置、隔离存储与合成会话，测试 App 和 Runner 经固定回环通道配置场景。生产组合启动性能场景使用同一隔离资源和受控 HTTP 响应。
 
 每项 UI 用例从竖屏开始，横屏专项自行旋转并恢复姿态。注册与密码登录的独立认证场景分别启动测试宿主；持续故障通过共享请求测试桩维持，跨启动场景通过启动配置保留故障。页面流程验证入口、绑定、业务结果与持久化重载，默认通过 XCTest 原生触摸与滚动执行；原生快照与 App 渲染查询共同核对身份、文案、状态和几何。
 
@@ -117,7 +117,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator ui 用例�
 BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 ```
 
-入口按所选类型复用项目设备、公共缓存和固定结果目录，准备所选 Xcode 所需的官方运行时。`app`、`release-runtime`、`ui` 省略筛选时执行各自完整库存；`verify` 聚合模块、iOS 行为、正式组装、UI、静态审计、结果合并、覆盖率及常规 App 恢复。Catalyst、归档、线上服务与实体设备验收分别由对应流程验收。
+入口按所选类型复用项目设备、公共缓存和固定结果目录，准备所选 Xcode 所需的官方运行时。`app`、`release-runtime`、`ui` 省略筛选时执行各自完整库存；`verify` 聚合模块、iOS 行为、正式组合、UI、静态审计、结果合并、覆盖率及常规 App 恢复。Catalyst、归档、线上服务与实体设备验收分别由对应流程验收。
 
 适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并通过固定设备记录复用测试与恢复。Duo 布局按 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转规范验收选中周次、主导航和内容操作区。
 
@@ -180,7 +180,7 @@ Scripts/run-extended-tests.sh cache
 
 `activities` 读取原始操作记录；`screenshot` 列出当前用例的截图标识，指定标识后导出一张截图。`diagnostics` 导出当前失败包，排查完成后清理导出副本并保留原始结果。
 
-同类日志、截图和报告覆盖固定路径。本地与 CI 的失败摘要共用行数和字符预算，长文本保留首尾；完整诊断从日志和 CI 产物读取。执行 `Scripts/run-extended-tests.sh cache info` 查看当前空间分项，执行 `Scripts/run-extended-tests.sh cache` 完成引用分析与维护。资源复用规则见[公共缓存与工作流资源](ARCHITECTURE.md#公共缓存与工作流资源)。
+同类日志、截图和报告覆盖固定路径。本地与 CI 的失败摘要共用行数和字符额度，长文本保留首尾；完整诊断从日志和 CI 产物读取。执行 `Scripts/run-extended-tests.sh cache info` 查看当前空间分项，执行 `Scripts/run-extended-tests.sh cache` 完成引用分析与维护。资源复用规则见[公共缓存与工作流资源](ARCHITECTURE.md#公共缓存与工作流资源)。
 
 ## 网络与 iCloud Smoke
 
@@ -205,7 +205,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/
 
 也可通过 `BIT101_COMMUNITY_SMOKE_ACCOUNT` 和 `BIT101_NETWORK_SMOKE_FIXTURES` 显式指定账号及包含 `posterID`、`courseID`、`courseNumber`、`paperID` 的维护对象。对象需提供对应文本、图片、评论、搜索与分页样本。消息读取会影响服务端未读数，使用具备历史分页样本的专用账号。
 
-报告分别记录服务健康、必需采样项、认证、请求规范和样本覆盖。空业务结果保持其真实含义；完整验收继续核对所属采样项需要的样本，覆盖缺口以状态码 2 呈现。独立采样项继续归集结果。端点、方法、参数、实体与分页规范根据 [网络请求规范](../Scripts/network_request_contracts.py)及实际响应验收。
+报告分别记录服务健康、必需采样项、认证、请求规范和样本覆盖。空业务结果保持其真实含义；完整验收继续核对所属采样项需要的样本，覆盖缺口以状态码 2 呈现。独立采样项继续汇总结果。端点、方法、参数、实体与分页规范根据 [网络请求规范](../Scripts/network_request_contracts.py)及实际响应验收。
 
 实网验收豁免 `community.report-types`、`message.follow`、`message.system`、`message.like`、`message.comment`：对应样本依赖外部服务端配置、管理员权限及其他账号互动。报告通过 `exemptedProbes` 单独记录原因；必需采样清单按其余项目验收。消息列表真实跨页由订阅消息验收，公开帖子评论分页独立验收。
 
@@ -257,7 +257,7 @@ gh run rerun 运行编号 --failed
 
 版本标签和 `release_check` 按所属验证组复用成功结果和公共缓存；`full_check` 在当次执行全部组。
 
-每种设备的一轮 UI 验收硬上限为 3600 秒，计时包含排队、准备、编译、测试、恢复和汇总。真机、模拟器及聚合流程中的 UI 入口共用独立计时监督；到期立即回收所属进程并以 124 失败退出，环境中的较长预算按固定上限截断。其余测试与 smoke 合计目标为 30 分钟以内。验证证据和模拟器生产记录的 `durationSeconds` 保存所属入口的实际耗时，CI 诊断产物保留这些采样以便比较。取消任务上传有大小限制的文本诊断，常规成功与失败按产物清单上传完整诊断。
+每种设备的一轮 UI 验收硬上限为 3600 秒，计时包含排队、准备、编译、测试、恢复和汇总。真机、模拟器及聚合流程中的 UI 入口共用独立计时监督；到期立即回收所属进程并以 124 失败退出，环境中的较长额度按固定上限截断。其余测试与 smoke 合计目标为 30 分钟以内。验证证据和模拟器生产记录的 `durationSeconds` 保存所属入口的实际耗时，CI 诊断产物保留这些采样以便比较。取消任务上传有大小限制的文本诊断，常规成功与失败按产物清单上传完整诊断。
 
 [验证策略](../Scripts/validation_policy.py)维护 macOS、iOS、App 及 UI 的版本化行覆盖门槛，目标提交门槛参与合并验收。行覆盖、实际状态断言和控件交互分别提供各自证据。关键失败、账号变化、取消和恢复路径按 [状态规范库存](../Scripts/validation_test_areas.py)维护；新增行为同步补充对应复验。各平台覆盖率按实际编译源码统计。
 
@@ -285,7 +285,7 @@ python3 Scripts/validation_evidence.py manual 检查项 \
 
 提交全部改动后，`python3 Scripts/validation_evidence.py bind` 绑定完整本地证据，`python3 Scripts/validation_evidence.py check` 核对当前输入、环境、结果和提交。发布回执通过 `python3 Scripts/ci_evidence.py publish v公开版本号` 生成固定 `release-receipt.json` 附件，按发布授权上传。公开回执保存必要的版本、提交、执行状态及采样身份，完整设备、邮件和影像证据从本地报告审阅。
 
-验证输入、结果批次、缓存和 CI 归集协议见[开发与验证基础设施](ARCHITECTURE.md#开发与验证基础设施)。
+验证输入、结果批次、缓存和 CI 汇总协议见[开发与验证基础设施](ARCHITECTURE.md#开发与验证基础设施)。
 
 ### 代码格式
 

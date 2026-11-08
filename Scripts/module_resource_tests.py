@@ -365,7 +365,7 @@ def module_coverage_binary_self_test() -> None:
         except ValueError:
             pass
         else:
-            raise AssertionError("当前测试消费者缺失需要停止覆盖率归集")
+            raise AssertionError("当前测试消费者缺失需要停止覆盖率汇总")
 
 
 def resource_access_self_test(rules: dict) -> None:

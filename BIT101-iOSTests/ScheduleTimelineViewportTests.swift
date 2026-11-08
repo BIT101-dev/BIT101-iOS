@@ -307,7 +307,7 @@ struct ScheduleCardTextLayoutTests {
             UIFont.preferredFont(forTextStyle: .title1),
         ] {
             for height: CGFloat in [18, 40, 120] {
-                let view = ScheduleCardTextRenderer()
+                let view = ScheduleCardTextView()
                 view.configure(
                     title: String(repeating: "计算机网络与通信原理", count: 5), location: location,
                     contentMode: .nameAndLocation, font: font, textColor: .label)
@@ -353,11 +353,12 @@ struct ScheduleCardTextLayoutTests {
         let text = try #require(control.cardText)
         let room = text.locationLabel
         #expect(room.text == entry.subtitle && !room.isHidden)
-        #expect(control.subviews.isEmpty && control.accessibilityValue == "地点：\(entry.subtitle)")
+        #expect(control.cardText?.superview === control)
+        #expect(control.accessibilityValue == "地点：\(entry.subtitle)")
         #expect(control.accessibilityActivate() && opens == 1)
         control.configureText(entry: entry, contentMode: .location)
         control.layoutIfNeeded()
-        #expect(control.subviews.isEmpty && control.cardText === text)
+        #expect(text.superview === control && control.cardText === text)
         #expect(text.titleLabel.isHidden && !room.isHidden)
         control.isContentVisible = false
         control.isContentVisible = true
@@ -411,62 +412,57 @@ struct ScheduleCardTextLayoutTests {
         #expect(text.titleLabel.font == expected)
     }
 
-    @Test func textImagesTrackColorAcrossLayoutTraits() throws {
-        let text = ScheduleCardTextRenderer()
+    @Test func textKeepsDynamicSystemColor() {
+        let text = ScheduleCardTextView()
         text.configure(
             title: "高等数学", location: "文萃楼A\n101", contentMode: .nameAndLocation,
             font: .preferredFont(forTextStyle: .caption1), textColor: .label)
-        let light = UITraitCollection { $0.userInterfaceStyle = .light }
-        let compact = light.modifyingTraits { $0.horizontalSizeClass = .compact }
-        let dark = compact.modifyingTraits { $0.userInterfaceStyle = .dark }
-        let size = CGSize(width: 72, height: 100)
-        let image = try #require(text.image(size: size, scale: 2, traits: light))
-        #expect(text.image(size: size, scale: 2, traits: compact) === image)
-        #expect(text.image(size: size, scale: 2, traits: dark) !== image)
+        text.layout(size: CGSize(width: 72, height: 100), scale: 2)
+        let light = text.titleLabel.textColor.resolvedColor(
+            with: UITraitCollection { $0.userInterfaceStyle = .light })
+        let dark = text.titleLabel.textColor.resolvedColor(
+            with: UITraitCollection { $0.userInterfaceStyle = .dark })
+        #expect(light != dark)
+        #expect(text.titleLabel.superview === text && text.locationLabel.superview === text)
+        #expect(text.titleLabel.text == "高等数学")
     }
 
     @Test(arguments: [CGFloat(1), CGFloat(2), CGFloat(3)])
-    func cardDrawingMatchesNativeLabels(scale: CGFloat) throws {
+    func cardTextKeepsNativeDisplayScale(scale: CGFloat) throws {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
         for style: UIUserInterfaceStyle in [.light, .dark] {
             for size in [CGSize(width: 72, height: 100), CGSize(width: 72.5, height: 100.5)] {
                 for mode: ScheduleCardContentMode in [.name, .location, .nameAndLocation] {
                     let control = ScheduleBlankContextMenuControl(
                         frame: CGRect(origin: .zero, size: size))
+                    controller.view.addSubview(control)
                     control.overrideUserInterfaceStyle = style
                     let entry = ScheduleCalendarEntry(
                         id: "course", sourceID: "course", sourceIDs: ["course"], dayOfWeek: 1,
                         startSection: 1, endSection: 3, title: "计算机网络与通信原理",
                         subtitle: "文萃楼A\n101", detailLines: [], kind: .course)
                     control.configureText(entry: entry, contentMode: mode)
-                    let format = UIGraphicsImageRendererFormat()
-                    format.scale = scale
-                    let renderer = UIGraphicsImageRenderer(size: size, format: format)
                     control.contentScaleFactor = scale
                     control.layoutIfNeeded()
                     let text = try #require(control.cardText)
-                    #expect(control.subviews.isEmpty)
-                    let actual = renderer.image { control.layer.render(in: $0.cgContext) }
-                    let reference = UIView(frame: control.bounds)
-                    reference.contentScaleFactor = scale
-                    reference.overrideUserInterfaceStyle = style
-                    reference.clipsToBounds = true
+                    #expect(text.superview === control)
                     for label in [text.titleLabel, text.locationLabel] {
-                        label.textColor = .label
-                        label.frame = label.frame.offsetBy(
-                            dx: AppDesignSystem.Spacing.micro, dy: AppDesignSystem.Spacing.micro)
-                        reference.addSubview(label)
-                        label.contentScaleFactor = scale
+                        #expect(label.superview === text)
+                        #expect(label.contentScaleFactor == window.screen.scale)
+                        #expect(label.layer.contentsScale == window.screen.scale)
                     }
-                    reference.layoutIfNeeded()
-                    reference.layer.displayIfNeeded()
-                    reference.subviews.forEach { $0.layer.displayIfNeeded() }
-                    let expected = renderer.image { reference.layer.render(in: $0.cgContext) }
-                    let actualPixels = try #require(actual.cgImage?.dataProvider?.data) as Data
-                    let expectedPixels = try #require(expected.cgImage?.dataProvider?.data) as Data
-                    let differing = zip(actualPixels, expectedPixels).filter { $0 != $1 }.count
-                    #expect(
-                        actualPixels == expectedPixels,
-                        "scale=\(scale), style=\(style.rawValue), mode=\(mode), diff=\(differing)")
+                    control.removeFromSuperview()
                 }
             }
         }
@@ -552,7 +548,7 @@ struct ScheduleCardTextLayoutTests {
     }
 
     @Test func changingCourseNamePreservesRoomSpace() throws {
-        let view = ScheduleCardTextRenderer()
+        let view = ScheduleCardTextView()
         var size = CGSize(width: 72, height: 100)
         let scale = UIGraphicsImageRendererFormat().scale
         let font = UIFont.preferredFont(forTextStyle: .caption1)

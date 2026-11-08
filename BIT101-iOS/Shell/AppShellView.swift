@@ -16,6 +16,25 @@ import StorageCore
 import SwiftUI
 import UIKit
 
+/// 正式页面与性能验收共享账号能力的组合和视图更新路径。
+struct AppAccountEnvironment: ViewModifier {
+    let lifecycle: AppAccountLifecycle
+
+    func body(content: Content) -> some View {
+        content
+            .environment(lifecycle.communityDestinations)
+            .environment(lifecycle.community)
+            .environment(lifecycle.communityDestinations.media)
+            .environment(lifecycle.scheduleViewModel)
+            .environment(lifecycle)
+            .environment(lifecycle.scheduleViewModel.ddl)
+            .environment(lifecycle.scoreViewModel)
+            .environment(lifecycle.settings)
+            .environment(lifecycle.preferenceCloudSync)
+            .environment(lifecycle.prompts)
+    }
+}
+
 enum AppInterfaceOrientationPolicy {
     static func supportedOrientations(for traits: UITraitCollection) -> UIInterfaceOrientationMask {
         if traits.userInterfaceIdiom == .phone {
@@ -186,11 +205,23 @@ struct AppShellView: View {
     }
     private var gallerySurface: GallerySurface {
         get { navigation.gallerySurface }
-        nonmutating set { navigation.gallerySurface = newValue }
+        nonmutating set {
+            if settings.galleryUseWebView {
+                community.gallery.beginWebPresentation(for: newValue)
+            }
+            navigation.gallerySurface = newValue
+        }
     }
     private var selectedTab: AppTab {
         get { navigation.selectedTab }
-        nonmutating set { navigation.selectedTab = newValue }
+        nonmutating set {
+            if newValue == .gallery, navigation.selectedTab != .gallery,
+                settings.galleryUseWebView
+            {
+                community.gallery.beginWebPresentation(for: gallerySurface)
+            }
+            navigation.selectedTab = newValue
+        }
     }
     private var scoreSelection: Binding<ScoreSurface> {
         Binding(get: { scoreSurface }, set: { scoreSurface = $0 })
@@ -255,6 +286,23 @@ struct AppShellView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
         .modifier(AppShellSelectionPresentation(navigation: navigation))
+        .background {
+            if settings.galleryUseWebView {
+                ZStack {
+                    GalleryWebPreparationHost(dependencies: community.gallery)
+                    AppDesignSystem.Palette.Background.system
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
+        .task(id: settings.galleryUseWebView, priority: .background) {
+            if settings.galleryUseWebView {
+                community.gallery.prepareWebContent(size: layout.size)
+            } else {
+                community.gallery.releasePreparedWebContent()
+            }
+        }
         .task(id: requestedCalendarRoute) {
             guard let route = requestedCalendarRoute,
                 case .calendarEvent(let markerID, let term, let account) = route
@@ -309,10 +357,11 @@ struct AppShellView: View {
                 Tab(value: destination) {
                     destinationContent(destination)
                         .tint(destination.tab.tintColor)
-                        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        .modifier(AppShellPageVisibility {
-                            destination == destinationSelection.wrappedValue
-                        })
+                        .appNativeTabBarBackground(isPresented: layout.usesOpaqueNavigation)
+                        .modifier(
+                            AppShellPageVisibility {
+                                destination == destinationSelection.wrappedValue
+                            })
                 } label: {
                     Label(
                         destination.title,
@@ -346,7 +395,7 @@ struct AppShellView: View {
         }
         .modifier(AppShellPageVisibility { tab == selectedTab })
         .tint(tab.tintColor)
-        .appNativeBarBackground(isPresented: layout.usesOpaqueNavigation)
+        .appNativeTabBarBackground(isPresented: layout.usesOpaqueNavigation)
         .tag(tab)
         .tabItem {
             Label(tab.title, systemImage: tab.systemImage)

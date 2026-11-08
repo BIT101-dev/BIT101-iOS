@@ -163,8 +163,9 @@ private struct GalleryRootViewScene: View {
         _ownedViewModel = State(
             initialValue: AppViewModelOwner(GalleryViewModel(service: dependencies.feed)))
         _ownedMessageViewModel = State(
-            initialValue: AppViewModelOwner(GalleryMessageViewModel(
-                service: dependencies.messageService, readStore: dependencies.messages)))
+            initialValue: AppViewModelOwner(
+                GalleryMessageViewModel(
+                    service: dependencies.messageService, readStore: dependencies.messages)))
         self.appSettings = dependencies.preferences
     }
 
@@ -474,6 +475,22 @@ private struct GalleryRootViewScene: View {
 
 }
 
+/// 在原生页面背后完成网页排版，进入时沿用相同的交互视图。
+public struct GalleryWebPreparationHost: UIViewRepresentable {
+    let dependencies: GalleryDependencies
+    public init(dependencies: GalleryDependencies) { self.dependencies = dependencies }
+    public func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        dependencies.attachPreparedWebContent(to: view)
+        return view
+    }
+    public func updateUIView(_ view: UIView, context: Context) {
+        dependencies.attachPreparedWebContent(to: view)
+    }
+}
+
 /// 网页话廊的两个内容分区共用登录、导航和恢复行为。
 public struct GalleryWebContentView: View {
     private let dependencies: GalleryDependencies
@@ -498,17 +515,18 @@ public struct GalleryWebContentView: View {
         Group {
             if lifetime.retainIfVisible(isVisible) {
                 GalleryWebView(
-                    url: destinationID.map { base.appendingPathComponent(String($0)) } ?? base)
-                    .environment(dependencies)
+                    url: destinationID.map { base.appendingPathComponent(String($0)) } ?? base
+                )
+                .environment(dependencies)
             }
         }
-            .ignoresSafeArea(.container, edges: .bottom)
-            .accessibilityIdentifier("gallery.web.\(surface.rawValue)")
-            .onChange(of: requestedPaperID, initial: true) { _, id in
-                guard let id else { return }
-                destinationID = id
-                requestedPaperID = nil
-            }
+        .ignoresSafeArea(.container, edges: .bottom)
+        .accessibilityIdentifier("gallery.web.\(surface.rawValue)")
+        .onChange(of: requestedPaperID, initial: true) { _, id in
+            guard let id else { return }
+            destinationID = id
+            requestedPaperID = nil
+        }
     }
 }
 
@@ -518,18 +536,19 @@ private struct GalleryWebView: UIViewRepresentable {
     let url: URL
 
     func makeCoordinator() -> GalleryWebCoordinator {
-        GalleryWebCoordinator(
-            credentials: dependencies.webCredentials, openExternal: { url in openURL(url) })
+        dependencies.webCoordinator(
+            for: url.path.hasPrefix("/paper") ? .paper : .gallery,
+            openExternal: { url in openURL(url) })
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = dependencies.webDataStore
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let surface: GallerySurface = url.path.hasPrefix("/paper") ? .paper : .gallery
+        let webView = dependencies.makeWebView(for: surface)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        context.coordinator.start(in: webView, url: url)
+        context.coordinator.present(
+            in: webView, url: url, timing: dependencies.takeWebPresentation(for: surface))
         return webView
     }
 
@@ -543,10 +562,21 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
 {
     private static let logger = Logger(subsystem: "BIT101", category: "GalleryWeb")
     let credentials: GalleryWebCredentials
-    let openExternal: (URL) -> Void
-    private let measurement = AppPageLoadMeasurement()
+    var openExternal: (URL) -> Void
+    private var measurement = AppPageLoadMeasurement()
+    private var entryStartedAt = Date().timeIntervalSince1970
+    private var entry = 0
+    private var preparing = false
+    private var bootstrapEntry = -1
+    private var hasCommittedDocument = false
+    private var needsPerformanceScript = false
+    private var performanceScript: String {
+        GalleryWebRequestFactory.firstContentScript(
+            entry: entry, startedAt: entryStartedAt, preparing: preparing)
+    }
     private var performancePage = "gallery.web"
     private(set) var firstContentDuration: Double?
+    private(set) var firstContentLocalDuration: Double?
     init(credentials: GalleryWebCredentials, openExternal: @escaping (URL) -> Void) {
         self.credentials = credentials
         self.openExternal = openExternal
@@ -564,9 +594,12 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
     private var retryURL = AppEndpoints.bit101Web.appendingPathComponent("gallery")
     private weak var recoveryAlert: UIAlertController?
 
-    func start(in webView: WKWebView, url: URL) {
-        performancePage = "\(url.path.hasPrefix("/paper") ? "paper" : "gallery").web"
-        measurement.record(performancePage, stage: "webview-created")
+    func start(in webView: WKWebView, url: URL, preparing: Bool = false) {
+        self.preparing = preparing
+        performancePage =
+            "\(url.path.hasPrefix("/paper") ? "paper" : "gallery").web"
+            + (preparing ? ".preload" : "")
+        measurement.record(performancePage, stage: "webview-ready")
         webView.configuration.userContentController.add(self, name: "firstContent")
         requestedURL = url
         retryURL = url
@@ -579,6 +612,40 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
             self?.synchronizeCredentials(in: webView)
         }
         webView.load(GalleryWebRequestFactory.request(for: url))
+    }
+
+    func present(in webView: WKWebView, url: URL, timing: GalleryWebEntryTiming? = nil) {
+        if let timing {
+            measurement = timing.measurement
+            entryStartedAt = timing.startedAt
+        }
+        guard requestedURL != nil else {
+            start(in: webView, url: url)
+            return
+        }
+        preparing = false
+        if timing == nil {
+            measurement = AppPageLoadMeasurement()
+            entryStartedAt = Date().timeIntervalSince1970
+        }
+        entry += 1
+        firstContentDuration = nil
+        firstContentLocalDuration = nil
+        performancePage = "\(url.path.hasPrefix("/paper") ? "paper" : "gallery").web"
+        measurement.record(performancePage, stage: "webview-ready")
+        do { try configureBootstrap(in: webView, cookie: credentials.cookie()) } catch {
+            showLoadFailure(in: webView, error: error)
+            return
+        }
+        if requestedURL != url {
+            update(in: webView, to: url)
+        } else if isShowingFailure {
+            retryLastFailure(in: webView)
+        } else if hasCommittedDocument {
+            webView.evaluateJavaScript(performanceScript)
+        } else {
+            needsPerformanceScript = true
+        }
     }
 
     func update(in webView: WKWebView, to url: URL) {
@@ -662,7 +729,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
     }
 
     private func configureBootstrap(in webView: WKWebView, cookie: String) throws {
-        guard bootstrapCookie != cookie else { return }
+        guard bootstrapCookie != cookie || bootstrapEntry != entry else { return }
         let script = try Self.credentialScript(cookie)
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
@@ -671,51 +738,46 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
                 source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         controller.addUserScript(
             WKUserScript(
-                source: Self.firstContentScript,
+                source: performanceScript,
                 injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         bootstrapCookie = cookie
+        bootstrapEntry = entry
     }
-
-    private static let firstContentScript = """
-        (() => {
-            if (location.origin !== '\(AppEndpoints.bit101Web.absoluteString)') return;
-            if (!['/gallery', '/gallery/', '/paper', '/paper/'].includes(location.pathname)) return;
-            let sent = false;
-            const observer = new MutationObserver(check);
-            function check() {
-                if (sent) return;
-                const cards = [...document.querySelectorAll('a[href]')].filter(a =>
-                    /^\\/(gallery|paper)\\/\\d+/.test(new URL(a.href).pathname)
-                        && a.textContent.trim().length > 0);
-                if (!cards.length) return;
-                sent = true;
-                observer.disconnect();
-                requestAnimationFrame(() => requestAnimationFrame(() =>
-                    window.webkit.messageHandlers.firstContent.postMessage('content-ready')));
-            }
-            observer.observe(document.documentElement, {childList: true, subtree: true});
-            addEventListener('pagehide', () => observer.disconnect(), {once: true});
-            check();
-        })();
-        """
 
     func userContentController(
         _ userContentController: WKUserContentController, didReceive message: WKScriptMessage
     ) {
-        guard message.frameInfo.isMainFrame,
+        guard firstContentDuration == nil, message.frameInfo.isMainFrame,
             GalleryWebRequestFactory.isTrustedPage(message.frameInfo.request.url),
-            message.body as? String == "content-ready"
+            let body = message.body as? [String: Any], body["entry"] as? Int == entry,
+            body["stage"] as? String == "content-ready",
+            let documentDuration = body["documentDuration"] as? Double,
+            let intervals = body["network"] as? [[Double]],
+            let network = GalleryWebRequestFactory.networkDuration(
+                intervals, documentDuration: documentDuration)
         else { return }
-        firstContentDuration = measurement.record(performancePage, stage: "content-ready")
-            ?? firstContentDuration
+        guard network <= measurement.elapsedDuration else { return }
+        firstContentDuration = measurement.record(
+            performancePage, stage: preparing ? "content-prepared" : "content-ready")
+        guard let total = firstContentDuration else { return }
+        firstContentLocalDuration = total - network
+        measurement.record(performancePage, stage: "network-wait", duration: network)
+        measurement.record(
+            performancePage, stage: "local-content-ready", duration: firstContentLocalDuration)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        hasCommittedDocument = true
         measurement.record(performancePage, stage: "document-commit")
+        if needsPerformanceScript {
+            needsPerformanceScript = false
+            webView.evaluateJavaScript(performanceScript)
+        }
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
         documentCookie = bootstrapCookie
+        hasCommittedDocument = false
     }
 
     private static func credentialScript(_ cookie: String) throws -> String {
@@ -797,6 +859,7 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         hasLoadedDocument = false
+        hasCommittedDocument = false
         showLoadFailure(in: webView, error: URLError(.networkConnectionLost))
     }
 
@@ -816,6 +879,10 @@ final class GalleryWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
             GalleryWebRequestFactory.isTrustedPage(url)
         {
             retryURL = url
+        }
+        if preparing {
+            isShowingFailure = !hasLoadedDocument
+            return
         }
         if hasLoadedDocument {
             guard recoveryAlert == nil else { return }

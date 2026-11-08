@@ -240,7 +240,7 @@ rm -f "$BUILD_LOG" "$SUMMARY_OUTPUT" "$LOCAL_REPORT_PATH" "$LOCAL_RAW_COURSE_PAT
 WORKER_SNAPSHOT=""
 if ! $PREPARE_ONLY && ! WORKER_SNAPSHOT="$(python3 "$ROOT_DIR/Scripts/validation_provenance.py" \
   worker-snapshot "$SMOKE_SCOPE")"; then
-  echo "Worker 部署身份待补齐，继续归集网络健康采样。" >&2
+  echo "Worker 部署身份待补齐，继续汇总网络健康采样。" >&2
 fi
 DEVICETCL_DEVICE_ID="${BIT101_DEVICETCL_DEVICE_ID:-}"
 

@@ -157,7 +157,7 @@ def workflow_budget_self_test() -> None:
             workflow_timeout_seconds(groups)
         except ValueError:
             continue
-        raise AssertionError("工作流预算需要拒绝无效验证组。")
+        raise AssertionError("工作流额度需要拒绝无效验证组。")
 
 
 def workflow_conditions(group: str) -> tuple[str, ...]:

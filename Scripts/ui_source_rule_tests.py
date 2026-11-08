@@ -243,6 +243,7 @@ struct AppFixedColumnItem {}
 def source_boundary_findings() -> list[str]:
     page_transition_self_test()
     design_page_component_self_test()
+    native_ui_rendering_self_test()
     facts, findings, visual_facts, wrapped_calls = verify_control_source_rules()
     row_source = verify_visual_source_rules(facts, findings, visual_facts, wrapped_calls)
     verify_row_source_rules(findings, row_source)
@@ -675,3 +676,29 @@ def design_page_component_self_test():
     assert design_page_component_findings(layout, facts["offset.swift"])
     assert design_page_component_findings(picker, facts["picker.swift"]) == []
     assert design_page_component_findings(picker, facts["animated-picker.swift"])
+
+
+def native_ui_rendering_self_test():
+    from ui_rules import native_ui_rendering_findings
+
+    samples = {
+        "native": "final class TextView: UIView { let label = UILabel() }",
+        "bitmap": "func show() { UIGraphicsImageRenderer(size: size).image { _ in } }",
+        "layer": "func show() { label.layer.render(in: context) }",
+        "swiftui": 'struct Card: View { var body: some View { Text("A").drawingGroup() } }',
+        "scale": "func show() { layer.rasterizationScale = 1 }",
+        "comment": '// UIGraphicsImageRenderer(size: size)\nlet text = "drawingGroup()"',
+    }
+    facts = swift_syntax_index_sources(samples)
+    owner = "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift"
+    for name, source in samples.items():
+        findings = native_ui_rendering_findings(
+            owner, mask_literals_and_comments(source), facts[name]
+        )
+        assert bool(findings) == (name in {"bitmap", "layer", "swiftui", "scale"}), name
+    assert (
+        native_ui_rendering_findings(
+            "Modules/MediaKit/Sources/ImageDataCompressor.swift", samples["bitmap"], facts["bitmap"]
+        )
+        == []
+    )

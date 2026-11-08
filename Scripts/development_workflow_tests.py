@@ -47,6 +47,7 @@ def development_workflow_self_test() -> None:
         ci_diagnostic_selection(fixture)
         readiness_diagnostics(fixture)
         mac_process_identity(fixture)
+        mac_app_session_self_test()
     finally:
         shutil.rmtree(fixture, ignore_errors=True)
 
@@ -431,6 +432,93 @@ def mac_process_identity(fixture: Path) -> None:
         decoy.terminate()
         owned.wait(timeout=5)
         decoy.wait(timeout=5)
+
+
+def mac_app_session_self_test() -> None:
+    import signal
+    import restore_diagnostics as subject
+
+    installed = Path("/installed/BIT101-iOS.app")
+    output = StringIO()
+    with (
+        patch.object(subject, "mac_app_pids", side_effect=[[11], [11, 12], []]),
+        patch.object(subject.os, "kill") as terminate,
+        redirect_stdout(output),
+    ):
+        subject.mac_app_session("mac-pause", str(installed))
+    assert output.getvalue() == "1\n"
+    assert terminate.call_args_list == [((11, signal.SIGTERM),), ((12, signal.SIGTERM),)]
+    with (
+        patch.object(subject, "mac_app_pids", side_effect=[[12], []]),
+        patch.object(subject.os, "kill"),
+        patch.object(subject.subprocess, "run") as launch,
+    ):
+        subject.mac_app_session("mac-resume", str(installed), "1")
+        launch.assert_called_once_with(["open", str(installed)], check=True)
+    with (
+        patch.object(subject, "mac_app_pids", side_effect=[[], []]),
+        patch.object(subject.subprocess, "run") as launch,
+    ):
+        subject.mac_app_session("mac-resume", str(installed), "0")
+        launch.assert_not_called()
+    with (
+        patch.object(subject, "mac_app_pids", side_effect=[[11], [11], [11]]),
+        patch.object(subject.os, "kill"),
+        patch.object(subject.time, "monotonic", side_effect=[0, 6]),
+    ):
+        try:
+            subject.mac_app_session("mac-pause", str(installed))
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("未退出的 App 必须阻止启动第二个实例")
+    script = (ROOT / "Scripts/run-extended-tests.sh").read_text()
+    assert script.index("trap finish_validation EXIT ZERR") < script.index("mac-pause")
+    assert script.index("BIT101_VALIDATION_EXPECTED_TESTS=") < script.index("mac-pause")
+    function = (
+        "finish_validation() {"
+        + script.split("finish_validation() {", 1)[1].split("\n}\n", 1)[0]
+        + "\n}"
+    )
+    rows = (
+        "11 /installed/BIT101-iOS.app/Contents/MacOS/BIT101-iOS\n"
+        "12 /cache/BIT101-iOS.app/Contents/MacOS/BIT101-iOS\n"
+        "13 /other/BIT101-iOS.app/Contents/MacOS/BIT101-iOS\n"
+        "14 python /installed/BIT101-iOS.app/Contents/MacOS/BIT101-iOS\n"
+    )
+
+    def info(path):
+        identifier = "other" if "other" in path.parts else "BIT101-dev.BIT101-iOS"
+        return plistlib.dumps({"CFBundleIdentifier": identifier})
+
+    with (
+        patch.object(subject.subprocess, "check_output", return_value=rows),
+        patch.object(Path, "read_bytes", info),
+    ):
+        assert subject.mac_app_pids() == [11, 12]
+        assert subject.mac_app_pids(installed) == [11]
+    for status in (0, 1, 143):
+        frame = """
+ROOT_DIR=/project
+MODE=catalyst
+validation_group=catalyst
+validation_scope=selected
+MAC_TEST_SESSION=1
+MAC_APP_RESTORE=1
+BUILD_ONLY=true
+WORKFLOW_STARTED_SECONDS=0
+retained_result_groups=()
+python3() { print -r -- "$*"; }
+"""
+        result = subprocess.run(
+            ["zsh", "-c", frame + function + f"\ntrap finish_validation EXIT; exit {status}"],
+            capture_output=True,
+            text=True,
+        )
+        lines = result.stdout.splitlines()
+        assert result.returncode == status, result.stderr
+        assert "mac-resume" in lines[0] and lines[0].endswith("BIT101-iOS.app 1")
+        assert "validation_evidence.py record" in lines[1]
 
 
 def readiness_diagnostics(fixture: Path) -> None:

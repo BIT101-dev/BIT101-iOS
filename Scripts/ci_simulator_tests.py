@@ -343,7 +343,7 @@ class SimulatorAcceptanceState:
             except ValueError:
                 pass
             else:
-                raise AssertionError("完整模拟器结果需要正式组装、库存、来源与生产环境。")
+                raise AssertionError("完整模拟器结果需要正式组合、库存、来源与生产环境。")
         invalid = deepcopy(merged)
         invalid["simulatorResults"]["all"]["summary"]["coverage"]["BIT101-iOS.app"][
             "coveredLines"
@@ -373,7 +373,7 @@ class SimulatorAcceptanceState:
         except ValueError:
             pass
         else:
-            raise AssertionError("正式组装产物需要自己的生产记录。")
+            raise AssertionError("正式组合产物需要自己的生产记录。")
 
 
 def runtime_maintenance_self_test() -> None:

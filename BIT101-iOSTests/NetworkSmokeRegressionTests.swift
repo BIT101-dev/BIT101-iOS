@@ -161,15 +161,46 @@ import Testing
 @Suite("Network smoke regression contracts")
 @MainActor
 struct NetworkSmokeRegressionContractTests {
+    @Test func preparedWebFailureWaitsForVisibleRetry() throws {
+        let coordinator = GalleryWebCoordinator(
+            credentials: .init(cookie: { "fixture" }, changes: Empty().eraseToAnyPublisher()),
+            openExternal: { _ in })
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let view = NetworkSmokeCoverageTests.PreparedWebView(
+            frame: .zero, configuration: configuration)
+        let url = try #require(URL(string: "https://bit101.cn/gallery"))
+        coordinator.start(in: view, url: url, preparing: true)
+        #expect(view.htmlLoads == 1)
+        coordinator.webView(
+            view, didFail: nil, withError: URLError(.notConnectedToInternet))
+        #expect(view.htmlLoads == 1)
+        coordinator.present(in: view, url: url)
+        #expect(view.requests.count == 2)
+    }
+
+    @Test func webNetworkWaitsCountParallelRequestsOnce() throws {
+        let duration = try #require(
+            GalleryWebRequestFactory.networkDuration(
+                [[0.2, 0.6], [0, 0.4], [0.8, 1], [0.3, 0.5]], documentDuration: 1))
+        #expect(abs(duration - 0.8) < 0.000_001)
+        #expect(GalleryWebRequestFactory.networkDuration([], documentDuration: 1) == 0)
+        for interval in [[Double.nan, 1], [-1, 0], [1, 0], [0, 2], [0]] {
+            #expect(
+                GalleryWebRequestFactory.networkDuration([interval], documentDuration: 1) == nil)
+        }
+    }
+
     @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["account", "generation"])
     func galleryCachePersistsAndIsolatesOwners(change: String) async throws {
         let domain = "BIT101Tests.community-web-storage"
         let defaults = try #require(UserDefaults(suiteName: domain))
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        let cookie = try #require(HTTPCookie(properties: [
-            .domain: "example.invalid", .path: "/", .name: "cache-test", .value: "first",
-        ]))
+        let cookie = try #require(
+            HTTPCookie(properties: [
+                .domain: "example.invalid", .path: "/", .name: "cache-test", .value: "first",
+            ]))
         var credentials = CommunityCredentials(
             identity: .init(accountIdentifier: "first"), cookie: "first")
         let changes = PassthroughSubject<CommunityCredentials, Never>()
@@ -412,6 +443,7 @@ struct NetworkSmokeRegressionContractTests {
         _ = try await webView.evaluateJavaScript(
             "document.body.innerHTML = '<a href=\"/gallery/1\">首条话题</a>'; true")
         try await waitForTestEvent { coordinator.firstContentDuration != nil }
+        #expect(coordinator.firstContentLocalDuration == coordinator.firstContentDuration)
         _ = try await webView.evaluateJavaScript("true")
         _ = try await webView.evaluateJavaScript(
             """

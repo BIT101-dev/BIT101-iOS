@@ -454,7 +454,8 @@ struct FeatureCompositionTests {
     }
 
     func gallery(
-        _ transport: TraceTransport, identity: (() -> CommunitySessionIdentity)? = nil
+        _ transport: TraceTransport, identity: (() -> CommunitySessionIdentity)? = nil,
+        webViewProvider: ((WKWebViewConfiguration) -> WKWebView)? = nil
     ) -> GalleryDependencies {
         let session = session(transport)
         let preferences = preferences()
@@ -476,7 +477,8 @@ struct FeatureCompositionTests {
                 applicationSupport: URL(fileURLWithPath: "/preference-sync"),
                 session: { AppStorageSession(accountIdentifier: "composition") },
                 prepareImageData: ComposerDraftImageCompressor.compress),
-            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)))
+            networkPath: NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected)),
+            webViewProvider: webViewProvider)
     }
 
     func paper(_ transport: TraceTransport) -> PaperDependencies {
@@ -632,9 +634,10 @@ struct FeatureCompositionTests {
         step = "web-paper"
         try await waitForTestEvent {
             flushWindow()
-            return Set(webViews(in: controller.view).compactMap {
-                ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
-            }) == ["/gallery", "/paper"]
+            return Set(
+                webViews(in: controller.view).compactMap {
+                    ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
+                }) == ["/gallery", "/paper"]
         }
         let paperWebView = try #require(
             webViews(in: controller.view).first {
@@ -722,7 +725,7 @@ struct FeatureCompositionTests {
                     route.otherAppeared = true
                     route.visibleSelection = 1
                 }
-                    .tabItem { Text("其他") }.tag(1)
+                .tabItem { Text("其他") }.tag(1)
             }
         }
     }

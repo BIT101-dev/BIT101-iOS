@@ -61,7 +61,7 @@ nonisolated struct WatchSnapshotDeliveryBuffer {
     }
 }
 
-/// App 与 Watch 入口组装当前进程的共享快照仓库。
+/// App 与 Watch 入口组合当前进程的共享快照仓库。
 nonisolated enum PlatformScheduleSnapshotStorage {
     static let store: ScheduleExternalSnapshotStore = {
         #if os(iOS)

@@ -188,38 +188,35 @@ extension MediaDependencyTests {
         let transport = Images(bytes: data as Data)
         let media = environment(
             files: files, previewFiles: PreferenceMemoryFiles(), transport: transport)
-        let animated = try #require(
-            await media.animatedDecoder.image(at: file, reduceMotion: false))
-        let frames = try #require(animated.images)
-        let firstPixels = try #require(frames.first?.cgImage?.dataProvider?.data) as Data
-        let firstFrameCount = frames.filter {
-            ($0.cgImage?.dataProvider?.data as Data?) == firstPixels
-        }.count
-        let firstDuration = animated.duration * Double(firstFrameCount) / Double(frames.count)
-        #expect(abs(firstDuration - firstDelay) < 0.001)
-        #expect(abs(animated.duration - firstDuration - secondDelay) < 0.001)
-        var unique = Set<ObjectIdentifier>()
-        let actualBytes = frames.reduce(0) { bytes, frame in
-            guard let pixels = frame.cgImage, unique.insert(ObjectIdentifier(pixels)).inserted
-            else { return bytes }
-            return bytes + pixels.bytesPerRow * pixels.height
-        }
-        #expect(unique.count == 2 && frames.count > unique.count)
-        #expect(MediaDisplayBudget.pixelBytes(animated) == actualBytes)
-        #expect(await media.animatedDecoder.image(at: file, reduceMotion: true)?.images == nil)
-        #expect(await media.animatedDecoder.image(at: file, reduceMotion: true)?.size.width == 1)
+        let sequence = try #require(await media.animatedDecoder.sequence(at: file))
+        #expect(sequence.count == 2)
+        let first = try #require(await sequence.frame(at: 0))
+        let second = try #require(await sequence.frame(at: 1))
+        #expect(abs(first.duration - firstDelay) < 0.001)
+        #expect(abs(second.duration - secondDelay) < 0.001)
+        let firstPixels = try #require(first.image.cgImage?.dataProvider?.data) as Data
+        let secondPixels = try #require(second.image.cgImage?.dataProvider?.data) as Data
+        #expect(firstPixels != secondPixels)
         let view = UIImageView()
         let coordinator = RemoteAnimatedImage.Coordinator(media: media)
         let url = AppURL.required("https://example.invalid/motion.gif")
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
         try await waitForTestEvent { view.image != nil }
-        #expect(view.image?.images != nil)
+        try await waitForTestEvent {
+            view.image?.cgImage?.dataProvider?.data as Data? == secondPixels
+        }
         coordinator.load(url: url, into: view, media: media, reduceMotion: true)
         try await waitForTestEvent { view.image != nil }
-        #expect(view.image?.images == nil)
+        #expect(view.image?.cgImage?.dataProvider?.data as Data? == firstPixels)
+        let still = view.image
+        try await Task.sleep(for: .seconds(firstDelay + 0.1))
+        #expect(view.image === still)
         coordinator.load(url: url, into: view, media: media, reduceMotion: false)
         try await waitForTestEvent { view.image != nil }
-        #expect(view.image?.images != nil && transport.requests == 1)
+        try await waitForTestEvent {
+            view.image?.cgImage?.dataProvider?.data as Data? == secondPixels
+        }
+        #expect(transport.requests == 1)
         coordinator.cancel(imageView: view)
     }
 
@@ -231,17 +228,21 @@ extension MediaDependencyTests {
         let file = files.temporaryDirectoryURL.appending(path: "wide.jpeg")
         try files.writeData(bytes, to: file, options: [])
         let decoder = RemoteAnimatedImageDecoder(files: files, maximumDecodedBytes: budget)
-        let image = try #require(await decoder.image(at: file, reduceMotion: false))
+        let sequence = try #require(await decoder.sequence(at: file))
+        let image = try #require(await sequence.frame(at: 0)?.image)
         let pixels = try #require(image.cgImage)
         #expect(pixels.bytesPerRow * pixels.height <= budget)
         #expect(image.size.width < 4728 && image.size.height < 1701)
     }
 
-    @Test(.timeLimit(.minutes(1))) func animatedImageDownsamplesFrames() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [4, 40])
+    func animatedFramesKeepDisplayPixels(count: Int) async throws {
         let data = NSMutableData()
         let destination = try #require(
-            CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, 4, nil))
-        for color in [UIColor.systemRed, .systemGreen, .systemBlue, .systemYellow] {
+            CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, count, nil))
+        let colors = [UIColor.systemRed, .systemGreen, .systemBlue, .systemYellow]
+        for index in 0..<count {
+            let color = colors[index % colors.count]
             let image = try #require(
                 UIImage(data: png(width: 64, height: 64, color: color))?.cgImage)
             CGImageDestinationAddImage(
@@ -253,13 +254,17 @@ extension MediaDependencyTests {
         let files = PreferenceMemoryFiles()
         let file = files.temporaryDirectoryURL.appending(path: "budget.gif")
         try files.writeData(data as Data, to: file, options: [])
-        let decoder = RemoteAnimatedImageDecoder(files: files, maximumDecodedBytes: 4096)
-        let image = try #require(await decoder.image(at: file, reduceMotion: false))
-        let frames = try #require(image.images)
-        #expect(frames.count == 4)
-        #expect(frames.allSatisfy { $0.size.width < 64 && $0.size.height < 64 })
-        #expect(
-            frames.reduce(0) { $0 + ($1.cgImage.map { $0.bytesPerRow * $0.height } ?? 0) } <= 4096)
-        #expect(abs(image.duration - 0.4) < 0.001)
+        let decoder = RemoteAnimatedImageDecoder(files: files, maximumDecodedBytes: 32768)
+        let sequence = try #require(await decoder.sequence(at: file))
+        let image = try #require(await sequence.frame(at: 0)?.image)
+        #expect(sequence.count == count)
+        for index in [0, count - 1] {
+            let frame = try #require(await sequence.frame(at: index))
+            let pixels = try #require(frame.image.cgImage)
+            #expect(pixels.width == 64 && pixels.height == 64)
+            #expect(pixels.bytesPerRow * pixels.height <= 32768)
+            #expect(abs(frame.duration - 0.1) < 0.001)
+        }
+        #expect(image.size == CGSize(width: 64, height: 64))
     }
 }

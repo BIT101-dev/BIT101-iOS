@@ -29,7 +29,7 @@ UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范�
 - `testLandscapeDetailBackUseRightPanePane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。
 - 分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边缘，左栏及右栏详情共用该规范。
 
-`simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 归集 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
+`simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 汇总 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
 
 ## 公共组件验收归属
 
@@ -243,7 +243,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行检查�
 
 ## 执行流程
 
-学校短信复用 `AppSchoolSMSVerificationSheet` 的原生输入规范；`LoginLogicTests` 验证 UIKit 认证入口的面板组装、等待既有提示、取消与整段输入续接。
+学校短信复用 `AppSchoolSMSVerificationSheet` 的原生输入规范；`LoginLogicTests` 验证 UIKit 认证入口的面板组合、等待既有提示、取消与整段输入续接。
 
 `Scripts/check-ui-consistency.py` 读取 `Scripts/ui-interactions.json`，核对源码控件数量及负责验证的测试。静态库存覆盖 App、Modules、Watch 和两种 Widget 中的 SwiftUI、UIKit 控件及回调；完整运行按独立实例核对点击、输入、选择、长按、滑动、刷新和键盘提交证据。动态文案使用稳定标识，禁用分支由页面断言与公共组件规范共同验收。
 

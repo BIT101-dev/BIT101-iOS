@@ -545,7 +545,7 @@ def verify_smoke_installation_restore(
             if not expected and (
                 retain_bundle.called or not remove_bundle.called or "resultBundle" in cleanup
             ):
-                findings.append("Smoke 结果自测：成功阶段完成归集后清理原始结果包")
+                findings.append("Smoke 结果自测：成功阶段完成汇总后清理原始结果包")
         outcome[("completed")] = {
             ("totalTestCount"): 1,
             ("passedTests"): 1,

@@ -380,7 +380,7 @@ extension GalleryRecommendationPrefetchTests {
             let result = PaperContentRenderer.blocks(from: content)
             #expect(result.count == retained + 1)
             for block in result.prefix(retained) {
-                if case .list = block {} else { Issue.record("预算内的列表应继续可读") }
+                if case .list = block {} else { Issue.record("额度内的列表应继续可读") }
             }
             if case .requiresOriginal? = result.last {} else { Issue.record("剩余内容应提供原文入口") }
         }
@@ -404,7 +404,7 @@ extension GalleryRecommendationPrefetchTests {
             if case .list(_, let items, _) = block {
                 #expect(items.count == 128 && items.allSatisfy { String($0.characters) == "x" })
             } else {
-                Issue.record("预算内的短列表需要完整展示")
+                Issue.record("额度内的短列表需要完整展示")
             }
         }
     }

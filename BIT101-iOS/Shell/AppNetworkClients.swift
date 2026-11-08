@@ -7,7 +7,7 @@ import StorageCore
 import SwiftUI
 import TransportCore
 
-/// 应用侧组装传输提示和诊断记录。
+/// 应用侧组合传输提示和诊断记录。
 private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
     let warningCenter: NetworkMagicWarningCenter?
     let storage: LoginStorage
@@ -315,7 +315,7 @@ enum AppMedia {
     }
 }
 
-/// 学校会话的生产实例在应用组装入口选择。
+/// 学校会话的生产实例在应用组合入口选择。
 enum AppSchoolSession {
     static let teachingCenter = isolatedState()
 

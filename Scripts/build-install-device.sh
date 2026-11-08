@@ -138,21 +138,10 @@ if [[ "$ACTION" == mac ]]; then
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
   INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
-  RUNNING_APP_PIDS=($(python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pids "$INSTALL_PATH"))
-  for APP_PID in "${RUNNING_APP_PIDS[@]}"; do
-    kill -TERM "$APP_PID"
-    for ((attempt = 0; attempt < 50; attempt++)); do
-      kill -0 "$APP_PID" 2>/dev/null || break
-      sleep 0.1
-    done
-    if kill -0 "$APP_PID" 2>/dev/null; then
-      echo "应用仍在退出，请稍后重新运行装机脚本。" >&2
-      exit 1
-    fi
-  done
+  python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pause "$INSTALL_PATH" >/dev/null
   mkdir -p "$HOME/Applications"
   bit101_install_mac_app "$APP_PATH" "$INSTALL_PATH"
-  open -n "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
+  open "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
   mkdir -p "${RESTORE_LOG:h}"
   mac_deadline=$(( SECONDS + 60 ))
   while (( SECONDS < mac_deadline )); do

@@ -24,7 +24,7 @@ public nonisolated struct ScheduleCloudAccount: Equatable, Sendable {
 
 /// Transport-neutral record; system fields preserve the provider's optimistic-lock token.
 public nonisolated struct ScheduleCloudRecord: Sendable {
-    /// CloudKit 普通字段共享 1 MB；载荷预算为身份、日期和字段元数据预留空间。
+    /// CloudKit 普通字段共享 1 MB；载荷额度为身份、日期和字段元数据预留空间。
     public static let maximumPayloadBytes = 1_000_000 - 1_024
     public static let maximumDecodedPayloadBytes = ScheduleCache.maximumEncodedBytes
     public static let maximumImageAssetBytes =

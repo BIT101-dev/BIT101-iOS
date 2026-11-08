@@ -1,6 +1,6 @@
 import Foundation
 
-/// 成绩页面消费的学校课程摘要，由应用组装层投影。
+/// 成绩页面消费的学校课程摘要，由应用组合层投影。
 public nonisolated struct ScoreCourseSummary: Identifiable, Hashable, Sendable {
     public let id: String
     public let term: String

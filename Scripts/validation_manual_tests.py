@@ -210,7 +210,7 @@ def verify_distribution_bundle_evidence():
         except ValueError:
             pass
         else:
-            raise AssertionError("附件读取需要字节预算")
+            raise AssertionError("附件读取需要字节额度")
         decoder.assert_not_called()
         with patch("validation_manual.base64.b64decode") as decode:
             assert not artifact_complete({"byteCount": 17, "dataBase64": "x" * 24}, "photos")
