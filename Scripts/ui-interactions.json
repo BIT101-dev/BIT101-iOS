@@ -67,8 +67,12 @@
     "controls": {"UIButton":1,"UITapGestureRecognizer":1},
     "tests": ["AccountRecoveryUITests/testLoginSubmitButton","CommunityInteractionUITests/testCourseCommentPublishSearch"]
   },
-  "BIT101-iOS/Shell/AppShellView.swift:AppShellView": {
-    "controls": {"TabView":2},
+  "BIT101-iOS/Shell/AppShellView.swift:AppExpandedTabs": {
+    "controls": {"TabView":1},
+    "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes","MaintenancePerformanceUITests/testTabSwitchingPerformance","ScheduleEditingUITests/testMainTabsRemainType"]
+  },
+  "BIT101-iOS/Shell/AppShellView.swift:AppCompactTabs": {
+    "controls": {"TabView":1},
     "tests": ["LandscapeLayoutUITests/testWindowUsesAdaptivePanes","MaintenancePerformanceUITests/testTabSwitchingPerformance","ScheduleEditingUITests/testMainTabsRemainType"]
   },
   "BIT101Watch/WatchScheduleRootView.swift:WatchScheduleEmptyStateView": {

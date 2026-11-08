@@ -2,6 +2,8 @@
 import XCTest
 @testable import BIT101_iOS
 import UIKit
+import MapKit
+@testable import MapFeature
 import SwiftUI
 import DesignSystemKit
 import CommunityCore
@@ -10,6 +12,7 @@ import CommunityPersistence
 @testable import MediaKit
 import ImageIO
 import UniformTypeIdentifiers
+import os
 import ScheduleContracts
 import ScheduleSharedStore
 import ScheduleDomain
@@ -21,8 +24,11 @@ import StorageCore
 @testable import ScheduleFeature
 
 private typealias ShellSwitchTiming = (
-    response: Double, selection: Double, display: Double, firstFrame: Double, gap: Double
+    response: Double, selection: Double, display: Double, firstFrame: Double, gap: Double,
+    mapID: ObjectIdentifier?
 )
+
+private let shellSwitchLog = OSLog(subsystem: "BIT101", category: .pointsOfInterest)
 
 @MainActor
 private final class PerformanceDisplayFrame: NSObject {
@@ -217,7 +223,12 @@ extension MaintenancePerformanceTests {
         let passes = try workload.value("passes", as: Int.self)
         let maximumDelay = try workload.value("maximumResponseSeconds", as: Double.self)
         let maximumFirstDelay = try workload.value("maximumFirstResponseSeconds", as: Double.self)
+        let maximumMapDelay = try workload.value("maximumMapFirstResponseSeconds", as: Double.self)
         let tabCount = expanded ? 8 : 5
+        let mapIndex = expanded ? 2 : 1
+        let firstDelays = (0..<tabCount).map {
+            $0 == mapIndex ? maximumMapDelay : maximumFirstDelay
+        }
         let factory = ExperimentalPreferenceCloudSyncTests()
         let (sync, defaults, _, account) = try factory.context(
             domain: "BIT101Tests.shell-performance")
@@ -230,17 +241,26 @@ extension MaintenancePerformanceTests {
                 courses: workload.value("courses", as: Int.self)))
         let scene = try XCTUnwrap(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        if scene.activationState != .foregroundActive {
+            let activated = expectation(description: "测试宿主处于前台")
+            UIApplication.shared.activateSceneSession(
+                for: UISceneSessionActivationRequest(session: scene.session)
+            ) { error in XCTFail("测试窗口激活失败：\(error)") }
+            Task { @MainActor in
+                defer { activated.fulfill() }
+                do {
+                    try await waitForTestEvent { scene.activationState == .foregroundActive }
+                } catch { XCTFail("测试宿主激活失败：\(error)") }
+            }
+            wait(for: [activated], timeout: 30)
+        }
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        let initialStart = ProcessInfo.processInfo.systemUptime
         let controller = UIHostingController(
             rootView: shellPerformanceView(lifecycle, expanded: expanded))
         window.rootViewController = controller
         window.makeKeyAndVisible()
-        if scene.activationState != .foregroundActive {
-            UIApplication.shared.activateSceneSession(
-                for: UISceneSessionActivationRequest(session: scene.session)
-            ) { error in XCTFail("测试窗口激活失败：\(error)") }
-        }
         defer {
             window.isHidden = true
             window.rootViewController = nil
@@ -249,6 +269,7 @@ extension MaintenancePerformanceTests {
         let ready = expectation(description: "完整壳层就绪")
         var tabs: UITabBarController?
         var firstVisits: [String] = []
+        var firstMapID: ObjectIdentifier?
         let displayFrame = PerformanceDisplayFrame(keepsRunning: true)
         defer { displayFrame.stop() }
         Task { @MainActor in
@@ -264,22 +285,23 @@ extension MaintenancePerformanceTests {
                 let mountedTabs = try XCTUnwrap(self.shellTabs(in: controller))
                 XCTAssertEqual(self.shellTabCount(mountedTabs), tabCount)
                 let initialPage = try XCTUnwrap(mountedTabs.selectedViewController)
-                let initialStart = ProcessInfo.processInfo.systemUptime
                 _ = await displayFrame.next {
                     self.shellViewIsDisplayed(initialPage.viewIfLoaded)
                 }
                 XCTAssertTrue(self.shellViewIsDisplayed(initialPage.viewIfLoaded))
                 let initialDisplay = await displayFrame.next()
                 let initialDuration = initialDisplay - initialStart
-                firstVisits.append("initial,0,\(initialDuration),0,\(initialDuration)")
+                XCTAssertEqual(self.shellMapCount(controller.view), 1)
+                firstVisits.append("startup,0,\(initialDuration),0,\(initialDuration)")
                 for index in Array(1..<tabCount) + [0] {
                     let timing = try await self.selectShellTab(
                         index, in: mountedTabs, frame: displayFrame)
+                    firstMapID = firstMapID ?? timing.mapID
                     firstVisits.append(
                         "first-visit,\(index),\(timing.response),"
                             + "\(timing.selection),\(timing.display)")
                     XCTAssertLessThan(
-                        timing.response, maximumFirstDelay,
+                        timing.response, firstDelays[index],
                         "首次显示 Tab \(index): selection=\(timing.selection)s, "
                             + "display=\(timing.display)s, response=\(timing.response)s")
                 }
@@ -307,6 +329,8 @@ extension MaintenancePerformanceTests {
             wait(for: [completed], timeout: 30)
         }
         XCTAssertEqual(scene.activationState, .foregroundActive)
+        let mapIDs = timings.values.flatMap { $0.compactMap(\.mapID) }
+        XCTAssertEqual(Set(mapIDs + [try XCTUnwrap(firstMapID)]).count, 1)
         let rows = (0..<tabCount).flatMap { index in
             (timings[index] ?? []).map {
                 "measured,\(index),\($0.response),\($0.selection),\($0.display)"
@@ -382,6 +406,12 @@ extension MaintenancePerformanceTests {
     private func selectShellTab(
         _ index: Int, in tabs: UITabBarController, frame: PerformanceDisplayFrame? = nil
     ) async throws -> ShellSwitchTiming {
+        let signpost = OSSignpostID(log: shellSwitchLog)
+        os_signpost(.begin, log: shellSwitchLog, name: "Tab display", signpostID: signpost,
+            "tab=%{public}d", index)
+        defer {
+            os_signpost(.end, log: shellSwitchLog, name: "Tab display", signpostID: signpost)
+        }
         let start = ProcessInfo.processInfo.systemUptime
         let destination: UIViewController
         if #available(iOS 18.0, *), !tabs.tabs.isEmpty {
@@ -397,14 +427,42 @@ extension MaintenancePerformanceTests {
         }
         let selected = ProcessInfo.processInfo.systemUptime
         let frame = frame ?? PerformanceDisplayFrame()
+        let isMap = index == (shellTabCount(tabs) == 8 ? 2 : 1)
         let displayed = await frame.next(startedAt: start) {
             self.shellViewIsDisplayed(destination.viewIfLoaded)
+                && (!isMap || self.shellMapIsReady(destination.viewIfLoaded))
         }
         XCTAssertTrue(shellViewIsDisplayed(destination.viewIfLoaded))
+        var mapID: ObjectIdentifier?
+        if isMap {
+            XCTAssertTrue(shellMapIsReady(destination.viewIfLoaded))
+            XCTAssertEqual(shellMapCount(try XCTUnwrap(destination.view.window)), 1)
+            mapID = ObjectIdentifier(try XCTUnwrap(shellMap(in: destination.viewIfLoaded)))
+        }
         return (
             displayed - start, selected - start, displayed - selected,
-            try XCTUnwrap(frame.firstFrame) - start, frame.maximumGap
+            try XCTUnwrap(frame.firstFrame) - start, frame.maximumGap, mapID
         )
+    }
+
+    @MainActor
+    private func shellMapCount(_ view: UIView) -> Int {
+        (view is MKMapView ? 1 : 0) + view.subviews.reduce(0) { $0 + shellMapCount($1) }
+    }
+
+    @MainActor
+    private func shellMapIsReady(_ view: UIView?) -> Bool {
+        guard let map = shellMap(in: view) else { return false }
+        let coordinator = map.delegate as? CampusNativeMapView.Coordinator
+        return map.window != nil && !map.bounds.isEmpty
+            && coordinator?.renderedMapSize == map.bounds.size
+    }
+
+    @MainActor
+    private func shellMap(in view: UIView?) -> MKMapView? {
+        guard let view else { return nil }
+        if let map = view as? MKMapView { return map }
+        return view.subviews.lazy.compactMap { self.shellMap(in: $0) }.first
     }
 
     @MainActor

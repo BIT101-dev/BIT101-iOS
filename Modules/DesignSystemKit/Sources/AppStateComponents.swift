@@ -1,6 +1,48 @@
 #if os(iOS)
 import SwiftUI
 import OSLog
+import UIKit
+
+/// 原生内容在目标窗口及尺寸就绪后直接交接，保留已完成的布局和渲染状态。
+open class AppPreparedViewHost<Content: UIView>: UIView {
+    public let content: Content
+    public var onFirstMount: (() -> Void)?
+    public private(set) var isContentMounted = false
+
+    public init(content: Content) {
+        self.content = content
+        super.init(frame: .zero)
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public final override func didMoveToWindow() {
+        super.didMoveToWindow()
+        attachIfReady()
+    }
+
+    public final override func layoutSubviews() {
+        super.layoutSubviews()
+        attachIfReady()
+        if content.superview === self, content.frame != bounds { content.frame = bounds }
+    }
+
+    private func attachIfReady() {
+        guard window != nil, !bounds.isEmpty else { return }
+        if content.superview !== self {
+            content.frame = bounds
+            addSubview(content)
+        }
+        if !isContentMounted {
+            isContentMounted = true
+            let action = onFirstMount
+            onFirstMount = nil
+            action?()
+        }
+    }
+}
 
 /// 首次显示时构建内容，后续保留实例；呈现动画由页面容器统一负责。
 @MainActor

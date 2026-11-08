@@ -218,6 +218,22 @@ def compressed_artifact(name: str) -> bool:
     return name.lower().endswith((".zip", ".gz", ".tgz", ".bz2", ".xz", ".tar", ".zst", ".7z"))
 
 
+def check_app_size(app: Path) -> int:
+    """Measure the installed bundle, counting each regular file without compression."""
+    if not app.is_dir():
+        raise SystemExit(f"App 目录不存在：{app}")
+    total = sum(
+        path.stat().st_size
+        for directory, _, files in os.walk(app)
+        for name in files
+        if not (path := Path(directory) / name).is_symlink() and path.is_file()
+    )
+    if total > 100_000_000:
+        raise SystemExit(f"App 体积 {total / 1_000_000:.2f}MB，超过 100MB：{app}")
+    print(f"[体积] {total / 1_000_000:.2f}MB / 100MB")
+    return total
+
+
 def self_test() -> None:
     for parent, name in (
         (".build/extended-automation", "latest.log"),
@@ -235,6 +251,25 @@ def self_test() -> None:
     assert compressed_artifact("cache/diagnostics.ZIP")
     assert not compressed_artifact("cache/module.pcm")
     from unittest.mock import mock_open, patch
+    from types import SimpleNamespace
+    from contextlib import redirect_stdout
+    from io import StringIO
+
+    for size in (100_000_000, 100_000_001):
+        with (
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "is_symlink", lambda path: path.name == "Current"),
+            patch.object(Path, "stat", return_value=SimpleNamespace(st_size=size)),
+            patch.object(os, "walk", return_value=[("/app", [], ["binary", "Current"])]),
+            redirect_stdout(StringIO()),
+        ):
+            try:
+                assert check_app_size(Path("/app")) == size
+            except SystemExit:
+                assert size > 100_000_000
+            else:
+                assert size <= 100_000_000
 
     root = Path("/fixture")
     for symbolic in (False, True):
@@ -623,6 +658,11 @@ def main(root: Path) -> None:
     for stale in (root / "build/DeviceInstall/Build/Products").glob("*.xctestrun"):
         stale.unlink(missing_ok=True)
     allowed_root_files = {
+        # SourceKit-LSP uses SwiftPM's fixed workspace metadata and index directory.
+        ".build/.lock",
+        ".build/.buildSystem_debug",
+        ".build/CACHEDIR.TAG",
+        ".build/workspace-state.json",
         ".build/extended-automation.lock",
         ".build/code-quality-report.txt",
         ".build/explanatory-text-report.txt",
@@ -630,6 +670,10 @@ def main(root: Path) -> None:
         ".build/screenshot.png",
     }
     allowed_dirs = {
+        ".build/index-build",
+        ".build/artifacts",
+        ".build/checkouts",
+        ".build/repositories",
         "build/DeviceInstall",
         ".build/compiler-cache",
         ".build/static-audit",
@@ -689,7 +733,9 @@ def main(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--native-cache"]:
+    if sys.argv[1:2] == ["--app-size"]:
+        check_app_size(Path(sys.argv[2]))
+    elif sys.argv[1:2] == ["--native-cache"]:
         import resource
 
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))

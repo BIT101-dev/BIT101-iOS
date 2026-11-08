@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 import UIKit
+import SwiftUI
 import WebKit
 import ClientCore
 import ScoreDomain
@@ -21,6 +22,128 @@ import StorageCore
 @testable import BIT101_iOS
 
 extension NetworkSmokeCoverageTests {
+    final class PreparedWebView: WKWebView {
+        var requests: [URLRequest] = []
+        var htmlLoads = 0
+        var windowDetachments = 0
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { windowDetachments += 1 }
+        }
+        override func loadHTMLString(_ string: String, baseURL: URL?) -> WKNavigation? {
+            htmlLoads += 1
+            return super.loadHTMLString(string, baseURL: baseURL)
+        }
+        override func load(_ request: URLRequest) -> WKNavigation? {
+            requests.append(request)
+            let path = request.url?.path ?? "/gallery"
+            return loadHTMLString(
+                "<a href=\"\(path)/1\">首条内容</a>", baseURL: request.url)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func webPreparationReusesNativePages() async throws {
+        var identity = CommunitySessionIdentity(accountIdentifier: "prepared", generation: 0)
+        let dependencies = FeatureCompositionTests().gallery(
+            .init(), identity: { identity },
+            webViewProvider: { PreparedWebView(frame: .zero, configuration: $0) })
+        let host = UIView()
+        dependencies.attachPreparedWebContent(to: host)
+        #expect(host.subviews.count == 2)
+        let first = dependencies.makeWebView(for: .gallery)
+        let paper = dependencies.makeWebView(for: .paper)
+        #expect(first.superview === host && paper.superview === host)
+        let displayHost = UIView()
+        displayHost.addSubview(first)
+        displayHost.addSubview(paper)
+        #expect(host.subviews.isEmpty)
+        #expect(first.configuration.websiteDataStore === dependencies.webDataStore)
+        #expect(paper.configuration.websiteDataStore === dependencies.webDataStore)
+        dependencies.prepareWebContent()
+        let extra = dependencies.makeWebView(for: .gallery)
+        #expect(extra !== first && extra.url == nil)
+        let oldStore = first.configuration.websiteDataStore
+        identity = .init(accountIdentifier: "prepared", generation: 1)
+        dependencies.prepareWebContent()
+        let renewed = dependencies.makeWebView(for: .gallery)
+        #expect(renewed !== first && renewed.configuration.websiteDataStore !== oldStore)
+        displayHost.addSubview(renewed)
+        NotificationCenter.default.post(
+            name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        #expect(host.subviews.isEmpty)
+        dependencies.prepareWebContent()
+        #expect(host.subviews.isEmpty)
+        dependencies.releasePreparedWebContent()
+        #expect(host.subviews.isEmpty)
+    }
+
+    struct PreparedWebPage: View {
+        let request: FeatureCompositionTests.PaperRequest
+        let dependencies: GalleryDependencies
+        let surface: GallerySurface
+        var body: some View {
+            ZStack {
+                Color(uiColor: .systemBackground)
+                GalleryWebContentView(dependencies: dependencies, surface: surface)
+                    .environment(\.appPageIsVisible, request.id != nil)
+            }
+            .background {
+                ZStack {
+                    GalleryWebPreparationHost(dependencies: dependencies)
+                    Color(uiColor: .systemBackground)
+                }
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: [GallerySurface.gallery, .paper])
+    func preparedWebEntryKeepsLoadedContent(surface: GallerySurface) async throws {
+        let factory = FeatureCompositionTests()
+        var webViews: [PreparedWebView] = []
+        let dependencies = factory.gallery(.init(), webViewProvider: {
+            let view = PreparedWebView(frame: .zero, configuration: $0)
+            webViews.append(view)
+            return view
+        })
+        defer { dependencies.releasePreparedWebContent() }
+        let request = FeatureCompositionTests.PaperRequest()
+        request.id = nil
+        let page = PreparedWebPage(request: request, dependencies: dependencies, surface: surface)
+        try await factory.host(page, navigation: false) {
+            var phase = "creating preparation views"
+            defer { #expect(phase == "done", "phase=\(phase), views=\(webViews.count)") }
+            try await waitForTestEvent { webViews.count == 2 }
+            let coordinator = dependencies.webCoordinator(for: surface, openExternal: { _ in })
+            phase = "preparing content"
+            try await waitForTestEvent { coordinator.firstContentDuration != nil }
+            let view = try #require(webViews.first { $0.navigationDelegate === coordinator })
+            let window = try #require(view.window)
+            let preparationHost = try #require(view.superview)
+            let detachments = view.windowDetachments
+            for _ in 0..<3 {
+                NotificationCenter.default.post(
+                    name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+                dependencies.prepareWebContent()
+            }
+            #expect(
+                dependencies.webCoordinator(for: surface, openExternal: { _ in }) === coordinator)
+            dependencies.beginWebPresentation(for: surface)
+            try await Task.sleep(for: .milliseconds(20))
+            request.id = 1
+            phase = "displaying content"
+            try await waitForTestEvent {
+                view.superview !== preparationHost && coordinator.firstContentLocalDuration != nil
+            }
+            #expect(view.window === window && view.windowDetachments == detachments)
+            #expect(try #require(coordinator.firstContentLocalDuration) < 0.2)
+            #expect(try #require(coordinator.firstContentDuration) >= 0.02)
+            #expect(view.requests.count == 1)
+            let text = try await view.evaluateJavaScript("document.body.textContent") as? String
+            #expect(text == "首条内容")
+            phase = "done"
+        }
+    }
+
     @Test(
         .timeLimit(.minutes(1)), arguments: ["obj", "uid", "path", "search"],
         ["correct", "wrong", "missing"])

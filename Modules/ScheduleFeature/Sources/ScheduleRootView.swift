@@ -53,14 +53,16 @@ public struct ScheduleRootView: View {
     @State private var lastCourseSection: ScheduleSection = .courses
     @State private var courseTabResetSignal = 0
 
-    private struct PagePresentation: ViewModifier {
+    private struct PagePresentation: View {
         @Environment(\.appPageIsVisible) private var isPageVisible
         let viewModel: ScheduleViewModel
         let section: ScheduleSection
         private var isVisible: Bool { isPageVisible && section == viewModel.selectedSection }
 
-        func body(content: Content) -> some View {
-            content
+        var body: some View {
+            Color.clear
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
                 .task(id: isVisible && section == .classroom && !viewModel.isLoadingCache) {
                     guard isVisible, section == .classroom, !viewModel.isLoadingCache
                     else { return }
@@ -120,8 +122,9 @@ public struct ScheduleRootView: View {
         .onChange(of: requestedSection) { _, _ in
             consumeSectionRequest()
         }
-        .modifier(PagePresentation(
-            viewModel: viewModel, section: displayedSection))
+        .background {
+            PagePresentation(viewModel: viewModel, section: displayedSection)
+        }
         .environment(viewModel)
         .environment(viewModel.ddl)
         .modifier(ScheduleCourseSectionTracking(

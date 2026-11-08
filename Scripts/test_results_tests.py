@@ -244,7 +244,8 @@ def module_failure_report_self_test() -> None:
             f" DERIVED_ROOT="
             f"{shlex.quote(str(fixture))}"
             f"\nMODE=modules BUILD_ONLY=false validation_group=modules validation_"
-            f"scope=selected\nWORKFLOW_STARTED_SECONDS=$SECONDS retained_result_gr"
+            f"scope=selected MAC_TEST_SESSION=0\nWORKFLOW_STARTED_SECONDS=$SECONDS "
+            f"retained_result_gr"
             f'oups=() TEST_SELECTIONS=()\npython3() {{\n  if [[ "$1" == "$ROOT_DIR/'
             f'Scripts/validation_evidence.py" ]]; then return 0; fi\n  command pyt'
             f"""hon3 "$@"\n}}\nbit101_run_logged() {{ print 'error: fixture module bu"""

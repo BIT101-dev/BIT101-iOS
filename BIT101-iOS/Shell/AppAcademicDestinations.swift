@@ -24,13 +24,19 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
 }
 
 /// 成绩与课程入口共享分区选择与课程路由，各自沿原生浏览分栏呈现。
-struct AppScoreSurfaceView: View {
+struct AppScoreSurfaceView: View, Equatable {
     private let courses: CourseDependencies
     private let transcriptService: any TrustedTranscriptServicing
     private let requestedCourse: Binding<CourseNavigationRequest?>
     private let selection: Binding<ScoreSurface>?
     private let showingCourses: Bool?
     private let identity: ObjectIdentifier
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.identity == rhs.identity && lhs.showingCourses == rhs.showingCourses
+            && lhs.transcriptService.transcriptServiceIdentity
+                == rhs.transcriptService.transcriptServiceIdentity
+    }
 
     init(
         courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,

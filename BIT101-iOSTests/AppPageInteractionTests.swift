@@ -4,8 +4,73 @@ import UIKit
 import XCTest
 
 @testable import DesignSystemKit
+#if DEBUG
+@testable import BIT101_iOS
+import ScheduleFeature
+#endif
 
 nonisolated final class AppPageInteractionTests: XCTestCase {
+    #if DEBUG
+    @MainActor
+    func testRetainedShellReceivesScheduleRoutes() async throws {
+        let factory = ExperimentalPreferenceCloudSyncTests()
+        let domain = "BIT101Tests.shell-routing"
+        let (sync, defaults, _, account) = try factory.context(domain: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        sync.settings.markStartupNoticeSeen()
+        sync.settings.markThanksNoticeShown(for: account.session)
+        let lifecycle = factory.lifecycle(sync: sync, account: account, displays: .init())
+        await lifecycle.scheduleViewModel.loadIfNeeded()
+        func findTabs(in controller: UIViewController) -> UITabBarController? {
+            if let result = controller as? UITabBarController { return result }
+            return controller.children.lazy.compactMap { findTabs(in: $0) }.first
+        }
+        for expanded in [false, true] {
+            lifecycle.scheduleViewModel.selectedSection = .courses
+            let size = expanded ? CGSize(width: 1024, height: 768) : CGSize(width: 390, height: 844)
+            let view = AppShellView(
+                transcriptService: lifecycle.transcriptService, studentID: "routing", onLogout: {}
+            )
+            .modifier(AppAccountEnvironment(lifecycle: lifecycle))
+            .environment(
+                \.appWindowLayout,
+                AppWindowLayout(
+                    size: size, isRegularWidth: expanded,
+                    interfaceIdiom: expanded ? .pad : .phone))
+            .frame(width: size.width, height: size.height)
+            var root: UIViewController?
+            try await FeatureCompositionTests().host(
+                view, navigation: false, prepare: { root = $0 }
+            ) {
+                let root = try XCTUnwrap(root)
+                try await waitForTestEvent { findTabs(in: root) != nil }
+                let tabs = try XCTUnwrap(findTabs(in: root))
+                let index = expanded ? 2 : 1
+                if #available(iOS 18.0, *), !tabs.tabs.isEmpty {
+                    let previous = tabs.selectedTab
+                    let selected = tabs.tabs[index]
+                    tabs.selectedTab = selected
+                    tabs.delegate?.tabBarController?(
+                        tabs, didSelectTab: selected, previousTab: previous)
+                } else {
+                    let selected = try XCTUnwrap(tabs.viewControllers?[index])
+                    tabs.selectedViewController = selected
+                    tabs.delegate?.tabBarController?(tabs, didSelect: selected)
+                }
+                for (path, expected) in [("ddl", ScheduleSection.ddl), ("courses", .courses)] {
+                    let url = try XCTUnwrap(URL(string: "bit101://schedule/\(path)"))
+                    AppDeepLinkCoordinator.shared.receive(url)
+                    try await waitForTestEvent {
+                        lifecycle.scheduleViewModel.selectedSection == expected
+                            && tabs.selectedIndex == 0
+                    }
+                    XCTAssertNil(AppDeepLinkCoordinator.shared.pendingURL)
+                }
+            }
+        }
+    }
+    #endif
+
     @MainActor
     func testPairedPagesBuildContentOnFirstVisit() async throws {
         var builds: [Bool] = []

@@ -296,6 +296,16 @@ def coverage_registry_findings(modules: set[str], ui_modules: set[str] | None = 
 
 CAPABILITY_CONTRACTS = {
     "MediaKit.MediaEnvironment": {"verifyRemoteImage(at:URL)": "network"},
+    "MediaKit.CachedRemoteImageLoader": {
+        (
+            "load(url:URL?,fallbackURL:URL?,media:MediaEnvironment,maximumPixelSize:Int?,"
+            "viewport:MediaImageViewport?)"
+        ): "network",
+    },
+    "MediaKit.CachedRemoteImageStore": {
+        "image(for:URL,maximumPixelSize:Int?,viewport:MediaImageViewport?)": "network",
+        "loadImage(for:URL,maximumPixelSize:Int?,viewport:MediaImageViewport?)": "network",
+    },
     "ClientCore.NativeSchoolAuthenticator": {
         "authenticate(:SchoolServiceTarget)": ("first-login", "registered-account"),
         "verifyIdentity()": ("first-login", "registered-account"),
@@ -392,7 +402,6 @@ CAPABILITY_CONTRACTS = {
         "checkLogin()": ("account-lifecycle", "sign-in-b"),
     },
     "GalleryFeature.GalleryWebCoordinator": {
-        "start(in:WKWebView,url:URL)": ("web-interactions", "gallery-account-switch"),
         "webView(:WKWebView,didFinish:WKNavigation?)": ("web-interactions", "gallery-login"),
         "synchronizeCredentials(in:WKWebView)": ("web-interactions", "gallery-sign-out"),
         "webView(:WKWebView,didFail:WKNavigation?,withError:Error)": (
@@ -404,6 +413,21 @@ CAPABILITY_CONTRACTS = {
             "gallery-login",
         ),
         "webViewWebContentProcessDidTerminate(:WKWebView)": ("web-interactions", "gallery-login"),
+    },
+    "GalleryFeature.GalleryDependencies": {
+        "prepareWebContent(size:CGSize)": ("web-interactions", "gallery-account-switch"),
+        "attachPreparedWebContent(to:UIView)": ("web-interactions", "gallery-login"),
+    },
+    "GalleryFeature.GalleryWebContainer": {
+        "update(to:URL)": ("web-interactions", "gallery-login"),
+    },
+    "GalleryFeature.GalleryWebPreparationHost": {
+        "makeUIView(context:Context)": ("web-interactions", "gallery-login"),
+        "updateUIView(:UIView,context:Context)": ("web-interactions", "gallery-account-switch"),
+    },
+    "GalleryFeature@Modules/GalleryFeature/Sources/GalleryRootView.swift.GalleryWebView": {
+        "updateUIView(:GalleryWebContainer,context:Context)": (
+            "web-interactions", "gallery-login"),
     },
     "CourseFeature.CourseService": {
         "fetchCourses(search:String,page:Int)": "network",

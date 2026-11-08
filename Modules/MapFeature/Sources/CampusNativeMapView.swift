@@ -25,6 +25,106 @@ struct MapFocusRequest: Equatable {
     let animated: Bool
 }
 
+/// 每个壳层保留一份真实地图，启动时准备，随后交给地图页面继续交互。
+@MainActor
+public final class CampusMapPreparation {
+    fileprivate let coordinator = CampusNativeMapView.Coordinator()
+    var focusRequest = MapFocusRequest(preset: .liangxiang, animated: false)
+    private var mapView: MKMapView?
+    private var isClaimed = false
+    private var isPreparing = false
+
+    public init() {}
+
+    fileprivate func claim(_ makeView: () -> MKMapView) -> MKMapView {
+        isClaimed = true
+        if let mapView { return mapView }
+        let view = makeView()
+        mapView = view
+        return view
+    }
+
+    fileprivate func prepare(
+        in host: UIView, preset: CampusPreset, target: UpcomingCourseMapTarget?,
+        configuration: MKMapConfiguration, configurationID: String
+    ) {
+        guard !isClaimed, !isPreparing, host.window != nil, !host.bounds.isEmpty else { return }
+        isPreparing = true
+        defer { isPreparing = false }
+        if focusRequest.preset != preset {
+            focusRequest = MapFocusRequest(preset: preset, animated: false)
+        }
+        if mapView == nil {
+            mapView = CampusNativeMapView.makeMapView(
+                frame: host.bounds, coordinator: coordinator, focusRequest: focusRequest,
+                nextCourseTarget: target, requestedLocation: nil,
+                configuration: configuration, configurationID: configurationID)
+        }
+        guard let mapView else { return }
+        if mapView.frame != host.bounds { mapView.frame = host.bounds }
+        if mapView.superview !== host { host.addSubview(mapView) }
+        if coordinator.lastMapConfigurationID != configurationID {
+            mapView.preferredConfiguration = configuration
+            coordinator.lastMapConfigurationID = configurationID
+        }
+        coordinator.syncNextCourseAnnotation(target, in: mapView)
+        if coordinator.lastFocusID != focusRequest.id {
+            coordinator.focus(on: preset, in: mapView, animated: false)
+            coordinator.lastFocusID = focusRequest.id
+        }
+    }
+}
+
+public struct CampusMapPreparationHost: UIViewRepresentable {
+    private let preparation: CampusMapPreparation
+    private let nextCourseTarget: UpcomingCourseMapTarget?
+    @AppStorage(MapPreferenceKey.selectedCampus)
+    private var campusID = CampusPreset.liangxiang.rawValue
+    @AppStorage(MapPreferenceKey.displayMode)
+    private var mode = CampusMapDisplayMode.standard.rawValue
+
+    public init(preparation: CampusMapPreparation, nextCourseTarget: UpcomingCourseMapTarget?) {
+        self.preparation = preparation
+        self.nextCourseTarget = nextCourseTarget
+    }
+
+    public func makeUIView(context: Context) -> UIView {
+        let view = CampusMapPreparationView()
+        configure(view)
+        return view
+    }
+
+    public func updateUIView(_ view: UIView, context: Context) {
+        if let view = view as? CampusMapPreparationView { configure(view) }
+    }
+
+    private func configure(_ view: CampusMapPreparationView) {
+        let preset = nextCourseTarget?.campus ?? CampusPreset(rawValue: campusID) ?? .liangxiang
+        let displayMode = CampusMapDisplayMode(rawValue: mode) ?? .standard
+        let configuration = displayMode.configuration
+        let preparation = preparation
+        let target = nextCourseTarget
+        view.prepare = { host in
+            preparation.prepare(
+                in: host, preset: preset, target: target, configuration: configuration,
+                configurationID: displayMode.rawValue)
+        }
+        view.setNeedsLayout()
+    }
+}
+
+private final class CampusMapPreparationView: UIView {
+    var prepare: ((UIView) -> Void)?
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        prepare?(self)
+    }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        prepare?(self)
+    }
+}
+
 /// MapKit 与 SwiftUI 之间的桥接层。
 ///
 /// 原生地图、相机定位和下一节课标记由该桥接层负责。
@@ -38,15 +138,18 @@ struct CampusNativeMapView: UIViewRepresentable {
     let mapConfiguration: MKMapConfiguration
     let mapConfigurationID: String
     let onLocationFailure: (Error) -> Void
+    var preparation: CampusMapPreparation? = nil
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator()
+        let coordinator = preparation?.coordinator ?? Coordinator()
         coordinator.onLocationFailure = onLocationFailure
         coordinator.reduceMotion = reduceMotion
         return coordinator
     }
 
-    static func dismantleUIView(_ mapView: MKMapView, coordinator: Coordinator) {
+    static func dismantleUIView(_ host: AppPreparedViewHost<MKMapView>, coordinator: Coordinator) {
+        let mapView = host.content
+        guard mapView.superview === host else { return }
         coordinator.updateLocation(in: mapView, active: false, requestID: nil)
         mapView.delegate = nil
     }
@@ -54,11 +157,29 @@ struct CampusNativeMapView: UIViewRepresentable {
     /// 创建并初始化原生 `MKMapView`。
     ///
     /// 通过原生 `MapKit` 控制相机和定位回调。
-    func makeUIView(context: Context) -> MKMapView {
-        let mapView = MKMapView(frame: .zero)
-        mapView.delegate = context.coordinator
+    func makeUIView(context: Context) -> AppPreparedViewHost<MKMapView> {
+        let makeView = {
+            Self.makeMapView(
+                frame: .zero, coordinator: context.coordinator, focusRequest: focusRequest,
+                nextCourseTarget: nextCourseTarget, requestedLocation: requestedLocation,
+                configuration: mapConfiguration, configurationID: mapConfigurationID)
+        }
+        let mapView = preparation?.claim(makeView) ?? makeView()
+        let host = AppPreparedViewHost(content: mapView)
+        host.onFirstMount = { updateMapView(mapView, coordinator: context.coordinator) }
+        return host
+    }
+
+    static func makeMapView(
+        frame: CGRect, coordinator: Coordinator, focusRequest: MapFocusRequest,
+        nextCourseTarget: UpcomingCourseMapTarget?, requestedLocation: CampusMapLocationRequest?,
+        configuration mapConfiguration: MKMapConfiguration,
+        configurationID mapConfigurationID: String
+    ) -> MKMapView {
+        let mapView = MKMapView(frame: frame)
+        mapView.delegate = coordinator
         mapView.preferredConfiguration = mapConfiguration
-        context.coordinator.lastMapConfigurationID = mapConfigurationID
+        coordinator.lastMapConfigurationID = mapConfigurationID
         mapView.showsCompass = true
         mapView.showsScale = true
         mapView.showsUserLocation = false
@@ -66,45 +187,64 @@ struct CampusNativeMapView: UIViewRepresentable {
         mapView.accessibilityLabel = "校园地图"
         mapView.accessibilityHint = "拖动或双指缩放查看校区和上课地点"
 
-        context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
-        context.coordinator.syncRequestedLocation(requestedLocation, in: mapView)
+        coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
+        coordinator.syncRequestedLocation(requestedLocation, in: mapView)
 
-        context.coordinator.focus(on: focusRequest.preset, in: mapView, animated: false)
-        context.coordinator.focus(
+        coordinator.focus(on: focusRequest.preset, in: mapView, animated: false)
+        coordinator.focus(
             on: requestedLocation?.places.first, in: mapView, animated: false)
-        context.coordinator.lastFocusID = focusRequest.id
+        coordinator.lastFocusID = focusRequest.id
 
         return mapView
     }
 
     /// 根据最新的 SwiftUI 状态同步地图相机和“回到我的位置”动作。
-    func updateUIView(_ mapView: MKMapView, context: Context) {
-        context.coordinator.onLocationFailure = onLocationFailure
-        context.coordinator.reduceMotion = reduceMotion
-        if context.coordinator.lastMapConfigurationID != mapConfigurationID {
-            mapView.preferredConfiguration = mapConfiguration
-            context.coordinator.lastMapConfigurationID = mapConfigurationID
+    func updateUIView(_ host: AppPreparedViewHost<MKMapView>, context: Context) {
+        if host.isContentMounted {
+            updateMapView(host.content, coordinator: context.coordinator)
+        } else {
+            host.onFirstMount = { updateMapView(host.content, coordinator: context.coordinator) }
         }
-        context.coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
-        let requestedLocationChanged = context.coordinator.syncRequestedLocation(
+    }
+
+    private func updateMapView(_ mapView: MKMapView, coordinator: Coordinator) {
+        if mapView.delegate !== coordinator { mapView.delegate = coordinator }
+        coordinator.onLocationFailure = onLocationFailure
+        coordinator.reduceMotion = reduceMotion
+        if coordinator.lastMapConfigurationID != mapConfigurationID {
+            mapView.preferredConfiguration = mapConfiguration
+            coordinator.lastMapConfigurationID = mapConfigurationID
+        }
+        coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
+        let requestedLocationChanged = coordinator.syncRequestedLocation(
             requestedLocation, in: mapView)
 
-        if context.coordinator.lastFocusID != focusRequest.id {
-            context.coordinator.focus(
+        if coordinator.lastFocusID != focusRequest.id {
+            coordinator.focus(
                 on: focusRequest.preset, in: mapView, animated: focusRequest.animated)
-            context.coordinator.lastFocusID = focusRequest.id
+            coordinator.lastFocusID = focusRequest.id
+            preparation?.focusRequest = focusRequest
         }
 
         if requestedLocationChanged {
-            context.coordinator.focus(
+            coordinator.focus(
                 on: requestedLocation?.places.first, in: mapView, animated: true)
         }
-        context.coordinator.updateLocation(
+        coordinator.updateLocation(
             in: mapView, active: isActive, requestID: centerOnUserRequestID)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate {
         private static let annotationReuseIdentifier = "campus-place"
+        private(set) var renderedMapSize: CGSize?
+
+        func mapViewWillStartRenderingMap(_ mapView: MKMapView) {
+            renderedMapSize = nil
+        }
+
+        func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
+            if fullyRendered { renderedMapSize = mapView.bounds.size }
+        }
 
         var lastFocusID: UUID?
         var lastCenterOnUserRequestID: UUID?

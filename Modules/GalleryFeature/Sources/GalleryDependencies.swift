@@ -75,10 +75,20 @@ public final class GalleryDependencies {
             $0.view.stopLoading()
             $0.view.removeFromSuperview()
         }
+        preparationHost?.subviews.forEach { $0.removeFromSuperview() }
         preparedWebViews.removeAll()
         createdWebSurfaces.removeAll()
         preparedIdentity = nil
         presentationTimings.removeAll()
+    }
+
+    private func trimPreparedWebContent() {
+        for (surface, prepared) in preparedWebViews
+        where prepared.coordinator.firstContentDuration == nil {
+            prepared.view.stopLoading()
+            prepared.view.removeFromSuperview()
+            preparedWebViews.removeValue(forKey: surface)
+        }
     }
 
     func attachPreparedWebContent(to host: UIView) {
@@ -101,7 +111,6 @@ public final class GalleryDependencies {
         updatePreparedIdentity()
         createdWebSurfaces.insert(surface)
         if let prepared = preparedWebViews.removeValue(forKey: surface) {
-            prepared.view.removeFromSuperview()
             return prepared.view
         }
         let configuration = WKWebViewConfiguration()
@@ -186,7 +195,36 @@ public final class GalleryDependencies {
         }
         memorySubscription = NotificationCenter.default.publisher(
             for: UIApplication.didReceiveMemoryWarningNotification
-        ).sink { [weak self] _ in self?.releasePreparedWebContent() }
+        ).sink { [weak self] _ in self?.trimPreparedWebContent() }
+    }
+}
+
+/// 等容器进入窗口且尺寸就绪后，直接接入预备网页，保留 WebKit 的窗口与排版。
+final class GalleryWebContainer: AppPreparedViewHost<WKWebView> {
+    private let coordinator: GalleryWebCoordinator
+    private var url: URL
+    private var timing: GalleryWebEntryTiming?
+
+    init(
+        webView: WKWebView, coordinator: GalleryWebCoordinator, url: URL,
+        timing: GalleryWebEntryTiming?
+    ) {
+        self.coordinator = coordinator
+        self.url = url
+        self.timing = timing
+        super.init(content: webView)
+        onFirstMount = { [weak self] in
+            guard let self else { return }
+            self.coordinator.present(in: self.content, url: self.url, timing: self.timing)
+            self.timing = nil
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(to url: URL) {
+        self.url = url
+        if isContentMounted { coordinator.update(in: content, to: url) }
     }
 }
 

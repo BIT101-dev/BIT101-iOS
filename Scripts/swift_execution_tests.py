@@ -235,6 +235,8 @@ def network_composition_self_test() -> None:
     for owner, permitted in [
         ("GalleryWebCoordinator", True),
         ("GalleryWebView", True),
+        ("GalleryDependencies", True),
+        ("GalleryWebContainer", True),
         ("GalleryRootViewScene.GalleryWebView", False),
         ("OtherView", False),
     ]:

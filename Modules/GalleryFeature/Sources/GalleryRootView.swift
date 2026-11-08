@@ -507,15 +507,15 @@ public struct GalleryWebContentView: View {
         self.dependencies = dependencies
         self.surface = surface
         _requestedPaperID = requestedPaperID
-        _destinationID = State(initialValue: requestedPaperID.wrappedValue)
     }
 
     public var body: some View {
         let base = AppEndpoints.bit101Web.appendingPathComponent(surface.rawValue)
+        let identifier = requestedPaperID ?? destinationID
         Group {
             if lifetime.retainIfVisible(isVisible) {
                 GalleryWebView(
-                    url: destinationID.map { base.appendingPathComponent(String($0)) } ?? base
+                    url: identifier.map { base.appendingPathComponent(String($0)) } ?? base
                 )
                 .environment(dependencies)
             }
@@ -541,19 +541,19 @@ private struct GalleryWebView: UIViewRepresentable {
             openExternal: { url in openURL(url) })
     }
 
-    func makeUIView(context: Context) -> WKWebView {
+    func makeUIView(context: Context) -> GalleryWebContainer {
         let surface: GallerySurface = url.path.hasPrefix("/paper") ? .paper : .gallery
         let webView = dependencies.makeWebView(for: surface)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
-        context.coordinator.present(
-            in: webView, url: url, timing: dependencies.takeWebPresentation(for: surface))
-        return webView
+        return GalleryWebContainer(
+            webView: webView, coordinator: context.coordinator, url: url,
+            timing: dependencies.takeWebPresentation(for: surface))
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.update(in: webView, to: url)
+    func updateUIView(_ view: GalleryWebContainer, context: Context) {
+        view.update(to: url)
     }
 }
 

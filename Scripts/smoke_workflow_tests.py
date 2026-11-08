@@ -356,6 +356,7 @@ def verify_smoke_result_recording(extended_source, findings, shell_function):
                 harness = f"""
 set -euo pipefail
 verification_audit_pid= BUILD_ONLY=false WORKFLOW_STARTED_SECONDS=$SECONDS
+MAC_TEST_SESSION=0
 DERIVED_ROOT=/dev/null ROOT_DIR=/audit validation_group=ui validation_scope=full
 retained_result_groups=()
 python3() {{ return 0; }}

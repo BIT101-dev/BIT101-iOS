@@ -12,12 +12,12 @@ extension AppDesignSystem {
 /// 地图页用到的本地偏好键。
 ///
 /// 地图模块持久化用户上次选择的校区和地图图层。
-private enum MapPreferenceKey {
+enum MapPreferenceKey {
     static let selectedCampus = "map.selectedCampus"
     static let displayMode = "map.displayMode"
 }
 
-private enum CampusMapDisplayMode: String {
+enum CampusMapDisplayMode: String {
     case standard
     case satellite
 
@@ -62,6 +62,7 @@ private enum CampusMapDisplayMode: String {
 public struct CampusMapScreen: View {
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
+    private let preparation: CampusMapPreparation?
     @AppStorage(MapPreferenceKey.selectedCampus) private var selectedCampusID = CampusPreset
         .liangxiang.rawValue
     @AppStorage(MapPreferenceKey.displayMode) private var storedDisplayMode =
@@ -83,10 +84,15 @@ public struct CampusMapScreen: View {
 
     public init(
         nextCourseTarget: UpcomingCourseMapTarget?,
-        requestedLocation: CampusMapLocationRequest? = nil
+        requestedLocation: CampusMapLocationRequest? = nil,
+        preparation: CampusMapPreparation? = nil
     ) {
         self.nextCourseTarget = nextCourseTarget
         self.requestedLocation = requestedLocation
+        self.preparation = preparation
+        _focusRequest = State(
+            initialValue: preparation?.focusRequest
+                ?? MapFocusRequest(preset: .liangxiang, animated: false))
     }
 
     /// 地图主页主体。
@@ -102,7 +108,7 @@ public struct CampusMapScreen: View {
                 mapConfigurationID: displayMode.rawValue,
                 onLocationFailure: { error in
                     locationController.handleLocationFailure(error)
-                }
+                }, preparation: preparation
             )
             .ignoresSafeArea(edges: [.top, .bottom])
         }

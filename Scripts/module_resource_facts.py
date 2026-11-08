@@ -159,6 +159,8 @@ SERVICE_RESOURCE_OWNERS = {
     "web": {
         ("GalleryFeature", "GalleryWebView"),
         ("GalleryFeature", "GalleryWebCoordinator"),
+        ("GalleryFeature", "GalleryDependencies"),
+        ("GalleryFeature", "GalleryWebContainer"),
     },
     "transport": {
         ("TransportCore", owner)

@@ -175,7 +175,7 @@ def restore_installation_boundary_findings() -> list[str]:
         "() { print RESULT; }\nDERIVED_ROOT=/fixture DERIVED_DATA=/fixture RESULT_BUNDLE=/fixture/"
         "result\nDEVICETCL_DEVICE_ID=phone BIT101_DEVICETCL_DEVICE_ID=phone DEVICE_ID=phone TEST_C"
         "LASS=fixture\nSMOKE_PLATFORM=iphoneos SIMULATOR_DEVICE= APP_BUNDLE_ID=app APP_GROUP_ID=gr"
-        "oup\ncommon_args=()\n"
+        "oup\ncommon_args=()\nACTION=install\n"
     )
     native = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     native = re.sub(r"\\\n[ \t]*", "", native)
@@ -258,7 +258,10 @@ def restore_installation_boundary_findings() -> list[str]:
     ]
     findings = []
     for program, context, invalidation, expected, events in cases:
-        stub = f"python3() {{ print CLEAR; return {invalidation}; }}\n"
+        stub = (
+            "python3() { [[ \"$2\" != --app-size ]] || return 0; "
+            f"print CLEAR; return {invalidation}; }}\n"
+        )
         result = subprocess.run(
             ["zsh", "-c", prefix + stub + context + program],
             text=True,

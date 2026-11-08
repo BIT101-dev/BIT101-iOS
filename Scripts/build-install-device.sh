@@ -91,6 +91,7 @@ if [[ "$ACTION" == install-archive ]]; then
   APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
     "$APP_PATH/Info.plist")"
   APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+  python3 "$ROOT_DIR/Scripts/validation_artifacts.py" --app-size "$APP_PATH"
   bit101_require_device || exit 1
   bit101_invalidate_restore
   if [[ "${3:-}" == --clean ]]; then
@@ -137,6 +138,7 @@ if [[ "$ACTION" == mac ]]; then
     -allowProvisioningUpdates
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
+  python3 "$ROOT_DIR/Scripts/validation_artifacts.py" --app-size "$APP_PATH"
   INSTALL_PATH="$HOME/Applications/BIT101-iOS.app"
   python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pause "$INSTALL_PATH" >/dev/null
   mkdir -p "$HOME/Applications"
@@ -202,11 +204,15 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BU
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 
+APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
+if [[ "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
+  APP_PATH="$DERIVED_DATA/BIT101-iOS.xcarchive/Products/Applications/BIT101-iOS.app"
+fi
+python3 "$ROOT_DIR/Scripts/validation_artifacts.py" --app-size "$APP_PATH"
 if [[ "$ACTION" == build || "$ACTION" == archive || "$ACTION" == archive-signed ]]; then
   exit 0
 fi
 
-APP_PATH="$DERIVED_DATA/Build/Products/Release-iphoneos/BIT101-iOS.app"
 bit101_invalidate_restore
 xcrun devicectl device install app \
   --device "$BIT101_DEVICETCL_DEVICE_ID" \

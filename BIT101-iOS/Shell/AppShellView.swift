@@ -199,6 +199,7 @@ struct AppShellView: View {
     @Environment(AppCommunityDependencies.self) private var community
     @Environment(\.appWindowLayout) private var layout
     @State private var navigation = AppShellNavigation()
+    @State private var mapPreparation = CampusMapPreparation()
     private var scoreSurface: ScoreSurface {
         get { navigation.scoreSurface }
         nonmutating set { navigation.scoreSurface = newValue }
@@ -224,10 +225,19 @@ struct AppShellView: View {
         }
     }
     private var scoreSelection: Binding<ScoreSurface> {
-        Binding(get: { scoreSurface }, set: { scoreSurface = $0 })
+        @Bindable var navigation = navigation
+        return $navigation.scoreSurface
     }
     private var gallerySelection: Binding<GallerySurface> {
-        Binding(get: { gallerySurface }, set: { gallerySurface = $0 })
+        let navigation = navigation
+        let settings = settings
+        let gallery = community.gallery
+        return Binding(
+            get: { navigation.gallerySurface },
+            set: { surface in
+                if settings.galleryUseWebView { gallery.beginWebPresentation(for: surface) }
+                navigation.gallerySurface = surface
+            })
     }
     @Environment(AppCommunityDestinations.self) private var destinations
     private static let startupNoticeTitle = "\(AppSettingsStore.currentStartupNoticeVersion) 版本更新"
@@ -285,16 +295,19 @@ struct AppShellView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app.shell")
-        .modifier(AppShellSelectionPresentation(navigation: navigation))
+        .background { AppShellSelectionPresentation(navigation: navigation) }
         .background {
-            if settings.galleryUseWebView {
-                ZStack {
+            ZStack {
+                AppMapSurfaceView(
+                    schedule: scheduleViewModel, requestedLocation: requestedMapLocation,
+                    preparation: mapPreparation, isPreparing: true)
+                if settings.galleryUseWebView {
                     GalleryWebPreparationHost(dependencies: community.gallery)
-                    AppDesignSystem.Palette.Background.system
                 }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+                AppDesignSystem.Palette.Background.system
             }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .task(id: settings.galleryUseWebView, priority: .background) {
             if settings.galleryUseWebView {
@@ -352,36 +365,22 @@ struct AppShellView: View {
     }
 
     @available(iOS 18.0, *) private var nativeTabs: some View {
-        TabView(selection: destinationSelection) {
-            ForEach(AppDestination.allCases) { destination in
-                Tab(value: destination) {
-                    destinationContent(destination)
-                        .tint(destination.tab.tintColor)
-                        .appNativeTabBarBackground(isPresented: layout.usesOpaqueNavigation)
-                        .modifier(
-                            AppShellPageVisibility {
-                                destination == destinationSelection.wrappedValue
-                            })
-                } label: {
-                    Label(
-                        destination.title,
-                        systemImage: destination.systemImage
-                    )
-                    .accessibilityIdentifier(destination.accessibilityIdentifier)
-                }
-                .accessibilityIdentifier(destination.accessibilityIdentifier)
-            }
+        AppExpandedTabs(selection: { destinationSelection }) { destination in
+            destinationContent(destination)
+                .tint(destination.tab.tintColor)
+                .appNativeTabBarBackground(isPresented: layout.usesOpaqueNavigation)
+                .modifier(AppShellPageVisibility {
+                    destination == destinationSelection.wrappedValue
+                })
         }
-        .accessibilityIdentifier("app.navigation.adaptive")
     }
 
     private var compactTabs: some View {
-        TabView(selection: Binding(get: { selectedTab }, set: { selectedTab = $0 })) {
-            ForEach(AppTab.allCases) { tab in
-                tabItemView(for: tab)
-            }
+        AppCompactTabs(
+            selection: { selectedTab }, onSelect: { selectedTab = $0 }
+        ) { tab in
+            tabItemView(for: tab)
         }
-        .accessibilityIdentifier("app.navigation.grouped")
     }
 
     @ViewBuilder
@@ -403,46 +402,47 @@ struct AppShellView: View {
         }
     }
 
-    @ViewBuilder private func destinationContent(_ destination: AppDestination) -> some View {
+    private func destinationContent(_ destination: AppDestination) -> AnyView {
         switch destination {
-        case .topics: galleryContent(includesPaperSurface: false)
+        case .topics: AnyView(galleryContent(includesPaperSurface: false))
         case .papers:
-            paperContent
+            AnyView(paperContent
                 .appBrowserHeader(isPresented: !usesExpandedNavigation) {
                     GallerySurfacePicker(selection: gallerySelection)
-                }
+                })
         case .schedule, .classroom:
-            scheduleContent(showingClassrooms: destination == .classroom)
+            AnyView(scheduleContent(showingClassrooms: destination == .classroom))
         case .scores, .courses:
-            AppScoreSurfaceView(
+            AnyView(AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
                 requestedCourse: $requestedCourse,
-                selection: scoreSelection, showingCourses: destination == .courses)
+                selection: scoreSelection, showingCourses: destination == .courses).equatable())
         case .mine: tabContent(.mine)
         default:
-            NavigationStack { tabContent(destination.tab) }
+            AnyView(NavigationStack { tabContent(destination.tab) })
         }
     }
 
-    @ViewBuilder private func tabContent(_ tab: AppTab) -> some View {
+    private func tabContent(_ tab: AppTab) -> AnyView {
         switch tab {
         case .schedule:
-            scheduleContent()
+            AnyView(scheduleContent())
         case .map:
-            AppMapSurfaceView(
-                schedule: scheduleViewModel, requestedLocation: requestedMapLocation)
+            AnyView(AppMapSurfaceView(
+                schedule: scheduleViewModel, requestedLocation: requestedMapLocation,
+                preparation: mapPreparation))
         case .score:
-            AppScoreSurfaceView(
+            AnyView(AppScoreSurfaceView(
                 courses: community.course, transcriptService: transcriptService,
-                requestedCourse: $requestedCourse, selection: scoreSelection)
+                requestedCourse: $requestedCourse, selection: scoreSelection).equatable())
         case .gallery:
-            galleryContent()
+            AnyView(galleryContent())
         case .mine:
-            MineRootView(
+            AnyView(MineRootView(
                 dependencies: community.mine, media: destinations.media,
                 posters: destinations.posters,
                 settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout,
-                requestedSettings: requestedMineSettings)
+                requestedSettings: requestedMineSettings))
         }
     }
 
@@ -460,19 +460,11 @@ struct AppShellView: View {
     }
 
     private func scheduleContent(showingClassrooms: Bool? = nil) -> some View {
-        ScheduleRootView(
-            viewModel: scheduleViewModel, requestedSection: $requestedScheduleSection,
-            destinations: .appDestinations(
-                courses: community.course,
-                onOpenAcademicCourse: { request in
-                    scoreSurface = .course
-                    selectedTab = .score
-                    requestedCourse = request
-                },
-                onOpenCourseLocation: { request in
-                    requestedMapLocation = request
-                    selectedTab = .map
-                }), showingClassrooms: showingClassrooms)
+        AppScheduleSurfaceView(
+            viewModel: scheduleViewModel, courses: community.course, navigation: navigation,
+            requestedSection: $requestedScheduleSection, requestedCourse: $requestedCourse,
+            requestedMapLocation: $requestedMapLocation, showingClassrooms: showingClassrooms)
+            .equatable()
     }
 
     private func galleryContent(includesPaperSurface: Bool = true) -> some View {
@@ -653,6 +645,72 @@ struct AppShellView: View {
     }
 }
 
+/// 选择绑定在容器内部创建，让选择变化只更新 Tab 内容。
+@available(iOS 18.0, *)
+private struct AppExpandedTabs<Content: View>: View {
+    let selection: () -> Binding<AppDestination>
+    let content: (AppDestination) -> Content
+
+    var body: some View {
+        TabView(selection: selection()) {
+            ForEach(AppDestination.allCases) { destination in
+                Tab(value: destination) {
+                    content(destination)
+                } label: {
+                    Label(destination.title, systemImage: destination.systemImage)
+                        .accessibilityIdentifier(destination.accessibilityIdentifier)
+                }
+                .accessibilityIdentifier(destination.accessibilityIdentifier)
+            }
+        }
+        .accessibilityIdentifier("app.navigation.adaptive")
+    }
+}
+
+private struct AppCompactTabs<Content: View>: View {
+    let selection: () -> AppTab
+    let onSelect: (AppTab) -> Void
+    let content: (AppTab) -> Content
+
+    var body: some View {
+        TabView(selection: Binding(get: { selection() }, set: { onSelect($0) })) {
+            ForEach(AppTab.allCases) { tab in content(tab) }
+        }
+        .accessibilityIdentifier("app.navigation.grouped")
+    }
+}
+
+private struct AppScheduleSurfaceView: View, Equatable {
+    let viewModel: ScheduleViewModel
+    let courses: CourseDependencies
+    let navigation: AppShellNavigation
+    @Binding var requestedSection: ScheduleSection?
+    @Binding var requestedCourse: CourseNavigationRequest?
+    @Binding var requestedMapLocation: CampusMapLocationRequest?
+    let showingClassrooms: Bool?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.viewModel === rhs.viewModel && lhs.courses === rhs.courses
+            && lhs.navigation === rhs.navigation && lhs.showingClassrooms == rhs.showingClassrooms
+    }
+
+    var body: some View {
+        ScheduleRootView(
+            viewModel: viewModel, requestedSection: $requestedSection,
+            destinations: .appDestinations(
+                courses: courses,
+                onOpenAcademicCourse: { request in
+                    navigation.scoreSurface = .course
+                    navigation.selectedTab = .score
+                    requestedCourse = request
+                },
+                onOpenCourseLocation: { request in
+                    requestedMapLocation = request
+                    navigation.selectedTab = .map
+                }), showingClassrooms: showingClassrooms)
+    }
+}
+
 @MainActor
 @Observable
 private final class AppShellNavigation {
@@ -675,11 +733,13 @@ private struct AppShellPageVisibility: ViewModifier {
     }
 }
 
-private struct AppShellSelectionPresentation: ViewModifier {
+private struct AppShellSelectionPresentation: View {
     @Environment(\.appInteractionEvidence) private var interactionEvidence
     let navigation: AppShellNavigation
-    func body(content: Content) -> some View {
-        content
+    var body: some View {
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             .appSelectionFeedback(trigger: navigation.selectedTab.rawValue)
             .onChange(of: navigation.selectedTab) { _, _ in
                 interactionEvidence?("app.shell", "tab-switch")
@@ -692,14 +752,20 @@ private struct AppShellSelectionPresentation: ViewModifier {
 private struct AppMapSurfaceView: View {
     let schedule: ScheduleViewModel
     let requestedLocation: CampusMapLocationRequest?
+    let preparation: CampusMapPreparation
+    var isPreparing = false
     @State private var courseTarget = UpcomingCourseMapProjection()
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            CampusMapScreen(
-                nextCourseTarget: courseTarget.resolve(
-                    in: schedule.courseSnapshot, now: context.date),
-                requestedLocation: requestedLocation)
+            let target = courseTarget.resolve(in: schedule.courseSnapshot, now: context.date)
+            if isPreparing {
+                CampusMapPreparationHost(preparation: preparation, nextCourseTarget: target)
+            } else {
+                CampusMapScreen(
+                    nextCourseTarget: target, requestedLocation: requestedLocation,
+                    preparation: preparation)
+            }
         }
         .task { await schedule.loadIfNeeded() }
     }

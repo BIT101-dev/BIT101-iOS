@@ -17,6 +17,15 @@ def network_capability_self_test() -> None:
     verify_request_execution_coverage(course_facts, courses, index, request_call)
 
 
+def capability_type_identity(name):
+    namespace, separator, scope = name.partition(".swift.")
+    if separator:
+        _, _, path = namespace.partition("@")
+        return path + ".swift", scope.split("."), True
+    module, _, scope = name.partition(".")
+    return f"Modules/{module}/Sources/{scope.split('.')[0]}.swift", scope.split("."), False
+
+
 def verify_service_capability_index():
     from swift_type_index_tests import (
         stored_network_callback_self_test,
@@ -50,21 +59,22 @@ def verify_service_capability_index():
     ):
         assert method_signature(signature_function(signature, ["Service"])) == signature
     index = {
-        f"Modules/{name.split('.')[0]}/Sources/{name.split('.')[1]}.swift": {
+        file: {
             "declarations": [
                 {
                     "kind": "struct",
                     "name": part,
-                    "scope": name.split(".")[1:position],
+                    "scope": scope[:position],
                     "inheritedTypes": [],
                     "isExported": True,
+                    "isFilePrivate": hidden and position == 0,
                 }
-                for position, part in enumerate(name.split(".")[1:], 1)
+                for position, part in enumerate(scope)
             ],
             "typedVariables": [],
             "functionRanges": [
                 {
-                    **signature_function(method, name.split(".")[1:]),
+                    **signature_function(method, scope),
                     "isExported": True,
                     "isAsync": True,
                     "start": 0,
@@ -74,6 +84,7 @@ def verify_service_capability_index():
             ],
         }
         for name, methods in NETWORK_CAPABILITIES.items()
+        for file, scope, hidden in [capability_type_identity(name)]
     }
     bindings = {
         owner.split(".")[1]: owner.split(".")[1].removesuffix("Service").lower()
