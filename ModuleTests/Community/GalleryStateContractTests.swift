@@ -298,7 +298,7 @@ struct GalleryStateContractTests {
             try await data(for: request, maximumBytes: nil)
         }
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
-            try await beforeRequest?()
+            if request.url?.path != "/papers/1" { try await beforeRequest?() }
             return try await base.data(for: request, maximumBytes: maximumBytes)
         }
     }
@@ -466,6 +466,7 @@ struct GalleryStateContractTests {
         let galleryModel = GalleryViewModel(service: gallery)
         let mineModel = MineViewModel(service: mine)
         await paperModel.refresh()
+        await paperModel.loadPreviewMetadata(for: try #require(paperModel.state.items.first))
         await courseModel.refresh()
         await galleryModel.refresh(feed: .newest)
         await mineModel.refreshPosters()
@@ -478,7 +479,7 @@ struct GalleryStateContractTests {
         #expect(
             galleryModel.state(for: .newest).posters.first?.likeNum == 9
                 && mineModel.posterState.items.first?.likeNum == 9)
-        #expect(transport.requests.count == 7)
+        #expect(transport.requests.count == 8)
         _ = try await papers.createComment(
             objectID: "paper1", text: "新评论", replyObjectID: nil, replyUID: nil, anonymous: false)
         #expect(paperModel.needsRefresh)
@@ -516,7 +517,7 @@ struct GalleryStateContractTests {
             paperModel.state.items.first?.commentNum == 5
                 && paperModel.state.items.first?.likeNum == 9
                 && paperModel.state.items.map(\.id) == [1])
-        #expect(transport.requests.count == 9)
+        #expect(transport.requests.count == 10)
         _ = try await courses.createComment(
             objectID: "course1", text: "新评价", replyObjectID: nil, replyUID: nil, anonymous: false,
             rate: 8)
@@ -524,7 +525,7 @@ struct GalleryStateContractTests {
         #expect(
             courseModel.state.items.first?.rate == 9.5
                 && courseModel.state.items.first?.commentNum == 6)
-        #expect(transport.requests.count == 11)
+        #expect(transport.requests.count == 12)
     }
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
     func commentRecoveryKeepsReadPosition(pagination: Bool) async {

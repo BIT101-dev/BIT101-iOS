@@ -157,6 +157,7 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
             pageQuery = query
             needsRefresh = false
             state.status = .loaded
+            if let first = papers.first { previewMetadataTask(for: first) }
         } catch {
             guard refreshGeneration == generation else { return }
             if TaskCancellation.matches(error) {
@@ -231,14 +232,16 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
 
     /// 文章作者信息由详情接口提供；文章行展示前请求详情，并将成功返回的作者预览信息缓存在内存中。
     func loadPreviewMetadata(for paper: PaperSummary) async {
-        guard state.status == .loaded else { return }
+        await previewMetadataTask(for: paper)?.value
+    }
+
+    @discardableResult
+    private func previewMetadataTask(for paper: PaperSummary) -> Task<Void, Never>? {
+        guard state.status == .loaded else { return nil }
         guard previewMetadataByPaperID[paper.id] == nil || previewRevalidationIDs.contains(paper.id)
-        else { return }
-        guard !previewFailedIDs.contains(paper.id) else { return }
-        if let pending = previewTasks[paper.id] {
-            await pending.value
-            return
-        }
+        else { return nil }
+        guard !previewFailedIDs.contains(paper.id) else { return nil }
+        if let pending = previewTasks[paper.id] { return pending }
         let generation = previewLoadGeneration
         let task = Task { [weak self, service] in
             defer {
@@ -262,7 +265,7 @@ private func normalizedPaperSearchText(_ text: String) -> String? {
             }
         }
         previewTasks[paper.id] = task
-        await task.value
+        return task
     }
 
     private func cancelPreviewLoads() {

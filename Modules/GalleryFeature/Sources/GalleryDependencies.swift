@@ -23,9 +23,11 @@ public struct GalleryWebCredentials {
 public final class GalleryDependencies {
     @ObservationIgnored private var cachedWebStore:
         (identity: CommunitySessionIdentity, store: WKWebsiteDataStore)?
+    private let webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)?
 
     var webDataStore: WKWebsiteDataStore {
         let identity = currentIdentity()
+        if let webDataStoreProvider { return webDataStoreProvider(identity) }
         if let cachedWebStore, cachedWebStore.identity == identity { return cachedWebStore.store }
         let store = WKWebsiteDataStore.nonPersistent()
         cachedWebStore = (identity, store)
@@ -59,8 +61,10 @@ public final class GalleryDependencies {
         preferences: CommunityPreferences,
         messages: any GalleryMessageReadStoring,
         drafts: any GalleryComposerDraftStoring & ComposerPublicationStoring,
-        networkPath: NetworkPathState
+        networkPath: NetworkPathState,
+        webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)? = nil
     ) {
+        self.webDataStoreProvider = webDataStoreProvider
         self.webCredentials = webCredentials
         self.currentIdentity = currentIdentity
         self.feed = feed

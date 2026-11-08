@@ -161,6 +161,61 @@ import Testing
 @Suite("Network smoke regression contracts")
 @MainActor
 struct NetworkSmokeRegressionContractTests {
+    @Test(.serialized, .timeLimit(.minutes(1)), arguments: ["account", "generation"])
+    func galleryCachePersistsAndIsolatesOwners(change: String) async throws {
+        let domain = "BIT101Tests.community-web-storage"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defaults.removePersistentDomain(forName: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let cookie = try #require(HTTPCookie(properties: [
+            .domain: "example.invalid", .path: "/", .name: "cache-test", .value: "first",
+        ]))
+        var credentials = CommunityCredentials(
+            identity: .init(accountIdentifier: "first"), cookie: "first")
+        let changes = PassthroughSubject<CommunityCredentials, Never>()
+        let firstIdentifier: UUID
+        var first: WKWebsiteDataStore?
+        do {
+            let cache = AppCommunityWebStorage(
+                defaults: defaults, credentials: { credentials },
+                changes: changes.eraseToAnyPublisher())
+            let store = cache.dataStore(for: credentials.identity)
+            first = store
+            #expect(store.isPersistent)
+            firstIdentifier = try #require(store.identifier)
+            await store.httpCookieStore.setCookie(cookie)
+        }
+        let restored = AppCommunityWebStorage(
+            defaults: defaults, credentials: { credentials },
+            changes: changes.eraseToAnyPublisher())
+        do {
+            let reused = restored.dataStore(for: credentials.identity)
+            #expect(reused.identifier == first?.identifier)
+            #expect(await reused.httpCookieStore.allCookies().contains { $0.name == "cache-test" })
+        }
+        first = nil
+        credentials = .init(
+            identity: .init(
+                accountIdentifier: change == "account" ? "second" : "first", generation: 1),
+            cookie: "second")
+        changes.send(credentials)
+        do {
+            let second = restored.dataStore(for: credentials.identity)
+            #expect(second.identifier != nil && second.identifier != firstIdentifier)
+            #expect(await second.httpCookieStore.allCookies().isEmpty)
+        }
+        await restored.finishCleanup()
+        let remaining = await WKWebsiteDataStore.allDataStoreIdentifiers
+        #expect(!remaining.contains(firstIdentifier))
+        credentials = .init(identity: credentials.identity, cookie: "")
+        changes.send(credentials)
+        await restored.finishCleanup()
+        #expect(!restored.dataStore(for: credentials.identity).isPersistent)
+        await restored.clear()
+        #expect(defaults.dictionary(forKey: "community.webStorage") == nil)
+        #expect((defaults.stringArray(forKey: "community.retiredWebStorage") ?? []).isEmpty)
+    }
+
     @Test(
         .serialized, .timeLimit(.minutes(1)),
         arguments: [

@@ -50,7 +50,6 @@ struct PaperSearchViewModelTests {
                 publicEdit: true, like: false, own: true)
         }
         await model.refresh()
-        #expect(model.previewMetadata(for: paper.id) == author)
         await model.loadPreviewMetadata(for: paper)
         let updatedAuthor = try #require(model.previewMetadata(for: paper.id))
         #expect(updatedAuthor != author && service.metadataRequests == 2)
@@ -63,7 +62,6 @@ struct PaperSearchViewModelTests {
                 updateTime: "version-b")
         ])
         await model.refresh()
-        #expect(model.previewMetadata(for: paper.id) == nil)
         await model.loadPreviewMetadata(for: paper)
         #expect(service.metadataRequests == 3)
     }
@@ -95,8 +93,8 @@ struct PaperSearchViewModelTests {
         #expect(service.metadataRequests == 1)
         gate.finish([paper])
         await refreshing.value
-        #expect(model.previewMetadata(for: paper.id) == nil)
         await model.loadPreviewMetadata(for: paper)
+        #expect(model.previewMetadata(for: paper.id) == author)
         #expect(service.metadataRequests == 2)
     }
 
@@ -138,11 +136,12 @@ struct PaperSearchViewModelTests {
             id: 1, title: "作者加载", intro: "", likeNum: 0, commentNum: 0, updateTime: "version")
         let service = ServiceStub(result: .success([paper]))
         let model = PaperListViewModel(service: service)
-        await model.refresh()
         let gate = ListRequestGate<PaperDetail>()
         service.metadata = { _ in try await gate.request() }
-        let first = Task { await model.loadPreviewMetadata(for: paper) }
+        await model.refresh()
         try await gate.waitUntilRequested()
+        #expect(service.metadataRequests == 1 && model.previewMetadata(for: paper.id) == nil)
+        let first = Task { await model.loadPreviewMetadata(for: paper) }
         first.cancel()
         var secondStarted = false
         let second = Task {
@@ -264,18 +263,18 @@ struct PaperSearchViewModelTests {
         await refresh()
         await load()
         #expect(preview()?.authorName == original.updateUser.nickname)
-        await refresh()
-        #expect(preview() == nil)
         let gate = ListRequestGate<PaperDetail>()
         service.metadata = { _ in
             let detail = try await gate.request()
             if staleFailure { throw URLError(.timedOut) }
             return detail
         }
+        await refresh()
         let earlier = Task { await load() }
         try await gate.waitUntilRequested()
-        await refresh()
+        #expect(preview() == nil)
         service.metadata = { _ in edited }
+        await refresh()
         await load()
         gate.finish(original)
         await earlier.value
@@ -308,7 +307,6 @@ struct PaperSearchViewModelTests {
         func preview() -> PaperPreviewMetadata? {
             search ? results.previewMetadata(for: paper.id) : list.previewMetadata(for: paper.id)
         }
-        if search { await results.performSearch() } else { await list.refresh() }
         let earlierGate = ListRequestGate<PaperDetail>()
         let old = PaperDetail(
             id: 1, title: "fixture", intro: "", content: "", createTime: "", updateTime: "",
@@ -323,6 +321,7 @@ struct PaperSearchViewModelTests {
             requests += 1
             return requests == 1 ? try await earlierGate.request() : fresh
         }
+        if search { await results.performSearch() } else { await list.refresh() }
         let earlier = Task { await load() }
         try await earlierGate.waitUntilRequested()
         earlier.cancel()

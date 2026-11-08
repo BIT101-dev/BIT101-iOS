@@ -15,6 +15,7 @@ import StorageCore
 import SwiftUI
 import TransportCore
 import WebKit
+import OSLog
 
 /// App-owned cross-feature composition; each module receives its consumed capabilities.
 @MainActor
@@ -186,7 +187,8 @@ final class AppCommunityDependencies {
             & PaperComposerDraftStoring & ComposerPublicationStoring,
         submitSuggestion: @escaping (DeveloperSuggestionPayload) async throws -> Void,
         loadCourseCredits: @escaping @MainActor () async -> [CommunityCourseCredit],
-        networkPath: NetworkPathState = AppNetworkPath.state
+        networkPath: NetworkPathState = AppNetworkPath.state,
+        webDataStoreProvider: ((CommunitySessionIdentity) -> WKWebsiteDataStore)? = nil
     ) {
         self.settingsStore = settings
         self.session = session
@@ -218,7 +220,8 @@ final class AppCommunityDependencies {
             subscriptions: galleryService,
             reporting: galleryService, composer: galleryService, images: galleryService,
             preferences: preferences,
-            messages: messages, drafts: drafts, networkPath: networkPath
+            messages: messages, drafts: drafts, networkPath: networkPath,
+            webDataStoreProvider: webDataStoreProvider
         )
         let courseService = CourseService(session: session, resourceUpdates: resourceUpdates)
         course = CourseDependencies(
@@ -249,7 +252,8 @@ final class AppCommunityDependencies {
             checkLogin: { try await login.checkLogin() != nil },
             messages: stores.communityMessages, drafts: stores.composerDrafts,
             submitSuggestion: { try await FeedbackSubmissionClient.submit($0) },
-            loadCourseCredits: loadSchoolCourseCredits
+            loadCourseCredits: loadSchoolCourseCredits,
+            webDataStoreProvider: AppLocalDataComposition.galleryWebDataStore
         )
     }
 
@@ -280,14 +284,142 @@ final class AppCommunityDependencies {
     }
 }
 
-/// 生产系统资源在 App 组装位置绑定，操作服务持有显式能力。
+/// WebKit 持久缓存按账号复用，认证会话变化时清理旧存储。
+@MainActor
+final class AppCommunityWebStorage {
+    private static let recordKey = "community.webStorage"
+    private static let retiredKey = "community.retiredWebStorage"
+    private static let logger = Logger(subsystem: "BIT101", category: "GalleryWebStorage")
+    private let defaults: UserDefaults
+    private let credentials: () -> CommunityCredentials
+    private var observedIdentity: CommunitySessionIdentity
+    private var cachedStore: WKWebsiteDataStore?
+    private var subscription: AnyCancellable?
+    private var cleanupTask: Task<Void, Never>?
+
+    init(
+        defaults: UserDefaults, credentials: @escaping () -> CommunityCredentials,
+        changes: AnyPublisher<CommunityCredentials, Never>
+    ) {
+        self.defaults = defaults
+        self.credentials = credentials
+        observedIdentity = credentials().identity
+        subscription = changes.sink { [weak self] value in
+            guard let self else { return }
+            if value.identity != self.observedIdentity || value.cookie.isEmpty {
+                self.retireActiveStore()
+            }
+            self.observedIdentity = value.identity
+        }
+        if credentials().cookie.isEmpty { retireActiveStore() }
+        scheduleCleanup()
+    }
+
+    func dataStore(for identity: CommunitySessionIdentity) -> WKWebsiteDataStore {
+        guard identity == credentials().identity, !credentials().cookie.isEmpty else {
+            return .nonPersistent()
+        }
+        if identity != observedIdentity {
+            retireActiveStore()
+            observedIdentity = identity
+        }
+        if let cachedStore { return cachedStore }
+        let record = defaults.dictionary(forKey: Self.recordKey)
+        let identifier: UUID
+        if record?["account"] as? String == identity.accountIdentifier,
+            let raw = record?["identifier"] as? String, let stored = UUID(uuidString: raw)
+        {
+            identifier = stored
+        } else {
+            retireActiveStore()
+            identifier = UUID()
+            defaults.set(
+                ["account": identity.accountIdentifier, "identifier": identifier.uuidString],
+                forKey: Self.recordKey)
+        }
+        let store = WKWebsiteDataStore(forIdentifier: identifier)
+        cachedStore = store
+        scheduleCleanup()
+        return store
+    }
+
+    func clear(allStores: Bool = false) async {
+        retireActiveStore()
+        if allStores {
+            let identifiers = await WKWebsiteDataStore.allDataStoreIdentifiers
+            let retired = defaults.stringArray(forKey: Self.retiredKey) ?? []
+            defaults.set(
+                Array(Set(retired + identifiers.map(\.uuidString))), forKey: Self.retiredKey)
+            scheduleCleanup()
+        }
+        await finishCleanup()
+    }
+
+    func finishCleanup() async { await cleanupTask?.value }
+
+    private func retireActiveStore() {
+        let record = defaults.dictionary(forKey: Self.recordKey)
+        if let identifier = record?["identifier"] as? String {
+            var retired = defaults.stringArray(forKey: Self.retiredKey) ?? []
+            if !retired.contains(identifier) { retired.append(identifier) }
+            defaults.set(retired, forKey: Self.retiredKey)
+        }
+        cachedStore = nil
+        defaults.removeObject(forKey: Self.recordKey)
+        scheduleCleanup()
+    }
+
+    private func scheduleCleanup() {
+        guard !(defaults.stringArray(forKey: Self.retiredKey) ?? []).isEmpty else { return }
+        let previous = cleanupTask
+        cleanupTask = Task { [weak self] in
+            await previous?.value
+            await self?.removeRetiredStores()
+        }
+    }
+
+    private func removeRetiredStores() async {
+        for raw in defaults.stringArray(forKey: Self.retiredKey) ?? [] {
+            guard let identifier = UUID(uuidString: raw) else { continue }
+            await clearRetiredData(for: identifier)
+            do {
+                try await WKWebsiteDataStore.remove(forIdentifier: identifier)
+                let remaining = (defaults.stringArray(forKey: Self.retiredKey) ?? [])
+                    .filter { $0 != raw }
+                defaults.set(remaining, forKey: Self.retiredKey)
+            } catch {
+                Self.logger.debug("Web storage cleanup pending: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func clearRetiredData(for identifier: UUID) async {
+        let store = WKWebsiteDataStore(forIdentifier: identifier)
+        await store.removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+    }
+}
+
 @MainActor
 enum AppLocalDataComposition {
     #if BIT101_AUTOMATED_TESTING
     static let websiteDataStore = WKWebsiteDataStore.nonPersistent()
     #else
     static let websiteDataStore = WKWebsiteDataStore.default()
+    private static let communityWebStorage = AppCommunityWebStorage(
+        defaults: AppFileDirectories.defaults,
+        credentials: { AppAccountSession.storage.communityCredentials },
+        changes: AppAccountSession.storage.credentialsChanges)
     #endif
+
+    static var galleryWebDataStore: (CommunitySessionIdentity) -> WKWebsiteDataStore {
+        #if BIT101_AUTOMATED_TESTING
+        return { _ in websiteDataStore }
+        #else
+        let storage = communityWebStorage
+        return { storage.dataStore(for: $0) }
+        #endif
+    }
 
     static func appService(settings: AppSettingsStore, media: MediaEnvironment)
         -> AppLocalDataService
@@ -313,6 +445,9 @@ enum AppLocalDataComposition {
                 },
                 clearURLCache: { URLSessionTransport.clearSharedCache() },
                 clearWebData: {
+                    #if !BIT101_AUTOMATED_TESTING
+                    await communityWebStorage.clear(allStores: true)
+                    #endif
                     await withCheckedContinuation { continuation in
                         webData.removeData(
                             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
