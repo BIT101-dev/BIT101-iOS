@@ -174,22 +174,11 @@ public struct AppPairedPages<First: View, Second: View>: View {
 
 }
 
-/// 首次构建同步记录页面保留状态。
-@MainActor
-private final class AppRetainedPageLifetime {
-    private var hasShown = false
-
-    func retainIfVisible(_ isVisible: Bool) -> Bool {
-        hasShown = hasShown || isVisible
-        return hasShown
-    }
-}
-
 /// 页面首次访问后保留视图与滚动状态，以统一的淡入淡出切换可见性。
 public struct AppRetainedPage<Content: View>: View {
     @Environment(\.appPageIsVisible) private var parentIsVisible
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var lifetime = AppRetainedPageLifetime()
+    @State private var lifetime = AppPageLifetime()
     private let isVisible: Bool
     private let content: () -> Content
 

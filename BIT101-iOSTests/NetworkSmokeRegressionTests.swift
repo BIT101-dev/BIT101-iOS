@@ -333,13 +333,30 @@ struct NetworkSmokeRegressionContractTests {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = BootstrapWebView(frame: .zero, configuration: configuration)
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let presenter = UIViewController()
+        presenter.view = webView
+        window.rootViewController = presenter
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
         webView.navigationDelegate = coordinator
         coordinator.start(in: webView, url: AppURL.required("https://bit101.cn/gallery"))
         try await waitForAsyncTestEvent {
             (try? await webView.evaluateJavaScript("window.initialCredential")) as? String
                 == cookie
         }
-        #expect(webView.configuration.userContentController.userScripts.count == 1)
+        #expect(webView.configuration.userContentController.userScripts.count == 2)
+        #expect(coordinator.firstContentDuration == nil)
+        _ = try await webView.evaluateJavaScript(
+            "document.body.innerHTML = '<a href=\"/gallery/1\">首条话题</a>'; true")
+        try await waitForTestEvent { coordinator.firstContentDuration != nil }
         _ = try await webView.evaluateJavaScript("true")
         _ = try await webView.evaluateJavaScript(
             """

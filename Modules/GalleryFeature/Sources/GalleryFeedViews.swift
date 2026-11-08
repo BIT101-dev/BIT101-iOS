@@ -308,6 +308,9 @@ struct GalleryFeedView: View {
         // 系统按帖子标识保持滚动位置。
         .scrollPosition(id: scrollPosition ?? $currentTopPosterID, anchor: .top)
         .background(AppDesignSystem.Palette.Background.grouped)
+        .appFirstContent(
+            "gallery.native.\(feedIdentity)",
+            count: feedState.status == .loaded ? visiblePosters.count : nil)
         .id(feedIdentity)
         .refreshable {
             interactionEvidence?("interaction.GalleryFeedView.refreshable", "refresh")

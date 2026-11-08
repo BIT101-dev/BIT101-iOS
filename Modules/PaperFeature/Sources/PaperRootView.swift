@@ -301,6 +301,14 @@ private struct PaperFeedPage: View {
         }
     }
 
+    private var firstContentCount: Int? {
+        guard viewModel.state.status == .loaded else { return nil }
+        if let first = viewModel.state.items.first,
+            viewModel.previewMetadata(for: first.id) == nil
+        { return nil }
+        return viewModel.state.items.count
+    }
+
     var body: some View {
         ScrollView {
             LazyVStack(spacing: AppDesignSystem.Spacing.none) {
@@ -320,6 +328,9 @@ private struct PaperFeedPage: View {
             await viewModel.enqueueRefresh().value
         }
         .appPageSwitch(onStep: onStep)
+        .appFirstContent(
+            "paper.native.\(viewModel.selectedOrder.requestValue ?? "newest")",
+            count: firstContentCount)
         .accessibilityIdentifier("paper.sort-surface")
 
     }

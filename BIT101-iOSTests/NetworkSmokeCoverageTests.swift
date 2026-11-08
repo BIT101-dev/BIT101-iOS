@@ -2,6 +2,7 @@
 import Foundation
 import Testing
 import UIKit
+import SwiftUI
 import WebKit
 import Combine
 import ClientCore
@@ -430,7 +431,86 @@ struct NetworkSmokeCoverageTests {
         override func reload() -> WKNavigation? {
             reloads += 1
             return loadHTMLString(
-                "<body>fixture</body>", baseURL: AppURL.required("https://bit101.cn/gallery"))
+                """
+                <script>window.loadedCookie = JSON.parse(localStorage.store).fake_cookie;</script>
+                <body>fixture</body>
+                """, baseURL: AppURL.required("https://bit101.cn/gallery"))
+        }
+    }
+
+    @Test func galleryWebStoreReusesOnlyCurrentAccount() {
+        var identity = CommunitySessionIdentity(accountIdentifier: "first", generation: 0)
+        let factory = FeatureCompositionTests()
+        let dependencies = factory.gallery(.init(), identity: { identity })
+        let first = dependencies.webDataStore
+        #expect(first === dependencies.webDataStore && !first.isPersistent)
+        identity = .init(accountIdentifier: "first", generation: 1)
+        let renewed = dependencies.webDataStore
+        #expect(first !== renewed && renewed === dependencies.webDataStore)
+        identity = .init(accountIdentifier: "second", generation: 1)
+        #expect(renewed !== dependencies.webDataStore)
+    }
+
+    private func galleryWebView(in view: UIView) -> WKWebView? {
+        if let webView = view as? WKWebView { return webView }
+        return view.subviews.lazy.compactMap { self.galleryWebView(in: $0) }.first
+    }
+
+    struct DeferredGalleryWebPage: View {
+        let request: FeatureCompositionTests.PaperRequest
+        let dependencies: GalleryDependencies
+        var body: some View {
+            GalleryWebContentView(dependencies: dependencies, surface: .gallery)
+                .environment(\.appPageIsVisible, request.id != nil)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func galleryWebWaitsForFirstVisibleVisit() async throws {
+        let factory = FeatureCompositionTests()
+        let request = FeatureCompositionTests.PaperRequest()
+        request.id = nil
+        let view = DeferredGalleryWebPage(request: request, dependencies: factory.gallery(.init()))
+        var controller: UIViewController?
+        try await factory.host(view, navigation: false, prepare: { controller = $0 }) {
+            let root = try #require(controller?.view)
+            #expect(galleryWebView(in: root) == nil)
+            request.id = 1
+            try await waitForTestEvent { galleryWebView(in: root) != nil }
+            let webView = try #require(galleryWebView(in: root))
+            webView.stopLoading()
+            request.id = nil
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+            #expect(galleryWebView(in: root) === webView)
+            request.id = 2
+            #expect(galleryWebView(in: root) === webView)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func sharedWebCredentialsRefreshBothPages() async throws {
+        var cookie = "first"
+        let store = WKWebsiteDataStore.nonPersistent()
+        var coordinators: [GalleryWebCoordinator] = []
+        var views: [CredentialWebView] = []
+        for path in ["gallery", "paper"] {
+            let coordinator = GalleryWebCoordinator(
+                credentials: .init(cookie: { cookie }, changes: Empty().eraseToAnyPublisher()),
+                openExternal: { _ in })
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = store
+            let view = CredentialWebView(frame: .zero, configuration: configuration)
+            view.navigationDelegate = coordinator
+            coordinator.start(in: view, url: AppEndpoints.bit101Web.appendingPathComponent(path))
+            try await waitForTestEvent { view.reloads == 1 && !view.isLoading }
+            coordinators.append(coordinator)
+            views.append(view)
+        }
+        cookie = "second"
+        for (coordinator, view) in zip(coordinators, views) {
+            coordinator.synchronizeCredentials(in: view)
+            try await waitForTestEvent { view.reloads == 2 && !view.isLoading }
+            #expect(try await view.evaluateJavaScript("window.loadedCookie") as? String == cookie)
         }
     }
     @Test(.timeLimit(.minutes(1))) func galleryWebCredentialsChanges() async throws {

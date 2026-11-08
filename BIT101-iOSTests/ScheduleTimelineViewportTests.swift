@@ -359,12 +359,16 @@ struct ScheduleCardTextLayoutTests {
         control.layoutIfNeeded()
         #expect(control.subviews.isEmpty && control.cardText === text)
         #expect(text.titleLabel.isHidden && !room.isHidden)
+        control.isContentVisible = false
+        control.isContentVisible = true
+        #expect(!control.layer.needsLayout())
         let visibleBounds = text.bounds
         control.isContentVisible = false
         control.bounds.size.width += 8
         control.layoutIfNeeded()
         #expect(text.bounds == visibleBounds)
         control.isContentVisible = true
+        #expect(control.layer.needsLayout())
         control.layoutIfNeeded()
         #expect(text.bounds.width == visibleBounds.width + 8)
         control.configureText(entry: entry, contentMode: nil)

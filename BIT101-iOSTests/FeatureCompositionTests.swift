@@ -453,7 +453,9 @@ struct FeatureCompositionTests {
                 useWebView: false, hideMakeupOutliers: false), saveMakeupFilter: { _ in })
     }
 
-    func gallery(_ transport: TraceTransport) -> GalleryDependencies {
+    func gallery(
+        _ transport: TraceTransport, identity: (() -> CommunitySessionIdentity)? = nil
+    ) -> GalleryDependencies {
         let session = session(transport)
         let preferences = preferences()
         let service = GalleryService(session: session, preferences: { preferences.snapshot })
@@ -461,7 +463,7 @@ struct FeatureCompositionTests {
             webCredentials: .init(
                 cookie: { session.fakeCookie },
                 changes: session.credentialsChanges.map { _ in () }.eraseToAnyPublisher()),
-            currentIdentity: { session.currentCredentials.identity },
+            currentIdentity: identity ?? { session.currentCredentials.identity },
             feed: service, messageService: service, posterDetail: service, subscriptions: service,
             reporting: service, composer: service, images: service, preferences: preferences,
             messages: GalleryMessageReadStore(
@@ -575,7 +577,8 @@ struct FeatureCompositionTests {
             dependencies: dependencies, media: media(),
             profiles: CommunityProfileDestination { _ in AnyView(Text("profile")) }, papers: papers,
             courses: CommunityCourseDestination { _ in AnyView(Text("course")) },
-            requestedPaperID: Binding(get: { request.id }, set: { request.id = $0 }))
+            requestedPaperID: Binding(get: { request.id }, set: { request.id = $0 }),
+            selection: Binding(get: { request.surface }, set: { request.surface = $0 }))
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
@@ -599,6 +602,13 @@ struct FeatureCompositionTests {
             controller.view.layoutIfNeeded()
             window.layoutIfNeeded()
         }
+        var step = "native"
+        defer {
+            let paths = webViews(in: controller.view).compactMap {
+                ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
+            }
+            #expect(step == "done", "step=\(step), surface=\(request.surface), paths=\(paths)")
+        }
         flushWindow()
         try await waitForTestEvent {
             flushWindow()
@@ -609,19 +619,29 @@ struct FeatureCompositionTests {
         var snapshot = dependencies.preferences.snapshot
         snapshot.galleryUseWebView = true
         dependencies.preferences.apply(snapshot)
+        step = "web-gallery"
+        try await waitForTestEvent {
+            flushWindow()
+            return webViews(in: controller.view).contains {
+                ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
+                    == "/gallery"
+            }
+        }
+        let nativeAppearances = paperAppearances
+        request.surface = .paper
+        step = "web-paper"
         try await waitForTestEvent {
             flushWindow()
             return Set(webViews(in: controller.view).compactMap {
                 ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
-            })
-                == ["/gallery", "/paper"]
+            }) == ["/gallery", "/paper"]
         }
         let paperWebView = try #require(
             webViews(in: controller.view).first {
                 ($0.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path == "/paper"
             })
-        let nativeAppearances = paperAppearances
         request.id = 17
+        step = "paper-detail"
         try await waitForTestEvent {
             flushWindow()
             return (paperWebView.navigationDelegate as? GalleryWebCoordinator)?.requestedURL?.path
@@ -632,10 +652,12 @@ struct FeatureCompositionTests {
         webViews(in: controller.view).forEach { $0.stopLoading() }
         snapshot.galleryUseWebView = false
         dependencies.preferences.apply(snapshot)
+        step = "native-return"
         try await waitForTestEvent {
             flushWindow()
             return webViews(in: controller.view).isEmpty
         }
+        step = "done"
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -676,6 +698,7 @@ struct FeatureCompositionTests {
 
     @Observable final class PaperRequest {
         var id: Int? = 42
+        var surface = GallerySurface.gallery
     }
 
     @Observable final class TabRoute {

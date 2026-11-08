@@ -62,7 +62,11 @@ struct PerformancePaperService: PaperListServicing {
 final class RecoveryScanResponse: HTTPTransport {
     var calls = 0
     let large: Bool
-    init(large: Bool) { self.large = large }
+    let firstPageItems: Int?
+    init(large: Bool, firstPageItems: Int? = nil) {
+        self.large = large
+        self.firstPageItems = firstPageItems
+    }
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         let url = try XCTUnwrap(request.url)
         let response = try XCTUnwrap(
@@ -76,19 +80,37 @@ final class RecoveryScanResponse: HTTPTransport {
                 "id": 1, "color": "", "text": "", "create_time": "", "update_time": "",
             ],
         ]
+        if firstPageItems != nil, url.path.hasPrefix("/papers/") {
+            let detail: [String: Any] = [
+                "id": Int(url.lastPathComponent) ?? 1, "title": "文章标题", "intro": "文章摘要",
+                "content": "文章正文", "create_time": "", "update_time": "", "update_user": user,
+                "anonymous": false, "like_num": 0, "comment_num": 0, "public_edit": false,
+                "like": false, "own": false,
+            ]
+            return (try JSONSerialization.data(withJSONObject: detail), response)
+        }
+        if firstPageItems != nil,
+            URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                .contains(where: { $0.name == "page" && $0.value != "0" }) == true
+        {
+            return (Data("[]".utf8), response)
+        }
         let values: [[String: Any]] =
-            (1...(large ? NetworkSmokePaging.maximumSampleItems + 1 : 1)).map { offset in
-                let id = large ? offset : calls
+            (1...(firstPageItems ?? (large ? NetworkSmokePaging.maximumSampleItems + 1 : 1)))
+            .map { offset in
+                let id = large || firstPageItems != nil ? offset : calls
                 if url.path == "/papers" {
                     return [
-                        "id": id, "title": "fixture", "intro": "fixture", "like_num": 0,
+                        "id": id, "title": "文章 \(id)", "intro": "文章摘要", "like_num": 0,
                         "comment_num": 0, "update_time": "",
                     ]
                 }
                 var item: [String: Any] = [
                     "id": id, "user": user, "anonymous": false, "create_time": "",
                     "update_time": "",
-                    "images": [], "like_num": 0, "comment_num": 0, "text": "fixture",
+                    "images": [], "like_num": 0, "comment_num": 0,
+                    "text": firstPageItems == nil ? "fixture"
+                        : String(repeating: "话题内容与课程交流。", count: 30),
                 ]
                 if url.path == "/posters" {
                     item.merge([

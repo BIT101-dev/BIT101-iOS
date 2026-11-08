@@ -6,6 +6,7 @@ import Combine
 import CommunityTransport
 import TransportCore
 import Observation
+import WebKit
 
 /// 话廊按首页、消息、详情、举报、编辑和图片上传分别注入服务。
 public struct GalleryWebCredentials {
@@ -20,6 +21,17 @@ public struct GalleryWebCredentials {
 @MainActor
 @Observable
 public final class GalleryDependencies {
+    @ObservationIgnored private var cachedWebStore:
+        (identity: CommunitySessionIdentity, store: WKWebsiteDataStore)?
+
+    var webDataStore: WKWebsiteDataStore {
+        let identity = currentIdentity()
+        if let cachedWebStore, cachedWebStore.identity == identity { return cachedWebStore.store }
+        let store = WKWebsiteDataStore.nonPersistent()
+        cachedWebStore = (identity, store)
+        return store
+    }
+
     let webCredentials: GalleryWebCredentials
     let currentIdentity: () -> CommunitySessionIdentity
     let feed: any GalleryFeedServicing

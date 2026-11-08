@@ -208,8 +208,10 @@ public struct CampusMapScreen: View {
         pendingCenterOnUserAfterAuthorization = false
         centerOnUserRequestID = nil
         let campus = nextCourseTarget?.campus ?? selectedCampus
-        selectedCampusID = campus.rawValue
-        focusRequest = MapFocusRequest(preset: campus, animated: animated)
+        if selectedCampusID != campus.rawValue { selectedCampusID = campus.rawValue }
+        if focusRequest.preset != campus {
+            focusRequest = MapFocusRequest(preset: campus, animated: animated)
+        }
     }
 
     /// 交给系统地图提供步行导航；App 内地图聚焦校园定位，转向播报由系统处理。

@@ -25,12 +25,22 @@ private typealias ShellSwitchTiming = (
 
 @MainActor
 private final class PerformanceDisplayFrame: NSObject {
+    private let keepsRunning: Bool
+    private var displayLink: CADisplayLink?
     private var continuation: CheckedContinuation<Double, Never>?
     private var isReady: () -> Bool = { true }
     private var started: Double = 0
     private var previousFrame: Double = 0
     private(set) var firstFrame: Double?
     private(set) var maximumGap: Double = 0
+
+    init(keepsRunning: Bool = false) { self.keepsRunning = keepsRunning }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
     func next(
         startedAt: Double? = nil, when isReady: @escaping () -> Bool = { true }
     ) async -> Double {
@@ -41,23 +51,148 @@ private final class PerformanceDisplayFrame: NSObject {
             previousFrame = started
             firstFrame = nil
             maximumGap = 0
-            let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
-            link.add(to: .main, forMode: .common)
+            if displayLink == nil {
+                let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+                displayLink = link
+                link.add(to: .main, forMode: .common)
+            }
         }
     }
     @objc private func frame(_ link: CADisplayLink) {
+        guard continuation != nil else { return }
         let displayed = ProcessInfo.processInfo.systemUptime
         if firstFrame == nil { firstFrame = displayed }
         maximumGap = max(maximumGap, displayed - previousFrame)
         previousFrame = displayed
         guard isReady() || displayed - started >= 1 else { return }
-        link.invalidate()
+        if !keepsRunning { stop() }
         continuation?.resume(returning: displayed)
         continuation = nil
     }
 }
 
 extension MaintenancePerformanceTests {
+    @MainActor
+    func testNativeCommunityFirstContentPerformance() throws {
+        try measureCommunityFirstContent(expanded: true)
+    }
+
+    @MainActor
+    func testCompactCommunityFirstLoadPerformance() throws {
+        try measureCommunityFirstContent(expanded: false)
+    }
+
+    @MainActor
+    private func measureCommunityFirstContent(expanded: Bool) throws {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 1
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric(), XCTCPUMetric()], options: options) {
+            do { try self.runCommunityFirstContent(expanded: expanded) } catch {
+                XCTFail("原生话廊首次内容测量失败：\(error)")
+            }
+        }
+    }
+
+    @MainActor
+    private func runCommunityFirstContent(expanded: Bool) throws {
+        let workloadID = expanded
+            ? "native-community-first-content" : "compact-community-first-content"
+        let workload = try PerformanceWorkload(workloadID, bundle: Bundle(for: Self.self))
+        let items = try workload.value("items", as: Int.self)
+        let maximumDelay = try workload.value("maximumResponseSeconds", as: Double.self)
+        let factory = ExperimentalPreferenceCloudSyncTests()
+        let domain = "BIT101Tests.community-first-content"
+        let (sync, defaults, _, account) = try factory.context(domain: domain)
+        defer { defaults.removePersistentDomain(forName: domain) }
+        sync.settings.markStartupNoticeSeen()
+        sync.settings.markThanksNoticeShown(for: account.session)
+        let transport = RecoveryScanResponse(large: false, firstPageItems: items)
+        let lifecycle = factory.lifecycle(
+            sync: sync, account: account, displays: .init(), communityTransport: transport)
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        var content: [String: (Double, Int)] = [:]
+        let controller = UIHostingController(
+            rootView: shellPerformanceView(lifecycle, expanded: expanded)
+                .environment(\.appPageLoadObserver, { page, stage, duration, count in
+                    if stage == "content-ready" { content[page] = (duration, count) }
+                }))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        let completed = expectation(description: "原生话廊首次完整内容")
+        var rows = ["page,entryToDisplaySeconds,constructionToContentSeconds,items"]
+        Task { @MainActor in
+            defer { completed.fulfill() }
+            do {
+                rows += try await self.measureCommunityPages(
+                    in: controller, expanded: expanded, items: items,
+                    maximumDelay: maximumDelay, content: { content })
+                XCTAssertGreaterThan(transport.calls, 2)
+            } catch { XCTFail("原生话廊首次内容失败：\(error)") }
+        }
+        wait(for: [completed], timeout: 30)
+        let attachment = XCTAttachment(string: rows.joined(separator: "\n"))
+        attachment.name = workloadID
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        XCTAssertEqual(rows.count, 3)
+    }
+
+    @MainActor
+    private func measureCommunityPages(
+        in controller: UIViewController, expanded: Bool, items: Int, maximumDelay: Double,
+        content: () -> [String: (Double, Int)]
+    ) async throws -> [String] {
+        try await waitForTestEvent {
+            self.shellTabs(in: controller).map {
+                self.shellTabCount($0) == (expanded ? 8 : 5)
+            } == true
+        }
+        let tabs = try XCTUnwrap(shellTabs(in: controller))
+        let frame = PerformanceDisplayFrame(keepsRunning: true)
+        defer { frame.stop() }
+        _ = await frame.next()
+        var rows: [String] = []
+        for prefix in ["gallery.native.", "paper.native."] {
+            let started = ProcessInfo.processInfo.systemUptime
+            if prefix == "gallery.native." {
+                try await selectShellTab(expanded ? 3 : 2, in: tabs, frame: frame)
+            } else if expanded {
+                try await selectShellTab(4, in: tabs, frame: frame)
+            } else {
+                let picker = try XCTUnwrap(communityPicker(in: controller.view))
+                picker.selectedSegmentIndex = 1
+                picker.sendActions(for: .valueChanged)
+            }
+            try await waitForTestEvent {
+                content().contains { $0.key.hasPrefix(prefix) && $0.value.1 == items }
+            }
+            _ = await frame.next()
+            let displayed = await frame.next()
+            let entry = displayed - started
+            let result = try XCTUnwrap(content().first { $0.key.hasPrefix(prefix) })
+            rows.append("\(result.key),\(entry),\(result.value.0),\(result.value.1)")
+            XCTAssertLessThan(entry, maximumDelay, "\(result.key): \(entry)s")
+        }
+        return rows
+    }
+
+    @MainActor
+    private func communityPicker(in view: UIView) -> UISegmentedControl? {
+        if let picker = view as? UISegmentedControl,
+            picker.numberOfSegments == 2,
+            picker.titleForSegment(at: 0) == "话题", picker.titleForSegment(at: 1) == "文章"
+        { return picker }
+        return view.subviews.lazy.compactMap { self.communityPicker(in: $0) }.first
+    }
+
     @MainActor
     func testAppShellTabSwitchingPerformance() throws {
         try measureAppShellSwitching(workloadID: "app-shell-tab-switching", expanded: true)
@@ -108,6 +243,8 @@ extension MaintenancePerformanceTests {
         let ready = expectation(description: "完整壳层就绪")
         var tabs: UITabBarController?
         var firstVisits: [String] = []
+        let displayFrame = PerformanceDisplayFrame(keepsRunning: true)
+        defer { displayFrame.stop() }
         Task { @MainActor in
             defer { ready.fulfill() }
             do {
@@ -122,15 +259,16 @@ extension MaintenancePerformanceTests {
                 XCTAssertEqual(self.shellTabCount(mountedTabs), tabCount)
                 let initialPage = try XCTUnwrap(mountedTabs.selectedViewController)
                 let initialStart = ProcessInfo.processInfo.systemUptime
-                _ = await PerformanceDisplayFrame().next {
+                _ = await displayFrame.next {
                     self.shellViewIsDisplayed(initialPage.viewIfLoaded)
                 }
                 XCTAssertTrue(self.shellViewIsDisplayed(initialPage.viewIfLoaded))
-                let initialDisplay = await PerformanceDisplayFrame().next()
+                let initialDisplay = await displayFrame.next()
                 let initialDuration = initialDisplay - initialStart
                 firstVisits.append("initial,0,\(initialDuration),0,\(initialDuration)")
                 for index in Array(1..<tabCount) + [0] {
-                    let timing = try await self.selectShellTab(index, in: mountedTabs)
+                    let timing = try await self.selectShellTab(
+                        index, in: mountedTabs, frame: displayFrame)
                     firstVisits.append(
                         "first-visit,\(index),\(timing.response),"
                             + "\(timing.selection),\(timing.display)")
@@ -153,10 +291,10 @@ extension MaintenancePerformanceTests {
                 defer { completed.fulfill() }
                 do {
                     let controlStart = ProcessInfo.processInfo.systemUptime
-                    let controlFrame = await PerformanceDisplayFrame().next()
+                    let controlFrame = await displayFrame.next()
                     frameOverheads.append(controlFrame - controlStart)
                     let samples = try await self.sampleShellTabs(
-                        passes: passes, tabs: mountedTabs)
+                        passes: passes, tabs: mountedTabs, frame: displayFrame)
                     timings.merge(samples) { $0 + $1 }
                 } catch { XCTFail("完整壳层切换失败：\(error)") }
             }
@@ -191,12 +329,13 @@ extension MaintenancePerformanceTests {
 
     @MainActor
     private func sampleShellTabs(
-        passes: Int, tabs: UITabBarController
+        passes: Int, tabs: UITabBarController, frame: PerformanceDisplayFrame
     ) async throws -> [Int: [ShellSwitchTiming]] {
         var samples: [Int: [ShellSwitchTiming]] = [:]
         for _ in 0..<passes {
             for index in 0..<shellTabCount(tabs) {
-                samples[index, default: []].append(try await selectShellTab(index, in: tabs))
+                samples[index, default: []].append(
+                    try await selectShellTab(index, in: tabs, frame: frame))
             }
         }
         return samples
@@ -242,7 +381,7 @@ extension MaintenancePerformanceTests {
     @MainActor
     @discardableResult
     private func selectShellTab(
-        _ index: Int, in tabs: UITabBarController
+        _ index: Int, in tabs: UITabBarController, frame: PerformanceDisplayFrame? = nil
     ) async throws -> ShellSwitchTiming {
         let start = ProcessInfo.processInfo.systemUptime
         let destination: UIViewController
@@ -258,7 +397,7 @@ extension MaintenancePerformanceTests {
             tabs.delegate?.tabBarController?(tabs, didSelect: destination)
         }
         let selected = ProcessInfo.processInfo.systemUptime
-        let frame = PerformanceDisplayFrame()
+        let frame = frame ?? PerformanceDisplayFrame()
         let displayed = await frame.next(startedAt: start) {
             self.shellViewIsDisplayed(destination.viewIfLoaded)
         }

@@ -398,6 +398,7 @@ struct ExperimentalPreferenceCloudSyncTests {
     func lifecycle(
         sync: ExperimentalPreferenceCloudSync, account: Account, displays: ExternalDisplays,
         scheduleCache: ScheduleCache? = nil,
+        communityTransport: any HTTPTransport = OfflineTransport(),
         changes: AnyPublisher<AppStorageSession, Never> = Empty().eraseToAnyPublisher(),
         prompts: AppPromptCoordinator = AppPromptCoordinator(),
         loadCourses:
@@ -414,7 +415,7 @@ struct ExperimentalPreferenceCloudSyncTests {
             service: service, repository: repository, ddlService: service,
             classroomService: service, platformActions: RecordingSchedulePlatformActions(),
             newCustomScheduleDraft: { CustomScheduleDraft() })
-        let client = HTTPClient(transport: OfflineTransport(), observer: nil)
+        let client = HTTPClient(transport: communityTransport, observer: nil)
         let media = AppMedia.makeEnvironment(
             files: PreferenceMemoryFiles(),
             previewStorage: MediaPreviewStorage(files: PreferenceMemoryFiles()),

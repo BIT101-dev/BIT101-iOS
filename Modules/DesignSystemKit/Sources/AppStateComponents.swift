@@ -1,5 +1,84 @@
 #if os(iOS)
 import SwiftUI
+import OSLog
+
+/// 首次显示时构建内容，后续保留实例；呈现动画由页面容器统一负责。
+@MainActor
+public final class AppPageLifetime {
+    private var hasShown = false
+
+    public init() {}
+
+    public func retainIfVisible(_ isVisible: Bool) -> Bool {
+        hasShown = hasShown || isVisible
+        return hasShown
+    }
+}
+
+@MainActor
+public final class AppPageLoadMeasurement {
+    private static let logger = Logger(subsystem: "BIT101", category: "PagePerformance")
+    private let started = ProcessInfo.processInfo.systemUptime
+    private var recorded: Set<String> = []
+
+    public init() {}
+
+    @discardableResult
+    public func record(_ page: String, stage: String, count: Int = 0) -> Double? {
+        guard recorded.insert(stage).inserted else { return nil }
+        let duration = ProcessInfo.processInfo.systemUptime - started
+        Self.logger.info(
+            """
+            page=\(page, privacy: .public) stage=\(stage, privacy: .public) \
+            seconds=\(duration) items=\(count)
+            """)
+        return duration
+    }
+}
+
+private struct AppPageLoadObserverKey: EnvironmentKey {
+    static let defaultValue: ((String, String, Double, Int) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    public var appPageLoadObserver: ((String, String, Double, Int) -> Void)? {
+        get { self[AppPageLoadObserverKey.self] }
+        set { self[AppPageLoadObserverKey.self] = newValue }
+    }
+}
+
+private struct AppFirstContentModifier: ViewModifier {
+    let page: String
+    let count: Int?
+    @State private var measurement = AppPageLoadMeasurement()
+    @Environment(\.appPageIsVisible) private var isVisible
+    @Environment(\.appPageLoadObserver) private var observer
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { record() }
+            .onChange(of: count) { record() }
+            .onChange(of: isVisible) { record() }
+    }
+
+    private func record() {
+        guard isVisible else { return }
+        report(stage: "appear", count: 0)
+        if let count { report(stage: "content-ready", count: count) }
+    }
+
+    private func report(stage: String, count: Int) {
+        if let duration = measurement.record(page, stage: stage, count: count) {
+            observer?(page, stage, duration, count)
+        }
+    }
+}
+
+extension View {
+    public func appFirstContent(_ page: String, count: Int?) -> some View {
+        modifier(AppFirstContentModifier(page: page, count: count))
+    }
+}
 
 public typealias AppFailureRecoveryActionsBuilder = (String, String, Bool, (any Error)?) ->
     AnyView

@@ -1,4 +1,12 @@
 {
+  "native-community-first-content": {
+    "testIdentifier": "MaintenancePerformanceTests/testNativeCommunityFirstContentPerformance",
+    "input": {"items": 30, "maximumResponseSeconds": 0.5}
+  },
+  "compact-community-first-content": {
+    "testIdentifier": "MaintenancePerformanceTests/testCompactCommunityFirstLoadPerformance",
+    "input": {"items": 30, "maximumResponseSeconds": 0.5}
+  },
   "app-shell-tab-switching": {
     "testIdentifier": "MaintenancePerformanceTests/testAppShellTabSwitchingPerformance",
     "input": {

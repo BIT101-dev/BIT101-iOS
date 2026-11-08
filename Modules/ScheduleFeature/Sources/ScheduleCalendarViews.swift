@@ -77,9 +77,10 @@ final class ScheduleBlankContextMenuControl: UIControl {
     private var displayedTextImage: CGImage?
     var isContentVisible = true {
         didSet {
-            if isContentVisible && !oldValue { setNeedsLayout() }
+            if isContentVisible && !oldValue && hasDeferredLayout { setNeedsLayout() }
         }
     }
+    private var hasDeferredLayout = false
     private let cardBackground = CALayer()
     private var backgroundLayers: [CALayer] = []
     private var backgroundFrames: [CGRect] = []
@@ -246,7 +247,12 @@ final class ScheduleBlankContextMenuControl: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard isContentVisible, let cardText else { return }
+        guard isContentVisible else {
+            hasDeferredLayout = true
+            return
+        }
+        hasDeferredLayout = false
+        guard let cardText else { return }
         var frame = bounds.insetBy(
             dx: min(AppDesignSystem.Spacing.micro, bounds.width / 2),
             dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
