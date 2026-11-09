@@ -141,6 +141,36 @@ def rendered_component_counts(facts: dict, syntax: dict[str, dict]) -> Counter:
     )
 
 
+def refresh_status_surface_findings(path: str, rendered: dict) -> list[str]:
+    invocations = rendered.get("invocations", [])
+    starts = {
+        node["start"] for node in invocations
+        if call_name(node["calledExpression"]) == "HStack"
+    }
+    calls = [node for node in invocations if node["start"] in starts]
+    actual = {}
+    for node in calls:
+        name = call_name(node["calledExpression"])
+        arguments = [re.sub(r"\s+", "", value) for value in node.get("arguments", [])]
+        actual.setdefault(name, []).append(arguments)
+    expected = {
+        "background": [["AppDesignSystem.Palette.Background.secondaryGrouped", "Capsule()"]],
+        "listRowBackground": [["Color.clear"]],
+        "listRowInsets": [["EdgeInsets()"]],
+        "padding": [
+            [".horizontal", "AppDesignSystem.Spacing.content"],
+            [".vertical", "AppDesignSystem.Spacing.tiny"],
+        ],
+    }
+    findings = []
+    if len(starts) != 1:
+        findings.append(f"{path}: 更新时间组件需要单一完整行")
+    for name, arguments in expected.items():
+        if sorted(actual.get(name, [])) != sorted(arguments):
+            findings.append(f"{path}: 更新时间组件的 {name} 需要统一列表内外的完整外观")
+    return findings
+
+
 def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
     from ui_design_contracts import GROUPED_BROWSER_MASTER_ROLES
 
@@ -149,6 +179,20 @@ def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
         relative = (
             Path(path).relative_to(ROOT).as_posix() if Path(path).is_relative_to(ROOT) else path
         )
+        refresh_starts = {
+            node["start"] for node in facts.get("invocations", [])
+            if call_name(node["calledExpression"]) in {
+                "AppRefreshStatusRow", "CourseScheduleRefreshStatusRow", "DDLRefreshStatusRow",
+                "ClassroomRefreshStatusRow", "ScoreRefreshStatusRow",
+            }
+        }
+        for node in facts.get("invocations", []):
+            name = call_name(node["calledExpression"])
+            changes_surface = name in {
+                "clipShape", "cornerRadius", "mask", "containerShape", "listRowBackground",
+            } or name == "background" and bool(node.get("arguments"))
+            if node["start"] in refresh_starts and changes_surface:
+                findings.append(f"{path}: 更新时间行的背景和圆角由共享组件持有")
         owners = {owner for source, owner in GROUPED_BROWSER_MASTER_ROLES if source == relative}
         sections = {
             (tuple(node["scope"]), node["start"])
@@ -185,11 +229,17 @@ def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
                 if call_name(node["calledExpression"]) == "HStack"
             }
             if not any(
-                call_name(node["calledExpression"]) == "appListRowInsets"
+                (
+                    call_name(node["calledExpression"]) == "appListRowInsets"
+                    or call_name(node["calledExpression"]) == "listRowInsets"
+                    and node.get("arguments") == ["EdgeInsets()"]
+                )
                 and node["start"] in row_starts
                 for node in rendered.get("invocations", [])
             ):
                 findings.append(f"{path}: 更新时间组件需要持有完整行的设计系统边距")
+            if relative == "Modules/DesignSystemKit/Sources/AppRefreshStatusComponents.swift":
+                findings.extend(refresh_status_surface_findings(path, rendered))
     return findings
 
 

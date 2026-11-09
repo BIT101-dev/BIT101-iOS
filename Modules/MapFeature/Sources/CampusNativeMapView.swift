@@ -36,13 +36,14 @@ public final class CampusMapPreparation {
 
     public init() {}
 
-    fileprivate func claim(_ makeView: () -> MKMapView) -> MKMapView {
-        isClaimed = true
+    func claim(_ makeView: () -> MKMapView) -> MKMapView {
         if let mapView { return mapView }
         let view = makeView()
         mapView = view
         return view
     }
+
+    func willMount() { isClaimed = true }
 
     fileprivate func prepare(
         in host: UIView, preset: CampusPreset, target: UpcomingCourseMapTarget?,
@@ -166,6 +167,7 @@ struct CampusNativeMapView: UIViewRepresentable {
         }
         let mapView = preparation?.claim(makeView) ?? makeView()
         let host = AppPreparedViewHost(content: mapView)
+        host.onWillMount = { preparation?.willMount() }
         host.onFirstMount = { updateMapView(mapView, coordinator: context.coordinator) }
         return host
     }

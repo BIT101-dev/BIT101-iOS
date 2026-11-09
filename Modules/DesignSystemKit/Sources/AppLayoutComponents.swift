@@ -276,7 +276,7 @@ public struct AppBrowserLayout<
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AppDesignSystem.Palette.Background.grouped)
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar(.visible, for: .navigationBar)
+                .toolbar(.hidden, for: .navigationBar)
                 .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)
                 .navigationDestination(for: Selection.self) { selected in
                     detailContent(selected)
@@ -285,12 +285,6 @@ public struct AppBrowserLayout<
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .appAccessibilityContainer("browser.detail")
         .environment(\.appContentColumn, .trailing)
-        .padding(
-            .top,
-            layout.usesTopTabBar
-                ? AppDesignSystem.Size.Control.touchTarget
-                : AppDesignSystem.Spacing.none
-        )
         .padding(
             .top,
             header == nil ? AppDesignSystem.Spacing.none : layout.contentTopInset)
@@ -315,11 +309,6 @@ public struct AppBrowserLayout<
                                 .appAccessibilityContainer("browser.detail")
                         }
                 }
-                .padding(
-                    .top,
-                    layout.usesTopTabBar && selection != nil
-                        ? AppDesignSystem.Size.Control.touchTarget
-                        : AppDesignSystem.Spacing.none)
             }
         }
         .padding(.top, header == nil ? layout.contentTopInset : AppDesignSystem.Spacing.none)
@@ -345,7 +334,7 @@ public struct AppBrowserLayout<
             .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
                 header?.padding(.top, layout.contentTopInset)
             }
-            .appBrowserNavigationBar()
+            .appBrowserNavigationBar(isPresented: layout.usesSideToolbar)
             .appAccessibilityContainer("browser.master")
     }
 
@@ -824,17 +813,19 @@ extension View {
         modifier(AppSideToolbarActionsModifier(actions: actions()))
     }
 
-    public func appBrowserNavigationBar() -> some View {
-        modifier(AppBrowserNavigationBarModifier())
+    public func appBrowserNavigationBar(isPresented: Bool = true) -> some View {
+        modifier(AppBrowserNavigationBarModifier(isPresented: isPresented))
     }
 }
 
 private struct AppBrowserNavigationBarModifier: ViewModifier {
+    let isPresented: Bool
     @Environment(\.appWindowLayout) private var layout
     func body(content: Content) -> some View {
         content.background(AppDesignSystem.Palette.Background.grouped)
             .toolbar(
-                layout.usesTopTabBar || layout.usesSideToolbar ? .visible : .hidden,
+                isPresented && (layout.usesTopTabBar || layout.usesSideToolbar)
+                    ? .visible : .hidden,
                 for: .navigationBar
             )
             .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)

@@ -6,6 +6,7 @@ import UIKit
 /// 原生内容在目标窗口及尺寸就绪后直接交接，保留已完成的布局和渲染状态。
 open class AppPreparedViewHost<Content: UIView>: UIView {
     public let content: Content
+    public var onWillMount: (() -> Void)?
     public var onFirstMount: (() -> Void)?
     public private(set) var isContentMounted = false
 
@@ -31,6 +32,9 @@ open class AppPreparedViewHost<Content: UIView>: UIView {
 
     private func attachIfReady() {
         guard window != nil, !bounds.isEmpty else { return }
+        let willMount = onWillMount
+        onWillMount = nil
+        willMount?()
         if content.superview !== self {
             content.frame = bounds
             addSubview(content)

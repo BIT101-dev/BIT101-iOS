@@ -664,6 +664,29 @@ struct ClientCoreTests {
         }
     }
 
+    @Test func pooledMemoryCacheIsCleared() throws {
+        let first = URLSessionConfiguration.default
+        let second = URLSessionConfiguration.default
+        let originalDiskCapacity = URLCache.shared.diskCapacity
+        let transports = [first, second].map {
+            URLSessionTransport.make(configuration: $0, storesResponsesOnDisk: false)
+        }
+        let cache = try #require(first.urlCache)
+        #expect(cache === second.urlCache)
+        #expect(cache !== URLCache.shared && cache.diskCapacity == 0)
+        #expect(URLCache.shared.diskCapacity == originalDiskCapacity)
+        let request = URLRequest(url: AppURL.required("https://example.invalid/memory-cache"))
+        let response = URLResponse(
+            url: try #require(request.url), mimeType: nil, expectedContentLength: 1,
+            textEncodingName: nil)
+        cache.storeCachedResponse(
+            CachedURLResponse(response: response, data: Data([1])), for: request)
+        #expect(cache.cachedResponse(for: request)?.data == Data([1]))
+        URLSessionTransport.clearSharedCache()
+        #expect(cache.cachedResponse(for: request) == nil)
+        withExtendedLifetime(transports) {}
+    }
+
     @Test(.timeLimit(.minutes(1))) func remoteReadPolicyPreservesFailures() async throws {
         let base = StubTransport(result: .failure(URLError(.networkConnectionLost)))
         let request = URLRequest(url: url, cachePolicy: .returnCacheDataDontLoad)

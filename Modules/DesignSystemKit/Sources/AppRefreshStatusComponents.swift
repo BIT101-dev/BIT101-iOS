@@ -10,7 +10,6 @@ public struct AppRefreshStatusRow: View {
     let onRefresh: (() -> Void)?
     let trailingText: String?
     let actionAccessibilityIdentifier: String?
-    let isStandalone: Bool
     @State private var feedbackToken = 0
 
     public init(
@@ -20,8 +19,7 @@ public struct AppRefreshStatusRow: View {
         actionTitle: String? = nil,
         onRefresh: (() -> Void)? = nil,
         trailingText: String? = nil,
-        actionAccessibilityIdentifier: String? = nil,
-        isStandalone: Bool = false
+        actionAccessibilityIdentifier: String? = nil
     ) {
         self.isRefreshing = isRefreshing
         self.refreshingText = refreshingText
@@ -30,26 +28,9 @@ public struct AppRefreshStatusRow: View {
         self.onRefresh = onRefresh
         self.trailingText = trailingText
         self.actionAccessibilityIdentifier = actionAccessibilityIdentifier
-        self.isStandalone = isStandalone
     }
 
-    @ViewBuilder
     public var body: some View {
-        if isStandalone {
-            rowContent
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, AppDesignSystem.Spacing.content)
-                .padding(.vertical, AppDesignSystem.Spacing.tiny)
-                .background(
-                    AppDesignSystem.Palette.Background.secondaryGrouped,
-                    in: AppDesignSystem.roundedRectangle(AppDesignSystem.Radius.grouped))
-        } else {
-            rowContent
-                .listRowBackground(AppDesignSystem.Palette.Background.secondaryGrouped)
-        }
-    }
-
-    private var rowContent: some View {
         HStack(spacing: AppDesignSystem.Spacing.regular) {
             Group {
                 if isRefreshing {
@@ -85,7 +66,12 @@ public struct AppRefreshStatusRow: View {
             }
         }
         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
-        .appListRowInsets()
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, AppDesignSystem.Spacing.content)
+        .padding(.vertical, AppDesignSystem.Spacing.tiny)
+        .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: Capsule())
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
     }
 }
 #endif

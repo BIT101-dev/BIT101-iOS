@@ -421,12 +421,16 @@ enum AppLocalDataComposition {
         #endif
     }
 
-    static func appService(settings: AppSettingsStore, media: MediaEnvironment)
+    static func appService(
+        settings: AppSettingsStore, media: MediaEnvironment,
+        webDataStore: @escaping () -> WKWebsiteDataStore = {
+            AppLocalDataComposition.websiteDataStore
+        }
+    )
         -> AppLocalDataService
     {
         let defaults = AppFileDirectories.defaults
         let domain = AppFileDirectories.defaultsDomain
-        let webData = websiteDataStore
         return AppLocalDataService(
             files: AppFileDirectories.files,
             actions: AppLocalDataActions(
@@ -445,6 +449,7 @@ enum AppLocalDataComposition {
                 },
                 clearURLCache: { URLSessionTransport.clearSharedCache() },
                 clearWebData: {
+                    let webData = webDataStore()
                     #if !BIT101_AUTOMATED_TESTING
                     await communityWebStorage.clear(allStores: true)
                     #endif

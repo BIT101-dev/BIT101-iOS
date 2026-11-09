@@ -140,7 +140,7 @@ public struct ScheduleRootView: View {
         NavigationStack {
             content(showingClassroom: false)
                 .padding(.top, navigationContentTopPadding)
-                .appBrowserNavigationBar()
+                .appBrowserNavigationBar(isPresented: layout.usesSideToolbar)
                 .navigationBarTitleDisplayMode(.inline)
         }
     }

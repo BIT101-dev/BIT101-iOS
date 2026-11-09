@@ -1,5 +1,6 @@
 import DesignSystemKit
 import Foundation
+import MapKit
 import ScheduleDomain
 import ScheduleContracts
 import StorageCore
@@ -9,10 +10,132 @@ import TransportCore
 import UIKit
 
 @testable import BIT101_iOS
+@testable import MapFeature
 @testable import ScheduleFeature
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
+    @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
+    func emptyScheduleNavigationHasNoBar(showingClassrooms: Bool) async throws {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let repository = ScheduleRepository(
+            session: { .init(accountIdentifier: "navigation-layout") },
+            load: { _ in .missing }, save: { _, _, _ in })
+        let service = SemesterStartDateService()
+        let model = ScheduleViewModel(
+            service: service, repository: repository, ddlService: service,
+            classroomService: service, platformActions: RecordingSchedulePlatformActions(),
+            newCustomScheduleDraft: { .init() })
+        let destinations = ScheduleDestinations(
+            appStoreURL: AppURL.required("https://example.invalid"),
+            academicCourse: { _, _ in AnyView(EmptyView()) }, openCourseLocation: { _ in false },
+            resolveCourseShare: { _ in nil })
+        let layout = AppWindowLayout(
+            size: CGSize(width: 1_200, height: 800), isRegularWidth: true, interfaceIdiom: .pad)
+        #expect(layout.usesTopTabBar && !layout.usesSideToolbar)
+        let host = UIHostingController(
+            rootView: ScheduleRootView(
+                viewModel: model, requestedSection: .constant(nil), destinations: destinations,
+                showingClassrooms: showingClassrooms)
+                .environment(FeatureCompositionTests().media())
+                .environment(\.appWindowLayout, layout).environment(\.appExpandedNavigation, true))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        func navigations(in controller: UIViewController) -> [UINavigationController] {
+            let current = (controller as? UINavigationController).map { [$0] } ?? []
+            return current + controller.children.flatMap { navigations(in: $0) }
+        }
+        try await waitForTestEvent {
+            let stacks = navigations(in: host)
+            return stacks.count == (showingClassrooms ? 2 : 1)
+                && stacks.allSatisfy(\.isNavigationBarHidden)
+        }
+        #expect(navigations(in: host).allSatisfy { $0.isNavigationBarHidden })
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func mapPreparesBeforeDestinationMount() async throws {
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let preparation = CampusMapPreparation()
+        let reserved = AppPreparedViewHost(content: preparation.claim { MKMapView() })
+        reserved.onWillMount = { preparation.willMount() }
+        let destination = UIViewController()
+        destination.view = reserved
+        let map = reserved.content
+        #expect(!reserved.isContentMounted && map.window == nil)
+        let warm = UIHostingController(
+            rootView: CampusMapPreparationHost(preparation: preparation, nextCourseTarget: nil))
+        let container = UIViewController()
+        container.addChild(warm)
+        container.view.addSubview(warm.view)
+        warm.didMove(toParent: container)
+        window.rootViewController = container
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        warm.view.frame = container.view.bounds
+        try await waitForTestEvent { map.window === window }
+        #expect(map.superview !== reserved)
+        container.addChild(destination)
+        destination.view.frame = container.view.bounds
+        container.view.addSubview(destination.view)
+        destination.didMove(toParent: container)
+        try await waitForTestEvent { reserved.isContentMounted && map.superview === reserved }
+        warm.view.setNeedsLayout()
+        warm.view.layoutIfNeeded()
+        #expect(map.superview === reserved)
+    }
+
+    @Test(arguments: [-15, -7, -1, 0, 6, 7, 14, 139, 140])
+    @MainActor func mapTargetMatchesAllOccurrences(dayOffset: Int) throws {
+        let courses = try (0..<4).flatMap { index in
+            try ScheduleCourseEditor.adding(
+                CourseDraft(
+                    title: "课程 \(index % 3)", weekday: index.isMultiple(of: 2) ? 1 : 7,
+                    weeksText: "1-20"),
+                to: [], term: "2026-2027-1", id: "map-\(index)"
+            ).map { $0.replacingWeeks([20, 3, 2, 1, -1, -2, 2, 0, 999]) }
+        }
+        let snapshot = ScheduleCourseSnapshot(
+            firstDayString: "2026-09-07", timeTable: TimeSlot.default, courses: courses)
+        let firstDay = try #require(snapshot.firstDay)
+        let day = try #require(ScheduleSharedDateCodec.calendar.date(
+            byAdding: .day, value: dayOffset, to: firstDay))
+        let slot = try #require(TimeSlot.default.first)
+        for hour in [0, 8, 23] {
+            let now = day.addingTimeInterval(Double(hour * 3_600))
+            let occurrences = courses.flatMap { course in
+                course.weeks.compactMap { week -> (course: CourseRecord, date: Date)? in
+                    guard let date = ScheduleSharedDateCodec.combine(
+                        firstDay: firstDay, week: week, weekday: course.weekday, time: slot.start),
+                        date > now
+                    else { return nil }
+                    return (course, date)
+                }
+            }
+            let expected = occurrences.min {
+                $0.date == $1.date ? $0.course.name < $1.course.name : $0.date < $1.date
+            }
+            let target = UpcomingCourseMapResolver.nextTarget(in: snapshot, now: now)
+            #expect(target?.startDate == expected?.date)
+            #expect(target?.courseName == expected?.course.name)
+        }
+    }
+
     @Test @MainActor func mapTargetTracksStartAndCourseEdits() throws {
         let firstDayString = "2026-09-07"
         let courses = try ScheduleCourseEditor.adding(

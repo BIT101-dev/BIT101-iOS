@@ -2,6 +2,8 @@ import Foundation
 
 /// Foundation transport resources are constructed and maintained in this module.
 public final class URLSessionTransport: HTTPTransport {
+    private static let memoryResponses = URLCache(
+        memoryCapacity: URLCache.shared.memoryCapacity, diskCapacity: 0, directory: nil)
     private let session: URLSession
     init(ownedSession: URLSession) { session = ownedSession }
     deinit { session.finishTasksAndInvalidate() }
@@ -18,8 +20,17 @@ public final class URLSessionTransport: HTTPTransport {
 
     public static func make(
         configuration: URLSessionConfiguration,
-        followsRedirects: Bool = true
+        followsRedirects: Bool = true,
+        storesResponsesOnDisk: Bool = true
     ) -> any HTTPTransport {
+        if !storesResponsesOnDisk {
+            if configuration.urlCache === URLCache.shared {
+                configuration.urlCache = memoryResponses
+            } else if let cache = configuration.urlCache, cache.diskCapacity > 0 {
+                configuration.urlCache = URLCache(
+                    memoryCapacity: cache.memoryCapacity, diskCapacity: 0, directory: nil)
+            }
+        }
         let delegate: any URLSessionTaskDelegate =
             followsRedirects
             ? HTTPSUpgradingRedirectDelegate()
@@ -30,6 +41,7 @@ public final class URLSessionTransport: HTTPTransport {
     }
 
     public static func clearSharedCache() {
+        memoryResponses.removeAllCachedResponses()
         URLCache.shared.removeAllCachedResponses()
     }
 }

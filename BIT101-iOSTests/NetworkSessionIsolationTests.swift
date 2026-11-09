@@ -424,16 +424,18 @@ extension NetworkClientTests {
         configuration.urlCache = cache
         let transport = NetworkSessionPool.make(
             configuration: configuration, productionPolicy: true)
+        let responseCache = try #require(configuration.urlCache)
         let url = try #require(URL(string: "https://example.org/cache"))
         let request = URLRequest(url: url)
         let response = URLResponse(
             url: url, mimeType: nil, expectedContentLength: 3, textEncodingName: nil)
         withExtendedLifetime(transport) {
-            #expect(cache.diskCapacity == 0)
-            #expect(cache.memoryCapacity == 1_048_576)
-            cache.storeCachedResponse(
+            #expect(responseCache.diskCapacity == 0)
+            #expect(responseCache.memoryCapacity == 1_048_576)
+            #expect(cache.diskCapacity == 1_048_576)
+            responseCache.storeCachedResponse(
                 CachedURLResponse(response: response, data: Data([1, 2, 3])), for: request)
-            #expect(cache.cachedResponse(for: request)?.data == Data([1, 2, 3]))
+            #expect(responseCache.cachedResponse(for: request)?.data == Data([1, 2, 3]))
         }
     }
 

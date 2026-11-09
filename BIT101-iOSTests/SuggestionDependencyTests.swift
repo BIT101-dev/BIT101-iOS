@@ -426,7 +426,14 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         }
         let media = AppMedia.makeEnvironment(previewStorage: MediaPreviewStorage(files: files))
         let settings = AppSettingsStore(defaults: defaults)
-        let service = AppLocalDataComposition.appService(settings: settings, media: media)
+        var webDataRequests = 0
+        let service = AppLocalDataComposition.appService(
+            settings: settings, media: media,
+            webDataStore: {
+                webDataRequests += 1
+                return AppLocalDataComposition.websiteDataStore
+            })
+        XCTAssertEqual(webDataRequests, 0)
         let support = AppFileDirectories.appSupportURL(named: "BIT101-iOS").appending(
             path: "cleanup-fixture.dat")
         let report = try XCTUnwrap(ReleaseNetworkSmokeReportStore.fileURL)
@@ -472,6 +479,7 @@ nonisolated final class AppLocalDataResourceTests: XCTestCase {
         XCTAssertTrue(!AppAccountSession.storage.fakeCookie.isEmpty, "账号测试数据应持有社区会话。")
         var loggedOut = false
         let reset = await service.resetAllLocalData { loggedOut = true }
+        XCTAssertEqual(webDataRequests, 1)
         XCTAssertTrue(reset, service.resetFailureMessage ?? "Local data reset completed")
         XCTAssertTrue(loggedOut && !service.isCleaning, "本地清理应完成退出并释放操作状态。")
         for file in [support, report, mediaCache] {

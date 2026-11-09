@@ -233,6 +233,41 @@ def list_row_layout_boundary_findings() -> list[str]:
             != expected
         ):
             findings.append("UI 布局自测：列表容器、行组件和闲置修饰的边距归属")
+    refresh_path = str(ROOT / "Modules/DesignSystemKit/Sources/AppRefreshStatusComponents.swift")
+    refresh = """
+    struct AppRefreshStatusRow: View {
+        var body: some View {
+            HStack { Text("时间") }
+                .padding(.horizontal, AppDesignSystem.Spacing.content)
+                .padding(.vertical, AppDesignSystem.Spacing.tiny)
+                .background(AppDesignSystem.Palette.Background.secondaryGrouped, in: Capsule())
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+        }
+    }
+    """
+    for source, expected in (
+        (refresh, False),
+        (refresh.replace("Capsule()", "RoundedRectangle(cornerRadius: 12)"), True),
+        (refresh.replace(".listRowBackground(Color.clear)", ""), True),
+        (refresh.replace("EdgeInsets()", "EdgeInsets(top: 8)"), True),
+        (refresh.replace("Spacing.content", "Spacing.regular"), True),
+        (refresh.replace(".listRowBackground", ".background(Color.white).listRowBackground"), True),
+    ):
+        errors = list_row_layout_findings(swift_syntax_index_sources({refresh_path: source}))
+        if bool(errors) != expected:
+            findings.append("更新时间外观自测：圆角、背景和边距需要由完整组件统一持有")
+    for modifier, expected in (
+        ("", False), (".clipShape(Capsule())", True),
+        (".background(Color.white)", True), (".listRowBackground(Color.white)", True),
+        (".background { GeometryReader { _ in Color.clear } }", False),
+    ):
+        source = "struct Page: View { var body: some View { ScoreRefreshStatusRow()" + modifier
+        source += " } }"
+        errors = list_row_layout_findings(
+            swift_syntax_index_sources({"ui-self-test.swift": source}))
+        if bool(errors) != expected:
+            findings.append("更新时间外观自测：调用位置应沿用共享背景和圆角")
     path = str(ROOT / "Modules/ScoreFeature/Sources/ScoreRootView.swift")
     browser = (
         'struct ScoreListPage: View { var body: some View { List { Section { Text("空态") }.appGroup'

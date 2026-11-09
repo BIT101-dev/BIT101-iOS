@@ -125,19 +125,19 @@ enum NetworkSessionPool {
         productionPolicy: Bool = false
     ) -> any HTTPTransport {
         configuration.timeoutIntervalForResource = min(configuration.timeoutIntervalForResource, 90)
-        // HTTP 响应保留内存复用；持久化内容由各业务存储管理。
-        configuration.urlCache?.diskCapacity = 0
         #if RELEASE_NETWORK_SMOKE
         if !productionPolicy {
             configuration.urlCache = nil
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             return UncachedHTTPTransport(
                 base: URLSessionTransport.make(
-                    configuration: configuration, followsRedirects: followsRedirects))
+                    configuration: configuration, followsRedirects: followsRedirects,
+                    storesResponsesOnDisk: false))
         }
         #endif
         let transport = URLSessionTransport.make(
-            configuration: configuration, followsRedirects: followsRedirects)
+            configuration: configuration, followsRedirects: followsRedirects,
+            storesResponsesOnDisk: false)
         #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
         return AutomatedTestHTTPTransport(base: transport)
         #else

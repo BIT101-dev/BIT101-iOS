@@ -27,31 +27,30 @@ enum UpcomingCourseMapResolver {
     static func nextTarget(in snapshot: ScheduleCourseSnapshot, now: Date = Date())
         -> UpcomingCourseMapTarget?
     {
-        guard let firstDay = snapshot.firstDay else { return nil }
+        let calendar = ScheduleSharedDateCodec.calendar
+        guard let firstDay = snapshot.firstDay,
+            let dayOffset = calendar.dateComponents(
+                [.day], from: calendar.startOfDay(for: firstDay),
+                to: calendar.startOfDay(for: now)).day
+        else { return nil }
+        let currentWeekOffset = ScheduleWeekCodec.weekOffset(
+            forWeekNumber: ScheduleWeekCodec.weekNumber(forDayOffset: dayOffset))
         let slots = Dictionary(uniqueKeysWithValues: snapshot.timeTable.map { ($0.id, $0) })
 
         var earliest: (course: CourseRecord, date: Date)?
         for course in snapshot.courses {
-            guard let startSlot = slots[course.startSection] else { continue }
-            for week in course.weeks {
-                guard
-                    let startDate = ScheduleSharedDateCodec.combine(
-                        firstDay: firstDay,
-                        week: week,
-                        weekday: course.weekday,
-                        time: startSlot.start
-                    ), startDate > now
-                else {
-                    continue
-                }
-                if let current = earliest,
-                    startDate > current.date
-                        || startDate == current.date && course.name >= current.course.name
-                {
-                    continue
-                }
-                earliest = (course, startDate)
+            guard let startSlot = slots[course.startSection],
+                let startDate = nextStartDate(
+                    for: course, firstDay: firstDay, now: now,
+                    currentWeekOffset: currentWeekOffset, time: startSlot.start)
+            else { continue }
+            if let current = earliest,
+                startDate > current.date
+                    || startDate == current.date && course.name >= current.course.name
+            {
+                continue
             }
+            earliest = (course, startDate)
         }
         guard let earliest else { return nil }
         let course = earliest.course
@@ -64,5 +63,21 @@ enum UpcomingCourseMapResolver {
                 campusName: course.campus, classroom: course.classroom),
             startDateText: ScheduleDateCodec.formatRelativeDateTime(earliest.date)
         )
+    }
+
+    private static func nextStartDate(
+        for course: CourseRecord, firstDay: Date, now: Date,
+        currentWeekOffset: Int, time: String
+    ) -> Date? {
+        for week in Set(course.weeks).sorted() {
+            guard ScheduleCourseConstraints.isValidWeek(week),
+                ScheduleWeekCodec.weekOffset(forWeekNumber: week) >= currentWeekOffset,
+                let start = ScheduleSharedDateCodec.combine(
+                    firstDay: firstDay, week: week, weekday: course.weekday, time: time),
+                start > now
+            else { continue }
+            return start
+        }
+        return nil
     }
 }

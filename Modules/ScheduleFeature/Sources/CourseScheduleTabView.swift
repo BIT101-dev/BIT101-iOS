@@ -14,7 +14,6 @@ private struct ScheduleRefreshStatusHeightKey: PreferenceKey {
 struct CourseScheduleRefreshStatusRow: View {
     @Environment(\.appInteractionEvidence) var interactionEvidence
     var viewModel: ScheduleViewModel
-    var isStandalone = false
     private var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
     }
@@ -32,8 +31,7 @@ struct CourseScheduleRefreshStatusRow: View {
                 actionTitle: "刷新",
                 onRefresh: {
                     Task { await viewModel.syncSelectedTerm() }
-                },
-                isStandalone: isStandalone
+                }
             )
         } else {
             AppRefreshStatusRow(
@@ -42,8 +40,7 @@ struct CourseScheduleRefreshStatusRow: View {
                 lastUpdatedText: activeSchedule.importedAt.map {
                     "导入时间：\($0.formatted(.dateTime.month().day().hour().minute()))"
                 } ?? "分享课表",
-                trailingText: "只读",
-                isStandalone: isStandalone
+                trailingText: "只读"
             )
         }
     }
@@ -541,7 +538,7 @@ struct CourseScheduleTabView: View {
     }
 
     private var refreshStatusCard: some View {
-        CourseScheduleRefreshStatusRow(viewModel: viewModel, isStandalone: true)
+        CourseScheduleRefreshStatusRow(viewModel: viewModel)
             .background {
                 GeometryReader { proxy in
                     Color.clear.preference(

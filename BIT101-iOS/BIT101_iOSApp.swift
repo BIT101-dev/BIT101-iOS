@@ -315,7 +315,6 @@ struct BIT101_iOSApp: App {
                 platformActions: actions, didSave: { _, _, _ in })
         }
         #endif
-        let calendar = ScheduleSystemCalendarManager.shared
         let effects = AppScheduleCacheEffects(
             currentSession: { AppAccountSession.currentSession },
             currentIdentity: { AppAccountSession.storage.communityCredentials.identity },
@@ -330,13 +329,22 @@ struct BIT101_iOSApp: App {
                 await ScheduleLiveActivityManager.shared.refreshFromCurrentCache(
                     trigger: $0)
             },
-            importCourses: { try await calendar.importCurrentTerm(from: $0, term: $1) },
-            importDrafts: { try await calendar.importDrafts($0, term: $1) },
-            deleteEntries: {
-                try await calendar.deleteImportedEvents(markerIDs: $0, term: $1)
+            importCourses: {
+                try await ScheduleSystemCalendarManager.shared.importCurrentTerm(from: $0, term: $1)
             },
-            deleteAllEntries: { try await calendar.deleteAllImportedEvents() },
-            rebuildCalendarHistory: { try await calendar.rebuildImportHistory() }
+            importDrafts: {
+                try await ScheduleSystemCalendarManager.shared.importDrafts($0, term: $1)
+            },
+            deleteEntries: {
+                try await ScheduleSystemCalendarManager.shared.deleteImportedEvents(
+                    markerIDs: $0, term: $1)
+            },
+            deleteAllEntries: {
+                try await ScheduleSystemCalendarManager.shared.deleteAllImportedEvents()
+            },
+            rebuildCalendarHistory: {
+                try await ScheduleSystemCalendarManager.shared.rebuildImportHistory()
+            }
         )
         return ScheduleServiceFactory.makeViewModel(
             platformActions: effects, didSave: effects.didSave)
