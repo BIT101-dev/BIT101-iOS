@@ -68,7 +68,9 @@ pgrep() { return 1; }
 trap() { :; }
 xcrun() {
   if [[ "$*" == '--find swift-frontend' ]]; then print /usr/bin/true;
-  elif [[ "$*" == *lockState* ]]; then print '{"result":{"isLocked":false}}';
+  elif [[ "$*" == *lockState* ]]; then
+    if [[ -n "${BIT101_TEST_LOCK_STATE:-}" ]]; then print -r -- "$BIT101_TEST_LOCK_STATE";
+    else print '{"result":{"passcodeRequired":false,"unlockedSinceBoot":true}}'; fi;
   else print -ru2 -- "TOOL $*"; fi
 }
 """
@@ -287,6 +289,30 @@ def check_export_locks_and_tools(export_source, findings):
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode or any(marker not in result.stdout for marker in markers):
             findings.append("装机恢复自测：当前工具链需要正式启动与进程读取参数")
+
+
+def check_device_lock_state(findings, frame, support):
+    path = SCRIPT_ROOT / "build-install-device.sh"
+    source = path.read_text().replace(
+        'source "$ROOT_DIR/Scripts/script-support.sh"',
+        f"source {shlex.quote(str(support))}\n" + frame,
+    )
+    for state, expected in (
+        ({"passcodeRequired": True, "unlockedSinceBoot": True}, "请解锁"),
+        ({"passcodeRequired": False, "unlockedSinceBoot": True}, "当前未要求输入密码"),
+        ({}, "密码要求未知"),
+        ({"unlockedSinceBoot": True}, "密码要求未知"),
+        ({"passcodeRequired": None}, "密码要求未知"),
+        ({"passcodeRequired": "false"}, "密码要求未知"),
+    ):
+        result = subprocess.run(
+            ["zsh", "-c", source, str(path), "info"],
+            env=dict(os.environ, BIT101_TEST_LOCK_STATE=json.dumps({"result": state})),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode or f"设备要求：{expected}" not in result.stdout.splitlines():
+            findings.append("设备状态自测：如实显示密码要求，缺失字段显示未知")
 
 
 def command_dispatch_inputs(valid_fixture):

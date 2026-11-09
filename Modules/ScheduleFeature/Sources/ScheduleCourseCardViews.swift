@@ -7,6 +7,18 @@ import UIKit
 /// 复用原生 UILabel 和排版结果，文字始终由 UIKit 显示。
 @MainActor
 final class ScheduleCardTextView: UIView {
+    private struct MeasurementKey: Equatable {
+        let text: String
+        let font: UIFont
+        let width: CGFloat
+    }
+    private struct LocationKey: Equatable {
+        let measurement: MeasurementKey
+        let height: CGFloat
+        let scale: CGFloat
+    }
+    private static var lastMeasurement: (key: MeasurementKey, height: CGFloat)?
+    private static var lastLocation: (key: LocationKey, font: UIFont, height: CGFloat)?
     let titleLabel = UILabel()
     let locationLabel = UILabel()
     private var title = ""
@@ -24,7 +36,6 @@ final class ScheduleCardTextView: UIView {
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
         [titleLabel, locationLabel].forEach { label in
-            addSubview(label)
             label.textColor = textColor
             label.textAlignment = .center
             label.adjustsFontForContentSizeCategory = false
@@ -126,6 +137,7 @@ final class ScheduleCardTextView: UIView {
             return 0
         }
         titleLabel.isHidden = false
+        if titleLabel.superview == nil { addSubview(titleLabel) }
         titleLabel.text = text
         titleLabel.font = baseFont
         titleLabel.preferredMaxLayoutWidth = rect.width
@@ -150,16 +162,33 @@ final class ScheduleCardTextView: UIView {
             hideLocation()
             return
         }
-        locationLabel.textAlignment = .center
-        let naturalHeight = measuredHeight(text: text, font: baseFont, width: rect.width)
+        let layout = fittedLocation(text: text, width: rect.width, height: rect.height)
+        configureLocationLabel(text: text, height: layout.height, font: layout.font)
+        locationLabel.frame = CGRect(
+            x: rect.minX,
+            y: verticallyCentered
+                ? rect.minY + max((rect.height - layout.height) / 2, 0)
+                : rect.maxY - layout.height,
+            width: rect.width,
+            height: layout.height
+        )
+    }
+
+    private func fittedLocation(text: String, width: CGFloat, height: CGFloat)
+        -> (font: UIFont, height: CGFloat)
+    {
+        let key = LocationKey(
+            measurement: MeasurementKey(text: text, font: baseFont, width: width),
+            height: height, scale: layoutScale)
+        if let cached = Self.lastLocation, cached.key == key { return (cached.font, cached.height) }
+        let naturalHeight = measuredHeight(text: text, font: baseFont, width: width)
         var font = baseFont
-        if naturalHeight > rect.height {
-            var lower = baseFont.pointSize * rect.height / naturalHeight
+        if naturalHeight > height {
+            var lower = baseFont.pointSize * height / naturalHeight
             var upper = baseFont.pointSize
             while upper - lower > 1 / layoutScale {
                 let size = (lower + upper) / 2
-                if measuredHeight(text: text, font: baseFont.withSize(size), width: rect.width)
-                    <= rect.height
+                if measuredHeight(text: text, font: baseFont.withSize(size), width: width) <= height
                 {
                     lower = size
                 } else {
@@ -168,20 +197,14 @@ final class ScheduleCardTextView: UIView {
             }
             font = baseFont.withSize(lower)
         }
-        let height = min(measuredHeight(text: text, font: font, width: rect.width), rect.height)
-        configureLocationLabel(text: text, height: height, font: font)
-        locationLabel.frame = CGRect(
-            x: rect.minX,
-            y: verticallyCentered
-                ? rect.minY + max((rect.height - height) / 2, 0)
-                : rect.maxY - height,
-            width: rect.width,
-            height: height
-        )
+        let fittedHeight = min(measuredHeight(text: text, font: font, width: width), height)
+        Self.lastLocation = (key, font, fittedHeight)
+        return (font, fittedHeight)
     }
 
     private func configureLocationLabel(text: String, height: CGFloat, font: UIFont) {
         locationLabel.isHidden = false
+        if locationLabel.superview == nil { addSubview(locationLabel) }
         locationLabel.text = text
         locationLabel.font = font
         locationLabel.numberOfLines = max(Int(floor(height / font.lineHeight)), 1)
@@ -189,20 +212,26 @@ final class ScheduleCardTextView: UIView {
     }
 
     private func measuredHeight(text: String, font: UIFont, width: CGFloat) -> CGFloat {
+        let key = MeasurementKey(text: text, font: font, width: width)
+        if let cached = Self.lastMeasurement, cached.key == key { return cached.height }
         let rect = (text as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
-        return ceil(rect.height)
+        let height = ceil(rect.height)
+        Self.lastMeasurement = (key, height)
+        return height
     }
 
     private func hideTitle() {
         titleLabel.isHidden = true
+        titleLabel.removeFromSuperview()
         titleLabel.frame = .zero
     }
 
     private func hideLocation() {
         locationLabel.isHidden = true
+        locationLabel.removeFromSuperview()
         locationLabel.frame = .zero
     }
 }

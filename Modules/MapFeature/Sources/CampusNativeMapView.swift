@@ -239,13 +239,26 @@ struct CampusNativeMapView: UIViewRepresentable {
     final class Coordinator: NSObject, MKMapViewDelegate {
         private static let annotationReuseIdentifier = "campus-place"
         private(set) var renderedMapSize: CGSize?
-
-        func mapViewWillStartRenderingMap(_ mapView: MKMapView) {
-            renderedMapSize = nil
-        }
+        private(set) var renderedMapRect: MKMapRect?
+        private(set) var renderedConfigurationID: String?
+        private var renderedPerspective: (altitude: Double, pitch: Double, heading: Double)?
 
         func mapViewDidFinishRenderingMap(_ mapView: MKMapView, fullyRendered: Bool) {
-            if fullyRendered { renderedMapSize = mapView.bounds.size }
+            guard fullyRendered else { return }
+            renderedMapSize = mapView.bounds.size
+            renderedMapRect = mapView.visibleMapRect
+            renderedConfigurationID = lastMapConfigurationID
+            let camera = mapView.camera
+            renderedPerspective = (camera.altitude, camera.pitch, camera.heading)
+        }
+
+        func hasRenderedContent(in mapView: MKMapView) -> Bool {
+            guard let renderedMapRect, let renderedPerspective else { return false }
+            let camera = mapView.camera
+            return renderedMapSize == mapView.bounds.size
+                && renderedMapRect.contains(mapView.visibleMapRect)
+                && renderedPerspective == (camera.altitude, camera.pitch, camera.heading)
+                && renderedConfigurationID == lastMapConfigurationID
         }
 
         var lastFocusID: UUID?

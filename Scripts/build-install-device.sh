@@ -36,7 +36,7 @@ case "$ACTION" in
       "Scripts/build-install-device.sh install-archive <归档路径> [--clean] 安装并启动归档；--clean 先卸载现有 App"
     echo "Scripts/build-install-device.sh mac          构建并安装到本机 Mac"
     echo "Scripts/build-install-device.sh screenshot   真机截图"
-    echo "Scripts/build-install-device.sh info         真机连接与锁定状态"
+    echo "Scripts/build-install-device.sh info         真机连接与密码要求"
     echo "Scripts/build-install-device.sh toolchain    核对 Xcode 工具链版本"
     exit 0
     ;;
@@ -72,7 +72,13 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
       python3 -c 'import json, sys
 
 state = json.load(sys.stdin)["result"]
-print("设备状态：" + ("请解锁" if state.get("passcodeRequired") else "已解锁"))'
+required = state.get("passcodeRequired")
+description = "密码要求未知"
+if required is True:
+    description = "请解锁"
+elif required is False:
+    description = "当前未要求输入密码"
+print("设备要求：" + description)'
   fi
   exit 0
 fi

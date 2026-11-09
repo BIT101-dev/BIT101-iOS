@@ -435,7 +435,17 @@ extension MaintenancePerformanceTests {
         XCTAssertTrue(shellViewIsDisplayed(destination.viewIfLoaded))
         var mapID: ObjectIdentifier?
         if isMap {
-            XCTAssertTrue(shellMapIsReady(destination.viewIfLoaded))
+            let map = shellMap(in: destination.viewIfLoaded)
+            let renderer = map?.delegate as? CampusNativeMapView.Coordinator
+            XCTAssertTrue(
+                shellMapIsReady(destination.viewIfLoaded),
+                "地图尺寸=\(String(describing: map?.bounds.size)), "
+                    + "已绘制尺寸=\(String(describing: renderer?.renderedMapSize)), "
+                    + "当前范围=\(String(describing: map?.visibleMapRect)), "
+                    + "已绘制范围=\(String(describing: renderer?.renderedMapRect)), "
+                    + "样式=\(String(describing: renderer?.lastMapConfigurationID))/"
+                    + "\(String(describing: renderer?.renderedConfigurationID)), "
+                    + "位于窗口=\(map?.window != nil)")
             XCTAssertEqual(shellMapCount(try XCTUnwrap(destination.view.window)), 1)
             mapID = ObjectIdentifier(try XCTUnwrap(shellMap(in: destination.viewIfLoaded)))
         }
@@ -455,7 +465,7 @@ extension MaintenancePerformanceTests {
         guard let map = shellMap(in: view) else { return false }
         let coordinator = map.delegate as? CampusNativeMapView.Coordinator
         return map.window != nil && !map.bounds.isEmpty
-            && coordinator?.renderedMapSize == map.bounds.size
+            && coordinator?.hasRenderedContent(in: map) == true
     }
 
     @MainActor

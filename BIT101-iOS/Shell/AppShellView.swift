@@ -761,6 +761,7 @@ private struct AppMapSurfaceView: View {
             let target = courseTarget.resolve(in: schedule.courseSnapshot, now: context.date)
             if isPreparing {
                 CampusMapPreparationHost(preparation: preparation, nextCourseTarget: target)
+                    .ignoresSafeArea(edges: [.top, .bottom])
             } else {
                 CampusMapScreen(
                     nextCourseTarget: target, requestedLocation: requestedLocation,

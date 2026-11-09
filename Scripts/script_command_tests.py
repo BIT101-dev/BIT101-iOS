@@ -36,6 +36,7 @@ from command_lifecycle_tests import (
 from script_command_dispatch_tests import (
     check_archive_installation,
     check_command_dispatch,
+    check_device_lock_state,
     check_export_locks_and_tools,
     check_invalid_command_arguments,
     check_network_command_configuration,
@@ -53,6 +54,7 @@ def script_command_boundary_findings() -> list[str]:
     support = check_icloud_cleanup(findings)
     check_result_bundle_readiness(findings)
     frame = command_shell_frame()
+    check_device_lock_state(findings, frame, support)
     check_archive_installation(frame)
     export_source, valid_fixture = check_network_command_configuration(findings, frame)
     check_export_locks_and_tools(export_source, findings)

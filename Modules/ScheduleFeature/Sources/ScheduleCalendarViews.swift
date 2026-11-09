@@ -241,7 +241,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        guard isContentVisible else {
+        guard isContentVisible, window != nil else {
             hasDeferredLayout = true
             return
         }
@@ -252,6 +252,11 @@ final class ScheduleBlankContextMenuControl: UIControl {
             dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
         if cardText.frame != frame { cardText.frame = frame }
         cardText.layout(size: frame.size, scale: window?.screen.scale ?? contentScaleFactor)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil, hasDeferredLayout { setNeedsLayout() }
     }
 
     func useSharedInteractionHandling() {

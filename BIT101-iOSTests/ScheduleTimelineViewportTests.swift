@@ -15,6 +15,40 @@ import UIKit
 
 @Suite("Schedule linear timeline viewport")
 struct ScheduleTimelineViewportTests {
+    @Test @MainActor func completedMapViewportStaysAvailable() {
+        let map = MKMapView(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
+        let renderer = CampusNativeMapView.Coordinator()
+        renderer.lastMapConfigurationID = "standard"
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: true)
+        #expect(renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: false)
+        #expect(renderer.hasRenderedContent(in: map))
+        map.frame.size.width = 500
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: false)
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: true)
+        #expect(renderer.hasRenderedContent(in: map))
+        let rect = map.visibleMapRect
+        map.setVisibleMapRect(
+            MKMapRect(
+                x: rect.origin.x + rect.size.width / 2, y: rect.origin.y,
+                width: rect.size.width, height: rect.size.height), animated: false)
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: true)
+        renderer.lastMapConfigurationID = "imagery"
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: true)
+        #expect(renderer.hasRenderedContent(in: map))
+        let camera = map.camera
+        camera.altitude /= 2
+        map.setCamera(camera, animated: false)
+        #expect(!renderer.hasRenderedContent(in: map))
+        renderer.mapViewDidFinishRenderingMap(map, fullyRendered: true)
+        #expect(renderer.hasRenderedContent(in: map))
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: [false, true]) @MainActor
     func emptyScheduleNavigationHasNoBar(showingClassrooms: Bool) async throws {
         let scene = try #require(
@@ -474,6 +508,21 @@ struct ScheduleCardTextLayoutTests {
             onMenuWillPresent: nil, onShare: nil, interactionEvidence: nil)
         control.layoutIfNeeded()
         let text = try #require(control.cardText)
+        #expect(text.bounds.isEmpty)
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        host.view.addSubview(control)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            previousWindow?.makeKeyAndVisible()
+        }
+        control.layoutIfNeeded()
         let room = text.locationLabel
         #expect(room.text == entry.subtitle && !room.isHidden)
         #expect(control.cardText?.superview === control)
@@ -483,6 +532,7 @@ struct ScheduleCardTextLayoutTests {
         control.layoutIfNeeded()
         #expect(text.superview === control && control.cardText === text)
         #expect(text.titleLabel.isHidden && !room.isHidden)
+        #expect(text.titleLabel.superview == nil && room.superview === text)
         control.isContentVisible = false
         control.isContentVisible = true
         #expect(!control.layer.needsLayout())
