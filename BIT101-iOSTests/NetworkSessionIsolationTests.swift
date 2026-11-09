@@ -417,6 +417,26 @@ extension NetworkClientTests {
         #expect(response.0 == Data("A".utf8))
     }
 
+    @Test @MainActor
+    func httpResponsesKeepMemoryStorage() throws {
+        let configuration = URLSessionConfiguration.default
+        let cache = URLCache(memoryCapacity: 1_048_576, diskCapacity: 1_048_576)
+        configuration.urlCache = cache
+        let transport = NetworkSessionPool.make(
+            configuration: configuration, productionPolicy: true)
+        let url = try #require(URL(string: "https://example.org/cache"))
+        let request = URLRequest(url: url)
+        let response = URLResponse(
+            url: url, mimeType: nil, expectedContentLength: 3, textEncodingName: nil)
+        withExtendedLifetime(transport) {
+            #expect(cache.diskCapacity == 0)
+            #expect(cache.memoryCapacity == 1_048_576)
+            cache.storeCachedResponse(
+                CachedURLResponse(response: response, data: Data([1, 2, 3])), for: request)
+            #expect(cache.cachedResponse(for: request)?.data == Data([1, 2, 3]))
+        }
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func ownedTransportFinishesReleasesDelegate() async throws {

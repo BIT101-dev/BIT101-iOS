@@ -149,6 +149,7 @@ if [[ "$ACTION" == mac ]]; then
   while (( SECONDS < mac_deadline )); do
     if python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-ready "$INSTALL_PATH" \
       "$MAC_READINESS" "$MAC_RUN_ID" "$MAC_INPUT_DIGEST" > "$RESTORE_LOG" 2>&1; then
+      python3 "$ROOT_DIR/Scripts/validation_artifacts.py" --disk-usage "$INSTALL_PATH"
       echo "Catalyst 初始化与活跃进程已确认：$INSTALL_PATH"
       exit 0
     fi

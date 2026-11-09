@@ -8,7 +8,9 @@ import shutil
 import sys
 import subprocess
 import json
+import plistlib
 from contextlib import contextmanager, ExitStack, closing
+from collections.abc import Iterator
 
 sys.dont_write_bytecode = True
 
@@ -234,6 +236,89 @@ def check_app_size(app: Path) -> int:
     return total
 
 
+def disk_path_included(path: Path, excluded: list[Path]) -> bool:
+    return not path.is_symlink() and not any(path.is_relative_to(item) for item in excluded)
+
+
+def disk_entries(root: Path, excluded: list[Path]) -> Iterator[Path]:
+    yield root
+    if not root.is_dir():
+        return
+
+    def read_error(error):
+        raise error
+
+    for directory, children, names in os.walk(root, onerror=read_error):
+        parent = Path(directory)
+        children[:] = [
+            name for name in children if disk_path_included(parent / name, excluded)
+        ]
+        yield from (parent / name for name in names)
+        yield from (parent / name for name in children)
+
+
+def disk_bytes(roots: list[Path], excluded: list[Path]) -> int:
+    """Count allocated space, with logical size as a conservative minimum."""
+    roots = sorted(set(roots), key=lambda path: (len(path.parts), str(path)))
+    selected: list[Path] = []
+    for root in roots:
+        if not any(root.is_relative_to(parent) for parent in selected):
+            selected.append(root)
+    total = 0
+    seen = set()
+    for root in selected:
+        if not root.exists():
+            continue
+        for path in disk_entries(root, excluded):
+            if not disk_path_included(path, excluded):
+                continue
+            stat = path.stat()
+            identity = stat.st_dev, stat.st_ino
+            if identity not in seen:
+                seen.add(identity)
+                total += max(stat.st_size, stat.st_blocks * 512)
+    return total
+
+
+def check_mac_disk_usage(app: Path) -> int:
+    info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+    identifier = info["CFBundleIdentifier"]
+    home = Path.home()
+    library = home / "Library"
+    temporary = Path(os.environ["TMPDIR"])
+    preferences = library / "Preferences" / f"{identifier}.plist"
+    settings = plistlib.loads(preferences.read_bytes()) if preferences.exists() else {}
+    container = library / "Containers" / identifier / "Data"
+    caches = [library / "Caches", container / "Library/Caches"]
+    excluded = []
+    if settings.get("gallery.image-cache.limit-mb", 500) > 0:
+        excluded = [
+            cache / name for cache in caches
+            for name in ("BIT101GalleryImages", "BIT101ImageCache")
+        ] + [temporary / "BIT101Previews", container / "tmp/BIT101Previews"]
+    data = [
+        library / "Application Support" / name
+        for name in ("BIT101-iOS", "ComposerDrafts", "NetworkSmoke")
+    ] + [
+        library / directory / identifier
+        for directory in ("Caches", "HTTPStorages", "WebKit")
+    ] + [
+        preferences, container,
+        library / "Saved Application State" / f"{identifier}.savedState",
+        library / "Group Containers" / "group.BIT101-dev.BIT101-iOS.shared",
+        temporary / "schedule-cloud-images.json",
+    ] + [home / "Documents" / name for name in (
+        "restore-readiness.json", "network-smoke-request.json",
+    )] + [cache / name for cache in caches for name in (
+        "BIT101GalleryImages", "BIT101ImageCache",
+    )] + [temporary / "BIT101Previews"]
+    total = disk_bytes([app, *data], excluded)
+    print(f"[磁盘] {total / 1_000_000:.2f}MB / 100MB（扣除有上限的话廊缓存）")
+    if total > 100_000_000:
+        raise SystemExit("App 本体与运行数据的磁盘占用超过 100MB")
+    return total
+
+
 def self_test() -> None:
     for parent, name in (
         (".build/extended-automation", "latest.log"),
@@ -254,6 +339,50 @@ def self_test() -> None:
     from types import SimpleNamespace
     from contextlib import redirect_stdout
     from io import StringIO
+
+    app, data, gallery = Path("/app"), Path("/data"), Path("/data/gallery")
+    directories = {app, data, gallery}
+    sizes = {app: 1, data: 1, app / "binary": 40_000_000, data / "saved": 60_000_000}
+    sizes.update({gallery: 1, gallery / "image": 500_000_000})
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch.object(Path, "is_dir", lambda path: path in directories),
+        patch.object(Path, "is_symlink", lambda path: path.name == "Current"),
+        patch.object(Path, "stat", lambda path: SimpleNamespace(
+            st_size=sizes[path], st_blocks=0, st_dev=1, st_ino=str(path))),
+        patch.object(os, "walk", side_effect=lambda root, **_: {
+            app: [(str(app), [], ["binary", "Current"])],
+            data: [(str(data), ["gallery"], ["saved"]), (str(gallery), [], ["image"])],
+        }[root]),
+    ):
+        assert disk_bytes([app, data, gallery, data], [gallery]) == 100_000_002
+        assert disk_bytes([app, data], []) == 600_000_003
+    with (
+        patch.object(Path, "exists", return_value=True),
+        patch.object(Path, "is_dir", return_value=False),
+        patch.object(Path, "is_symlink", return_value=False),
+        patch.object(Path, "stat", return_value=SimpleNamespace(
+            st_size=1, st_blocks=8, st_dev=1, st_ino=1)),
+    ):
+        assert disk_bytes([Path("/a"), Path("/b")], []) == 4096
+
+    for size, limit in ((100_000_000, 500), (100_000_001, 500), (100_000_000, 0)):
+        with (
+            patch.object(Path, "read_bytes", lambda path: plistlib.dumps(
+                {"CFBundleIdentifier": "app"} if path.name == "Info.plist"
+                else {"gallery.image-cache.limit-mb": limit})),
+            patch.object(Path, "exists", return_value=True),
+            patch.dict(os.environ, {"TMPDIR": "/tmp"}),
+            patch.object(sys.modules[__name__], "disk_bytes", return_value=size) as measure,
+            redirect_stdout(StringIO()),
+        ):
+            try:
+                assert check_mac_disk_usage(Path("/app")) == size
+            except SystemExit:
+                assert size > 100_000_000
+            else:
+                assert size <= 100_000_000
+            assert bool(measure.call_args.args[1]) == (limit > 0)
 
     for size in (100_000_000, 100_000_001):
         with (
@@ -735,6 +864,8 @@ def main(root: Path) -> None:
 if __name__ == "__main__":
     if sys.argv[1:2] == ["--app-size"]:
         check_app_size(Path(sys.argv[2]))
+    elif sys.argv[1:2] == ["--disk-usage"]:
+        check_mac_disk_usage(Path(sys.argv[2]))
     elif sys.argv[1:2] == ["--native-cache"]:
         import resource
 

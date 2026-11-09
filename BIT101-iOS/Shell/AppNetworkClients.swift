@@ -125,6 +125,8 @@ enum NetworkSessionPool {
         productionPolicy: Bool = false
     ) -> any HTTPTransport {
         configuration.timeoutIntervalForResource = min(configuration.timeoutIntervalForResource, 90)
+        // HTTP 响应保留内存复用；持久化内容由各业务存储管理。
+        configuration.urlCache?.diskCapacity = 0
         #if RELEASE_NETWORK_SMOKE
         if !productionPolicy {
             configuration.urlCache = nil
@@ -158,7 +160,7 @@ enum NetworkSessionPool {
 
     static let appLinkAssociation = make(configuration: .ephemeral, followsRedirects: false)
 
-    /// 社区服务共享连接池与公共 URLCache；认证请求由会话快照提供凭据。
+    /// 社区服务共享连接池与内存响应缓存；认证请求由会话快照提供凭据。
     static let community = communityTransport(productionPolicy: false)
 
     private static func communityTransport(productionPolicy: Bool) -> any HTTPTransport {
