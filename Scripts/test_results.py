@@ -557,6 +557,13 @@ def append_ui_interaction_report_lines(
         lines.append(f"场景准备：{len(preparations)} 次；累计 {sum(preparations):.1f} 秒")
 
 
+def unstarted_test_message(mode: str, result_bundle: str) -> str:
+    if mode == "ui":
+        log = Path(result_bundle).parent / "ui.log"
+        return f"UI 测试尚未执行任何用例。请处理上方设备或测试程序启动错误；完整记录：{log}"
+    return "测试尚未执行任何用例。请处理上方编译或测试程序启动错误，并核对测试类/方法筛选。"
+
+
 def record_native_metrics(arguments: list[str]) -> None:
     cli_arguments = ["", *arguments]
     import json
@@ -590,9 +597,7 @@ def record_native_metrics(arguments: list[str]) -> None:
         raise SystemExit("XCTest 结果包尚待生成；请检查测试运行日志及设备提示。")
     summary = json.loads(summary_result.stdout)
     if summary.get("totalTestCount", 0) == 0:
-        raise SystemExit(
-            "测试未实际执行；请检查上方编译、Runner 初始化或测试选择结果。Swift Testing 方法名保留 ()。"
-        )
+        raise SystemExit(unstarted_test_message(mode, result_bundle))
 
     coverage = None
     coverage_error = None

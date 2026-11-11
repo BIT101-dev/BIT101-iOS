@@ -299,12 +299,12 @@ def check_device_lock_state(findings, frame, support):
         f"source {shlex.quote(str(support))}\n" + frame,
     )
     for state, expected in (
-        ({"passcodeRequired": True, "unlockedSinceBoot": True}, "请解锁"),
+        ({"passcodeRequired": True, "unlockedSinceBoot": True}, "需要输入锁屏密码，请解锁设备"),
         ({"passcodeRequired": False, "unlockedSinceBoot": True}, "当前未要求输入密码"),
-        ({}, "密码要求未知"),
-        ({"unlockedSinceBoot": True}, "密码要求未知"),
-        ({"passcodeRequired": None}, "密码要求未知"),
-        ({"passcodeRequired": "false"}, "密码要求未知"),
+        ({}, "开发工具尚未提供密码状态"),
+        ({"unlockedSinceBoot": True}, "开发工具尚未提供密码状态"),
+        ({"passcodeRequired": None}, "开发工具尚未提供密码状态"),
+        ({"passcodeRequired": "false"}, "开发工具尚未提供密码状态"),
     ):
         result = subprocess.run(
             ["zsh", "-c", source, str(path), "info"],
@@ -321,7 +321,8 @@ def check_device_lock_state(findings, frame, support):
         env=dict(os.environ, BIT101_TEST_LOCK_FAILURE="1"),
         capture_output=True, text=True,
     )
-    if result.returncode != 69 or "真机连接：" in result.stdout:
+    if (result.returncode != 69 or "真机连接：" in result.stdout
+            or "开发连接建立失败；请解锁设备后重试" not in result.stderr):
         findings.append("设备状态自测：连接失败保留退出码并停止显示连接成功")
 
 

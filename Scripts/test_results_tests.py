@@ -10,7 +10,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 
+def unstarted_test_self_test():
+    from test_results import record_native_metrics
+
+    root = Path(__file__).resolve().parent.parent
+    response = subprocess.CompletedProcess([], 0, stdout='{"totalTestCount":0}')
+    for mode, expected in (
+        ("ui", "UI 测试尚未执行任何用例"),
+        ("catalyst", "测试尚未执行任何用例"),
+    ):
+        with patch.object(subprocess, "run", return_value=response):
+            try:
+                record_native_metrics([
+                    "/fixture/test-results.xcresult", "/fixture/metrics.txt", mode,
+                    "0", "device", str(root),
+                ])
+            except SystemExit as error:
+                assert expected in str(error)
+                if mode == "ui":
+                    assert "/fixture/ui.log" in str(error)
+            else:
+                raise AssertionError("零用例结果应提示测试尚未执行")
+
+
 def test_result_boundary_findings() -> list[str]:
+    unstarted_test_self_test()
     ui_timing_self_test()
     failure_summary_self_test()
     from test_results import report_test_results

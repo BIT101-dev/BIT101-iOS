@@ -65,15 +65,19 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
     connection="无线"
     if [[ "$BIT101_DEVICE_TRANSPORT" == wired ]]; then connection="USB"; fi
     lock_state="$(xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" \
-      --quiet --json-output /dev/stdout)"
+      --quiet --json-output /dev/stdout)" || {
+      connection_exit=$?
+      echo "$BIT101_DEVICE_NAME 的开发连接建立失败；请解锁设备后重试，具体错误见上方。" >&2
+      exit "$connection_exit"
+    }
     printf '%s' "$lock_state" |
       python3 -c 'import json, sys
 
 state = json.load(sys.stdin)["result"]
 required = state.get("passcodeRequired")
-description = "密码要求未知"
+description = "开发工具尚未提供密码状态"
 if required is True:
-    description = "请解锁"
+    description = "需要输入锁屏密码，请解锁设备"
 elif required is False:
     description = "当前未要求输入密码"
 print(f"真机连接：{sys.argv[1]} · {sys.argv[2]}")

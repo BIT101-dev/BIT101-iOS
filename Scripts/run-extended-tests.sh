@@ -506,7 +506,7 @@ run_tests() {
   TEST_DURATION_SECONDS=$(( SECONDS - started_at ))
 
   if (( exit_code != 0 )) && ! $BUILD_ONLY; then
-    echo "测试失败：$group" >&2
+    echo "测试执行失败：$MODE / $group；以下为失败摘要。" >&2
     failure_summary="$(python3 "$ROOT_DIR/Scripts/test_results.py" failures "$RESULT_BUNDLE"    )"
     if [[ -n "$failure_summary" ]]; then
       printf '%s\n' "$failure_summary" > "$DERIVED_ROOT/test-failures.txt"

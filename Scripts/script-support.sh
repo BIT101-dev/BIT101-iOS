@@ -174,7 +174,10 @@ bit101_find_device() {
   BIT101_DEVICETCL_DEVICE_ID=""
   BIT101_DEVICE_TRANSPORT=""
   BIT101_DEVICE_NAME=""
-  snapshot="$(bit101_device_snapshot)" || return 1
+  snapshot="$(bit101_device_snapshot)" || {
+    echo "读取开发设备列表失败；上方为开发工具返回的具体错误。" >&2
+    return 1
+  }
   selection="$(print -r -- "$snapshot" | python3 -c 'import json
 import sys
 
@@ -203,7 +206,7 @@ for device in devices:
         or (sys.argv[1] and udid != sys.argv[1])
     ):
         continue
-    name = device.get("deviceProperties", {}).get("name") or hardware.get("deviceType", "iPhone")
+    name = hardware.get("marketingName") or hardware.get("deviceType", "iPhone")
     candidates.append(
         (
             connection.get("tunnelState") != "connected",
@@ -219,16 +222,19 @@ if candidates:
     selected = min(candidates, key=lambda candidate: (*candidate[:2], candidate[3], candidate[2]))
     print("\n".join(selected[2:]))
 else:
-    for device in devices:
-        hardware = device.get("hardwareProperties", {})
-        if hardware.get("deviceType") not in {"iPhone", "iPad"}:
-            continue
-        connection = device.get("connectionProperties", {})
-        name = device.get("deviceProperties", {}).get("name", hardware["deviceType"])
-        states = [connection.get(key, "未知") for key in (
-            "pairingState", "transportType", "tunnelState")]
-        print(f"设备发现：{name} · 配对={states[0]} · 传输={states[1]} · 开发通道={states[2]}",
-              file=sys.stderr)' "$requested")" || return 1
+    phones = [device for device in devices
+              if device.get("hardwareProperties", {}).get("deviceType") in {"iPhone", "iPad"}
+              and (not sys.argv[1]
+                   or device.get("hardwareProperties", {}).get("udid") == sys.argv[1])]
+    paired = any(device.get("connectionProperties", {}).get("pairingState") == "paired"
+                 for device in phones)
+    if paired:
+        message = "已找到配对记录，但开发连接尚未建立。请先解锁已连接的手机后重试。"
+    elif phones:
+        message = "设备尚未完成开发配对。请解锁手机，并完成手机与电脑的配对。"
+    else:
+        message = "开发工具尚未发现可用手机。请连接手机并解锁后重试。"
+    print(message, file=sys.stderr)' "$requested")" || return 1
   [[ -n "$selection" ]] || return 1
   identifiers=("${(@f)selection}")
   BIT101_DEVICETCL_DEVICE_ID="${identifiers[1]}"
@@ -240,11 +246,7 @@ else:
 }
 
 bit101_require_device() {
-  if bit101_find_device "${1:-}"; then
-    return 0
-  fi
-  echo "开发设备发现失败；请检查 USB、局域网连接及设备配对状态。" >&2
-  return 1
+  bit101_find_device "${1:-}"
 }
 
 bit101_check_verification_audit() {

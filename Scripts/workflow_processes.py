@@ -305,11 +305,14 @@ def main(arguments: list[str]) -> int:
                 break
             except BlockingIOError:
                 if not announced:
-                    print("[等待] 既有工作流正在使用固定产物与设备。", flush=True)
+                    print(
+                        f"[等待] {Path(script_path).name}：另一个项目任务正在运行，结束后自动继续。",
+                        flush=True,
+                    )
                     announced = True
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    print("[超时] 工作流锁等待已达到执行额度。", flush=True)
+                    print("[超时] 当前任务排队等待超时；请在前一任务结束后重新运行。", flush=True)
                     return 124
                 time.sleep(min(0.1, remaining))
         environment = dict(os.environ, **{flag: "1", "BIT101_WORKFLOW_DEADLINE": str(deadline)})

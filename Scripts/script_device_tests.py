@@ -13,14 +13,15 @@ def device_discovery_boundary_findings() -> list[str]:
     def candidate(name, transport, tunnel="connected", pairing="paired", reality="physical"):
         return dict(
             identifier=name,
-            hardwareProperties=dict(udid=name, deviceType="iPhone", reality=reality),
+            hardwareProperties=dict(
+                udid=name, deviceType="iPhone", reality=reality, marketingName="iPhone 17"),
             connectionProperties=dict(
                 transportType=transport, tunnelState=tunnel, pairingState=pairing
             ),
             deviceProperties=dict(name=name),
         )
 
-    def select(devices, setup="", requested=""):
+    def select(devices, setup="", requested="", include_name=False):
         snapshot = shlex.quote(json.dumps({"result": {"devices": devices}}))
         code = f"source {shlex.quote(str(support))}\n"
         code += (
@@ -35,8 +36,21 @@ def device_discovery_boundary_findings() -> list[str]:
             f"{shlex.quote(requested)}"
             f" || exit 1\n"
         )
-        code += 'print -r -- "$BIT101_XCODE_DEVICE_ID:$BIT101_DEVICETCL_DEVICE_ID"\n'
+        suffix = ':$BIT101_DEVICE_NAME' if include_name else ''
+        code += f'print -r -- "$BIT101_XCODE_DEVICE_ID:$BIT101_DEVICETCL_DEVICE_ID{suffix}"\n'
         return subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
+
+    result = select([candidate("custom-nickname", "wired")], include_name=True)
+    if result.returncode or result.stdout.strip() != "custom-nickname:custom-nickname:iPhone 17":
+        findings.append("设备自测：显示硬件型号")
+    for devices, expected in (
+        ([candidate("nickname", None, tunnel="unavailable")], "请先解锁已连接的手机后重试"),
+        ([candidate("nickname", "wired", pairing="unpaired")], "设备尚未完成开发配对"),
+        ([], "开发工具尚未发现可用手机"),
+    ):
+        result = select(devices)
+        if result.returncode != 1 or expected not in result.stderr or "nickname" in result.stderr:
+            findings.append("设备自测：区分连接未就绪、配对未完成与设备未发现")
 
     for devices, expected in (
         ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),
