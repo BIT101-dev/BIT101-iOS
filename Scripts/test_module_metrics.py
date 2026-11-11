@@ -171,3 +171,40 @@ def report_ui_timings(arguments: list[str]) -> None:
     )
     for seconds, owner, step in ui_step_timings(log.read_text()):
         print(f"{seconds:.2f}s | {owner} | {step}")
+
+
+def native_test_timings(test_tree):
+    import re
+
+    durations = []
+    executed = []
+
+    def visit_tests(value):
+        if isinstance(value, dict):
+            if value.get("nodeType") == "Test Case":
+                executed.append(value["nodeIdentifier"])
+                duration = str(value.get("duration", ""))
+                units = {
+                    "毫秒": 0.001,
+                    "ms": 0.001,
+                    "分钟": 60,
+                    "min": 60,
+                    "m": 60,
+                    "秒": 1,
+                    "s": 1,
+                }
+                seconds = sum(
+                    float(number) * units[unit]
+                    for number, unit in re.findall(
+                        r"(\d+(?:\.\d+)?)\s*(毫秒|ms|分钟|min|m|秒|s)", duration
+                    )
+                )
+                durations.append((seconds, value.get("name", "?"), duration))
+            for child in value.values():
+                visit_tests(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit_tests(child)
+
+    visit_tests(test_tree)
+    return durations, executed

@@ -10,7 +10,7 @@ import argparse
 sys.dont_write_bytecode = True
 
 from validation_inputs import repository_input_names
-from code_style_rules import style_findings
+from code_style_rules import size_repair_target, style_findings
 
 if not __debug__:
     raise RuntimeError("验证自测需要 Python 默认优化级别；请使用 python3 -E 执行入口。")
@@ -21,7 +21,8 @@ LIMIT = 1000
 
 def length_findings(contents: dict[str, str]) -> list[str]:
     return [
-        f"{name}: {len(source.splitlines())} 行，文件上限为 {LIMIT} 行"
+        f"{name}: {len(source.splitlines())} 行，文件上限为 {LIMIT} 行，"
+        f"请拆分或缩减至 {size_repair_target(LIMIT)} 行以内"
         for name, source in contents.items()
         if len(source.splitlines()) > LIMIT
     ]
@@ -80,7 +81,9 @@ def main() -> int:
     else:
         contents = working_contents()
     assert length_findings({"source.swift": "line\n" * LIMIT}) == []
-    assert len(length_findings({"document.md": "line\n" * (LIMIT + 1)})) == 1
+    assert length_findings({"document.md": "line\n" * (LIMIT + 1)}) == [
+        "document.md: 1001 行，文件上限为 1000 行，请拆分或缩减至 800 行以内"
+    ]
     findings = length_findings(contents) + style_findings(contents)
     if findings:
         print("\n".join(findings))

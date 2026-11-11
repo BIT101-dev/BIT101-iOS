@@ -4,61 +4,25 @@
 import sys
 from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
-from test_module_metrics import export_module_metrics, module_result, report_ui_timings
-from validation_result_readers import append_catalyst_coverage_lines
+from test_module_metrics import (
+    export_module_metrics, module_result, native_test_timings, report_ui_timings,
+)
+from validation_result_readers import (
+    append_catalyst_coverage_lines,
+    current_result_bundle,
+    export_failure_hierarchy_attachments,
+    failure_text,
+    read_test_tree,
+    report_result_summary,
+    report_test_activities,
+    result_bundle_modified,
+)
 
 
 def workflow_start(arguments: list[str]) -> None:
     import time
 
     print(time.monotonic())
-
-
-def result_bundle_modified(bundle: Path) -> int:
-    return max(
-        item.stat().st_mtime_ns
-        for item in (bundle, bundle / "Info.plist", bundle / "database.sqlite3", bundle / "Staging")
-        if item.exists()
-    )
-
-
-def current_result_bundle(bundle: Path) -> Path:
-    diagnostic = bundle.parent / "diagnostics/test-results.xcresult"
-    available = [path for path in (bundle, diagnostic) if path.is_dir()]
-    return max(available, key=result_bundle_modified) if available else bundle
-
-
-def export_failure_hierarchy_attachments(
-    bundle: Path, selected: dict[str, str], output: Path, incoming: Path
-) -> None:
-    import subprocess
-
-    with output.open("w") as combined:
-        for identifier, name in selected.items():
-            incoming.unlink(missing_ok=True)
-            subprocess.run(
-                [
-                    "xcrun",
-                    "xcresulttool",
-                    "export",
-                    "object",
-                    "--legacy",
-                    "--type",
-                    "file",
-                    "--path",
-                    str(bundle),
-                    "--id",
-                    identifier,
-                    "--output-path",
-                    str(incoming),
-                ],
-                check=True,
-                stdout=subprocess.DEVNULL,
-            )
-            combined.write(f"=== {name} · {identifier} ===\n")
-            with incoming.open() as attachment:
-                combined.write(attachment.read())
-            combined.write("\n")
 
 
 def report_test_results(arguments: list[str]) -> None:
@@ -252,56 +216,6 @@ def report_metrics(metrics: Path) -> None:
         print(f"完整失败记录：{failures}")
 
 
-def failure_text(failure: dict) -> str:
-    return str(failure.get("failureText") or "测试失败").strip() or "测试失败"
-
-
-def report_result_summary(bundle: str) -> None:
-    import json, subprocess
-    from command_output import show_report_lines
-
-    try:
-        summary = json.loads(
-            subprocess.check_output(
-                [
-                    "xcrun",
-                    "xcresulttool",
-                    "get",
-                    "test-results",
-                    "summary",
-                    "--path",
-                    bundle,
-                ],
-                text=True,
-                stderr=subprocess.PIPE,
-            )
-        )
-    except subprocess.CalledProcessError:
-        raise SystemExit(
-            f"当前结果包：{bundle}；测试摘要读取受阻，请执行 diagnostics 查看详细记录。"
-        ) from None
-
-    def lines():
-        yield f"结果来源：{bundle}\n"
-        yield (
-            f"{summary.get('result', '?')}"
-            f" · "
-            f"{summary.get('passedTests', 0)}"
-            f"/"
-            f"{summary.get('totalTestCount', 0)}"
-            f" 通过\n"
-        )
-        for failure in summary.get("testFailures") or []:
-            yield (
-                f"{failure.get('testIdentifierString', '?')}"
-                f": "
-                f"{failure_text(failure).splitlines()[0][:240]}"
-                f"\n"
-            )
-
-    show_report_lines(lines(), Path(bundle), "测试摘要")
-
-
 def workflow_elapsed(arguments: list[str]) -> None:
     import os, time
 
@@ -409,7 +323,12 @@ def report_test_failures(arguments: list[str]) -> None:
                 )
 
             def lines():
+                from command_output import ui_authorization_failure
+
                 for message, tests in grouped.items():
+                    if explanation := ui_authorization_failure(message):
+                        yield explanation
+                        continue
                     yield f"{message.splitlines()[0][:240]} · {len(tests)} 个用例\n"
                     for test in tests:
                         yield f"  {test}\n"
@@ -579,6 +498,7 @@ def record_native_metrics(arguments: list[str]) -> None:
         device_id = ""
     sys.path.insert(0, str(Path(root) / "Scripts"))
     from validation_evidence import validate_community_write_test_output
+    from command_output import ui_authorization_failure
 
     summary_result = subprocess.run(
         [
@@ -596,7 +516,10 @@ def record_native_metrics(arguments: list[str]) -> None:
     if summary_result.returncode:
         raise SystemExit("XCTest 结果包尚待生成；请检查测试运行日志及设备提示。")
     summary = json.loads(summary_result.stdout)
-    if summary.get("totalTestCount", 0) == 0:
+    if summary.get("totalTestCount", 0) == 0 or any(
+        ui_authorization_failure(failure.get("failureText", ""))
+        for failure in summary.get("testFailures", [])
+    ):
         raise SystemExit(unstarted_test_message(mode, result_bundle))
 
     coverage = None
@@ -658,51 +581,8 @@ def record_native_metrics(arguments: list[str]) -> None:
                 lines.append(coverage_error)
     append_native_coverage_lines(coverage, device_id, lines, report_path, root)
 
-    test_tree = json.loads(
-        subprocess.check_output(
-            [
-                "xcrun",
-                "xcresulttool",
-                "get",
-                "test-results",
-                "tests",
-                "--path",
-                result_bundle,
-            ],
-            text=True,
-        )
-    )
-    durations = []
-    executed = []
-
-    def visit_tests(value):
-        if isinstance(value, dict):
-            if value.get("nodeType") == "Test Case":
-                executed.append(value["nodeIdentifier"])
-                duration = str(value.get("duration", ""))
-                units = {
-                    "毫秒": 0.001,
-                    "ms": 0.001,
-                    "分钟": 60,
-                    "min": 60,
-                    "m": 60,
-                    "秒": 1,
-                    "s": 1,
-                }
-                seconds = sum(
-                    float(number) * units[unit]
-                    for number, unit in re.findall(
-                        r"(\d+(?:\.\d+)?)\s*(毫秒|ms|分钟|min|m|秒|s)", duration
-                    )
-                )
-                durations.append((seconds, value.get("name", "?"), duration))
-            for child in value.values():
-                visit_tests(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit_tests(child)
-
-    visit_tests(test_tree)
+    test_tree = read_test_tree(result_bundle)
+    durations, executed = native_test_timings(test_tree)
     if performance_only and summary.get("result") == "Passed" and (
         not executed or any(
             not name.startswith(("MaintenancePerformanceTests/", "MaintenancePerformanceUITests/"))
@@ -825,154 +705,6 @@ def append_native_coverage_lines(coverage, device_id, lines, report_path, root):
                 )
         if not target_rows:
             lines.append(json.dumps(coverage, ensure_ascii=False, indent=2, sort_keys=True))
-
-
-def report_test_activities(bundle, cli_arguments, diagnostics, result_root):
-    from pathlib import Path
-    import json
-    import subprocess
-
-    if cli_arguments[2]:
-        try:
-            activities = json.loads(
-                subprocess.check_output(
-                    [
-                        "xcrun",
-                        "xcresulttool",
-                        "get",
-                        "test-results",
-                        "activities",
-                        "--path",
-                        str(bundle),
-                        "--test-id",
-                        cli_arguments[2],
-                    ],
-                    text=True,
-                )
-            )
-        except subprocess.CalledProcessError:
-            raise SystemExit(
-                "读取该测试的记录失败；请通过 report json 核对完整测试标识，例如 测试类/方法()。"
-            ) from None
-        if cli_arguments[3] == "activities":
-            if cli_arguments[5] == "json":
-                print(json.dumps(activities, ensure_ascii=False))
-                raise SystemExit(0)
-            actions = []
-
-            def titles(value):
-                if isinstance(value, dict):
-                    title = str(value.get("title", ""))
-                    if title.startswith(
-                        ("Tap ", "Press ", "Type ", "Pinch ", "Swipe ", "failed ", "Failed ")
-                    ):
-                        actions.append(title)
-                    for child in value.values():
-                        titles(child)
-                elif isinstance(value, list):
-                    for child in value:
-                        titles(child)
-
-            titles(activities)
-            print("\n".join(actions[-30:]))
-            raise SystemExit(0)
-        if cli_arguments[3] == "screenshot":
-            output = Path(cli_arguments[1]).parent.parent / "screenshot.png"
-            screenshots = {}
-
-            def collect(value):
-                if isinstance(value, dict):
-                    name = str(value.get("name", ""))
-                    if (
-                        name.startswith(("失败时的界面截图", "界面截图"))
-                        or name.endswith(".web.screen")
-                    ) and value.get("payloadId"):
-                        screenshots[value["payloadId"]] = value["name"]
-                    for child in value.values():
-                        collect(child)
-                elif isinstance(value, list):
-                    for child in value:
-                        collect(child)
-
-            collect(activities)
-            identifiers = [
-                value for value in screenshots if not cli_arguments[5] or value == cli_arguments[5]
-            ]
-            if len(identifiers) != 1:
-                available = "\n".join(
-                    f"{key} · {name}" for key, name in sorted(screenshots.items())
-                )
-                raise SystemExit(
-                    "请按当前测试的截图附件标识选择一张图片。"
-                    + ("\n" + available if available else "\n当前测试包含零张截图附件。")
-                )
-            incoming = diagnostics / "screenshot.png"
-            diagnostics.mkdir(parents=True, exist_ok=True)
-            try:
-                incoming.unlink(missing_ok=True)
-                subprocess.run(
-                    [
-                        "xcrun",
-                        "xcresulttool",
-                        "export",
-                        "object",
-                        "--legacy",
-                        "--type",
-                        "file",
-                        "--path",
-                        str(bundle),
-                        "--id",
-                        identifiers[0],
-                        "--output-path",
-                        str(incoming),
-                    ],
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                )
-                incoming.replace(output)
-            finally:
-                incoming.unlink(missing_ok=True)
-            print(output)
-            raise SystemExit(0)
-        selected = {}
-
-        def collect_attachments(value):
-            if isinstance(value, dict):
-                name, identifier = str(value.get("name", "")), value.get("payloadId")
-                if identifier and (
-                    name.startswith(
-                        (
-                            "失败时的界面元素树",
-                            "App UI hierarchy for",
-                            "Debug description for",
-                            "Crash Log ",
-                            "score_",
-                        )
-                    )
-                    or name.endswith(".web.runtime")
-                ):
-                    selected.setdefault(identifier, name)
-                for child in value.values():
-                    collect_attachments(child)
-            elif isinstance(value, list):
-                for child in value:
-                    collect_attachments(child)
-
-        collect_attachments(activities)
-        output = result_root / "failure-hierarchy.txt"
-        output.unlink(missing_ok=True)
-        if selected:
-            incoming = diagnostics / "failure-hierarchy.txt"
-            diagnostics.mkdir(parents=True, exist_ok=True)
-            try:
-                export_failure_hierarchy_attachments(bundle, selected, output, incoming)
-            finally:
-                incoming.unlink(missing_ok=True)
-            print(f"诊断附件：{len(selected)} 份 · {bundle}")
-            print(output)
-        else:
-            print(f"当前用例包含零份文本诊断附件 · {bundle}")
-        raise SystemExit(0)
 
 
 if __name__ == "__main__":

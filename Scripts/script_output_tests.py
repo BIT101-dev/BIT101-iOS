@@ -105,6 +105,13 @@ def authorization_wait_self_test():
             "xcodebuild", "test-without-building", "BIT101_UI_TESTING",
         ])
     assert result == 124 and "XCTest 密码验证" in output.getvalue()
+    for reason in ("Timed out while enabling automation mode.", "认证已取消。. Canceled by user."):
+        error = f"Failed to initialize for UI testing: {reason}\n"
+        noise = ["Command line invocation: full command\n", "Build settings from command line:\n"]
+        output, raw = captured_command(noise + [error], status=65, executable="xcodebuild")
+        assert "[测试未开始]" in output and "[日志] /dev/null" in output
+        assert "Command line invocation" not in output and "Build settings" not in output
+        assert raw == "".join(noise + [error])
 
 
 def verification_finish_findings() -> list[str]:

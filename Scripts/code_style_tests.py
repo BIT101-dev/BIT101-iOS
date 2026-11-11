@@ -47,9 +47,13 @@ def self_test() -> None:
     assert banned_word_findings("AGENTS.md", word) == []
 
     assert line_findings("file.py", "界" * 100) == []
-    assert len(line_findings("file.py", "界" * 101)) == 1
+    assert line_findings("file.py", "界" * 101) == [
+        "file.py:1: 行长 101 字符，上限为 100，请换行或缩减至 80 字符以内"
+    ]
     assert check_name("file.py", 1, "a" * 42) == []
-    assert check_name("file.py", 1, "a" * 43)
+    assert check_name("file.py", 1, "a" * 43) == [
+        f"file.py:1: 函数名 {'a' * 43} 为 43 字符，上限为 42，请缩短至 33 字符以内"
+    ]
     long_name = "a" * 43
     assert python_findings("file.py", f"def {long_name}(\n    arg\n): pass")
     assert tree_findings("file.js", f"function {long_name}() {{}}", "javascript")
@@ -128,7 +132,9 @@ def function_length_self_test() -> None:
     from swift_source_index import swift_syntax_index_sources
 
     assert check_function_lines("sample.py", 3, 200) == []
-    assert check_function_lines("sample.py", 3, 201) == ["sample.py:3: 函数体共 201 行，上限为 200"]
+    assert check_function_lines("sample.py", 3, 201) == [
+        "sample.py:3: 函数体共 201 行，上限为 200，请拆分或缩减至 160 行以内"
+    ]
     for count in (200, 201):
         statements = count - 2
         python = "async def sample():\n" + "    pass\n" * (count - 1)

@@ -18,6 +18,17 @@ OUTPUT_LINE_LIMIT = 40
 UI_AUTHORIZATION_TIMEOUT_SECONDS = 10
 
 
+def ui_authorization_failure(line):
+    if ("Timed out while enabling automation mode" in line
+            or "Not authorized for performing UI testing" in line):
+        return "[测试未开始] 手机尚未完成 XCTest 自动化授权；请在手机上完成密码验证后重试。\n"
+    if "failed to initialize for ui testing" in line.lower() and (
+        "Canceled by user" in line or "认证已取消" in line
+    ):
+        return "[测试未开始] 手机返回 XCTest 认证已取消；请在手机上完成验证后重试。\n"
+    return None
+
+
 class UIAuthorizationWait:
     def __init__(self, process, enabled, notify):
         self.process, self.enabled, self.notify = process, enabled, notify
@@ -263,6 +274,7 @@ class CommandStreamCollector:
         self.cache_warning_count = 0
         self.dependency_example = ""
         self.temporary_results = set()
+        self.authorization_failure = None
 
     def process_line(self, line: str, build_command: bool, report) -> None:
         report.write(line)
@@ -271,9 +283,10 @@ class CommandStreamCollector:
             return
         if not line.strip():
             return
-        if build_command and "Timed out while enabling automation mode" in line:
-            self.handle_diagnostic(
-                "[授权失败] 手机尚未完成 UI 自动化授权；请在手机上完成 XCTest 密码验证后重试。\n")
+        if build_command and (message := ui_authorization_failure(line)):
+            self.authorization_failure = message
+            self.handle_diagnostic(message)
+            return
         if build_command and re.search(
             r"Unlock .+ to Continue|cannot launch .+ because the device is locked", line
         ):
@@ -395,6 +408,9 @@ def run_command(arguments: list[str]) -> int:
         diagnostic_count += 1
     output = failures.lines() if exit_code else diagnostics.lines()
     output_count = failures.count if exit_code else diagnostic_count
+    if exit_code and (collector.authorization_failure or startup.expired):
+        output, output_count = [], 0
+        print(f"[日志] {report_path}")
     pending_lines = [line for line in output if line not in streamed][
         : display_limit - len(streamed)
     ]
