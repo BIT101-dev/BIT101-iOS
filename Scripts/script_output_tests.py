@@ -46,6 +46,18 @@ def captured_command(lines, status=7, *, ci=False, executable="fixture", argumen
 
 
 def log_output_boundary_findings() -> list[str]:
+    from command_output import BoundedLines, CommandStreamCollector, FailureSummary
+
+    output, raw = captured_command(
+        ['Error Domain=com.apple.dt.deviceprep Code=-3 "Unlock Phone to Continue"\n'] * 3,
+        status=0, executable="xcodebuild",
+    )
+    assert output.count("设备已找到，正在等待解锁") == 1 and raw.count("Unlock Phone") == 3
+    collector = CommandStreamCollector(40, BoundedLines(40), FailureSummary(40))
+    with redirect_stdout(output := StringIO()):
+        collector.process_line(
+            "Xcode cannot launch App on Phone because the device is locked.\n", True, StringIO())
+        assert "正在等待解锁" in output.getvalue()
     findings, shown = verify_compiler_output_filtering()
     repeated = verify_result_warning_output()
     verify_repeated_diagnostic_output(repeated, shown)

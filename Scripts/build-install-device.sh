@@ -62,10 +62,8 @@ if [[ "$ACTION" == screenshot || "$ACTION" == info ]]; then
       --destination "$ROOT_DIR/.build/screenshot.png" --quiet
     echo "截图已保存：$ROOT_DIR/.build/screenshot.png"
   else
-    xcrun devicectl device info details --device "$BIT101_DEVICETCL_DEVICE_ID" --quiet >/dev/null
     connection="无线"
     if [[ "$BIT101_DEVICE_TRANSPORT" == wired ]]; then connection="USB"; fi
-    echo "真机连接：$BIT101_DEVICE_NAME · $connection"
     lock_state="$(xcrun devicectl device info lockState --device "$BIT101_DEVICETCL_DEVICE_ID" \
       --quiet --json-output /dev/stdout)"
     printf '%s' "$lock_state" |
@@ -78,7 +76,9 @@ if required is True:
     description = "请解锁"
 elif required is False:
     description = "当前未要求输入密码"
-print("设备要求：" + description)'
+print(f"真机连接：{sys.argv[1]} · {sys.argv[2]}")
+print("设备要求：" + description)' \
+      "$BIT101_DEVICE_NAME" "$connection"
   fi
   exit 0
 fi

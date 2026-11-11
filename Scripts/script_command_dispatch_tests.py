@@ -69,6 +69,7 @@ trap() { :; }
 xcrun() {
   if [[ "$*" == '--find swift-frontend' ]]; then print /usr/bin/true;
   elif [[ "$*" == *lockState* ]]; then
+    if [[ "${BIT101_TEST_LOCK_FAILURE:-0}" == 1 ]]; then return 69; fi;
     if [[ -n "${BIT101_TEST_LOCK_STATE:-}" ]]; then print -r -- "$BIT101_TEST_LOCK_STATE";
     else print '{"result":{"passcodeRequired":false,"unlockedSinceBoot":true}}'; fi;
   else print -ru2 -- "TOOL $*"; fi
@@ -313,6 +314,15 @@ def check_device_lock_state(findings, frame, support):
         )
         if result.returncode or f"设备要求：{expected}" not in result.stdout.splitlines():
             findings.append("设备状态自测：如实显示密码要求，缺失字段显示未知")
+        if "device info details" in result.stderr:
+            findings.append("设备状态自测：通过一次密码状态查询确认连接")
+    result = subprocess.run(
+        ["zsh", "-c", source, str(path), "info"],
+        env=dict(os.environ, BIT101_TEST_LOCK_FAILURE="1"),
+        capture_output=True, text=True,
+    )
+    if result.returncode != 69 or "真机连接：" in result.stdout:
+        findings.append("设备状态自测：连接失败保留退出码并停止显示连接成功")
 
 
 def command_dispatch_inputs(valid_fixture):

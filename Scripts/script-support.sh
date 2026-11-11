@@ -179,7 +179,8 @@ bit101_find_device() {
 import sys
 
 candidates = []
-for device in json.load(sys.stdin)["result"]["devices"]:
+devices = json.load(sys.stdin)["result"]["devices"]
+for device in devices:
     hardware = device.get("hardwareProperties", {})
     connection = device.get("connectionProperties", {})
     identifier = device.get("identifier", "")
@@ -216,7 +217,18 @@ for device in json.load(sys.stdin)["result"]["devices"]:
 
 if candidates:
     selected = min(candidates, key=lambda candidate: (*candidate[:2], candidate[3], candidate[2]))
-    print("\n".join(selected[2:]))' "$requested")" || return 1
+    print("\n".join(selected[2:]))
+else:
+    for device in devices:
+        hardware = device.get("hardwareProperties", {})
+        if hardware.get("deviceType") not in {"iPhone", "iPad"}:
+            continue
+        connection = device.get("connectionProperties", {})
+        name = device.get("deviceProperties", {}).get("name", hardware["deviceType"])
+        states = [connection.get(key, "未知") for key in (
+            "pairingState", "transportType", "tunnelState")]
+        print(f"设备发现：{name} · 配对={states[0]} · 传输={states[1]} · 开发通道={states[2]}",
+              file=sys.stderr)' "$requested")" || return 1
   [[ -n "$selection" ]] || return 1
   identifiers=("${(@f)selection}")
   BIT101_DEVICETCL_DEVICE_ID="${identifiers[1]}"
@@ -231,7 +243,7 @@ bit101_require_device() {
   if bit101_find_device "${1:-}"; then
     return 0
   fi
-  echo "请将已配对 iPhone 通过 USB 或同一局域网连接到 Mac 后重新运行。" >&2
+  echo "开发设备发现失败；请检查 USB、局域网连接及设备配对状态。" >&2
   return 1
 }
 

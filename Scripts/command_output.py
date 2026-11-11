@@ -236,6 +236,11 @@ class CommandStreamCollector:
             return
         if not line.strip():
             return
+        if build_command and re.search(
+            r"Unlock .+ to Continue|cannot launch .+ because the device is locked", line
+        ):
+            self.handle_diagnostic("[设备] 设备已找到，正在等待解锁；解锁后自动继续测试。\n")
+            return
         self.failures.add(line)
         if (
             "error:" in line
