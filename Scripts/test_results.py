@@ -414,7 +414,7 @@ def report_test_failures(arguments: list[str]) -> None:
                     for test in tests:
                         yield f"  {test}\n"
                     if "enabling automation mode" in message:
-                        yield "iOS 自动化初始化超时；检查真机连接与屏幕提示，出现 Enable UI Automation 时完成设备验证后重试。\n"
+                        yield "UI 自动化授权尚未完成；请在手机上完成 XCTest 密码验证后重试。\n"
 
             show_report_lines(lines(), Path(cli_arguments[1]), "测试失败摘要")
 
@@ -703,7 +703,7 @@ def record_native_metrics(arguments: list[str]) -> None:
                 visit_tests(child)
 
     visit_tests(test_tree)
-    if performance_only and (
+    if performance_only and summary.get("result") == "Passed" and (
         not executed or any(
             not name.startswith(("MaintenancePerformanceTests/", "MaintenancePerformanceUITests/"))
             for name in executed

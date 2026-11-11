@@ -46,6 +46,7 @@ def captured_command(lines, status=7, *, ci=False, executable="fixture", argumen
 
 
 def log_output_boundary_findings() -> list[str]:
+    authorization_wait_self_test()
     from command_output import BoundedLines, CommandStreamCollector, FailureSummary
 
     output, raw = captured_command(
@@ -62,6 +63,48 @@ def log_output_boundary_findings() -> list[str]:
     repeated = verify_result_warning_output()
     verify_repeated_diagnostic_output(repeated, shown)
     return findings
+
+
+def authorization_wait_self_test():
+    from command_output import UIAuthorizationWait
+
+    messages = []
+    process = SimpleNamespace(pid=123)
+    timer = SimpleNamespace(start=lambda: None, cancel=lambda: None, join=lambda: None)
+    with (
+        patch("command_output.threading.Timer", return_value=timer) as create_timer,
+        patch("command_output.stop_process_tree") as stop,
+    ):
+        wait = UIAuthorizationWait(process, True, messages.append)
+        wait.observe("AppUITests-Runner[1] [Default] Running tests...")
+        create_timer.assert_called_once()
+        wait.expire()
+        assert wait.expired and "XCTest 密码验证" in messages[0]
+        stop.assert_called_once_with(123)
+        wait.expire()
+        stop.assert_called_once()
+        stop.reset_mock()
+        for completed in ("Test Suite 'Selected tests' started", "Failed to initialize"):
+            wait = UIAuthorizationWait(process, True, messages.append)
+            wait.observe("AppUITests-Runner[1] [Default] Running tests...")
+            wait.observe(completed)
+            wait.expire()
+            assert not wait.expired
+        stop.assert_not_called()
+        create_timer.reset_mock()
+        UIAuthorizationWait(process, False, messages.append).observe(
+            "AppUITests-Runner[1] [Default] Running tests...")
+        create_timer.assert_not_called()
+    with (
+        patch("command_output.UI_AUTHORIZATION_TIMEOUT_SECONDS", 0.05),
+        redirect_stdout(output := StringIO()),
+    ):
+        result = run_command([
+            "/dev/null", "UI 授权等待测试", sys.executable, "-u", "-c",
+            'import time; print("AppUITests-Runner[1] Running tests...",flush=True);time.sleep(30)',
+            "xcodebuild", "test-without-building", "BIT101_UI_TESTING",
+        ])
+    assert result == 124 and "XCTest 密码验证" in output.getvalue()
 
 
 def verification_finish_findings() -> list[str]:

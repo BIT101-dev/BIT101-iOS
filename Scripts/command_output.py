@@ -10,10 +10,45 @@ import sys
 import tempfile
 import time
 import signal
+import threading
 from collections import deque
 from workflow_processes import stop_process_tree
 
 OUTPUT_LINE_LIMIT = 40
+UI_AUTHORIZATION_TIMEOUT_SECONDS = 10
+
+
+class UIAuthorizationWait:
+    def __init__(self, process, enabled, notify):
+        self.process, self.enabled, self.notify = process, enabled, notify
+        self.timer = None
+        self.completed = False
+        self.expired = False
+
+    def observe(self, line):
+        if not self.enabled or self.completed:
+            return
+        if re.search(r"Test (?:Suite|Case) .+ started", line) or "Failed to initialize" in line:
+            self.cancel()
+        elif "UITests-Runner[" in line and "Running tests..." in line and self.timer is None:
+            self.timer = threading.Timer(UI_AUTHORIZATION_TIMEOUT_SECONDS, self.expire)
+            self.timer.daemon = True
+            self.timer.start()
+
+    def expire(self):
+        if self.completed:
+            return
+        self.completed = self.expired = True
+        self.notify(
+            "[授权启动超时] UI 测试程序启动后 10 秒仍未开始用例，已结束本次测试。"
+            "请在手机上完成 XCTest 密码验证，保持解锁后重试。\n")
+        stop_process_tree(self.process.pid)
+
+    def cancel(self):
+        self.completed = True
+        if self.timer:
+            self.timer.cancel()
+            self.timer.join()
 
 
 def character_limit() -> int:
@@ -236,6 +271,9 @@ class CommandStreamCollector:
             return
         if not line.strip():
             return
+        if build_command and "Timed out while enabling automation mode" in line:
+            self.handle_diagnostic(
+                "[授权失败] 手机尚未完成 UI 自动化授权；请在手机上完成 XCTest 密码验证后重试。\n")
         if build_command and re.search(
             r"Unlock .+ to Continue|cannot launch .+ because the device is locked", line
         ):
@@ -305,15 +343,27 @@ def run_command(arguments: list[str]) -> int:
     diagnostics = BoundedLines(display_limit)
     failures = FailureSummary(display_limit)
     collector = CommandStreamCollector(display_limit, diagnostics, failures)
+    startup = UIAuthorizationWait(
+        process, build_command and "test-without-building" in arguments
+        and any("BIT101_UI_TESTING" in value for value in arguments),
+        collector.handle_diagnostic,
+    )
     try:
         with report_path.open("w", encoding="utf-8", buffering=1) as report:
             for line in process.stdout:
+                startup.observe(line)
                 collector.process_line(line, build_command, report)
+            if startup.expired:
+                report.write("UI 自动化授权启动超时；测试用例尚未开始。\n")
         exit_code = process.wait()
     except BaseException:
         stop_process_tree(process.pid)
         process.wait()
         raise
+    finally:
+        startup.cancel()
+    if startup.expired:
+        exit_code = 124
     temporary_results = collector.temporary_results
     dependency_warning_count = collector.dependency_warning_count
     dependency_example = collector.dependency_example
