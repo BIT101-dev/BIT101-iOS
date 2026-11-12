@@ -153,7 +153,7 @@ if [[ "$ACTION" == mac ]]; then
   python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pause "$INSTALL_PATH" >/dev/null
   mkdir -p "$HOME/Applications"
   bit101_install_mac_app "$APP_PATH" "$INSTALL_PATH"
-  open "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
+  open -n "$INSTALL_PATH" --args --restore-run-id "$MAC_RUN_ID"
   mkdir -p "${RESTORE_LOG:h}"
   mac_deadline=$(( SECONDS + 60 ))
   while (( SECONDS < mac_deadline )); do

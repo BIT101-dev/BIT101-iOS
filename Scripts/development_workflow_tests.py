@@ -454,7 +454,7 @@ def mac_app_session_self_test() -> None:
         patch.object(subject.subprocess, "run") as launch,
     ):
         subject.mac_app_session("mac-resume", str(installed), "1")
-        launch.assert_called_once_with(["open", str(installed)], check=True)
+        launch.assert_called_once_with(["open", "-n", str(installed)], check=True)
     with (
         patch.object(subject, "mac_app_pids", side_effect=[[], []]),
         patch.object(subject.subprocess, "run") as launch,

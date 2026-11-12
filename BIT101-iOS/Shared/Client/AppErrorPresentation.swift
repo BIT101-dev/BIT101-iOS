@@ -619,7 +619,6 @@ private struct AppErrorReportSheet: View {
                         .foregroundStyle(AppDesignSystem.Foreground.secondary)
                 }
             }
-            .padding(.top, AppDesignSystem.Spacing.content)
         }
     }
 

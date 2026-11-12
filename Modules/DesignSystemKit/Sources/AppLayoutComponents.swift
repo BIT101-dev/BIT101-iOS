@@ -922,9 +922,6 @@ private struct AppGroupedListStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         let inset = insetViewport || (layout.hasHorizontalSystemInsets && column != .leading)
         content.listStyle(.insetGrouped)
-            .environment(
-                \.defaultMinListRowHeight, AppDesignSystem.Size.Control.refreshStatusRowHeight
-            )
             .listSectionSpacing(AppDesignSystem.Spacing.content)
             .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(

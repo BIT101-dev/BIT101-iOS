@@ -94,7 +94,6 @@ struct FreeClassroomTabView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.vertical, AppDesignSystem.Spacing.tiny)
     }
 
     @ViewBuilder
@@ -117,6 +116,7 @@ struct FreeClassroomTabView: View {
             }
             .appSelectionFeedback(trigger: viewModel.cache.selectedCampusCode)
             .appInteractiveListRow()
+            .appListRowInsets()
 
             Picker(
                 "教学楼",
@@ -133,6 +133,7 @@ struct FreeClassroomTabView: View {
             }
             .appSelectionFeedback(trigger: viewModel.selectedBuildingID)
             .appInteractiveListRow()
+            .appListRowInsets()
 
             AppBrowserListRow(
                 isSelected: usesSidebar && selectedPage == .sections,

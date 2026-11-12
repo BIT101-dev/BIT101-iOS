@@ -97,4 +97,4 @@ def mac_app_session(action: str, installed: str, restore: str = "0") -> None:
     if action == "mac-pause":
         print(int(was_open))
     elif was_open:
-        subprocess.run(["open", str(app)], check=True)
+        subprocess.run(["open", "-n", str(app)], check=True)

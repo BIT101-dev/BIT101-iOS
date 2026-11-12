@@ -590,7 +590,6 @@ private struct ScoreListRowCard: View {
                 height: AppDesignSystem.Size.CompactRow.secondaryHeight
             )
         }
-        .padding(.vertical, AppDesignSystem.Spacing.tiny)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
     }

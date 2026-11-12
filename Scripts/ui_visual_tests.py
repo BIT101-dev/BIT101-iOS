@@ -204,7 +204,56 @@ def touch_input_self_test() -> None:
         assert not visual_contract_present(relative, marker, {path: "/* " + source + " */"})
 
 
+def list_row_size_self_test() -> None:
+    from ui_list_rules import list_row_size_findings
+
+    path = str(ROOT / ".build/static-audit/list-size-self-test.swift")
+    prefix = "struct Sample: View { var body: some View { "
+    row = 'Text("教室")'
+    padding = ".padding(.vertical, AppDesignSystem.Spacing.tiny)"
+    height = ".frame(minHeight: AppDesignSystem.Size.Control.touchTarget)"
+    cases = [
+        ("List { " + row + " }", 0),
+        ("List { " + row + padding + " }", 1),
+        ("List { " + row + padding.replace(".vertical", ".top") + " }", 1),
+        ("List { " + row + padding.replace(".vertical", ".bottom") + " }", 1),
+        ("List { " + row + padding.replace(".vertical", "[.top, .bottom]") + " }", 1),
+        ("List { " + row + padding.replace(".vertical", "Edge.Set.vertical") + " }", 1),
+        ('List { LabeledContent("节次", value: "11~13")' + padding + " }", 1),
+        ("List { Section { " + row + height + " } }", 1),
+        ("List { ForEach(items) { _ in " + row + padding + " } }", 1),
+        ("List { HStack { " + row + padding + " } }", 0),
+        ("List { " + row + padding + ".appListRowInsets() }", 0),
+        ("List { " + row + height + ".appListRowInsets() }", 1),
+        ('List { TextEditor(text: $text)' + height + " }", 0),
+        ('List { TextEditor(text: $text)' + padding + " }", 1),
+        ('List { TextField("", text: $text, axis: .vertical)' + height + " }", 0),
+        ('List { TextField("", text: $text)' + height + " }", 1),
+        ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) } }', 1),
+        ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
+         '.appListRowInsets() }', 0),
+        ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
+         '.pickerStyle(.inline) }', 0),
+        ('ScrollView { Picker("校区", selection: $campus) { Text("良乡").tag(0) } }', 0),
+        ("ScrollView { " + row + padding + " }", 0),
+        ("List { " + row + " } // " + row + padding + "\n", 0),
+        ("List { " + row + " }.environment(\\.defaultMinListRowHeight, 52)", 1),
+        ("List { " + row + " }.environment(\\.defaultMinListRowHeight, "
+         "AppDesignSystem.Size.Control.refreshStatusRowHeight)", 1),
+    ]
+    for body, expected in cases:
+        source = prefix + body + " } }"
+        findings = list_row_size_findings(swift_syntax_index_sources({path: source}))
+        assert len(findings) == expected, (body, findings)
+    for invoked, expected in [("row", 1), (row, 0)]:
+        body = "List { " + invoked + " } }\nvar row: some View { "
+        source = prefix + body + row + padding + " } }"
+        findings = list_row_size_findings(swift_syntax_index_sources({path: source}))
+        assert len(findings) == expected, findings
+
+
 def visual_contract_boundary_findings() -> list[str]:
+    list_row_size_self_test()
     touch_input_self_test()
     navigation_layer_self_test()
     list_semantics_boundary_self_test()

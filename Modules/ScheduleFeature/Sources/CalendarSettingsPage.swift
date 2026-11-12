@@ -216,6 +216,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .appSelectionFeedback(trigger: storedCalendarAxisMode)
             .appInteractiveListRow()
+            .appListRowInsets()
 
             Picker(
                 selection: Binding(
@@ -231,6 +232,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleDisplayMode)
             .appInteractiveListRow()
+            .appListRowInsets()
             Picker(
                 selection: Binding(
                     get: { viewModel.settingsSnapshot.scheduleCardContentMode },
@@ -245,6 +247,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
             .appSelectionFeedback(trigger: viewModel.settingsSnapshot.scheduleCardContentMode)
             .appInteractiveListRow()
+            .appListRowInsets()
             Toggle(
                 "显示周六",
                 isOn: Binding(

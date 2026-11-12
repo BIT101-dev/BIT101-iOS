@@ -230,7 +230,6 @@ struct AboutSettingsPage: View {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(AppShellView.linuxDoThanksBody)
                 }
-                .padding(.vertical, AppDesignSystem.Spacing.micro)
             }
 
             Section("联系我们") {

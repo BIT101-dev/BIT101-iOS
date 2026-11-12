@@ -10,6 +10,68 @@ import ScheduleFeature
 #endif
 
 nonisolated final class AppPageInteractionTests: XCTestCase {
+    @MainActor
+    func testGroupedListsKeepNativeRowSizing() async throws {
+        for width: CGFloat in [390, 1024] {
+            for size in [DynamicTypeSize.large, .accessibility3] {
+                let native = try await listRowHeights(width: width, size: size, style: .native)
+                let shared = try await listRowHeights(width: width, size: size, style: .shared)
+                XCTAssertEqual(native.count, 4)
+                XCTAssertEqual(shared.count, native.count)
+                for (index, heights) in zip(shared, native).enumerated() {
+                    let (actual, expected) = heights
+                    if index == 1 {
+                        XCTAssertLessThanOrEqual(actual, expected + 1)
+                        let target = AppDesignSystem.Size.Control.touchTarget
+                        XCTAssertGreaterThanOrEqual(actual, target)
+                        #if targetEnvironment(macCatalyst)
+                        XCTAssertLessThan(actual, expected)
+                        #endif
+                    } else {
+                        XCTAssertEqual(actual, expected, accuracy: 1, "宽度 \(width)，字号 \(size)")
+                    }
+                }
+                XCTAssertGreaterThan(try XCTUnwrap(shared.last), try XCTUnwrap(shared.first))
+                if size == .large {
+                    let inflated = try await listRowHeights(
+                        width: width, size: size, style: .inflated)
+                    XCTAssertTrue(zip(inflated, native).contains { $0 > $1 + 1 })
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func listRowHeights(
+        width: CGFloat, size: DynamicTypeSize, style: ListSizingSample.Style
+    ) async throws -> [CGFloat] {
+        let scene = try XCTUnwrap(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let controller = UIHostingController(
+            rootView: ListSizingSample(style: style)
+                .environment(\.dynamicTypeSize, size)
+                .frame(width: width, height: 900))
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        func collection(in view: UIView) -> UICollectionView? {
+            if let list = view as? UICollectionView { return list }
+            return view.subviews.lazy.compactMap { collection(in: $0) }.first
+        }
+        try await waitForTestEvent {
+            controller.view.layoutIfNeeded()
+            return collection(in: controller.view)?.visibleCells.count == 4
+        }
+        let list = try XCTUnwrap(collection(in: controller.view))
+        return list.visibleCells.sorted {
+            $0.frame.minY < $1.frame.minY
+        }.map(\.bounds.height)
+    }
+
     #if DEBUG
     @MainActor
     func testRetainedShellReceivesScheduleRoutes() async throws {
@@ -402,6 +464,45 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
         XCTAssertEqual(control.layer.presentation()?.opacity ?? 1, 1)
     }
 
+}
+
+private struct ListSizingSample: View {
+    enum Style {
+        case native, shared, inflated
+    }
+    let style: Style
+
+    var body: some View {
+        if style == .shared {
+            rows.appGroupedListStyle()
+        } else if style == .inflated {
+            rows.listStyle(.insetGrouped).environment(\.defaultMinListRowHeight, 100)
+        } else {
+            rows.listStyle(.insetGrouped)
+        }
+    }
+
+    private var rows: some View {
+        List {
+            Text("文萃楼 I402")
+            if style == .native {
+                campusPicker
+            } else {
+                campusPicker.appInteractiveListRow().appListRowInsets()
+            }
+            LabeledContent("节次筛选", value: "11~13")
+            VStack(alignment: .leading) {
+                Text("课程名称")
+                Text("详细信息").font(.caption)
+            }
+        }
+    }
+
+    private var campusPicker: some View {
+        Picker("校区", selection: .constant(0)) {
+            Text("良乡校区").tag(0)
+        }
+    }
 }
 
 @MainActor

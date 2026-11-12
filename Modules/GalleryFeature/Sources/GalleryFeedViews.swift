@@ -59,7 +59,6 @@ struct GallerySubscriptionsView: View {
             .font(AppDesignSystem.Typography.caption)
             .foregroundStyle(AppDesignSystem.Foreground.secondary)
         }
-        .padding(.vertical, AppDesignSystem.Spacing.content)
     }
 
     @ViewBuilder

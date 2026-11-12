@@ -296,5 +296,79 @@ def list_semantics_findings(syntax: dict[str, dict]) -> list[str]:
 
 def check_interactive_list_colors(errors: list[str], syntax: dict[str, dict]) -> None:
     errors.extend(list_semantics_findings(syntax))
+    errors.extend(list_row_size_findings(syntax))
     for path in swift_files():
         errors.extend(interactive_list_row_findings(path, syntax[str(path)], syntax))
+
+
+def list_row_size_findings(syntax: dict[str, dict]) -> list[str]:
+    findings = []
+    for path, facts in syntax.items():
+        calls = facts.get("invocations", [])
+        for call in calls:
+            reason = list_row_size_issue(call, facts)
+            if reason:
+                line = facts["source"].encode()[:call["start"]].count(b"\n") + 1
+                findings.append(f"{path}:{line}: {reason}")
+        for row in facts.get("accessibilityControls", []):
+            reason = list_picker_row_issue(row, facts)
+            if reason:
+                line = facts["source"].encode()[:row["start"]].count(b"\n") + 1
+                findings.append(f"{path}:{line}: {reason}")
+    return findings
+
+
+def list_picker_row_issue(row: dict, facts: dict) -> str | None:
+    if row["name"] != "Picker" or not is_interactive_list_row(row, facts):
+        return None
+    suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
+    if re.search(r"\.pickerStyle\(\s*\.(inline|wheel|segmented|navigationLink)\s*\)", suffix):
+        return None
+    if not re.search(r"\.appListRowInsets\s*\(\s*\)", suffix):
+        return "列表菜单选择器使用 appListRowInsets，避免控件高度叠加默认上下留白"
+    return None
+
+
+def list_row_size_issue(call: dict, facts: dict) -> str | None:
+    name = call_name(call["calledExpression"])
+    arguments = call.get("arguments", [])
+    if name == "environment" and arguments and "defaultMinListRowHeight" in arguments[0]:
+        return "分组列表行高继承系统默认值，组件专用高度只用于对应组件"
+    labels = call.get("argumentLabels", [])
+    vertical = name == "padding" and (
+        not arguments or re.search(r"\.(vertical|all|top|bottom)\b", arguments[0])
+        or len(arguments) == 1 and not arguments[0].strip().startswith(".")
+    )
+    height = name == "frame" and set(labels) & {"height", "minHeight"}
+    if not (vertical or height):
+        return None
+    calls = facts.get("invocations", [])
+    parents = [
+        parent for parent in calls
+        if parent["start"] < call["start"]
+        and call["start"] < parent["start"] + len(parent["value"].encode())
+    ]
+    row = {
+        **call, "name": name,
+        "containers": [call_name(item["calledExpression"]) for item in parents],
+    }
+    if not is_interactive_list_row(row, facts):
+        return None
+    parent = min(parents, key=lambda item: len(item["value"]), default=None)
+    containers = {"List", "Form", "Section", "ForEach"}
+    if parent and call_name(parent["calledExpression"]) not in containers:
+        return None
+    chain = [item for item in calls if item["start"] == call["start"]]
+    names = {call_name(item["calledExpression"]) for item in chain}
+    if names & {"AppEmptyState", "AppInlineLoadingState"}:
+        return None
+    if height and "TextEditor" in names:
+        return None
+    if height and "TextField" in names and any(
+        "axis" in item.get("argumentLabels", [])
+        and ".vertical" in item.get("arguments", []) for item in chain
+    ):
+        return None
+    if vertical and names & {"listRowInsets", "appListRowInsets"}:
+        return None
+    return "普通列表行使用系统内容间距；自定义行间距统一替换 listRowInsets"

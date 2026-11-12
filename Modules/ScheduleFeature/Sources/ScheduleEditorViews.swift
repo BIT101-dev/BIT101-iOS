@@ -93,6 +93,7 @@ struct AddCourseSheet: View {
             }
             .appSelectionFeedback(trigger: draft.weekday)
             .appInteractiveListRow()
+            .appListRowInsets()
             .accessibilityIdentifier("ui.add-course-sheet.星期")
 
             Picker("开始节次", selection: startSectionBinding) {
@@ -102,6 +103,7 @@ struct AddCourseSheet: View {
             }
             .appSelectionFeedback(trigger: draft.startSection)
             .appInteractiveListRow()
+            .appListRowInsets()
 
             Picker("结束节次", selection: $draft.endSection) {
                 ForEach(timeTable.filter { $0.id >= draft.startSection }) { slot in
@@ -110,6 +112,7 @@ struct AddCourseSheet: View {
             }
             .appSelectionFeedback(trigger: draft.endSection)
             .appInteractiveListRow()
+            .appListRowInsets()
         }
     }
 }

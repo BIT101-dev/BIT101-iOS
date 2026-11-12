@@ -128,6 +128,7 @@ private struct GalleryComposerScene: View {
             }
             .appSelectionFeedback(trigger: viewModel.selectedClaimID)
             .appInteractiveListRow()
+            .appListRowInsets()
 
             if let error = viewModel.claimsLoadError {
                 Text("声明加载失败：\(error)")

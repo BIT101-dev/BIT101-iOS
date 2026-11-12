@@ -274,7 +274,6 @@ struct CourseCommentComposerSheet: View {
             Stepper(value: $rating, in: 0...10) {
                 ratingStepperLabel
             }
-            .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             .accessibilityLabel("课程评分")
             .accessibilityValue(ratingDescription)
             .accessibilityIdentifier("ui.course-comment-composer-sheet.rating")
