@@ -169,7 +169,28 @@ PAGE_THEME_CONTRACTS = (
     ),
 )
 
+TOUCH_INPUT_CONTRACTS = (
+    (
+        "Modules/ScheduleFeature/Sources/ScheduleWeekSliderView.swift",
+        "DragGesture(inputKinds: .pointer)",
+    ),
+    (
+        "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift",
+        "card(at: point, expandForTouch: event != nil && usesDirectTouch)",
+    ),
+    (
+        "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift",
+        "event.allTouches?.contains { $0.type == .direct }",
+    ),
+)
+
 VISUAL_CONTRACT_OWNERS = {
+    "Modules/ScheduleFeature/Sources/ScheduleWeekSliderView.swift": (
+        ("ScheduleInlineWeekSlider",), None,
+    ),
+    "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift": (
+        ("ScheduleCalendarCardsControl",), "hitTest",
+    ),
     "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
     "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (
         ("CourseHistoryGradesChart",),

@@ -183,7 +183,29 @@ def navigation_layer_self_test() -> None:
         assert bool(check(facts[path])) == expected, sources[path]
 
 
+def touch_input_self_test() -> None:
+    from ui_rules import visual_contract_present
+    from ui_design_contracts import TOUCH_INPUT_CONTRACTS
+
+    week, cards, direct = TOUCH_INPUT_CONTRACTS
+    samples = [
+        (week, "struct ScheduleInlineWeekSlider: View { var body: some View { "
+         "Color.clear.gesture(DragGesture(inputKinds: .pointer)) } }", ".pointer", ".all"),
+        (cards, "class ScheduleCalendarCardsControl { func hitTest() { "
+         "card(at: point, expandForTouch: event != nil && usesDirectTouch) } }",
+         "event != nil && usesDirectTouch", "true"),
+        (direct, "class ScheduleCalendarCardsControl { func hitTest() { "
+         "event.allTouches?.contains { $0.type == .direct } } }", ".direct", ".indirectPointer"),
+    ]
+    for (relative, marker), source, old, new in samples:
+        path = ROOT / relative
+        assert visual_contract_present(relative, marker, {path: source})
+        assert not visual_contract_present(relative, marker, {path: source.replace(old, new)})
+        assert not visual_contract_present(relative, marker, {path: "/* " + source + " */"})
+
+
 def visual_contract_boundary_findings() -> list[str]:
+    touch_input_self_test()
     navigation_layer_self_test()
     list_semantics_boundary_self_test()
     text_loading_state_boundary_self_test()

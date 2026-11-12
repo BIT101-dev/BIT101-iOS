@@ -556,7 +556,7 @@
     "tests": ["CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleWeekSliderView.swift:ScheduleInlineWeekSlider": {
-    "controls": {"Button":2,"DragGesture":1,"ScrollView":1,"simultaneousGesture":1},
+    "controls": {"Button":2,"DragGesture":2,"ScrollView":1,"simultaneousGesture":1},
     "tests": ["ScheduleNavigationUITests/testScheduleWeekStripScroll"]
   },
   "Modules/ScoreFeature/Sources/ScoreFilterViews.swift:ScoreFilterPage": {

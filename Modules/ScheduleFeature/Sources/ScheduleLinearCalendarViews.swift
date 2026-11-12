@@ -520,7 +520,10 @@ private struct LinearScheduleCanvasView: View {
                         contextMenuFeedbackToken &+= 1
                         configuration.onPrepareCourseShare(entry)
                     },
-                    onShare: configuration.onLongPressCourse)
+                    onShare: configuration.onLongPressCourse,
+                    touchContentBounds: CGRect(
+                        x: columnWidth, y: 0,
+                        width: proxy.size.width - columnWidth, height: contentHeight))
                 .frame(width: proxy.size.width, height: contentHeight)
 
                 if configuration.currentWeek == configuration.week,

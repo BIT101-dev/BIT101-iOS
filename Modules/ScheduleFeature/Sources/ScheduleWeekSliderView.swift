@@ -179,8 +179,16 @@ struct ScheduleInlineWeekSlider: View {
     }
 
     #if targetEnvironment(macCatalyst)
+    private var pointerDrag: DragGesture {
+        if #available(iOS 27.0, *) {
+            DragGesture(inputKinds: .pointer)
+        } else {
+            DragGesture()
+        }
+    }
+
     private var catalystDragGesture: some Gesture {
-        DragGesture()
+        pointerDrag
             .onChanged { _ in
                 if dragStartIndex == nil {
                     dragStartIndex = weeks.firstIndex(of: selectedWeek ?? currentWeek)

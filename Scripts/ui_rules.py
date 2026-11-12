@@ -36,6 +36,7 @@ from ui_design_contracts import (
     REPEATED_DESIGN_TOKEN,
     STACK_SPACING_LITERAL,
     THEME_SENSITIVE_ROOTS,
+    TOUCH_INPUT_CONTRACTS,
     VISUAL_CONTRACT_OWNERS,
 )
 
@@ -798,6 +799,7 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
     contracts = (
         *FIXED_GEOMETRY_CONTRACTS,
         *PAGE_THEME_CONTRACTS,
+        *TOUCH_INPUT_CONTRACTS,
         MAP_THEME_COLOR_CONTRACT,
     )
     sources = {path: source_text(path) for path in swift_files()}

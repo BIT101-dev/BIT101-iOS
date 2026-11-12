@@ -684,6 +684,46 @@ struct ScheduleCardTextLayoutTests {
                 menu, configurationForMenuAtLocation: CGPoint(x: 190, y: 90)) == nil)
     }
 
+    @Test func narrowCardsPreferExactThenNearestTouch() throws {
+        let view = ScheduleCalendarCardsControl(
+            frame: CGRect(x: 0, y: 0, width: 200, height: 100))
+        let cards = (0..<2).map { index in
+            let entry = ScheduleCalendarEntry(
+                id: "touch-\(index)", sourceID: "\(index)", sourceIDs: ["\(index)"],
+                dayOfWeek: 1, startSection: 1, endSection: 3,
+                title: "课程", subtitle: "", detailLines: [], kind: .course)
+            return ScheduleCalendarCard(
+                entry: entry, frame: CGRect(x: 40 + index * 20, y: 20, width: 12, height: 60),
+                backgrounds: [], zIndex: index == 0 ? 2 : 1)
+        }
+        view.update(cards: cards) { _, _ in }
+        let first = try #require(view.subviews.last as? ScheduleBlankContextMenuControl)
+        let second = try #require(view.subviews.first as? ScheduleBlankContextMenuControl)
+        let gap = CGPoint(x: 58, y: 50)
+        #expect(view.card(at: gap, expandForTouch: false) == nil)
+        #expect(view.card(at: gap, expandForTouch: true) === second)
+        #expect(view.card(at: CGPoint(x: 61, y: 50), expandForTouch: true) === second)
+        #expect(view.card(at: CGPoint(x: 33, y: 50), expandForTouch: true) === first)
+        #expect(view.card(at: CGPoint(x: 10, y: 50), expandForTouch: true) == nil)
+        second.isHidden = true
+        #expect(view.card(at: gap, expandForTouch: true) === first)
+        first.frame.size.height = 12
+        #expect(view.card(at: CGPoint(x: 45, y: 18), expandForTouch: true) === first)
+        view.touchContentBounds = CGRect(x: 40, y: 20, width: 160, height: 80)
+        #expect(view.card(at: CGPoint(x: 45, y: 18), expandForTouch: true) == nil)
+        #expect(view.card(at: CGPoint(x: 33, y: 25), expandForTouch: true) == nil)
+        first.frame.size.height = 60
+        first.alpha = 0
+        #expect(view.card(at: gap, expandForTouch: true) == nil)
+        first.alpha = 1
+        view.alpha = 0
+        #expect(view.card(at: CGPoint(x: 45, y: 50), expandForTouch: true) == nil)
+        view.alpha = 1
+        first.isUserInteractionEnabled = false
+        #expect(view.card(at: gap, expandForTouch: true) == nil)
+        #expect(first.frame == CGRect(x: 40, y: 20, width: 12, height: 60))
+    }
+
     @Test func calendarCardReuseAndBlankHitTesting() throws {
         func card(_ id: String, title: String, zIndex: Double = 1) -> ScheduleCalendarCard {
             let entry = ScheduleCalendarEntry(

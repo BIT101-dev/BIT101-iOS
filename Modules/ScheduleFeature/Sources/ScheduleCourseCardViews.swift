@@ -252,6 +252,7 @@ struct ScheduleCalendarCardsView: UIViewRepresentable {
     let onSelect: (ScheduleCalendarEntry) -> Void
     let onMenuWillPresent: (ScheduleCalendarEntry) -> Void
     let onShare: (ScheduleCalendarEntry) -> Void
+    var touchContentBounds: CGRect? = nil
 
     func makeUIView(context: Context) -> ScheduleCalendarCardsControl {
         ScheduleCalendarCardsControl()
@@ -261,6 +262,7 @@ struct ScheduleCalendarCardsView: UIViewRepresentable {
         view.isContentVisible = isVisible
         guard isVisible else { return }
         view.interactionEvidence = interactionEvidence
+        view.touchContentBounds = touchContentBounds
         let onSelect = onSelect
         let onMenuWillPresent = onMenuWillPresent
         let onShare = onShare
@@ -279,6 +281,7 @@ struct ScheduleCalendarCardsView: UIViewRepresentable {
 
 final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelegate {
     var interactionEvidence: ((String, String) -> Void)?
+    var touchContentBounds: CGRect?
     var isContentVisible = true {
         didSet {
             guard isContentVisible != oldValue else { return }
@@ -288,6 +291,7 @@ final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelega
     private var controls: [String: ScheduleBlankContextMenuControl] = [:]
     private var orderedIDs: [String] = []
     private weak var menuCard: ScheduleBlankContextMenuControl?
+    private var usesDirectTouch = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -303,7 +307,7 @@ final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelega
 
     @objc private func openCard(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
-        guard let card = hitTest(point, with: nil) as? ScheduleBlankContextMenuControl else {
+        guard let card = card(at: point, expandForTouch: usesDirectTouch) else {
             return
         }
         interactionEvidence?("interaction.ScheduleCalendarCardsControl.tap", "tap")
@@ -314,7 +318,7 @@ final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelega
         _ interaction: UIContextMenuInteraction,
         configurationForMenuAtLocation location: CGPoint
     ) -> UIContextMenuConfiguration? {
-        menuCard = hitTest(location, with: nil) as? ScheduleBlankContextMenuControl
+        menuCard = card(at: location, expandForTouch: usesDirectTouch)
         guard let card = menuCard, card.onShare != nil else { return nil }
         return card.contextMenuInteraction(
             interaction, configurationForMenuAtLocation: card.convert(location, from: self))
@@ -376,8 +380,40 @@ final class ScheduleCalendarCardsControl: UIView, UIContextMenuInteractionDelega
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hit = super.hitTest(point, with: event)
-        return hit === self ? nil : hit
+        if let event {
+            usesDirectTouch = event.allTouches?.contains { $0.type == .direct } == true
+        }
+        return card(at: point, expandForTouch: event != nil && usesDirectTouch)
+    }
+
+    func card(at point: CGPoint, expandForTouch: Bool) -> ScheduleBlankContextMenuControl? {
+        guard let hit = super.hitTest(point, with: nil) else { return nil }
+        if let exact = hit as? ScheduleBlankContextMenuControl {
+            return exact
+        }
+        guard hit === self, expandForTouch, touchContentBounds?.contains(point) != false
+        else { return nil }
+        var nearest: ScheduleBlankContextMenuControl?
+        var nearestDistance = CGFloat.infinity
+        for id in orderedIDs.reversed() {
+            guard let control = controls[id], !control.isHidden, control.isUserInteractionEnabled,
+                control.alpha > 0.01
+            else { continue }
+            let frame = control.frame
+            let target = AppDesignSystem.Size.Control.touchTarget
+            let hitFrame = frame.insetBy(
+                dx: min((frame.width - target) / 2, 0),
+                dy: min((frame.height - target) / 2, 0))
+            guard hitFrame.contains(point) else { continue }
+            let dx = max(frame.minX - point.x, point.x - frame.maxX, 0)
+            let dy = max(frame.minY - point.y, point.y - frame.maxY, 0)
+            let distance = dx * dx + dy * dy
+            if distance < nearestDistance {
+                nearest = control
+                nearestDistance = distance
+            }
+        }
+        return nearest
     }
 }
 

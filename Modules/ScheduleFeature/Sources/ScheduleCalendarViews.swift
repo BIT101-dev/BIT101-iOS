@@ -548,7 +548,11 @@ struct CourseScheduleCalendarView: View {
                         contextMenuFeedbackToken &+= 1
                         onPrepareCourseShare(entry)
                     },
-                    onShare: onLongPressCourse)
+                    onShare: onLongPressCourse,
+                    touchContentBounds: CGRect(
+                        x: leftWidth, y: headerHeight,
+                        width: proxy.size.width - leftWidth,
+                        height: rowHeight * CGFloat(timeTable.count)))
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .zIndex(1)
 
