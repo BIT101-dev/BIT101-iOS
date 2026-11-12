@@ -434,7 +434,7 @@ private final class ScheduleRenderedFrameSampler: NSObject {
 }
 
 @MainActor
-@Suite("Schedule card location priority")
+@Suite("Schedule card location priority", .serialized)
 struct ScheduleCardTextLayoutTests {
     @Test func calendarLayoutTracksCourseAndModeChanges() {
         func entry(_ id: String, title: String, start: CGFloat = 1) -> ScheduleCalendarEntry {
@@ -571,7 +571,13 @@ struct ScheduleCardTextLayoutTests {
             detailLines: [], kind: .course)
         control.configureText(entry: entry, contentMode: .name)
         let text = try #require(control.cardText)
+        control.layoutIfNeeded()
+        #expect(text.titleLabel.superview === text)
         control.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        try await waitForTestEvent {
+            control.traitCollection.preferredContentSizeCategory
+                == .accessibilityExtraExtraExtraLarge
+        }
         let expected = UIFont.preferredFont(
             forTextStyle: .caption1, compatibleWith: control.traitCollection)
         try await waitForTestEvent {
@@ -630,7 +636,9 @@ struct ScheduleCardTextLayoutTests {
                     control.layoutIfNeeded()
                     let text = try #require(control.cardText)
                     #expect(text.superview === control)
-                    for label in [text.titleLabel, text.locationLabel] {
+                    #expect(text.titleLabel.isHidden == (text.titleLabel.superview == nil))
+                    #expect(text.locationLabel.isHidden == (text.locationLabel.superview == nil))
+                    for label in [text.titleLabel, text.locationLabel] where !label.isHidden {
                         #expect(label.superview === text)
                         #expect(label.contentScaleFactor == window.screen.scale)
                         #expect(label.layer.contentsScale == window.screen.scale)

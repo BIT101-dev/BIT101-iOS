@@ -141,7 +141,50 @@ def checker_report_boundary_findings() -> list[str]:
     return []
 
 
+def navigation_layer_self_test() -> None:
+    from ui_rules import compact_tab_tint_findings, schedule_time_layer_findings
+
+    tint = ".tint(selection().tintColor)"
+    tabs = (
+        "struct AppCompactTabs: View { var body: some View { "
+        "TabView(selection: binding) { content() } SUFFIX } }"
+    )
+    line = (
+        "Rectangle().frame(height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight)"
+        ".allowsHitTesting(false).zIndex(AppDesignSystem.Schedule.Grid.currentTimeLineZIndex)"
+    )
+    calendar = (
+        "struct Calendar: View { var body: some View { "
+        "ZStack { ScheduleCalendarCardsView(cards: []); LINE } } }"
+    )
+    cases = [
+        (tabs.replace("SUFFIX", tint), compact_tab_tint_findings, False),
+        (tabs.replace("SUFFIX", ""), compact_tab_tint_findings, True),
+        (tabs.replace("content()", "content()" + tint).replace("SUFFIX", ""),
+         compact_tab_tint_findings, True),
+        (tabs.replace("SUFFIX", tint.replace("selection().tintColor", ".blue")),
+         compact_tab_tint_findings, True),
+        (tabs.replace("SUFFIX", "/* " + tint + " */"), compact_tab_tint_findings, True),
+        (calendar.replace("LINE", line), schedule_time_layer_findings, False),
+        (calendar.replace("LINE", "if isToday { " + line + " }"),
+         schedule_time_layer_findings, False),
+        (calendar.replace("LINE", "ZStack { " + line + " }"),
+         schedule_time_layer_findings, True),
+        (calendar.replace("LINE", line.replace(".allowsHitTesting(false)", "")),
+         schedule_time_layer_findings, True),
+        (calendar.replace("LINE", line.replace("currentTimeLineZIndex", "otherZIndex")),
+         schedule_time_layer_findings, True),
+        (calendar.replace("LINE", "/* " + line + " */"), schedule_time_layer_findings, True),
+    ]
+    sources = {str(ROOT / f"visual-check-{index}.swift"): source
+               for index, (source, _, _) in enumerate(cases)}
+    facts = swift_syntax_index_sources(sources)
+    for path, (_, check, expected) in zip(sources, cases):
+        assert bool(check(facts[path])) == expected, sources[path]
+
+
 def visual_contract_boundary_findings() -> list[str]:
+    navigation_layer_self_test()
     list_semantics_boundary_self_test()
     text_loading_state_boundary_self_test()
     from ui_rules import visual_contract_present, rendered_component_counts

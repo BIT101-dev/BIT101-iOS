@@ -293,6 +293,7 @@ extension MaintenancePerformanceTests {
                 let initialDuration = initialDisplay - initialStart
                 XCTAssertEqual(self.shellMapCount(controller.view), 1)
                 firstVisits.append("startup,0,\(initialDuration),0,\(initialDuration)")
+                if !expanded { self.assertCompactTabTint(mountedTabs, index: 0) }
                 for index in Array(1..<tabCount) + [0] {
                     let timing = try await self.selectShellTab(
                         index, in: mountedTabs, frame: displayFrame)
@@ -304,6 +305,7 @@ extension MaintenancePerformanceTests {
                         timing.response, firstDelays[index],
                         "首次显示 Tab \(index): selection=\(timing.selection)s, "
                             + "display=\(timing.display)s, response=\(timing.response)s")
+                    if !expanded { self.assertCompactTabTint(mountedTabs, index: index) }
                 }
                 tabs = mountedTabs
             } catch { XCTFail("完整壳层就绪失败：\(error)") }
@@ -387,6 +389,25 @@ extension MaintenancePerformanceTests {
                 interfaceIdiom: expanded ? .pad : .phone)
         )
         .frame(width: size.width, height: size.height)
+    }
+
+    @MainActor
+    private func assertCompactTabTint(_ tabs: UITabBarController, index: Int) {
+        let actual = tabs.tabBar.tintColor.resolvedColor(with: tabs.traitCollection)
+        let expected = UIColor(AppTab.allCases[index].tintColor)
+            .resolvedColor(with: tabs.traitCollection)
+        var actualRed: CGFloat = 0, actualGreen: CGFloat = 0, actualBlue: CGFloat = 0
+        var actualAlpha: CGFloat = 0
+        var expectedRed: CGFloat = 0, expectedGreen: CGFloat = 0, expectedBlue: CGFloat = 0
+        var expectedAlpha: CGFloat = 0
+        XCTAssertTrue(actual.getRed(&actualRed, green: &actualGreen,
+            blue: &actualBlue, alpha: &actualAlpha))
+        XCTAssertTrue(expected.getRed(&expectedRed, green: &expectedGreen,
+            blue: &expectedBlue, alpha: &expectedAlpha))
+        XCTAssertEqual(actualRed, expectedRed, accuracy: 0.001, "Tab \(index) 红色分量")
+        XCTAssertEqual(actualGreen, expectedGreen, accuracy: 0.001, "Tab \(index) 绿色分量")
+        XCTAssertEqual(actualBlue, expectedBlue, accuracy: 0.001, "Tab \(index) 蓝色分量")
+        XCTAssertEqual(actualAlpha, expectedAlpha, accuracy: 0.001, "Tab \(index) 透明度")
     }
 
     @MainActor

@@ -44,6 +44,7 @@ extension AppDesignSystem {
             static let lineWidth: CGFloat = 0.5
             static let cellSpacing: CGFloat = 1
             static let currentTimeLineHeight: CGFloat = 1.5
+            static let currentTimeLineZIndex: Double = 2
             static let minimumScaleFactor: CGFloat = 0.8
             static let previewTriggerSize: CGFloat = 1
             static let lineOffset: CGFloat = 0.25

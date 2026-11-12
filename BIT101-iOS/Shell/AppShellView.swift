@@ -676,6 +676,7 @@ private struct AppCompactTabs<Content: View>: View {
         TabView(selection: Binding(get: { selection() }, set: { onSelect($0) })) {
             ForEach(AppTab.allCases) { tab in content(tab) }
         }
+        .tint(selection().tintColor)
         .accessibilityIdentifier("app.navigation.grouped")
     }
 }

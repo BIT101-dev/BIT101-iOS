@@ -754,6 +754,46 @@ def visual_contract_present(
     return False
 
 
+def compact_tab_tint_findings(facts: dict) -> list[str]:
+    tabs = [
+        node for node in facts.get("invocations", [])
+        if node["scope"] == ["AppCompactTabs"] and call_name(node["calledExpression"]) == "TabView"
+    ]
+    return [
+        "手机底部 TabView 容器须使用当前选中入口的主题色 .tint(selection().tintColor)"
+        for tab in tabs
+        if not any(
+            call_name(node["calledExpression"]) == "tint"
+            and node["start"] == tab["start"]
+            and [swift_contract_tokens(arg) for arg in node["arguments"]]
+            == ["selection().tintColor"]
+            for node in facts["invocations"]
+        )
+    ]
+
+
+def schedule_time_layer_findings(facts: dict) -> list[str]:
+    calls = facts.get("invocations", [])
+    closures = {node["start"] for node in facts.get("inlineClosureRanges", [])}
+    containers = {node["start"]: set(node["lexicalScope"]) & closures for node in calls}
+    cards = [node for node in calls if node["calledExpression"] == "ScheduleCalendarCardsView"]
+    return [
+        "课表时间线须与课程卡片处于同一容器，使用共享上层层级并允许触摸穿透"
+        for card in cards
+        if not any(
+            call_name(node["calledExpression"]) == "zIndex"
+            and swift_contract_tokens(node["value"]).startswith("Rectangle()")
+            and node["scope"] == card["scope"]
+            and containers[node["start"]] == containers[card["start"]]
+            and [swift_contract_tokens(arg) for arg in node["arguments"]]
+            == ["AppDesignSystem.Schedule.Grid.currentTimeLineZIndex"]
+            and "currentTimeLineHeight" in node["value"]
+            and ".allowsHitTesting(false)" in swift_contract_tokens(node["value"])
+            for node in calls
+        )
+    ]
+
+
 def check_registered_visual_contracts(errors: list[str]) -> None:
     contracts = (
         *FIXED_GEOMETRY_CONTRACTS,
@@ -762,6 +802,11 @@ def check_registered_visual_contracts(errors: list[str]) -> None:
     )
     sources = {path: source_text(path) for path in swift_files()}
     syntax = syntax_index()
+    for path, facts in syntax.items():
+        findings = compact_tab_tint_findings(facts)
+        if Path(path).name in {"ScheduleCalendarViews.swift", "ScheduleLinearCalendarViews.swift"}:
+            findings += schedule_time_layer_findings(facts)
+        errors.extend(f"{source_relative(Path(path))}:1: {finding}" for finding in findings)
     for relative_path, marker in contracts:
         if not visual_contract_present(relative_path, marker, sources, syntax):
             errors.append(

@@ -507,6 +507,8 @@ struct CourseScheduleCalendarView: View {
                             x: leftWidth + dayWidth * CGFloat(index),
                             y: headerHeight + rowHeight * timeLineSection
                         )
+                        .allowsHitTesting(false)
+                        .zIndex(AppDesignSystem.Schedule.Grid.currentTimeLineZIndex)
                 }
 
                 VStack(spacing: AppDesignSystem.Spacing.none) {

@@ -523,6 +523,28 @@ private struct LinearScheduleCanvasView: View {
                     onShare: configuration.onLongPressCourse)
                 .frame(width: proxy.size.width, height: contentHeight)
 
+                if configuration.currentWeek == configuration.week,
+                    let index = visibleWeekdays.firstIndex(
+                        of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate))
+                {
+                    Rectangle()
+                        .fill(AppDesignSystem.Palette.Accent.primary)
+                        .frame(
+                            width: columnWidth,
+                            height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight
+                        )
+                        .offset(
+                            x: columnWidth + columnWidth * CGFloat(index),
+                            y: yPosition(
+                                for: currentMinute,
+                                contentHeight: contentHeight,
+                                start: timelineStart,
+                                end: timelineEnd
+                            )
+                        )
+                        .allowsHitTesting(false)
+                        .zIndex(AppDesignSystem.Schedule.Grid.currentTimeLineZIndex)
+                }
             }
             .frame(width: proxy.size.width, height: contentHeight)
             .appImpactFeedback(trigger: contextMenuFeedbackToken)
@@ -588,28 +610,6 @@ private struct LinearScheduleCanvasView: View {
                         width: AppDesignSystem.Schedule.Grid.lineWidth, height: contentHeight
                     )
                     .offset(x: leftWidth + dayWidth * CGFloat(column))
-            }
-
-            if configuration.currentWeek == configuration.week,
-                let index = visibleWeekdays.firstIndex(
-                    of: ScheduleDateCodec.weekdayIndex(from: configuration.currentDate))
-            {
-                Rectangle()
-                    .fill(AppDesignSystem.Palette.Accent.primary)
-                    .frame(
-                        width: dayWidth,
-                        height: AppDesignSystem.Schedule.Grid.currentTimeLineHeight
-                    )
-                    .offset(
-                        x: leftWidth + dayWidth * CGFloat(index),
-                        y: yPosition(
-                            for: currentMinute,
-                            contentHeight: contentHeight,
-                            start: timelineStart,
-                            end: timelineEnd
-                        )
-                    )
-                    .zIndex(2)
             }
         }
     }
