@@ -571,8 +571,14 @@ extension MaintenancePerformanceTests {
                 defer { completed.fulfill() }
                 do {
                     try await self.switchArticleTabs(
-                        route: route, pairs: pairs, maximumDelay: maximumDelay)
-                } catch { XCTFail("文章 Tab 切换失败：\(error)") }
+                        route: route, scene: scene, pairs: pairs, maximumDelay: maximumDelay)
+                } catch {
+                    XCTFail(
+                        "文章 Tab 切换失败：\(error)，目标=\(route.selection)，"
+                            + "已显示=\(String(describing: route.visibleSelection))，"
+                            + "窗口可见=\(!window.isHidden)，主窗口=\(window.isKeyWindow)，"
+                            + "场景=\(scene.activationState.rawValue)")
+                }
             }
             wait(for: [completed], timeout: 30)
         }
@@ -582,10 +588,15 @@ extension MaintenancePerformanceTests {
 
     @MainActor
     private func switchArticleTabs(
-        route: FeatureCompositionTests.TabRoute, pairs: Int, maximumDelay: Double
+        route: FeatureCompositionTests.TabRoute, scene: UIWindowScene,
+        pairs: Int, maximumDelay: Double
     ) async throws {
         for _ in 0..<pairs {
             for selection in [1, 0] {
+                guard scene.activationState == .foregroundActive else {
+                    XCTFail("文章性能采样需要测试窗口保持前台，当前场景=\(scene.activationState.rawValue)")
+                    return
+                }
                 let start = ProcessInfo.processInfo.systemUptime
                 route.selection = selection
                 try await waitForTestEvent { route.visibleSelection == selection }

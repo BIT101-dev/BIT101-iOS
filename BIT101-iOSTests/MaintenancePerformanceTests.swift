@@ -131,6 +131,17 @@ final class RecoveryScanResponse: HTTPTransport {
 }
 
 nonisolated final class MaintenancePerformanceTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        let previous = await MainActor.run {
+            let previous = UIApplication.shared.isIdleTimerDisabled
+            UIApplication.shared.isIdleTimerDisabled = true
+            return previous
+        }
+        addTeardownBlock {
+            await MainActor.run { UIApplication.shared.isIdleTimerDisabled = previous }
+        }
+    }
 
     func testPhotoImportRejectsOversizedSources() async throws {
         let files = PreferenceMemoryFiles()
