@@ -223,13 +223,20 @@ if candidates:
     print("\n".join(selected[2:]))
 else:
     phones = [device for device in devices
-              if device.get("hardwareProperties", {}).get("deviceType") in {"iPhone", "iPad"}
+              if device.get("hardwareProperties", {}).get("reality") == "physical"
+              and device.get("hardwareProperties", {}).get("deviceType") in {"iPhone", "iPad"}
               and (not sys.argv[1]
                    or device.get("hardwareProperties", {}).get("udid") == sys.argv[1])]
-    paired = any(device.get("connectionProperties", {}).get("pairingState") == "paired"
-                 for device in phones)
-    if paired:
-        message = "已找到配对记录，但开发连接尚未建立。请先解锁已连接的手机后重试。"
+    paired = [device for device in phones
+              if device.get("connectionProperties", {}).get("pairingState") == "paired"]
+    connected = any(
+        device.get("connectionProperties", {}).get("transportType") in {"wired", "localNetwork"}
+        for device in paired
+    )
+    if connected:
+        message = "已检测到连接的配对手机，开发连接尚未建立。请先解锁已连接的手机后重试。"
+    elif paired:
+        message = "已找到历史配对记录，当前手机尚未连接。请连接手机并解锁后重试。"
     elif phones:
         message = "设备尚未完成开发配对。请解锁手机，并完成手机与电脑的配对。"
     else:

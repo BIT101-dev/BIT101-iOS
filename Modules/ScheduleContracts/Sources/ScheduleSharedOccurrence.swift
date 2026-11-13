@@ -13,7 +13,7 @@ public nonisolated enum ScheduleCourseConstraints {
 
 /// 日程相关跨 target 共用的展示规范化工具。
 ///
-/// 当前收口两类分散的展示规则：
+/// 当前统一两类展示规则：
 /// - 教室名称缩写
 /// - 课程标题压缩
 ///

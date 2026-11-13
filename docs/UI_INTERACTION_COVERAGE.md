@@ -66,7 +66,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行检查�
 | `ScheduleEditingUITests/testMainTabsRemainType` | 浅 / 深色大字号、Tab 点击、主要内容可见与可触达 |
 | `CalendarInteractionUITests/testCustomScheduleEmptyTitleDetails` | 添加日程、保存、重新装载恢复 |
 | `ScheduleEditingUITests/testCustomSchedulesAreIsolatedAccounts` | 退出、改账号登录、账号日程隔离 |
-| `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击；课程卡片、日期标题起滑取消点击 |
+| `LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes` | 左侧时间列整列上下课切换与翻周状态保留、上 / 下一周、指定周、课表 / DDL / 空教室横滑与点击；课程卡片、日期标题起滑取消点击 |
 | `LoginAndScheduleUITests/testCourseDetailsUseEdgeBack` | 竖屏课程详情使用系统左侧边缘滑动返回列表 |
 | `LoginAndScheduleUITests/testPageSwipesCancelRowOpening` | 启用动画，从 DDL 作业、课程和话题正文起滑切页，取消条目点击，课表加号保持右侧 |
 | `ScheduleLayoutUITests/testScheduleKeepsWeek` | 横竖屏切换保留周次、课表内容、操作入口及主导航 |
@@ -107,7 +107,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行检查�
 | `CalendarInteractionUITests/testCalendarImportHistoryKeepsAvailable` | 导入索引受损提示、重建确认 / 取消、重建结果与恢复后的学期导入 |
 | `CommunityRecoveryUITests/testPreviewPageRecoversNativeRetryButton` | Quick Look 后续页故障、原生重试控件、原位恢复与关闭 |
 | `ServiceInteractionUITests/testSchoolSmsCourseSyncValidationCancel` | 学校课表刷新、短信取消、验证继续和课程保存 |
-| `LoginAndScheduleUITests/testScheduleCopyImportRenameCycle` | 分享编码复制、剪贴板粘贴、导入、改名、课表上下滑循环、分享课表左滑删除 |
+| `LoginAndScheduleUITests/testScheduleCopyImportRenameCycle` | 分享编码复制、剪贴板粘贴、导入、改名、主课表与分享课表独立时间列切换与上下滑循环、小组件深链归位重置时间列、分享课表左滑删除 |
 | `ScheduleEditingUITests/testLongPressOpensScheduleContextMenu` | 空白区长按、导入菜单、输入 Sheet |
 | `ScheduleEditingUITests/testImportInvalidCodeReportsError` | 无效编码、错误提示、保留输入、取消 |
 | `AccountRecoveryUITests/testFutureScheduleImportUpdateCancel` | 新版本编码、更新提示取消、App Store 目标地址 |

@@ -428,8 +428,8 @@
     "tests": ["CalendarInteractionUITests/testSchoolTermsClassroomPickersRefresh","LandscapeLayoutUITests/testLandscapeDetailBackUseRightPanePane","ScheduleLayoutUITests/testRefreshStatusRowsUseConsistentGeometry"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift:CourseScheduleCalendarView": {
-    "controls": {"Button":1,"ScrollView":1},
-    "tests": ["LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
+    "controls": {"Button":2,"ScrollView":1},
+    "tests": ["LoginAndScheduleUITests/testScheduleCopyImportRenameCycle","LoginAndScheduleUITests/testScheduleDayHolidayCancel","LoginAndScheduleUITests/testScheduleWeekButtonsAndSectionSwipes"]
   },
   "Modules/ScheduleFeature/Sources/ScheduleCalendarViews.swift:ScheduleBlankContextMenuControl": {
     "controls": {"UIAction":2,"UITapGestureRecognizer":1},

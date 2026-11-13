@@ -143,6 +143,140 @@ func resolvedCurrentWeek(firstDay: Date, now: Date = .now) -> Int {
     return ScheduleWeekCodec.weekNumber(forDayOffset: diff)
 }
 
+enum ScheduleTimeColumnMode: Equatable, Sendable {
+    case startTime
+    case endTime
+
+    var toggled: Self {
+        self == .startTime ? .endTime : .startTime
+    }
+
+    func timeText(for slot: TimeSlot) -> String {
+        self == .startTime ? slot.start : slot.end
+    }
+
+    func accessibilityLabel(section: Int, slot: TimeSlot) -> String {
+        let label = self == .startTime ? "上课时间" : "下课时间"
+        return "第\(section)节，\(label)\(timeText(for: slot))"
+    }
+}
+
+func scheduleMinuteOfDay(for date: Date) -> Int {
+    let components = ScheduleDateCodec.calendar.dateComponents([.hour, .minute], from: date)
+    return min(max((components.hour ?? 0) * 60 + (components.minute ?? 0), 0), 24 * 60)
+}
+
+func todayScheduledCourseMinuteRanges(
+    courses: [CourseRecord],
+    firstDay: Date?,
+    timeTable: [TimeSlot],
+    now: Date
+) -> [Range<Int>] {
+    guard let firstDay, !timeTable.isEmpty else { return [] }
+    let currentWeek = resolvedCurrentWeek(firstDay: firstDay, now: now)
+    let weekday = ScheduleDateCodec.weekdayIndex(from: now)
+    let slotMap = Dictionary(
+        timeTable.map { ($0.id, $0) },
+        uniquingKeysWith: { first, _ in first }
+    )
+    return courses.compactMap { course in
+        guard
+            course.weeks.contains(currentWeek),
+            course.weekday == weekday,
+            let startSlot = slotMap[course.startSection],
+            let endSlot = slotMap[course.endSection],
+            endSlot.endMinutes > startSlot.startMinutes
+        else {
+            return nil
+        }
+        return startSlot.startMinutes..<endSlot.endMinutes
+    }
+}
+
+func automaticScheduleTimeColumnMode(
+    courses: [CourseRecord],
+    firstDay: Date?,
+    timeTable: [TimeSlot],
+    now: Date
+) -> ScheduleTimeColumnMode {
+    let minute = scheduleMinuteOfDay(for: now)
+    let isInClass = todayScheduledCourseMinuteRanges(
+        courses: courses,
+        firstDay: firstDay,
+        timeTable: timeTable,
+        now: now
+    ).contains { $0.contains(minute) }
+    return isInClass ? .endTime : .startTime
+}
+
+struct ScheduleTimeColumnState: Equatable {
+    private var manualOverrides: [String: ScheduleTimeColumnMode] = [:]
+    private var observedDayKey: String?
+    private var observedMinute: Int?
+
+    func resolvedMode(
+        for schedule: ScheduleViewModel.CourseScheduleVariant,
+        now: Date
+    ) -> ScheduleTimeColumnMode {
+        manualOverrides[schedule.id]
+            ?? automaticScheduleTimeColumnMode(
+                courses: schedule.courses,
+                firstDay: schedule.firstDay,
+                timeTable: schedule.timeTable,
+                now: now
+            )
+    }
+
+    mutating func toggle(
+        for schedule: ScheduleViewModel.CourseScheduleVariant,
+        now: Date
+    ) {
+        if observedDayKey == nil || observedMinute == nil {
+            observedDayKey = ScheduleDateCodec.formatDate(now)
+            observedMinute = scheduleMinuteOfDay(for: now)
+        }
+        manualOverrides[schedule.id] = resolvedMode(for: schedule, now: now).toggled
+    }
+
+    mutating func reset() {
+        manualOverrides.removeAll()
+    }
+
+    mutating func observeTimeChange(
+        schedules: [ScheduleViewModel.CourseScheduleVariant],
+        now: Date
+    ) {
+        let validIDs = Set(schedules.map(\.id))
+        manualOverrides = manualOverrides.filter { validIDs.contains($0.key) }
+
+        let dayKey = ScheduleDateCodec.formatDate(now)
+        let minute = scheduleMinuteOfDay(for: now)
+        defer {
+            observedDayKey = dayKey
+            observedMinute = minute
+        }
+        guard let previousDayKey = observedDayKey, let previousMinute = observedMinute else {
+            return
+        }
+        guard previousDayKey == dayKey, minute >= previousMinute else {
+            manualOverrides.removeAll()
+            return
+        }
+        guard minute > previousMinute, !manualOverrides.isEmpty else { return }
+        for schedule in schedules where manualOverrides[schedule.id] != nil {
+            let boundaries = todayScheduledCourseMinuteRanges(
+                courses: schedule.courses,
+                firstDay: schedule.firstDay,
+                timeTable: schedule.timeTable,
+                now: now
+            ).flatMap { [$0.lowerBound, $0.upperBound] }
+            if boundaries.contains(where: { $0 > previousMinute && $0 <= minute }) {
+                manualOverrides.removeValue(forKey: schedule.id)
+            }
+        }
+    }
+}
+
 struct ScheduleCalendarPlacement: Identifiable {
     let entry: ScheduleCalendarEntry
     let column: Int

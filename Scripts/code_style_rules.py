@@ -16,7 +16,7 @@ EMOJI = regex.compile(r"\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]
 
 def _load_banned_words() -> list[str]:
     agents = Path(__file__).resolve().parents[1] / "AGENTS.md"
-    words = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因 门禁 基线 冒烟 探针 预算 组装 归集".split()
+    words = "口径 回归 合同 语义 夹具 边界 治理 落盘 根因 门禁 基线 冒烟 探针 预算 组装 归集 收口".split()
     if agents.is_file():
         match = re.search(r"##\s*严格禁止词表\s+([^\n#]+)", agents.read_text())
         if match:

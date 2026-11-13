@@ -347,6 +347,7 @@ struct CourseScheduleCalendarView: View {
     @Binding var axisZoomScale: CGFloat
     let firstDay: Date
     let timeTable: [TimeSlot]
+    let timeColumnMode: ScheduleTimeColumnMode
     let currentWeek: Int
     let showSaturday: Bool
     let showSunday: Bool
@@ -356,6 +357,7 @@ struct CourseScheduleCalendarView: View {
     let onSelectWeekValue: (Int) -> Void
     let onLongPressCourse: (ScheduleCalendarEntry) -> Void
     let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
+    let onToggleTimeColumnMode: () -> Void
     let onShareSchedule: () -> Void
     let onImportSchedule: () -> Void
 
@@ -424,7 +426,8 @@ struct CourseScheduleCalendarView: View {
                 : nil
             let timeLineSection =
                 currentWeek == week
-                ? convertMinutesToSection(minutes: currentMinute(), timeTable: timeTable)
+                ? convertMinutesToSection(
+                    minutes: scheduleMinuteOfDay(for: currentDate), timeTable: timeTable)
                 : nil
 
             ZStack(alignment: .topLeading) {
@@ -521,6 +524,7 @@ struct CourseScheduleCalendarView: View {
                         onMenuWillPresent: { contextMenuFeedbackToken &+= 1 }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.leading, leftWidth)
                     .padding(
                         .trailing,
                         AppDesignSystem.Size.Control.touchTarget
@@ -713,24 +717,55 @@ struct CourseScheduleCalendarView: View {
         rowHeight: CGFloat,
         visibleWeekdays: [Int]
     ) -> some View {
-        HStack(spacing: AppDesignSystem.Spacing.none) {
-            VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
-                Text("\(index + 1)")
-                    .font(AppDesignSystem.Typography.captionEmphasis)
-                    .lineLimit(1)
-                Text(slot.start)
-                    .font(AppDesignSystem.Typography.caption)
-                    .foregroundStyle(AppDesignSystem.Foreground.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
+        let section = index + 1
+        return HStack(spacing: AppDesignSystem.Spacing.none) {
+            Button(action: onToggleTimeColumnMode) {
+                quantizedTimeCellContent(section: section, slot: slot)
+                    .frame(width: leftWidth, height: rowHeight)
+                    .contentShape(Rectangle())
             }
-            .frame(width: leftWidth, height: rowHeight)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("第\(index + 1)节，开始时间\(slot.start)")
+            .buttonStyle(ScheduleTimeSlotButtonStyle())
+            .accessibilityIdentifier("schedule.calendar.time-slot-\(section)")
+            .accessibilityLabel(timeColumnMode.accessibilityLabel(section: section, slot: slot))
 
             Color.clear
                 .frame(width: dayWidth * CGFloat(visibleWeekdays.count), height: rowHeight)
         }
+    }
+
+    private func quantizedTimeCellContent(section: Int, slot: TimeSlot) -> some View {
+        ZStack {
+            if timeColumnMode == .startTime {
+                VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
+                    quantizedTimeValueLabel(slot.start, isEndTime: false)
+                    quantizedSectionNumberLabel(section)
+                }
+            } else {
+                VStack(spacing: AppDesignSystem.Schedule.Grid.cellSpacing) {
+                    quantizedSectionNumberLabel(section)
+                    quantizedTimeValueLabel(slot.end, isEndTime: true)
+                }
+            }
+        }
+    }
+
+    private func quantizedSectionNumberLabel(_ section: Int) -> some View {
+        Text("\(section)")
+            .font(AppDesignSystem.Typography.captionEmphasis)
+            .foregroundStyle(AppDesignSystem.Foreground.primary)
+            .lineLimit(1)
+    }
+
+    private func quantizedTimeValueLabel(_ text: String, isEndTime: Bool) -> some View {
+        Text(text)
+            .font(AppDesignSystem.Typography.caption.monospacedDigit())
+            .foregroundStyle(
+                isEndTime
+                    ? AppDesignSystem.Palette.Status.danger
+                    : AppDesignSystem.Palette.Accent.primary
+            )
+            .lineLimit(1)
+            .minimumScaleFactor(AppDesignSystem.Schedule.Grid.minimumScaleFactor)
     }
 
     private func quantizedCard(
@@ -824,14 +859,11 @@ struct CourseScheduleCalendarView: View {
     private func weekdayText(for weekday: Int) -> String {
         ScheduleDateCodec.weekdaySymbol(weekday)
     }
+}
 
-    private func currentMinute() -> Int {
-        let components = ScheduleDateCodec.calendar.dateComponents(
-            [.hour, .minute], from: currentDate)
-        return min(
-            max((components.hour ?? 0) * 60 + (components.minute ?? 0), 0),
-            24 * 60
-        )
+private struct ScheduleTimeSlotButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 

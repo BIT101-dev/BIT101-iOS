@@ -376,4 +376,133 @@ struct ScheduleTimeTableTests {
         try model.setTimeTable(from: "23:00,24:00")
         #expect(repository.persistenceSnapshot.timeTable == slots)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func smartTimeColumnModesAndResets() throws {
+        let morningCourses = try ScheduleCourseEditor.adding(
+            CourseDraft(
+                title: "高数",
+                weekday: 1,
+                startSection: 1,
+                endSection: 2,
+                weeksText: "1"
+            ),
+            to: [],
+            term: "2026-2027-1",
+            id: "morning"
+        )
+        let primaryCourses = try ScheduleCourseEditor.adding(
+            CourseDraft(
+                title: "大物",
+                weekday: 1,
+                startSection: 3,
+                endSection: 4,
+                weeksText: "1"
+            ),
+            to: morningCourses,
+            term: "2026-2027-1",
+            id: "second"
+        )
+        let sharedCourses = try ScheduleCourseEditor.adding(
+            CourseDraft(
+                title: "英语",
+                weekday: 2,
+                startSection: 1,
+                endSection: 2,
+                weeksText: "1"
+            ),
+            to: [],
+            term: "2026-2027-1",
+            id: "shared-course"
+        )
+        let primary = ScheduleViewModel.CourseScheduleVariant(
+            id: "primary",
+            title: "我的课表",
+            isPrimary: true,
+            importedAt: nil,
+            sharedAt: nil,
+            currentTerm: "2026-2027-1",
+            firstDayString: "2026-09-07",
+            timeTable: TimeSlot.default,
+            courses: primaryCourses,
+            exams: [],
+            customSchedules: []
+        )
+        let shared = ScheduleViewModel.CourseScheduleVariant(
+            id: "shared-1",
+            title: "同学课表",
+            isPrimary: false,
+            importedAt: nil,
+            sharedAt: nil,
+            currentTerm: "2026-2027-1",
+            firstDayString: "2026-09-07",
+            timeTable: TimeSlot.default,
+            courses: sharedCourses,
+            exams: [],
+            customSchedules: []
+        )
+        let schedules = [primary, shared]
+        let slot1 = TimeSlot.default[0]
+
+        func makeDate(_ day: String, hour: Int, minute: Int) throws -> Date {
+            let base = try #require(ScheduleDateCodec.parseDate(day))
+            return try #require(
+                ScheduleDateCodec.calendar.date(
+                    bySettingHour: hour, minute: minute, second: 0, of: base))
+        }
+
+        var state = ScheduleTimeColumnState()
+        let t0759 = try makeDate("2026-09-07", hour: 7, minute: 59)
+        state.observeTimeChange(schedules: schedules, now: t0759)
+        #expect(state.resolvedMode(for: primary, now: t0759) == .startTime)
+        #expect(
+            ScheduleTimeColumnMode.startTime.accessibilityLabel(section: 1, slot: slot1)
+                == "第1节，上课时间08:00"
+        )
+        #expect(
+            ScheduleTimeColumnMode.endTime.accessibilityLabel(section: 1, slot: slot1)
+                == "第1节，下课时间08:45"
+        )
+
+        let t0800 = try makeDate("2026-09-07", hour: 8, minute: 0)
+        state.observeTimeChange(schedules: schedules, now: t0800)
+        #expect(state.resolvedMode(for: primary, now: t0800) == .endTime)
+        #expect(state.resolvedMode(for: shared, now: t0800) == .startTime)
+
+        let t0847 = try makeDate("2026-09-07", hour: 8, minute: 47)
+        state.observeTimeChange(schedules: schedules, now: t0847)
+        #expect(state.resolvedMode(for: primary, now: t0847) == .endTime)
+
+        state.toggle(for: primary, now: t0847)
+        state.toggle(for: shared, now: t0847)
+        #expect(state.resolvedMode(for: primary, now: t0847) == .startTime)
+        #expect(state.resolvedMode(for: shared, now: t0847) == .endTime)
+
+        let t0910 = try makeDate("2026-09-07", hour: 9, minute: 10)
+        state.observeTimeChange(schedules: schedules, now: t0910)
+        #expect(state.resolvedMode(for: primary, now: t0910) == .startTime)
+        #expect(state.resolvedMode(for: shared, now: t0910) == .endTime)
+
+        let t0935 = try makeDate("2026-09-07", hour: 9, minute: 35)
+        state.observeTimeChange(schedules: schedules, now: t0935)
+        #expect(state.resolvedMode(for: primary, now: t0935) == .startTime)
+        #expect(state.resolvedMode(for: shared, now: t0935) == .endTime)
+
+        let t0955 = try makeDate("2026-09-07", hour: 9, minute: 55)
+        state.observeTimeChange(schedules: schedules, now: t0955)
+        #expect(state.resolvedMode(for: primary, now: t0955) == .endTime)
+        #expect(state.resolvedMode(for: shared, now: t0955) == .endTime)
+
+        state.toggle(for: primary, now: t0955)
+        #expect(state.resolvedMode(for: primary, now: t0955) == .startTime)
+        state.reset()
+        #expect(state.resolvedMode(for: primary, now: t0955) == .endTime)
+        #expect(state.resolvedMode(for: shared, now: t0955) == .startTime)
+
+        state.toggle(for: shared, now: t0955)
+        #expect(state.resolvedMode(for: shared, now: t0955) == .endTime)
+        let nextDay = try makeDate("2026-09-08", hour: 7, minute: 30)
+        state.observeTimeChange(schedules: schedules, now: nextDay)
+        #expect(state.resolvedMode(for: shared, now: nextDay) == .startTime)
+    }
 }

@@ -32,10 +32,28 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         assertUI(app.navigationBars["考试详情"].appears(timeout: 5), "课间考试应打开详情。")
         assertUI(app.staticTexts["时间：12:30-12:45"].exists, "考试详情应保留课间原始时间。")
         tap("取消")
+        let slot1 = app.buttons["schedule.calendar.time-slot-1"]
+        let slot13 = app.buttons["schedule.calendar.time-slot-13"]
+        let initialSlot1Label = slot1.label
+        let expectedToggledSlot1 =
+            initialSlot1Label == "第1节，上课时间08:00" ? "第1节，下课时间08:45" : "第1节，上课时间08:00"
+        let expectedToggledSlot13 =
+            initialSlot1Label == "第1节，上课时间08:00" ? "第13节，下课时间20:55" : "第13节，上课时间20:10"
+        slot1.tapBriefly()
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", expectedToggledSlot1),
+                on: slot1,
+                timeout: 5
+            ),
+            "点击左侧时间列应切换第1节上下课时间。")
+        assertUI(slot13.label == expectedToggledSlot13, "左侧时间列应整列同步切换上下课时间。")
         tap("下一周")
         assertSelectedWeek(2)
+        assertUI(slot1.label == expectedToggledSlot1, "翻看周次应保留当前课表的时间列切换状态。")
         tap("上一周")
         assertSelectedWeek(1)
+        assertUI(slot1.label == expectedToggledSlot1, "返回原周次应继续保留时间列切换状态。")
         tap("第3周")
         assertSelectedWeek(3)
         app.descendants(matching: .any)["schedule.section-surface"].swipeLeft()
@@ -328,12 +346,25 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
         app.mainTab("日程").tapBriefly()
         let sharedSegment = app.segmentedControls.buttons["测试分享课表"]
         assertUI(sharedSegment.appears(timeout: 5), "导入和改名应增加课表分栏。")
+        let slot1 = app.buttons["schedule.calendar.time-slot-1"]
+        assertUI(slot1.label == "第1节，上课时间08:00", "空分享课表默认应显示上课时间。")
+        slot1.tapBriefly()
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", "第1节，下课时间08:45"), on: slot1, timeout: 5),
+            "分享课表应支持手动切换下课时间。")
         app.swipeDown()
         assertUI(
             waitUntil(
                 NSPredicate(format: "label == %@", "课表"),
                 on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
             "向下滑动应从分享课表循环到主课表。")
+        assertUI(slot1.label == "第1节，上课时间08:00", "主课表应保有独立的时间列状态。")
+        slot1.tapBriefly()
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", "第1节，下课时间08:45"), on: slot1, timeout: 5),
+            "主课表应支持独立切换下课时间。")
         let add = app.buttons["schedule.add-content"]
         dragFrom(add, to: CGPoint(x: add.frame.midX, y: app.frame.midY))
         assertUI(
@@ -341,6 +372,7 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
                 NSPredicate(format: "label == %@", "测试分享课表"),
                 on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
             "从加号向上滑动应恢复分享课表。")
+        assertUI(slot1.label == "第1节，下课时间08:45", "切回分享课表应保留其已切换状态。")
         assertUI(!app.buttons["添加课程"].exists, "从加号起滑应取消菜单点击。")
         let application = try XCTUnwrap(app.native as? XCUIApplication)
         application.launchEnvironment["BIT101_UI_TEST_RESET_STORAGE"] = "0"
@@ -354,6 +386,10 @@ nonisolated final class LoginAndScheduleUITests: UIAutomationTestCase {
                 NSPredicate(format: "label == %@", "课表"),
                 on: app.segmentedControls.buttons.element(boundBy: 0), timeout: 5),
             "自己的课表小组件应从分享分身返回主课表。")
+        assertUI(
+            waitUntil(
+                NSPredicate(format: "label == %@", "第1节，上课时间08:00"), on: slot1, timeout: 5),
+            "从小组件归位主课表时应重置为默认智能时间显示。")
         openSettings("calendar")
         reveal(shared, description: "分享课表名称")
         checkScrollContainers(force: true)

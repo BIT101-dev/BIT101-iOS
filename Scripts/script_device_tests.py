@@ -44,13 +44,14 @@ def device_discovery_boundary_findings() -> list[str]:
     if result.returncode or result.stdout.strip() != "custom-nickname:custom-nickname:iPhone 17":
         findings.append("设备自测：显示硬件型号")
     for devices, expected in (
-        ([candidate("nickname", None, tunnel="unavailable")], "请先解锁已连接的手机后重试"),
+        ([candidate("nickname", "wired", tunnel="unavailable")], "请先解锁已连接的手机后重试"),
+        ([candidate("nickname", None, tunnel="unavailable")], "当前手机尚未连接"),
         ([candidate("nickname", "wired", pairing="unpaired")], "设备尚未完成开发配对"),
         ([], "开发工具尚未发现可用手机"),
     ):
         result = select(devices)
         if result.returncode != 1 or expected not in result.stderr or "nickname" in result.stderr:
-            findings.append("设备自测：区分连接未就绪、配对未完成与设备未发现")
+            findings.append("设备自测：区分已连接待解锁、历史配对未连接、配对未完成与设备未发现")
 
     for devices, expected in (
         ([candidate("wireless", "localNetwork"), candidate("wired", "wired")], "wired"),

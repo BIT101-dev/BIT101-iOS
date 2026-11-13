@@ -47,6 +47,7 @@ struct CourseScheduleRefreshStatusRow: View {
 }
 
 struct CourseScheduleTabView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appWindowLayout) private var layout
     @Environment(\.scheduleCurrentDate) private var currentDate
     struct ScheduleCodePresentation: Identifiable {
@@ -88,6 +89,7 @@ struct CourseScheduleTabView: View {
         ScheduleCalendarAxisMode.quantized.rawValue
     @State var calendarAxisZoomScale: CGFloat = AppDesignSystem.Schedule.timelineDefaultScale
     @State var calendarEntryProjection = ScheduleCalendarEntryProjection()
+    @State private var timeColumnState = ScheduleTimeColumnState()
 
     var activeSchedule: ScheduleViewModel.CourseScheduleVariant {
         viewModel.activeCourseSchedule
@@ -247,6 +249,8 @@ struct CourseScheduleTabView: View {
                     axisZoomScale: $calendarAxisZoomScale,
                     firstDay: firstDay,
                     timeTable: activeSchedule.timeTable,
+                    timeColumnMode: timeColumnState.resolvedMode(
+                        for: activeSchedule, now: currentDate),
                     currentWeek: resolvedCurrentWeek(firstDay: firstDay, now: currentDate),
                     showSaturday: viewModel.presentationPreferences.showSaturday,
                     showSunday: viewModel.presentationPreferences.showSunday,
@@ -285,6 +289,7 @@ struct CourseScheduleTabView: View {
                     onPrepareCourseShare: { entry in
                         prepareCourseShare(from: entry)
                     },
+                    onToggleTimeColumnMode: toggleTimeColumnMode,
                     onShareSchedule: { exportScheduleCode() },
                     onImportSchedule: { isShowingScheduleImport = true }
                 )
@@ -525,14 +530,26 @@ struct CourseScheduleTabView: View {
         }
         .diagnosticAlert(item: $courseShareAlert)
         .task(id: prefetchedCourseID) { await resolveCourseShare() }
-        .onAppear { consumeCalendarRequest() }
+        .onAppear {
+            timeColumnState.observeTimeChange(
+                schedules: viewModel.courseSchedules, now: currentDate)
+            consumeCalendarRequest()
+        }
+        .onChange(of: currentDate) { _, newDate in
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+                timeColumnState.observeTimeChange(
+                    schedules: viewModel.courseSchedules, now: newDate)
+            }
+        }
         .onChange(of: viewModel.requestedSystemCalendarEvent) { _, _ in consumeCalendarRequest()
         }
         .onDisappear { cancelPendingActions() }
         .onChange(of: viewModel.accountGeneration) { _, _ in
+            timeColumnState.reset()
             dismissPresentedSheets()
         }
         .onChange(of: resetSignal) { _, _ in
+            timeColumnState.reset()
             dismissPresentedSheets()
         }
     }
@@ -545,6 +562,15 @@ struct CourseScheduleTabView: View {
                         key: ScheduleRefreshStatusHeightKey.self, value: proxy.size.height)
                 }
             }
+    }
+
+    private func toggleTimeColumnMode() {
+        AppHapticFeedback.selection {
+            withAnimation(AppDesignSystem.Motion.transition(reduceMotion: reduceMotion)) {
+                timeColumnState.toggle(for: activeSchedule, now: currentDate)
+            }
+            return true
+        }
     }
 
 }
