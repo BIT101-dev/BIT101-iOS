@@ -26,8 +26,8 @@ import TransportCore
     /// 最新提示同步给所属日程页面。
     @ObservationIgnored var onNotice: ((ScheduleNotice) -> Void)?
     @ObservationIgnored var onAuthenticationRequired: ((BITLoginAuthenticationChallenge) -> Void)?
-    @ObservationIgnored private var classroomRecords: [ClassroomRecord] = []
-    @ObservationIgnored private var classroomQueryDate: Date?
+    private var classroomRecords: [ClassroomRecord] = []
+    private var classroomQueryDate: Date?
     private let now: @MainActor () -> Date
     @ObservationIgnored private var classroomTask: Task<Void, Never>?
     @ObservationIgnored private var classroomTaskID: UUID?
@@ -124,7 +124,7 @@ import TransportCore
         classroomQueryDate = nil
         classroomLastUpdatedAt = nil
         _ = restoreClassroomQuery()
-        persistClassroomState()
+        persistClassroomState(source: .local)
         return startClassroomRequest { model, requestID in
             try await model.loadBuildings(requestID: requestID)
             try await model.refreshClassrooms(requestID: requestID)
@@ -135,12 +135,11 @@ import TransportCore
     func selectBuilding(id: String) -> Task<Void, Never>? {
         guard id != selectedBuildingID else { return nil }
         selectedBuildingID = id
-        cache.selectedBuildingID = id
         classroomRecords = []
         classroomQueryDate = nil
         classroomLastUpdatedAt = nil
         _ = restoreClassroomQuery()
-        persistClassroomState()
+        persistClassroomState(source: .local)
         return startClassroomRequest { model, requestID in
             try await model.refreshClassrooms(requestID: requestID)
         }
@@ -151,7 +150,7 @@ import TransportCore
         cache.selectedClassroomSectionIDs = ClassroomAvailabilityCalculator.normalizedSections(
             values, in: cache.timeTable)
         cache.isClassroomSectionFilterCustomized = true
-        persistClassroomState()
+        persistClassroomState(source: .local)
     }
 
     /// 刷新当前教学楼的空教室状态。
@@ -235,9 +234,8 @@ import TransportCore
                 ScheduleDateCodec.calendar.isDate($0.attemptedAt, inSameDayAs: date)
             }) != true
         {
-            storeClassroomQuery(prefetched, buildingID: selectedBuildingID)
             cache.nextDayClassroomQueriesByBuildingID?.removeValue(forKey: selectedBuildingID)
-            persistClassroomState()
+            storeClassroomQuery(prefetched, buildingID: selectedBuildingID)
         }
         guard let entry = cache.cachedClassroomQueriesByBuildingID?[selectedBuildingID] else {
             classroomRecords = []
@@ -262,8 +260,10 @@ import TransportCore
         persistClassroomState()
     }
 
-    private func persistClassroomState() {
-        if repository.acceptsEdits { repository.persist() }
+    private func persistClassroomState(
+        source: ScheduleCacheSaveSource = .localWithoutCloudPush
+    ) {
+        if repository.acceptsEdits { repository.persist(source: source) }
     }
 
     private func startNextDayPrefetch(buildingID: String, term: String) {
@@ -484,15 +484,8 @@ import TransportCore
     /// 在教学楼列表变化后修正选中教学楼。
     private func resolveBuilding() {
         let validBuildingIDs = Set(buildings.map(\.buildingCode))
-        let cachedBuildingID = cache.selectedBuildingID
 
         if validBuildingIDs.contains(selectedBuildingID) {
-            cache.selectedBuildingID = selectedBuildingID
-            return
-        }
-
-        if validBuildingIDs.contains(cachedBuildingID) {
-            selectedBuildingID = cachedBuildingID
             return
         }
 
@@ -500,12 +493,10 @@ import TransportCore
             validBuildingIDs.contains(preferredBuildingID)
         {
             selectedBuildingID = preferredBuildingID
-            cache.selectedBuildingID = selectedBuildingID
             return
         }
 
         selectedBuildingID = buildings.first?.buildingCode ?? ""
-        cache.selectedBuildingID = selectedBuildingID
     }
 
     /// 按当前节次筛选把原始占用记录转换为展示模型。

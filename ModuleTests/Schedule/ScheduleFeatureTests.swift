@@ -850,6 +850,41 @@ struct ScheduleFeatureTests {
         #expect(serviceNotice.message == "业务状态")
         #expect(serviceNotice.allowsDiagnostics)
     }
+
+    @Test(.timeLimit(.minutes(1))) func concurrentLoadSurvivesCallerCancel() async throws {
+        let gate = AsyncStream<Void>.makeStream()
+        var loads = 0
+        var initial = ScheduleCache()
+        initial.currentTerm = "2026-2027-1"
+        initial.courseData.store(
+            TermScheduleSnapshot(
+                term: "2026-2027-1", firstDayString: "2026-09-07", courses: [], exams: [],
+                updatedAt: .now))
+        let repository = ScheduleRepository(
+            session: { AppStorageSession(accountIdentifier: "coalesced-load") },
+            load: { _ in
+                loads += 1
+                var iterator = gate.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return .loaded(initial)
+            },
+            save: { _, _, _ in }
+        )
+        let viewModel = makeViewModel(
+            repository: repository, actions: ModuleSchedulePlatformActions())
+        let firstCaller = Task { await viewModel.loadIfNeeded() }
+        let secondCaller = Task { await viewModel.loadIfNeeded() }
+        try await waitForTestEvent { loads == 1 }
+        firstCaller.cancel()
+        await firstCaller.value
+        #expect(loads == 1)
+        gate.continuation.yield(())
+        gate.continuation.finish()
+        await secondCaller.value
+        await viewModel.loadIfNeeded()
+        #expect(loads == 1)
+        #expect(viewModel.courseSnapshot.firstDayString == "2026-09-07")
+    }
 }
 
 @MainActor

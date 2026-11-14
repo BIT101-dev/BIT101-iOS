@@ -81,7 +81,9 @@ struct WatchScheduleStatusDependencies {
     @ObservationIgnored private var refreshFeedbackTask: Task<Void, Never>?
     @ObservationIgnored private var foregroundRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+    @ObservationIgnored private var clearTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotGeneration: UInt64 = 0
+    @ObservationIgnored private var clearGeneration: UInt64 = 0
     @ObservationIgnored private var refreshGeneration: UInt64 = 0
 
     #if os(watchOS)
@@ -99,6 +101,7 @@ struct WatchScheduleStatusDependencies {
         refreshFeedbackTask?.cancel()
         foregroundRefreshTask?.cancel()
         snapshotTask?.cancel()
+        clearTask?.cancel()
     }
 
     func activate() {
@@ -115,7 +118,9 @@ struct WatchScheduleStatusDependencies {
         case .active:
             reload()
             startForegroundRefresh()
-            if hasActivated { requestLatestSnapshot(reportResult: false) }
+            if hasActivated && !acceptsRefreshResult {
+                requestLatestSnapshot(reportResult: false)
+            }
         case .inactive, .background:
             stopForegroundRefresh()
         @unknown default:
@@ -135,23 +140,19 @@ struct WatchScheduleStatusDependencies {
         let operation = Task { @MainActor [weak self] in
             guard !Task.isCancelled else { return }
             var resolved = await load(now, limit)
-            guard !Task.isCancelled, let self, self.snapshotGeneration == generation else { return }
+            guard !Task.isCancelled, let self, self.clearTask == nil,
+                self.snapshotGeneration == generation
+            else { return }
             var usingCachedSnapshot = false
             if preserveLoadedSnapshot, let cached = self.snapshot, cached.isLoggedIn,
                 self.contentState == .ready || self.contentState == .rest,
                 resolved.contentState == .unavailable || resolved.contentState == .invalid,
                 resolved.snapshot == nil || resolved.snapshot?.studentID == cached.studentID
             {
-                let resolution = Task.detached {
-                    ScheduleOccurrenceResolver.resolvedSnapshot(
-                        from: cached, now: now, limit: limit)
-                }
-                resolved = await withTaskCancellationHandler {
-                    await resolution.value
-                } onCancel: {
-                    resolution.cancel()
-                }
-                guard !Task.isCancelled, self.snapshotGeneration == generation else { return }
+                resolved = await Self.resolveCachedSnapshot(cached, now: now, limit: limit)
+                guard !Task.isCancelled, self.clearTask == nil,
+                    self.snapshotGeneration == generation
+                else { return }
                 usingCachedSnapshot = true
             }
             self.snapshot = resolved.snapshot
@@ -163,6 +164,13 @@ struct WatchScheduleStatusDependencies {
         }
         snapshotTask = operation
         return operation
+    }
+
+    @concurrent
+    private static func resolveCachedSnapshot(
+        _ snapshot: ScheduleExternalSnapshot, now: Date, limit: Int
+    ) async -> ScheduleExternalResolvedSnapshot {
+        ScheduleOccurrenceResolver.resolvedSnapshot(from: snapshot, now: now, limit: limit)
     }
 
     func requestRefresh() {
@@ -197,16 +205,21 @@ struct WatchScheduleStatusDependencies {
         snapshotGeneration &+= 1
         snapshotTask?.cancel()
         snapshotTask = nil
+        clearGeneration &+= 1
+        clearTask?.cancel()
         refreshGeneration &+= 1
         refreshFeedbackTask?.cancel()
         refreshState = .idle
         referenceDate = dependencies.now()
-        let generation = snapshotGeneration
+        let generation = clearGeneration
         let clear = dependencies.clearSnapshot
         let task = Task { @MainActor [weak self] in
             guard !Task.isCancelled else { return }
             let cleared = await clear()
-            guard let self, !Task.isCancelled, self.snapshotGeneration == generation else { return }
+            guard let self, !Task.isCancelled, self.clearGeneration == generation else { return }
+            self.clearTask = nil
+            self.snapshotGeneration &+= 1
+            self.snapshotTask?.cancel()
             self.snapshotTask = nil
             guard cleared else {
                 self.reload()
@@ -219,7 +232,7 @@ struct WatchScheduleStatusDependencies {
             self.upcomingOccurrences = []
             self.isUsingCachedSnapshot = false
         }
-        snapshotTask = task
+        clearTask = task
         return task
     }
 

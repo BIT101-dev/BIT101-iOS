@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import os
 from bisect import bisect_right
+from concurrent.futures import ProcessPoolExecutor
 import re
 import subprocess
 import sys
@@ -13,6 +16,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 from swift_source_index import (
+    RAW_FACTS_BY_SOURCE,
     canonical_type_scope,
     declaration_conformances,
     scope_contains_type,
@@ -512,7 +516,9 @@ def adapter_roles(index: dict[str, dict], path: str | None = None) -> dict[tuple
     return roles
 
 
-def adapter_call_roles(index: dict[str, dict]) -> dict:
+def adapter_call_roles(
+    index: dict[str, dict], bindings: SwiftBindingTypes | None = None
+) -> dict:
     from network_capability_rules import (
         api_invocations,
         call_can_execute,
@@ -528,7 +534,7 @@ def adapter_call_roles(index: dict[str, dict]) -> dict:
     )
 
     index = execution_index(callable_effect_index(index))
-    bindings = SwiftBindingTypes(index)
+    bindings = bindings or SwiftBindingTypes(index)
     types = bindings.types
     resolve_receiver = receiver_resolver(index, types=types, binding_types=bindings)
     nodes, by_name, active = {}, {}, {}
@@ -707,6 +713,105 @@ def native_target_errors(root: Path, package: dict, modules: set[str]) -> list[s
     return errors
 
 
+def _audit_module_unit(task: tuple) -> tuple[bool, list[str]]:
+    (
+        module,
+        info,
+        rel_paths,
+        raw_map,
+        raw_facts_map,
+        unit_index,
+        aliases,
+        module_aliases,
+        known_modules,
+        root_str,
+    ) = task
+    root = Path(root_str)
+    source_root = root / info["path"]
+    errors: list[str] = []
+    if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
+        errors.append(f"{module} requires a regular target at Modules/{module}/Sources")
+    if not source_root.is_dir():
+        errors.append(f"{module} source root missing: {source_root}")
+        return False, errors
+    for rel, text in raw_map.items():
+        RAW_FACTS_BY_SOURCE[text] = raw_facts_map[rel]
+    call_context = SwiftBindingTypes(unit_index)
+    has_swiftui = False
+    for rel in rel_paths:
+        unit_context = compilation_type_context(unit_index, rel, types=call_context.types)
+        text = raw_map[rel]
+        context = imported_aliases(text, aliases, module_aliases)
+        imports = raw_imports(text)
+        if "SwiftUI" in imports:
+            has_swiftui = True
+        errors.extend(platform_errors(module, imports))
+        errors.extend(
+            ownership_errors(module, text, rel, context, unit_context[0], call_context=call_context)
+        )
+        errors.extend(
+            service_boundary_errors(rel, text, context, unit_context, call_context=call_context)
+        )
+    actual = imported_modules(source_root)
+    for dependency in info["dependencies"] - actual.keys():
+        errors.append(f"{module} declares unused {dependency}")
+    for imported, files in actual.items():
+        if imported not in known_modules:
+            errors.append(f"{module} imports unknown module {imported}: {', '.join(sorted(files))}")
+        elif imported not in info["dependencies"]:
+            errors.append(
+                f"{module} imports undeclared {imported}: {', '.join(sorted(files))}"
+            )
+    return has_swiftui, errors
+
+
+def _audit_native_unit(task: tuple) -> tuple[list[str], list[str]]:
+    name, rel_paths, raw_map, raw_facts_map, unit_index, aliases, module_aliases = task
+    for rel, text in raw_map.items():
+        RAW_FACTS_BY_SOURCE[text] = raw_facts_map[rel]
+    call_context = SwiftBindingTypes(unit_index)
+    adapter_errors: list[str] = []
+    if name == "BIT101-iOS":
+        call_roles = adapter_call_roles(unit_index, bindings=call_context)
+        for rel in rel_paths:
+            adapter_errors.extend(
+                adapter_ownership_errors(
+                    unit_index[rel],
+                    rel,
+                    adapter_roles(unit_index, rel),
+                    call_roles=call_roles,
+                )
+            )
+    service_errors: list[str] = []
+    for rel in rel_paths:
+        unit_context = compilation_type_context(unit_index, rel, types=call_context.types)
+        text = raw_map[rel]
+        service_errors.extend(
+            service_boundary_errors(
+                rel,
+                text,
+                imported_aliases(text, aliases, module_aliases),
+                unit_context,
+                call_context=call_context,
+                origin=rel,
+            )
+        )
+    return adapter_errors, service_errors
+
+
+def _audit_business_methods(network_index: dict) -> dict:
+    from network_capability_rules import business_methods, execution_index
+
+    return business_methods(execution_index(network_index))
+
+
+def _audit_reachable_smoke(network_index: dict) -> dict:
+    from network_capability_rules import execution_index
+    from validation_test_areas import reachable_smoke_calls
+
+    return reachable_smoke_calls(execution_index(network_index))
+
+
 def main() -> int:
     if sys.argv[1:] not in ([], ["--self-test"]):
         print("usage: check-module-boundaries.py [--self-test]", file=sys.stderr)
@@ -723,6 +828,8 @@ def main() -> int:
         print(f"module-boundary: {error}", file=sys.stderr)
         return 1
 
+    from validation_inputs import NATIVE_PRODUCT_ROOTS
+
     modules = {name: info for name, info in targets.items() if info["path"].startswith("Modules/")}
     support = {
         name: info
@@ -737,126 +844,115 @@ def main() -> int:
     roots = {path.name for path in (root / "Modules").iterdir() if path.is_dir()}
     if modules.keys() != roots:
         errors.append(f"module source roots differ from manifest: {sorted(modules.keys() ^ roots)}")
-    graph = {name: info["dependencies"] for name, info in modules.items()}
-    errors.extend(graph_errors(graph))
-    module_aliases = type_aliases(
-        swift_syntax_index(
-            [
-                path
-                for info in modules.values()
-                for path in (root / info["path"]).rglob("*.swift")
-                if "typealias" in swift_code(path.read_text())
-            ]
-        )
-    )
+    errors.extend(graph_errors({name: info["dependencies"] for name, info in modules.items()}))
 
     module_files = {
-        module: sorted((root / info["path"]).rglob("*.swift")) for module, info in modules.items()
+        module: [
+            p.relative_to(root).as_posix() for p in sorted((root / info["path"]).rglob("*.swift"))
+        ]
+        for module, info in modules.items()
     }
-    source_texts = {path: path.read_text() for paths in module_files.values() for path in paths}
-    source_inputs = {}
-    for module, paths in module_files.items():
+    native_files = {
+        name: [p.relative_to(root).as_posix() for p in sorted((root / name).rglob("*.swift"))]
+        for name in NATIVE_PRODUCT_ROOTS
+    }
+    raw_sources = {
+        rel: (root / rel).read_text(encoding="utf-8")
+        for group in (*module_files.values(), *native_files.values())
+        for rel in group
+    }
+    raw_index = swift_syntax_index_sources(raw_sources, resolve_tests=False)
+    module_aliases = type_aliases(
+        {rel: raw_index[rel] for paths in module_files.values() for rel in paths}
+    )
+    native_aliases = {
+        name: type_aliases({rel: raw_index[rel] for rel in rel_paths})
+        for name, rel_paths in native_files.items()
+    }
+    expanded_sources = {}
+    for module, rel_paths in module_files.items():
         aliases = tuple(alias for alias in module_aliases if alias_module(alias[4]) == module)
-        source_inputs.update(
-            {
-                path.relative_to(root).as_posix(): expanded_resource_source(
-                    source_texts[path],
-                    imported_aliases(source_texts[path], aliases, module_aliases),
-                    path.relative_to(root).as_posix(),
-                )
-                for path in paths
-            }
+        for rel in rel_paths:
+            expanded_sources[rel] = expanded_resource_source(
+                raw_sources[rel], imported_aliases(raw_sources[rel], aliases, module_aliases), rel
+            )
+    for name, rel_paths in native_files.items():
+        aliases = native_aliases[name]
+        for rel in rel_paths:
+            expanded_sources[rel] = expanded_resource_source(
+                raw_sources[rel], imported_aliases(raw_sources[rel], aliases, module_aliases), rel
+            )
+    changed_expanded = {
+        rel: text for rel, text in expanded_sources.items() if text != raw_sources[rel]
+    }
+    expanded_delta = (
+        swift_syntax_index_sources(
+            changed_expanded, cache_context="resource-expanded", resolve_tests=False
         )
-    network_index = swift_syntax_index_sources(source_inputs)
-    ui_modules = set()
-    for module, info in modules.items():
-        source_root = root / info["path"]
-        if info["type"] != "regular" or info["path"] != f"Modules/{module}/Sources":
-            errors.append(f"{module} requires a regular target at Modules/{module}/Sources")
-        if not source_root.is_dir():
-            errors.append(f"{module} source root missing: {source_root}")
-            continue
-        source_files = module_files[module]
-        aliases = tuple(alias for alias in module_aliases if alias_module(alias[4]) == module)
-        unit_index = {
-            path.relative_to(root).as_posix(): network_index[path.relative_to(root).as_posix()]
-            for path in source_files
-        }
-        call_context = SwiftBindingTypes(unit_index)
-        for path in source_files:
-            unit_context = compilation_type_context(unit_index, path.relative_to(root).as_posix())
-            text = source_texts[path]
-            context = imported_aliases(text, aliases, module_aliases)
-            imports = raw_imports(text)
-            if "SwiftUI" in imports:
-                ui_modules.add(module)
-            errors.extend(platform_errors(module, imports))
-            errors.extend(
-                ownership_errors(
-                    module,
-                    text,
-                    path.relative_to(root).as_posix(),
-                    context,
-                    unit_context[0],
-                    call_context=call_context,
-                )
-            )
-            errors.extend(
-                service_boundary_errors(
-                    path.relative_to(root).as_posix(),
-                    text,
-                    context,
-                    unit_context,
-                    call_context=call_context,
-                )
-            )
-        actual = imported_modules(source_root)
-        for dependency in info["dependencies"] - actual.keys():
-            errors.append(f"{module} declares unused {dependency}")
-        for imported, files in actual.items():
-            if imported not in modules:
-                errors.append(
-                    f"{module} imports unknown module {imported}: {', '.join(sorted(files))}"
-                )
-            elif imported not in info["dependencies"]:
-                errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
+        if changed_expanded
+        else {}
+    )
+    network_index = {rel: expanded_delta.get(rel, raw_index[rel]) for rel in raw_sources}
 
-    errors.extend(coverage_registry_findings(set(modules), ui_modules))
+    known_modules = set(modules)
+    module_tasks = [
+        (
+            module,
+            info,
+            module_files[module],
+            {rel: raw_sources[rel] for rel in module_files[module]},
+            {rel: raw_index[rel] for rel in module_files[module]},
+            {rel: network_index[rel] for rel in module_files[module]},
+            tuple(alias for alias in module_aliases if alias_module(alias[4]) == module),
+            module_aliases,
+            known_modules,
+            str(root),
+        )
+        for module, info in modules.items()
+    ]
+    native_tasks = [
+        (
+            name,
+            native_files[name],
+            {rel: raw_sources[rel] for rel in native_files[name]},
+            {rel: raw_index[rel] for rel in native_files[name]},
+            {rel: network_index[rel] for rel in native_files[name]},
+            native_aliases[name],
+            module_aliases,
+        )
+        for name in NATIVE_PRODUCT_ROOTS
+    ]
     from validation_test_areas import network_capability_findings
 
-    check_test_consumers(errors, modules, root, support, tests)
-
-    # 平台副作用适配的资源选择沿声明归属及辅助调用链核对。
-    app_syntax = swift_syntax_index(sorted((root / "BIT101-iOS").rglob("*.swift")))
-    app_aliases = type_aliases(app_syntax)
-    normalized = {}
-    for path in app_syntax:
-        source = Path(path).read_text()
-        expanded = expanded_resource_source(
-            source,
-            imported_aliases(source, app_aliases, module_aliases),
-            Path(path).relative_to(root).as_posix(),
+    workers = min(8, os.cpu_count() or 4)
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        business_future = pool.submit(_audit_business_methods, network_index)
+        reachable_future = pool.submit(_audit_reachable_smoke, network_index)
+        native_futures = [pool.submit(_audit_native_unit, task) for task in native_tasks]
+        module_results = list(pool.map(_audit_module_unit, module_tasks))
+        test_errors: list[str] = []
+        check_test_consumers(test_errors, modules, root, support, tests)
+        target_errors = native_target_errors(root, package, known_modules)
+        native_results = [future.result() for future in native_futures]
+        capability_errors = network_capability_findings(
+            network_index, precomputed=(business_future.result(), reachable_future.result())
         )
-        if expanded != source:
-            normalized[path] = expanded
-    app_syntax.update(swift_syntax_index_sources(normalized) if normalized else {})
-    adapter_index = {
-        Path(path).relative_to(root).as_posix(): facts for path, facts in app_syntax.items()
+
+    ui_modules = {
+        module for (module, _), (has_ui, _) in zip(modules.items(), module_results) if has_ui
     }
-    call_roles = adapter_call_roles(adapter_index)
-    for path, facts in app_syntax.items():
-        source = Path(path).relative_to(root).as_posix()
-        errors.extend(
-            adapter_ownership_errors(
-                facts, source, adapter_roles(adapter_index, source), call_roles=call_roles
-            )
-        )
-
-    errors.extend(native_target_errors(root, package, set(modules)))
-
-    check_native_services(app_aliases, app_syntax, errors, module_aliases, network_index, root)
-
-    errors.extend(network_capability_findings(network_index))
+    for _, module_errors in module_results:
+        errors.extend(module_errors)
+    errors.extend(coverage_registry_findings(known_modules, ui_modules))
+    errors.extend(test_errors)
+    for adapter_errors, _ in native_results:
+        errors.extend(adapter_errors)
+    errors.extend(target_errors)
+    for _, service_errors in native_results:
+        errors.extend(service_errors)
+    errors.extend(capability_errors)
     if errors:
         for error in errors:
             print(f"module-boundary: {error}", file=sys.stderr)
@@ -874,67 +970,11 @@ def check_test_consumers(errors, modules, root, support, tests):
         actual = imported_modules(source_root).keys() & (modules.keys() | support.keys())
         if actual != info["dependencies"]:
             errors.append(
-                (
-                    f"test consumer "
-                    f"{name}"
-                    f": declared "
-                    f"{sorted(info['dependencies'])}"
-                    f", imports "
-                    f"{sorted(actual)}"
-                )
+                f"test consumer {name}: declared {sorted(info['dependencies'])}, "
+                f"imports {sorted(actual)}"
             )
     if len(tests) < 2:
         errors.append("test consumers require independent source roots")
-
-
-def check_native_services(app_aliases, app_syntax, errors, module_aliases, network_index, root):
-    from validation_inputs import NATIVE_PRODUCT_ROOTS
-
-    for name in NATIVE_PRODUCT_ROOTS:
-        sources = sorted((root / name).rglob("*.swift"))
-        aliases = (
-            app_aliases
-            if name == "BIT101-iOS"
-            else type_aliases(
-                swift_syntax_index(
-                    [source for source in sources if "typealias" in swift_code(source.read_text())]
-                )
-            )
-        )
-        unit_index = (
-            app_syntax
-            if name == "BIT101-iOS"
-            else swift_syntax_index_sources(
-                {
-                    path.relative_to(root).as_posix(): expanded_resource_source(
-                        path.read_text(),
-                        imported_aliases(path.read_text(), aliases, module_aliases),
-                        path.relative_to(root).as_posix(),
-                    )
-                    for path in sources
-                }
-            )
-        )
-        network_index.update(unit_index)
-        call_context = SwiftBindingTypes(unit_index)
-        for source in sources:
-            unit_context = compilation_type_context(
-                unit_index,
-                str(source) if name == "BIT101-iOS" else source.relative_to(root).as_posix(),
-            )
-            text = source.read_text(encoding="utf-8")
-            errors.extend(
-                service_boundary_errors(
-                    source.relative_to(root).as_posix(),
-                    text,
-                    imported_aliases(text, aliases, module_aliases),
-                    unit_context,
-                    call_context=call_context,
-                    origin=str(source)
-                    if name == "BIT101-iOS"
-                    else source.relative_to(root).as_posix(),
-                )
-            )
 
 
 if __name__ == "__main__":

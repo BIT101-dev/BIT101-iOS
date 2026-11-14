@@ -191,18 +191,7 @@ actor ImageCacheDiskQuota {
     }
 
     func usedBytes() -> Int64 {
-        directories.reduce(Int64(0)) { total, directory in
-            guard
-                let children = try? files.contentsOfDirectory(
-                    at: directory, options: [.skipsHiddenFiles])
-            else {
-                return total
-            }
-            return total
-                + children.reduce(Int64(0)) { subtotal, url in
-                    subtotal + Int64(files.regularFileSize(at: url) ?? 0)
-                }
-        }
+        directories.reduce(Int64(0)) { $0 + files.totalRegularFileSize(at: $1) }
     }
 
     func clearDirectory(_ directory: URL) -> Bool {
@@ -923,8 +912,18 @@ public nonisolated enum BoundedStillImageDecoder {
 }
 
 extension SHA256.Digest {
+    private nonisolated static let hexDigits: [UInt8] = Array("0123456789abcdef".utf8)
+
     nonisolated var hexString: String {
-        map { String(format: "%02x", $0) }.joined()
+        String(unsafeUninitializedCapacity: 64) { buffer in
+            var index = 0
+            for byte in self {
+                buffer[index] = Self.hexDigits[Int(byte >> 4)]
+                buffer[index + 1] = Self.hexDigits[Int(byte & 0x0F)]
+                index += 2
+            }
+            return index
+        }
     }
 }
 

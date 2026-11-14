@@ -88,7 +88,7 @@ struct AddCourseSheet: View {
         Section("时间") {
             Picker("星期", selection: $draft.weekday) {
                 ForEach(weekdays, id: \.self) { weekday in
-                    Text("周\(weekday)").tag(weekday)
+                    Text("周\(ScheduleDateCodec.weekdaySymbol(weekday))").tag(weekday)
                 }
             }
             .appSelectionFeedback(trigger: draft.weekday)
@@ -317,8 +317,7 @@ struct CourseArrangementEditorSheet: View {
     }
 
     private func weekdayText(_ weekday: Int) -> String {
-        let titles = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-        return titles.indices.contains(weekday) ? titles[weekday] : "请选择"
+        (1...7).contains(weekday) ? "周\(ScheduleDateCodec.weekdaySymbol(weekday))" : "请选择"
     }
 }
 
@@ -356,14 +355,15 @@ struct ScheduleWeekdaySelectionSheet: View {
     }
 
     private func weekdayRow(_ weekday: Int) -> some View {
-        Button {
+        let isSelected = selectedWeekday == weekday
+        return Button {
             selectedWeekday = weekday
             dismiss()
         } label: {
             HStack(spacing: AppDesignSystem.Spacing.regular) {
                 Text(weekdayText(weekday))
                 Spacer()
-                if selectedWeekday == weekday {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .foregroundStyle(AppDesignSystem.Palette.Accent.primary)
                 }
@@ -371,11 +371,12 @@ struct ScheduleWeekdaySelectionSheet: View {
         }
         .buttonStyle(.plain)
         .appInteractiveListRow()
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("ui.schedule-weekday-selection-sheet.weekday")
     }
 
     private func weekdayText(_ weekday: Int) -> String {
-        ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"][weekday]
+        (1...7).contains(weekday) ? "周\(ScheduleDateCodec.weekdaySymbol(weekday))" : "请选择"
     }
 }
 

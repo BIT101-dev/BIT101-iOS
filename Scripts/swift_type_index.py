@@ -773,20 +773,26 @@ def receiver_resolver(
                 targets.add(target)
         return next(iter(targets)) if len(targets) == 1 else None
 
+    resolved_owners = {}
+
     def owner(call):
-        expression = call.get("calledExpression", "")
-        receiver = call.get("receiverCall") or (
-            expression.rsplit(".", 1)[0] if "." in expression else ""
+        key = (
+            call["path"], call["start"], call.get("calledExpression", ""), call.get("value", ""),
+            call.get("receiverCall"), tuple(call["scope"]), tuple(call.get("lexicalScope", ())),
         )
-        target = resolve(call["path"], receiver, call)
-        if target is None:
-            targets = {
-                identity
-                for declared in binding_types.receiver_components(call, call["path"])
-                if (identity := types.resolve(call["path"], declared, call["scope"]))
-            }
-            target = next(iter(targets)) if len(targets) == 1 else None
-        return ".".join([target[0], *target[1]]) if target else None
+        if key not in resolved_owners:
+            expr = call.get("calledExpression", "")
+            rec = call.get("receiverCall") or (expr.rsplit(".", 1)[0] if "." in expr else "")
+            target = resolve(call["path"], rec, call)
+            if target is None:
+                targets = {
+                    identity
+                    for declared in binding_types.receiver_components(call, call["path"])
+                    if (identity := types.resolve(call["path"], declared, call["scope"]))
+                }
+                target = next(iter(targets)) if len(targets) == 1 else None
+            resolved_owners[key] = ".".join([target[0], *target[1]]) if target else None
+        return resolved_owners[key]
 
     return owner
 

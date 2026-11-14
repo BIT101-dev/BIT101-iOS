@@ -340,6 +340,15 @@ struct ExternalScheduleInfrastructureTests {
         #expect(Set(next.flatMap(\.eventIdentifiers)) == ["work", "new"])
         #expect(next.first { $0.calendarIdentifier == "work" }?.eventIdentifiers == ["work"])
         #expect(next.first { $0.calendarIdentifier == "BIT101" }?.startDate == added.startDate)
+        let deduplicated = Manager.mergingImport(
+            Manager.ImportedBatch(
+                term: "term", calendarIdentifier: "BIT101",
+                eventIdentifiers: ["dup", "new", "dup"], startDate: start, endDate: end),
+            into: next, removing: [])
+        #expect(
+            deduplicated.first { $0.calendarIdentifier == "BIT101" }?.eventIdentifiers == [
+                "dup", "new",
+            ])
     }
 
     @MainActor @Test func damagedDiskSnapshotsState() throws {

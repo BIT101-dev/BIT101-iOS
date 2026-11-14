@@ -44,6 +44,21 @@ function checkEmailText({ reportEmailSubject, reportEmailBody, forceRedact }) {
       ],
     }).includes("→"),
   );
+  const enriched = reportEmailBody("fixture", "fixture", {
+    errorChain: ["OuterDomain:401", "InnerDomain:-1001"],
+    diagnostics: [
+      {
+        method: "POST",
+        url: "https://sso.bit.edu.cn/cas/login",
+        statusCode: 401,
+        elapsedMilliseconds: 25,
+        responseBytes: 1280,
+        upstreamCode: "cas:1320007",
+      },
+    ],
+  });
+  assert(enriched.includes("错误链：OuterDomain:401 → InnerDomain:-1001"));
+  assert(enriched.includes("HTTP 401 25ms 1280B [cas:1320007]"));
 }
 
 function checkURLRedaction({ PROTECTED_NAMES, forceRedact, decodedPercent }) {

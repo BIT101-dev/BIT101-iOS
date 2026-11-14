@@ -80,10 +80,19 @@ final class ScheduleBlankContextMenuControl: UIControl {
     }
     private var hasDeferredLayout = false
     private let cardBackground = CALayer()
+    private struct AccessibilityConfigurationKey: Equatable {
+        let id: String
+        let kind: ScheduleCalendarKind
+        let title: String
+        let subtitle: String
+        let displaysWeeks: Bool
+    }
+
     private var backgroundLayers: [CALayer] = []
     private var backgroundFrames: [CGRect] = []
     private var backgroundKind: ScheduleCalendarKind?
     private var backgroundOpacity: Float = 1
+    private var accessibilityConfigurationKey: AccessibilityConfigurationKey?
     private var textEntry: ScheduleCalendarEntry?
     private var textMode: ScheduleCardContentMode?
 
@@ -105,6 +114,7 @@ final class ScheduleBlankContextMenuControl: UIControl {
         ]) { (view: ScheduleBlankContextMenuControl, _: UITraitCollection) in
             view.applyBackgroundAppearance()
             view.updateTextAppearance()
+            view.setNeedsLayout()
         }
     }
 
@@ -117,7 +127,17 @@ final class ScheduleBlankContextMenuControl: UIControl {
         onTap: @escaping () -> Void, onMenuWillPresent: (() -> Void)?, onShare: (() -> Void)?,
         interactionEvidence: ((String, String) -> Void)?
     ) {
-        if textEntry != entry {
+        let displaysWeeks =
+            entry.subtitleDisplaysWeeks || entry.id.hasPrefix("course-overview-")
+        let nextAccessibilityKey = AccessibilityConfigurationKey(
+            id: entry.id,
+            kind: entry.kind,
+            title: entry.title,
+            subtitle: entry.subtitle,
+            displaysWeeks: displaysWeeks
+        )
+        if accessibilityConfigurationKey != nextAccessibilityKey {
+            accessibilityConfigurationKey = nextAccessibilityKey
             let identifier = "schedule.entry.\(entry.id)"
             if accessibilityIdentifier != identifier {
                 isAccessibilityElement = true
@@ -127,13 +147,14 @@ final class ScheduleBlankContextMenuControl: UIControl {
                 shareTitle = "分享课程"
                 showsImport = false
             }
-            let title = entry.title.isEmpty ? "未命名日程" : entry.title
-            switch entry.kind {
-            case .course: accessibilityLabel = title
-            case .exam: accessibilityLabel = "考试，\(title)"
-            case .custom: accessibilityLabel = "自定义日程，\(title)"
+            accessibilityLabel = Self.resolvedAccessibilityLabel(for: entry)
+            if entry.subtitle.isEmpty {
+                accessibilityValue = ""
+            } else if displaysWeeks {
+                accessibilityValue = "周次：\(entry.subtitle)"
+            } else {
+                accessibilityValue = "地点：\(entry.subtitle)"
             }
-            accessibilityValue = entry.subtitle.isEmpty ? "" : "地点：\(entry.subtitle)"
         }
         if !usesSharedInteractions {
             let needsOwnMenu = onShare != nil
@@ -251,7 +272,30 @@ final class ScheduleBlankContextMenuControl: UIControl {
             dx: min(AppDesignSystem.Spacing.micro, bounds.width / 2),
             dy: min(AppDesignSystem.Spacing.micro, bounds.height / 2))
         if cardText.frame != frame { cardText.frame = frame }
-        cardText.layout(size: frame.size, scale: window?.screen.scale ?? contentScaleFactor)
+        cardText.layout(size: frame.size, scale: max(traitCollection.displayScale, 1))
+    }
+
+    private static func resolvedAccessibilityLabel(for entry: ScheduleCalendarEntry) -> String {
+        switch entry.kind {
+        case .course:
+            let trimmed = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "未命名日程" : entry.title
+        case .exam:
+            let stripped: String
+            if entry.title.hasPrefix("(考试)") {
+                stripped = String(entry.title.dropFirst("(考试)".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if entry.title.hasPrefix("（考试）") {
+                stripped = String(entry.title.dropFirst("（考试）".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                stripped = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return stripped.isEmpty ? "考试，未命名日程" : "考试，\(stripped)"
+        case .custom:
+            let trimmed = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "自定义日程，未命名日程" : "自定义日程，\(entry.title)"
+        }
     }
 
     override func didMoveToWindow() {

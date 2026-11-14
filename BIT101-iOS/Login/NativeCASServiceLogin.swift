@@ -50,6 +50,9 @@ extension BIT101APIClient {
                 html = String(decoding: fresh, as: UTF8.self)
                 continue
             }
+            if response.statusCode == 401 {
+                throw SchoolServiceFailure.authenticationRestricted
+            }
             if response.statusCode == 403 || response.statusCode >= 500 {
                 throw NativeSchoolAuthenticationError.serviceUnavailable(response.statusCode)
             }

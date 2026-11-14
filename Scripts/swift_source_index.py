@@ -21,6 +21,7 @@ if not __debug__:
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FACTS_CACHE = ROOT / ".build/static-audit/source-facts.sqlite"
 FACTS_BY_SOURCE: dict[str, dict] = {}
+RAW_FACTS_BY_SOURCE: dict[str, dict] = {}
 REGEX_RANGES_BY_SOURCE: dict[str, dict[int, int]] = {}
 
 
@@ -98,7 +99,11 @@ def source_facts_signature() -> str:
 
 
 def _run_swift_syntax_index(
-    request: dict, *, regex_only: bool = False, resolve_tests: bool = True
+    request: dict,
+    *,
+    regex_only: bool = False,
+    materialize: bool = True,
+    resolve_tests: bool = True,
 ) -> dict[str, dict]:
     request = dict(request, interactionNames=sorted(SWIFTUI_INTERACTION_KINDS | {"LabeledContent"}))
     swift_path = indexer_swift_path(
@@ -189,8 +194,9 @@ def _run_swift_syntax_index(
     parse_failures = [path for path, facts in index.items() if facts["hasParseErrors"]]
     if parse_failures:
         raise RuntimeError("SwiftSyntax parse errors: " + ", ".join(parse_failures))
-    if resolve_tests:
+    if materialize or resolve_tests:
         index = _materialize_facts(index)
+    if resolve_tests:
         _resolve_tests(index)
     return index
 
@@ -291,21 +297,64 @@ def swift_syntax_index_sources(
         for context, requested in grouped.items()
         for path, facts in _cached_facts(Path(cache_name), requested, context).items()
     }
-    index = {name: shared[key] for name, key in eligible.items()}
+    index = _materialize_facts({name: shared[key] for name, key in eligible.items()})
     missing = {name: source for name, source in sources.items() if name not in eligible}
     if missing:
         index.update(_index_sources(missing, resolve_tests=False))
-    index = _materialize_facts(index)
     if resolve_tests:
         _resolve_tests(index)
     for name, source in sources.items():
-        FACTS_BY_SOURCE[source] = index[name]
+        RAW_FACTS_BY_SOURCE[source] = index[name]
+        if resolve_tests:
+            FACTS_BY_SOURCE[source] = index[name]
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
     return index
 
 
+def _try_read_cached_facts(
+    cache_path: Path, requested: dict[str, str], context: str
+) -> dict | None:
+    with closing(sqlite3.connect(cache_path)) as database:
+        previous = database.execute("SELECT value FROM metadata WHERE name = 'indexer'").fetchone()
+        if previous is None or previous[0] != source_facts_signature():
+            return None
+        if any(
+            not Path(path).is_file()
+            for (path,) in database.execute("SELECT DISTINCT path FROM facts")
+        ):
+            return None
+        shared = {}
+        paths = list(requested)
+        for offset in range(0, len(paths), 400):
+            chunk = paths[offset : offset + 400]
+            marks = ",".join("?" for _ in chunk)
+            rows = database.execute(
+                f"SELECT path, content FROM facts WHERE context = ? AND path IN ({marks})",
+                (context, *chunk),
+            ).fetchall()
+            if len(rows) != len(chunk):
+                return None
+            decoded = {path: json.loads(raw) for path, raw in rows}
+            if any(
+                not isinstance(facts, dict) or facts.get("source") != requested[path]
+                for path, facts in decoded.items()
+            ):
+                return None
+            shared.update(decoded)
+        return shared
+
+
 def _cached_facts(cache_path: Path, requested: dict[str, str], context: str = "") -> dict:
     """Decode private facts for the requested files from the shared audit database."""
+    if cache_path.is_file():
+        with cache_path.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            try:
+                shared = _try_read_cached_facts(cache_path, requested, context)
+            except (sqlite3.DatabaseError, json.JSONDecodeError):
+                shared = None
+            if shared is not None:
+                return shared
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with cache_path.with_suffix(".lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -361,7 +410,16 @@ def _read_cached_facts(cache_path: Path, requested: dict[str, str], context: str
                 shared[path] = facts
         missing = {path: source for path, source in requested.items() if path not in shared}
         if missing:
-            parsed = _index_sources(missing, resolve_tests=False)
+            parsed = _run_swift_syntax_index(
+                {
+                    "paths": [],
+                    "sources": [{"name": key, "source": val} for key, val in missing.items()],
+                },
+                materialize=False,
+                resolve_tests=False,
+            )
+            for path, source in missing.items():
+                parsed[path]["source"] = source
             database.executemany(
                 "INSERT OR REPLACE INTO facts VALUES (?, ?, ?)",
                 (
@@ -390,6 +448,7 @@ def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> di
     )
     for name, source in sources.items():
         index[name]["source"] = source
+        RAW_FACTS_BY_SOURCE[source] = index[name]
         if resolve_tests:
             FACTS_BY_SOURCE[source] = index[name]
         REGEX_RANGES_BY_SOURCE[source] = character_regex_ranges(source, index[name]["regexRanges"])
@@ -397,6 +456,8 @@ def _index_sources(sources: dict[str, str], *, resolve_tests: bool = True) -> di
 
 
 def character_regex_ranges(source: str, rows: list[dict]) -> dict[int, int]:
+    if not rows:
+        return {}
     encoded = source.encode()
     return {
         len(encoded[: row["start"]].decode()): len(encoded[: row["end"]].decode()) for row in rows
@@ -410,6 +471,11 @@ def swift_regex_ranges(source: str) -> dict[int, int]:
         return {}
     if source in REGEX_RANGES_BY_SOURCE:
         return REGEX_RANGES_BY_SOURCE[source]
+    cached = FACTS_BY_SOURCE.get(source) or RAW_FACTS_BY_SOURCE.get(source)
+    if cached is not None and "regexRanges" in cached:
+        ranges = character_regex_ranges(source, cached["regexRanges"])
+        REGEX_RANGES_BY_SOURCE[source] = ranges
+        return ranges
     facts = _run_swift_syntax_index(
         {"paths": [], "sources": [{"name": "regex-source", "source": source}]}, regex_only=True
     )
@@ -641,10 +707,10 @@ def matching_functions(facts: dict, name: str, call: dict) -> list[dict]:
     ]
 
 
-def compilation_type_context(index: dict, path: str | None = None) -> tuple:
+def compilation_type_context(index: dict, path: str | None = None, types=None) -> tuple:
     from swift_type_index import SwiftTypeIndex
 
-    types = SwiftTypeIndex(index)
+    types = types or SwiftTypeIndex(index)
     path = path or next(iter(index), "")
     owners = types.conformances(path) if path else {}
 
@@ -705,7 +771,13 @@ def resolve_variable_type(facts, call, var_name, owner, properties):
 
 
 def local_member_calls(source: str, names: tuple, context: tuple = ((), ())) -> set[int]:
-    facts = swift_syntax_index_sources({"local-methods": source})["local-methods"]
+    facts = (
+        FACTS_BY_SOURCE.get(source)
+        or RAW_FACTS_BY_SOURCE.get(source)
+        or swift_syntax_index_sources({"resource-source": source}, resolve_tests=False)[
+            "resource-source"
+        ]
+    )
     own_context = compilation_type_context({"local-methods": facts})
     methods = set(context[1]) | set(own_context[1])
     properties = set(context[0]) | set(own_context[0])

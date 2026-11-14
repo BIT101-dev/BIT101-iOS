@@ -10,14 +10,28 @@ private nonisolated enum WidgetSnapshotStorage {
 }
 
 /// Apple Watch complication 的时间线条目。
-private struct WatchScheduleEntry: TimelineEntry {
+private nonisolated struct WatchScheduleEntry: TimelineEntry {
     let date: Date
     let nextOccurrence: ScheduleExternalOccurrence?
     let contentState: ScheduleExternalContentState
+    let displaySummary: WatchScheduleDisplaySummary?
+
+    init(
+        date: Date,
+        nextOccurrence: ScheduleExternalOccurrence?,
+        contentState: ScheduleExternalContentState
+    ) {
+        self.date = date
+        self.nextOccurrence = nextOccurrence
+        self.contentState = contentState
+        self.displaySummary = nextOccurrence.map {
+            WatchScheduleDisplaySummary(occurrence: $0, referenceDate: date)
+        }
+    }
 }
 
 /// Apple Watch complication 使用的展示摘要。
-private struct WatchScheduleDisplaySummary {
+private nonisolated struct WatchScheduleDisplaySummary {
     let location: ScheduleCompactLocation
     let startTimeText: String
     let rangeText: String
@@ -76,15 +90,10 @@ extension ScheduleExternalContentState {
     }
 }
 
-extension WatchScheduleEntry {
-    fileprivate var displaySummary: WatchScheduleDisplaySummary? {
-        guard let nextOccurrence else { return nil }
-        return WatchScheduleDisplaySummary(occurrence: nextOccurrence, referenceDate: date)
-    }
-}
-
 /// 把共享快照转换为 Apple Watch widget 时间线。
-private struct WatchScheduleProvider: TimelineProvider {
+private nonisolated struct WatchScheduleProvider: TimelineProvider {
+    private static let occurrenceLimit = 6
+
     func placeholder(in context: Context) -> WatchScheduleEntry {
         let now = Date()
         return WatchScheduleEntry(
@@ -116,7 +125,7 @@ private struct WatchScheduleProvider: TimelineProvider {
         let now = Date()
         let timeline = ScheduleOccurrenceResolver.loadResolvedTimeline(
             store: WidgetSnapshotStorage.store, now: now,
-            includeDisplayUntilDates: false)
+            includeDisplayUntilDates: false, limit: Self.occurrenceLimit)
         let entries = timeline.map { loadEntry(resolved: $0.resolved, now: $0.date) }
         if timeline.first?.resolved.snapshot == nil {
             let retry = ScheduleTimelineRefreshPlanner.nextRefreshDate(
@@ -134,7 +143,8 @@ private struct WatchScheduleProvider: TimelineProvider {
     private func loadEntry(now: Date = Date()) -> WatchScheduleEntry {
         loadEntry(
             resolved: ScheduleOccurrenceResolver.loadResolvedSnapshot(
-                store: WidgetSnapshotStorage.store, now: now), now: now)
+                store: WidgetSnapshotStorage.store, now: now, limit: Self.occurrenceLimit),
+            now: now)
     }
 
     private func loadEntry(resolved: ScheduleExternalResolvedSnapshot, now: Date)
@@ -278,12 +288,14 @@ private struct WatchScheduleRectangularView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
 
-                    Spacer(minLength: AppDesignSystem.Spacing.tiny)
+                    if !summary.courseTitle.isEmpty {
+                        Spacer(minLength: AppDesignSystem.Spacing.tiny)
 
-                    Text(summary.location.lightText)
-                        .font(AppDesignSystem.Typography.titleEmphasis)
-                        .lineLimit(1)
-                        .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
+                        Text(summary.location.lightText)
+                            .font(AppDesignSystem.Typography.titleEmphasis)
+                            .lineLimit(1)
+                            .minimumScaleFactor(AppDesignSystem.External.Scale.watchRectangular)
+                    }
                 }
             }
         } else {

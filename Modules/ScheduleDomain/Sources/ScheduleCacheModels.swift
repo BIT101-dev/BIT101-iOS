@@ -282,30 +282,7 @@ public nonisolated struct ScheduleCache: Codable, Sendable {
     }
     /// 解析 `yyyy-MM-dd` 首周日期，供缓存和学期快照共用。
     static func parseScheduleFirstDay(_ string: String) -> Date? {
-        let parts = string.split(separator: "-")
-        guard
-            parts.count == 3,
-            let year = Int(parts[0]),
-            let month = Int(parts[1]),
-            let day = Int(parts[2]),
-            (1...12).contains(month),
-            (1...31).contains(day)
-        else { return nil }
-
-        let calendar = ScheduleSharedDateCodec.calendar
-
-        var components = DateComponents()
-        components.calendar = calendar
-        components.timeZone = calendar.timeZone
-        components.year = year
-        components.month = month
-        components.day = day
-        guard let date = calendar.date(from: components) else { return nil }
-        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
-        guard resolved.year == year, resolved.month == month, resolved.day == day else {
-            return nil
-        }
-        return date
+        ScheduleSharedDateCodec.parseDate(string)
     }
     public var primaryScheduleTitle: String {
         get { courseData.primaryScheduleTitle }

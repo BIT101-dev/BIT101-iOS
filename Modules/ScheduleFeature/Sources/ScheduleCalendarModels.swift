@@ -25,6 +25,7 @@ struct ScheduleCalendarEntry: Identifiable, Equatable {
     let endMinutes: Int?
     let title: String
     let subtitle: String
+    let subtitleDisplaysWeeks: Bool
     let detailLines: [String]
     let kind: ScheduleCalendarKind
     let backgroundLayers: [ScheduleCalendarLayer]
@@ -40,6 +41,7 @@ struct ScheduleCalendarEntry: Identifiable, Equatable {
         endMinutes: Int? = nil,
         title: String,
         subtitle: String,
+        subtitleDisplaysWeeks: Bool = false,
         detailLines: [String],
         kind: ScheduleCalendarKind,
         backgroundLayers: [ScheduleCalendarLayer]? = nil
@@ -54,6 +56,7 @@ struct ScheduleCalendarEntry: Identifiable, Equatable {
         self.endMinutes = endMinutes
         self.title = title
         self.subtitle = subtitle
+        self.subtitleDisplaysWeeks = subtitleDisplaysWeeks
         self.detailLines = detailLines
         self.kind = kind
         self.backgroundLayers =

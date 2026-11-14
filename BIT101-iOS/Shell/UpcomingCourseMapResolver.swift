@@ -10,8 +10,11 @@ final class UpcomingCourseMapProjection {
     private var target: UpcomingCourseMapTarget?
 
     func resolve(in snapshot: ScheduleCourseSnapshot, now: Date) -> UpcomingCourseMapTarget? {
+        let dayChanged =
+            resolvedAt.map { !ScheduleSharedDateCodec.calendar.isDate($0, inSameDayAs: now) }
+            ?? true
         let timeMovedBackwards = resolvedAt.map { now < $0 } ?? true
-        if self.snapshot != snapshot || timeMovedBackwards
+        if self.snapshot != snapshot || dayChanged || timeMovedBackwards
             || target.map({ now >= $0.startDate }) == true
         {
             target = UpcomingCourseMapResolver.nextTarget(in: snapshot, now: now)
@@ -35,7 +38,8 @@ enum UpcomingCourseMapResolver {
         else { return nil }
         let currentWeekOffset = ScheduleWeekCodec.weekOffset(
             forWeekNumber: ScheduleWeekCodec.weekNumber(forDayOffset: dayOffset))
-        let slots = Dictionary(uniqueKeysWithValues: snapshot.timeTable.map { ($0.id, $0) })
+        let slots = Dictionary(
+            snapshot.timeTable.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         var earliest: (course: CourseRecord, date: Date)?
         for course in snapshot.courses {

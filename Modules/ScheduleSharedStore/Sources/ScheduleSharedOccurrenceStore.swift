@@ -3,19 +3,12 @@ import ScheduleContracts
 
 extension ScheduleOccurrenceResolver {
     /// 文件读取、解码和学期展开在后台执行，取消由所属刷新任务传递。
-    public nonisolated static func loadResolvedSnapshotAsync(
+    @concurrent public nonisolated static func loadResolvedSnapshotAsync(
         store: ScheduleExternalSnapshotStore,
         now: Date = Date(),
         limit: Int? = nil
     ) async -> ScheduleExternalResolvedSnapshot {
-        let operation = Task.detached {
-            loadResolvedSnapshot(store: store, now: now, limit: limit)
-        }
-        return await withTaskCancellationHandler {
-            await operation.value
-        } onCancel: {
-            operation.cancel()
-        }
+        loadResolvedSnapshot(store: store, now: now, limit: limit)
     }
 
     /// 直接从共享仓库读取并解析。

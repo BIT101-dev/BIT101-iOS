@@ -193,6 +193,15 @@ struct ScheduleTimelineViewportTests {
             firstDayString: firstDayString, timeTable: TimeSlot.default, courses: [])
         #expect(projection.resolve(in: cleared, now: start) == nil)
         #expect(projection.resolve(in: snapshot, now: start) != nil)
+        let duplicatedSlots = ScheduleCourseSnapshot(
+            firstDayString: firstDayString,
+            timeTable: TimeSlot.default + [slot],
+            courses: courses)
+        let beforeMidnight = start.addingTimeInterval(-3600 * 10)
+        #expect(projection.resolve(in: duplicatedSlots, now: beforeMidnight)?.startDate == start)
+        #expect(
+            projection.resolve(in: duplicatedSlots, now: start.addingTimeInterval(-60))?.startDate
+                == start)
     }
 
     @Test(

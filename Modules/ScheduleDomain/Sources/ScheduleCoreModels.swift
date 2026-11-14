@@ -397,11 +397,16 @@ public nonisolated func scheduleCourseSourceValue(_ course: CourseRecord) -> Str
 }
 
 public nonisolated func courseSourcesEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
-    lhs.map(scheduleCourseSourceValue).sorted() == rhs.map(scheduleCourseSourceValue).sorted()
+    guard lhs.count == rhs.count else { return false }
+    if lhs.isEmpty { return true }
+    return lhs.map(scheduleCourseSourceValue).sorted()
+        == rhs.map(scheduleCourseSourceValue).sorted()
 }
 
 public nonisolated func courseDisplaysEqual(_ lhs: [CourseRecord], _ rhs: [CourseRecord]) -> Bool {
-    lhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
+    guard lhs.count == rhs.count else { return false }
+    if lhs.isEmpty { return true }
+    return lhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
         == rhs.map { "\($0.id)\u{001F}\(scheduleCourseSourceValue($0))" }.sorted()
 }
 

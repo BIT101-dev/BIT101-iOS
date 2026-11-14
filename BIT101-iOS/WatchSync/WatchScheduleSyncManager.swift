@@ -30,13 +30,25 @@ private nonisolated final class WatchScheduleReply: Sendable {
 /// 镜像传输保留已编码的最高版本，迟到的读取沿当前镜像回复。
 nonisolated struct WatchSnapshotDeliveryBuffer {
     private var revision: UInt64?
+    private var studentID: String?
     private var data: Data?
     private(set) var pendingData: Data?
+    private(set) var pendingStudentID: String?
     private(set) var lastDeliveryError: String?
 
-    mutating func stage(_ data: Data) { pendingData = data }
+    mutating func stage(_ data: Data, studentID: String? = nil) {
+        pendingData = data
+        if let studentID {
+            pendingStudentID = studentID
+        } else if self.data == data {
+            pendingStudentID = self.studentID
+        } else {
+            pendingStudentID = nil
+        }
+    }
     mutating func discardPending() {
         pendingData = nil
+        pendingStudentID = nil
         lastDeliveryError = nil
     }
 
@@ -56,6 +68,7 @@ nonisolated struct WatchSnapshotDeliveryBuffer {
         if let revision, snapshot.revision <= revision, let data { return data }
         let encoded = try ScheduleExternalSnapshotCodec.encode(snapshot)
         revision = snapshot.revision
+        studentID = snapshot.studentID
         data = encoded
         return encoded
     }
@@ -250,9 +263,10 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     /// 主动推送、前台即时回复和 `applicationContext` 请求共用这份逻辑。
     private func updateApplicationContext(
         withSnapshotData data: Data,
+        studentID: String? = nil,
         session: WCSession
     ) {
-        deliveryBuffer.stage(data)
+        deliveryBuffer.stage(data, studentID: studentID)
         if !deliveryBuffer.deliver(using: {
             try session.updateApplicationContext(
                 WatchScheduleTransferProtocol.snapshotContext($0))
@@ -269,22 +283,20 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         guard AppAccountSession.storage.hasResolvedSession else { return }
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(
             in: .whitespacesAndNewlines)
-        guard
-            snapshot.studentID
-                == AppStorageSession(accountIdentifier: studentID).accountStorageIdentifier
-        else {
-            return
-        }
+        let accountToken = AppStorageSession(accountIdentifier: studentID)
+            .accountStorageIdentifier
+        guard snapshot.studentID == accountToken else { return }
         activateIfNeeded()
 
         let session = WCSession.default
         guard let data = encodedSnapshotData(snapshot) else { return }
         guard session.activationState == .activated else {
-            deliveryBuffer.stage(data)
+            deliveryBuffer.stage(data, studentID: accountToken)
             return
         }
         guard session.isPaired else { return }
-        updateApplicationContext(withSnapshotData: data, session: session)
+        updateApplicationContext(
+            withSnapshotData: data, studentID: accountToken, session: session)
     }
 
     /// 从当前共享快照重新推送一次。
@@ -295,6 +307,8 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
         let credentials = AppAccountSession.storage.communityCredentials
         let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(
             in: .whitespacesAndNewlines)
+        let accountToken = AppStorageSession(accountIdentifier: studentID)
+            .accountStorageIdentifier
         let isLoggedIn = AppAccountSession.storage.hasCachedSession
         Task {
             guard
@@ -303,11 +317,12 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                 credentials == AppAccountSession.storage.communityCredentials
             else { return }
             guard session.activationState == .activated else {
-                deliveryBuffer.stage(data)
+                deliveryBuffer.stage(data, studentID: accountToken)
                 return
             }
             guard session.isPaired else { return }
-            self.updateApplicationContext(withSnapshotData: data, session: session)
+            self.updateApplicationContext(
+                withSnapshotData: data, studentID: accountToken, session: session)
         }
     }
     #endif
@@ -488,13 +503,18 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                 else { return }
                 let studentID = AppAccountSession.storage.currentStudentID
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard WCSession.default.isPaired, Self.isSnapshotData(data, for: studentID)
+                let pendingOwner = self.deliveryBuffer.pendingStudentID
+                guard WCSession.default.isPaired,
+                    self.matchesPendingSnapshot(data, pendingOwner: pendingOwner, for: studentID)
                 else {
                     self.deliveryBuffer.discardPending()
                     return
                 }
                 self.updateApplicationContext(
-                    withSnapshotData: data, session: WCSession.default)
+                    withSnapshotData: data,
+                    studentID: pendingOwner,
+                    session: WCSession.default
+                )
             }
         }
         #endif
@@ -518,11 +538,14 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
             else { return }
             let studentID = AppAccountSession.storage.currentStudentID.trimmingCharacters(
                 in: .whitespacesAndNewlines)
-            guard Self.isSnapshotData(data, for: studentID) else {
+            let pendingOwner = self.deliveryBuffer.pendingStudentID
+            guard self.matchesPendingSnapshot(data, pendingOwner: pendingOwner, for: studentID)
+            else {
                 self.deliveryBuffer.discardPending()
                 return
             }
-            self.updateApplicationContext(withSnapshotData: data, session: session)
+            self.updateApplicationContext(
+                withSnapshotData: data, studentID: pendingOwner, session: session)
         }
     }
 
@@ -560,8 +583,13 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
                     return
                 }
                 if let data {
+                    let accountToken = AppStorageSession(accountIdentifier: studentID)
+                        .accountStorageIdentifier
                     self.updateApplicationContext(
-                        withSnapshotData: data, session: WCSession.default)
+                        withSnapshotData: data,
+                        studentID: accountToken,
+                        session: WCSession.default
+                    )
                 }
                 reply.send(data)
             }
@@ -652,6 +680,17 @@ final class WatchScheduleSyncManager: NSObject, WCSessionDelegate {
     }
 
     #if os(iOS)
+    private func matchesPendingSnapshot(
+        _ data: Data, pendingOwner: String?, for studentID: String
+    ) -> Bool {
+        let accountToken = AppStorageSession(accountIdentifier: studentID)
+            .accountStorageIdentifier
+        if let pendingOwner {
+            return pendingOwner == accountToken
+        }
+        return Self.isSnapshotData(data, for: studentID)
+    }
+
     private nonisolated static func isSnapshotData(_ data: Data, for studentID: String)
         -> Bool
     {

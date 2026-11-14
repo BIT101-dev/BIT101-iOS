@@ -56,35 +56,74 @@ nonisolated struct EclassActivity: Decodable, Sendable {
         guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
             !text.isEmpty, text.lowercased() != "null"
         else { return nil }
-        for fractional in [true, false] {
-            if let date = try? Date.ISO8601FormatStyle(includingFractionalSeconds: fractional)
-                .parse(text)
-            {
+        for style in iso8601Styles {
+            if let date = try? style.parse(text) {
                 return date
             }
         }
-        for formatter in localTimeFormatters {
-            if let date = formatter.date(from: text), formatter.string(from: date) == text {
-                return date
-            }
-        }
-        return nil
+        return parseLocalShanghaiTime(text)
     }
 
-    private static let localTimeFormatters: [DateFormatter] = {
-        [
-            "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm:ss", "yyyy/MM/dd HH:mm",
-            "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm",
-        ].map { format in
-            let formatter = DateFormatter()
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
-            formatter.dateFormat = format
-            formatter.isLenient = false
-            return formatter
-        }
+    private static let iso8601Styles: [Date.ISO8601FormatStyle] = [
+        Date.ISO8601FormatStyle(includingFractionalSeconds: true),
+        Date.ISO8601FormatStyle(includingFractionalSeconds: false),
+    ]
+
+    private static let shanghaiCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone =
+            TimeZone(identifier: "Asia/Shanghai") ?? TimeZone(secondsFromGMT: 8 * 3600) ?? .gmt
+        return calendar
     }()
+
+    private static func parseLocalShanghaiTime(_ text: String) -> Date? {
+        let bytes = Array(text.utf8)
+        guard bytes.count == 16 || bytes.count == 19 else { return nil }
+        let dateSeparator = bytes[4]
+        let dateTimeSeparator = bytes[10]
+        let validSeparators =
+            (dateSeparator == UInt8(ascii: "-")
+                && (dateTimeSeparator == UInt8(ascii: " ")
+                    || dateTimeSeparator == UInt8(ascii: "T")))
+            || (dateSeparator == UInt8(ascii: "/") && dateTimeSeparator == UInt8(ascii: " "))
+        guard validSeparators,
+            bytes[7] == dateSeparator,
+            bytes[13] == UInt8(ascii: ":"),
+            bytes.count == 16 || bytes[16] == UInt8(ascii: ":"),
+            let year = parseDigits(bytes, range: 0..<4),
+            let month = parseDigits(bytes, range: 5..<7),
+            let day = parseDigits(bytes, range: 8..<10),
+            let hour = parseDigits(bytes, range: 11..<13),
+            let minute = parseDigits(bytes, range: 14..<16),
+            let second = bytes.count == 19 ? parseDigits(bytes, range: 17..<19) : 0,
+            (1...12).contains(month),
+            (1...31).contains(day),
+            (0...23).contains(hour),
+            (0...59).contains(minute),
+            (0...59).contains(second)
+        else { return nil }
+
+        let components = DateComponents(
+            year: year, month: month, day: day, hour: hour, minute: minute, second: second)
+        guard let date = shanghaiCalendar.date(from: components) else { return nil }
+        let resolved = shanghaiCalendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second], from: date)
+        guard resolved.year == year, resolved.month == month, resolved.day == day,
+            resolved.hour == hour, resolved.minute == minute, resolved.second == second
+        else { return nil }
+        return date
+    }
+
+    private static func parseDigits(_ bytes: [UInt8], range: Range<Int>) -> Int? {
+        var value = 0
+        for index in range {
+            let byte = bytes[index]
+            guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return nil }
+            value = value * 10 + Int(byte - UInt8(ascii: "0"))
+        }
+        return value
+    }
 }
 
 public nonisolated struct EclassDDLResult: Sendable {

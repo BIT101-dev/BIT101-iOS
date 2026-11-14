@@ -1,4 +1,5 @@
 import ClientCore
+import CoreFoundation
 import DesignSystemKit
 import Foundation
 import TransportCore
@@ -181,12 +182,15 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
     let responseBody: String?
     let finalURL: String?
     let finalMethod: String?
+    let responseBytes: Int?
+    let upstreamCode: String?
 
     init(
         id: UUID, occurredAt: Date, method: String, url: String, statusCode: Int?,
         elapsedMilliseconds: Int,
         error: String?, responseHeaders: [String: String], responseBody: String?,
-        finalURL: String? = nil, finalMethod: String? = nil
+        finalURL: String? = nil, finalMethod: String? = nil,
+        responseBytes: Int? = nil, upstreamCode: String? = nil
     ) {
         self.id = id
         self.occurredAt = occurredAt
@@ -199,6 +203,8 @@ nonisolated struct NetworkDiagnosticRecord: Codable, Identifiable, Equatable, Se
         self.responseBody = responseBody
         self.finalURL = finalURL
         self.finalMethod = finalMethod
+        self.responseBytes = responseBytes
+        self.upstreamCode = upstreamCode
     }
 }
 
@@ -213,11 +219,12 @@ nonisolated struct SchoolServiceIssue: Sendable {
         guard let failure = SchoolServiceFailure.from(error) else { return nil }
         switch failure {
         case .authenticationChannel: title = "学校认证通道异常"
-        case .authenticationRestricted: title = "学校认证受限"
+        case .authenticationRestricted, .captchaRequired: title = "学校认证受限"
         case .accountLocked: title = "学校账号已锁定"
         default: title = "学校服务异常"
         }
-        let usesAuthenticationEntry = [.authenticationRestricted, .accountLocked].contains(failure)
+        let usesAuthenticationEntry =
+            [.authenticationRestricted, .captchaRequired, .accountLocked].contains(failure)
         actionTitle =
             usesAuthenticationEntry
             ? "打开学校统一认证" : Self.serviceActionTitle
@@ -285,7 +292,9 @@ actor NetworkDiagnosticStore {
             elapsedMilliseconds: Int(elapsed * 1_000),
             error: diagnosticError,
             responseHeaders: headers, responseBody: body, finalURL: finalURL?.absoluteString,
-            finalMethod: finalMethod
+            finalMethod: finalMethod,
+            responseBytes: data?.count,
+            upstreamCode: Self.extractUpstreamCode(from: data, url: finalURL ?? request.url)
         )
         if let index {
             records[index] = (owner, record, failed)
@@ -293,6 +302,55 @@ actor NetworkDiagnosticStore {
             records.append((owner, record, failed))
         }
         records = prioritized(records, limit: 20)
+    }
+
+    private nonisolated static func extractUpstreamCode(from data: Data?, url: URL?) -> String? {
+        guard let data, !data.isEmpty else { return nil }
+        let limited = Data(data.prefix(256 * 1024))
+        if let jsonCode = extractJSONCode(from: limited) { return jsonCode }
+        guard let text = String(data: limited, encoding: .utf8) else { return nil }
+        if let code = SchoolLoginHTMLParser.loginErrorCode(html: text),
+            code.range(of: #"^[A-Za-z0-9_-]{1,32}$"#, options: .regularExpression) != nil
+        {
+            return "cas:\(code)"
+        }
+        let ssoBase = AppURL.required("https://sso.bit.edu.cn")
+        let hasSecondFactor =
+            SchoolLoginHTMLParser.parseSecondFactorPage(
+                html: text, baseURL: ssoBase, documentURL: url) != nil
+            || url.flatMap({
+                SchoolLoginHTMLParser.parseSecondFactorPage(
+                    html: text, baseURL: $0, documentURL: $0)
+            }) != nil
+        return hasSecondFactor ? "cas:second-factor" : nil
+    }
+
+    private nonisolated static func extractJSONCode(from data: Data) -> String? {
+        guard
+            let first = data.first(where: {
+                $0 != 0x20 && $0 != 0x09 && $0 != 0x0A && $0 != 0x0D
+            }),
+            first == UInt8(ascii: "{"),
+            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let code = integerValue(root["code"])
+        else { return nil }
+        if let nested = root["data"] as? [String: Any],
+            let errorCode = integerValue(nested["errorCode"])
+        {
+            return "json:\(code)/\(errorCode)"
+        }
+        return "json:\(code)"
+    }
+
+    private nonisolated static func integerValue(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID()
+        else { return nil }
+        let double = number.doubleValue
+        guard double.rounded() == double,
+            double >= Double(Int.min), double <= Double(Int.max)
+        else { return nil }
+        return number.intValue
     }
 
     private nonisolated static func failureDescription(_ error: any Error) -> String {

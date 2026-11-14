@@ -2,6 +2,12 @@ import Foundation
 
 /// Shared field encoding for school forms and their query values.
 public nonisolated enum HTTPFormEncoding {
+    private static let allowedCharacters: CharacterSet = {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        return allowed
+    }()
+
     public static func body(_ fields: [(String, String)]) -> Data {
         Data(
             fields.map { "\(percentEncoded($0.0))=\(percentEncoded($0.1))" }.joined(separator: "&")
@@ -9,9 +15,8 @@ public nonisolated enum HTTPFormEncoding {
     }
 
     public static func percentEncoded(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: "&+=?")
-        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed) else {
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowedCharacters)
+        else {
             preconditionFailure("Form field encoding failed")
         }
         return encoded

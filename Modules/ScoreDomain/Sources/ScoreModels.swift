@@ -201,8 +201,9 @@ public nonisolated enum ScoreRowComparison {
     }
 
     private static func signatures(for rows: [ScoreRow], keys: Set<String>) -> [String] {
-        rows.map { row in
-            keys.sorted().map { key in
+        let sortedKeys = keys.sorted()
+        return rows.map { row in
+            sortedKeys.map { key in
                 let value = row[key].trimmingCharacters(in: .whitespacesAndNewlines)
                 return "\(key.count):\(key)\(value.count):\(value)"
             }.joined(separator: "|")
@@ -369,37 +370,67 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         }
     }
 
-    public func isMissingValue(in row: ScoreRow) -> Bool {
-        switch self {
-        case .courseName: normalizedText(row.courseName).isEmpty
-        case .score: scoreComparableValue(from: row.score) == nil
-        case .averageScore: numericComparableValue(from: row.averageScore) == nil
-        case .credit: numericComparableValue(from: row.creditText) == nil
-        case .term: normalizedText(row.term).isEmpty
-        case .courseType: normalizedText(row.courseType).isEmpty
+    private enum SortKey {
+        case text(String)
+        case number(Double?)
+
+        var isMissing: Bool {
+            switch self {
+            case .text(let value): value.isEmpty
+            case .number(let value): value == nil
+            }
+        }
+
+        func compare(to other: SortKey) -> ComparisonResult {
+            switch (self, other) {
+            case (.text(let lhs), .text(let rhs)):
+                return lhs.localizedStandardCompare(rhs)
+            case (.number(let lhs), .number(let rhs)):
+                guard let lhs else { return rhs == nil ? .orderedSame : .orderedDescending }
+                guard let rhs else { return .orderedAscending }
+                if lhs < rhs { return .orderedAscending }
+                if lhs > rhs { return .orderedDescending }
+                return .orderedSame
+            default:
+                return .orderedSame
+            }
         }
     }
 
-    public func compare(_ lhs: ScoreRow, _ rhs: ScoreRow) -> ComparisonResult {
+    private func sortKey(for row: ScoreRow) -> SortKey {
         switch self {
-        case .courseName:
-            normalizedText(lhs.courseName).localizedStandardCompare(normalizedText(rhs.courseName))
-        case .score:
-            compareNumbers(
-                scoreComparableValue(from: lhs.score), scoreComparableValue(from: rhs.score))
-        case .averageScore:
-            compareNumbers(
-                numericComparableValue(from: lhs.averageScore),
-                numericComparableValue(from: rhs.averageScore))
-        case .credit:
-            compareNumbers(
-                numericComparableValue(from: lhs.creditText),
-                numericComparableValue(from: rhs.creditText))
-        case .term:
-            normalizedText(lhs.term).localizedStandardCompare(normalizedText(rhs.term))
-        case .courseType:
-            normalizedText(lhs.courseType).localizedStandardCompare(normalizedText(rhs.courseType))
+        case .courseName: .text(normalizedText(row.courseName))
+        case .score: .number(scoreComparableValue(from: row.score))
+        case .averageScore: .number(numericComparableValue(from: row.averageScore))
+        case .credit: .number(numericComparableValue(from: row.creditText))
+        case .term: .text(normalizedText(row.term))
+        case .courseType: .text(normalizedText(row.courseType))
         }
+    }
+
+    public func isMissingValue(in row: ScoreRow) -> Bool {
+        sortKey(for: row).isMissing
+    }
+
+    public func compare(_ lhs: ScoreRow, _ rhs: ScoreRow) -> ComparisonResult {
+        sortKey(for: lhs).compare(to: sortKey(for: rhs))
+    }
+
+    public func sorted(_ rows: [ScoreRow], order: ScoreSortOrder) -> [ScoreRow] {
+        let keyed = rows.enumerated().map {
+            (offset: $0.offset, row: $0.element, key: sortKey(for: $0.element))
+        }
+        return keyed.sorted { lhs, rhs in
+            let lhsMissing = lhs.key.isMissing
+            let rhsMissing = rhs.key.isMissing
+            if lhsMissing != rhsMissing { return !lhsMissing }
+            let comparison = lhs.key.compare(to: rhs.key)
+            if comparison == .orderedSame { return lhs.offset < rhs.offset }
+            switch order {
+            case .ascending: return comparison == .orderedAscending
+            case .descending: return comparison == .orderedDescending
+            }
+        }.map(\.row)
     }
 
     private func normalizedText(_ raw: String) -> String {
@@ -415,14 +446,6 @@ public nonisolated enum ScoreSortIndex: String, CaseIterable, Identifiable, Send
         let trimmed = normalizedText(raw)
         return ScoreSummary.gradeMapping(from: trimmed)?.score
             ?? numericComparableValue(from: trimmed)
-    }
-
-    private func compareNumbers(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {
-        guard let lhs else { return rhs == nil ? .orderedSame : .orderedDescending }
-        guard let rhs else { return .orderedAscending }
-        if lhs < rhs { return .orderedAscending }
-        if lhs > rhs { return .orderedDescending }
-        return .orderedSame
     }
 }
 

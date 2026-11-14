@@ -26,6 +26,14 @@ private actor CommunityLinkifiedTextCache {
         guard !Task.isCancelled else { return AttributedString(text) }
         let key = text as NSString
         if let cached = values.object(forKey: key) { return cached.value }
+        if !text.utf8.contains(UInt8(ascii: ".")) && !text.utf8.contains(UInt8(ascii: ":")) {
+            let plain = AttributedString(text)
+            if !Task.isCancelled {
+                values.setObject(
+                    CommunityAttributedStringBox(plain), forKey: key, cost: key.length * 4)
+            }
+            return plain
+        }
         let rendered = NSMutableAttributedString(string: text)
         guard let detector else { return AttributedString(text) }
         let matches = detector.matches(

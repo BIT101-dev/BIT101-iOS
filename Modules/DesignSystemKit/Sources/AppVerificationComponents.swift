@@ -193,6 +193,21 @@ private struct VerificationCodeField: UIViewRepresentable {
     }
 }
 
+private final class CaptchaImageMemo {
+    private var cached: (data: Data, image: UIImage?)?
+
+    func resolve(_ data: Data?) -> UIImage? {
+        guard let data else {
+            cached = nil
+            return nil
+        }
+        if let cached, cached.data == data { return cached.image }
+        let image = UIImage(data: data)
+        cached = (data, image)
+        return image
+    }
+}
+
 /// 课表、成绩和可信成绩单共用的图形与短信验证码面板。
 ///
 /// 验证码输入、清洗、焦点、错误展示和提交状态采用统一实现；业务传入掩码手机号、
@@ -207,8 +222,8 @@ public struct AppVerificationSheet: View {
     let onSubmit: (String) async -> Void
     let isCaptcha: Bool
     let captchaImage: Data?
-    private let uiCaptchaImage: UIImage?
 
+    @State private var captchaMemo = CaptchaImageMemo()
     @State private var code = ""
     @State private var isCodeFieldFocused = false
     @State private var isSubmitInFlight = false
@@ -232,13 +247,12 @@ public struct AppVerificationSheet: View {
         self.onSubmit = onSubmit
         self.isCaptcha = isCaptcha
         self.captchaImage = captchaImage
-        self.uiCaptchaImage = captchaImage.flatMap { UIImage(data: $0) }
     }
 
     @ViewBuilder
-    private var captchaImageView: some View {
-        if let uiCaptchaImage {
-            Image(uiImage: uiCaptchaImage).resizable().scaledToFit()
+    private func captchaImageView(_ decodedImage: UIImage?) -> some View {
+        if let decodedImage {
+            Image(uiImage: decodedImage).resizable().scaledToFit()
                 .accessibilityLabel("学校图形验证码")
                 .accessibilityIdentifier("verification.captcha")
         } else {
@@ -262,11 +276,12 @@ public struct AppVerificationSheet: View {
     }
 
     public var body: some View {
+        let decodedImage = isCaptcha ? captchaMemo.resolve(captchaImage) : nil
         NavigationStack {
             Form {
                 Section {
                     if isCaptcha {
-                        captchaImageView
+                        captchaImageView(decodedImage)
                     }
                     if let maskedPhone, !maskedPhone.isEmpty {
                         LabeledContent("手机号", value: maskedPhone)
@@ -299,7 +314,7 @@ public struct AppVerificationSheet: View {
                     .disabled(
                         submissionInProgress
                             || !AppVerificationCode.isValid(code, isCaptcha: isCaptcha)
-                            || isCaptcha && uiCaptchaImage == nil
+                            || isCaptcha && decodedImage == nil
                     )
                     .appInteractiveListRow()
                 }
@@ -320,7 +335,10 @@ public struct AppVerificationSheet: View {
             }
             .onDisappear { modalActivity?(presentationID, false) }
             .onChange(of: isCaptcha) { _, _ in resetInput() }
-            .onChange(of: captchaImage) { _, _ in resetInput() }
+            .onChange(of: captchaImage) { _, newValue in
+                _ = captchaMemo.resolve(newValue)
+                resetInput()
+            }
             .onChange(of: submissionInProgress) { _, inProgress in
                 if !inProgress, errorMessage != nil { isCodeFieldFocused = true }
             }

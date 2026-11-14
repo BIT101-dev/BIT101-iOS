@@ -160,8 +160,6 @@ public struct ScoreListPage: View {
     }
 
     @ViewBuilder private var content: some View {
-        let visibleRows = viewModel.visibleRows
-        let selectedRowID = selectedPage?.course?.row(in: viewModel.rows)?.id
         Group {
             switch viewModel.state {
             case .idle, .loading:
@@ -170,6 +168,8 @@ public struct ScoreListPage: View {
             case .failed(let message):
                 failureContent(message: message)
             case .loaded:
+                let visibleRows = viewModel.visibleRows
+                let selectedRowID = selectedPage?.course?.row(in: viewModel.rows)?.id
                 loadedScoreList(visibleRows: visibleRows, selectedRowID: selectedRowID)
             }
         }

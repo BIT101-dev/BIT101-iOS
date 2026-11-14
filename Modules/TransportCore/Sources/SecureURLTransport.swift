@@ -120,7 +120,7 @@ public final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDeleg
         var secureRequest = request
         secureRequest.url = upgradedURL
 
-        let remainsSameOrigin = response.url.map { sameOrigin($0, upgradedURL) } ?? false
+        let remainsSameOrigin = AppURL.isSameOrigin(upgradedURL, as: response.url)
         if !remainsSameOrigin {
             let method = request.httpMethod?.uppercased() ?? "GET"
             guard method == "GET" || method == "HEAD" else {
@@ -137,20 +137,5 @@ public final class HTTPSUpgradingRedirectDelegate: NSObject, URLSessionTaskDeleg
         }
 
         completionHandler(secureRequest)
-    }
-
-    private func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
-        guard
-            let lhsScheme = lhs.scheme?.lowercased(),
-            let rhsScheme = rhs.scheme?.lowercased(),
-            let lhsHost = lhs.host?.lowercased(),
-            let rhsHost = rhs.host?.lowercased()
-        else {
-            return false
-        }
-
-        let lhsPort = lhs.port ?? (lhsScheme == "https" ? 443 : 80)
-        let rhsPort = rhs.port ?? (rhsScheme == "https" ? 443 : 80)
-        return lhsScheme == rhsScheme && lhsHost == rhsHost && lhsPort == rhsPort
     }
 }

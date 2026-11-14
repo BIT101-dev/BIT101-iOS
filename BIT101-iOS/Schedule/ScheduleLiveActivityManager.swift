@@ -168,7 +168,14 @@ final class ScheduleLiveActivityManager {
         }
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
-        let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
+        let plan = await Self.resolveReminderPlan(from: cache, leadMinutes: leadMinutes)
+        guard !Task.isCancelled else { return }
+        guard isCurrentSession(session) else {
+            await clearFallbackNotices()
+            await endAllActivities(invalidateRefresh: false)
+            return
+        }
+        let occurrences = plan.occurrences
         do {
             _ = try await notifications.synchronize(
                 for: occurrences, leadMinutes: leadMinutes, session: session,
@@ -210,14 +217,10 @@ final class ScheduleLiveActivityManager {
 
         // 在“进入提醒窗口但尚未开始”的课前阶段选择一条提醒对象。
         let now = Date()
-        let currentOccurrence = zip(
-            occurrences,
-            ScheduleReminderPlanner.displayWindowStarts(
-                for: occurrences, leadMinutes: leadMinutes)
-        )
-        .first { occurrence, displayWindowStart in
-            now >= displayWindowStart && now < occurrence.startDate
-        }?.0
+        let currentOccurrence = zip(occurrences, plan.windowStarts)
+            .first { occurrence, displayWindowStart in
+                now >= displayWindowStart && now < occurrence.startDate
+            }?.0
 
         if let currentOccurrence {
             let startText = Self.debugDateFormatter.string(from: currentOccurrence.startDate)
@@ -517,6 +520,23 @@ final class ScheduleLiveActivityManager {
         guard cache.showCourseLiveActivityReminder else { return nil }
 
         let leadMinutes = cache.courseLiveActivityLeadMinutes
+        return await Self.plannedBackgroundRefreshDate(from: cache, leadMinutes: leadMinutes)
+    }
+
+    @concurrent
+    private nonisolated static func resolveReminderPlan(
+        from cache: ScheduleCache, leadMinutes: Int
+    ) async -> (occurrences: [CourseReminderOccurrence], windowStarts: [Date]) {
+        let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
+        let windowStarts = ScheduleReminderPlanner.displayWindowStarts(
+            for: occurrences, leadMinutes: leadMinutes)
+        return (occurrences, windowStarts)
+    }
+
+    @concurrent
+    private nonisolated static func plannedBackgroundRefreshDate(
+        from cache: ScheduleCache, leadMinutes: Int
+    ) async -> Date? {
         let occurrences = ScheduleReminderPlanner.resolveOccurrences(from: cache)
         let now = Date()
         guard

@@ -12,12 +12,12 @@ private nonisolated enum WidgetSnapshotStorage {
     static let store = ScheduleExternalSnapshotStore(files: AppFileSystem.files)
 }
 
-private struct DeadlineWidgetEntry: TimelineEntry {
+private nonisolated struct DeadlineWidgetEntry: TimelineEntry {
     let date: Date
     let resolved: ScheduleExternalResolvedDeadlines
 }
 
-private struct DeadlineWidgetProvider: TimelineProvider {
+private nonisolated struct DeadlineWidgetProvider: TimelineProvider {
     func placeholder(in _: Context) -> DeadlineWidgetEntry {
         let now = Date()
         return DeadlineWidgetEntry(
@@ -396,14 +396,14 @@ private struct LiveActivityTimerText: View {
 }
 
 /// Widget 时间线使用的条目。
-private struct ScheduleWidgetEntry: TimelineEntry {
+private nonisolated struct ScheduleWidgetEntry: TimelineEntry {
     let date: Date
     let nextOccurrences: [ScheduleExternalOccurrence]
     let contentState: ScheduleExternalContentState
 }
 
 /// 课表小组件的时间线提供器。
-private struct ScheduleWidgetProvider: TimelineProvider {
+private nonisolated struct ScheduleWidgetProvider: TimelineProvider {
     func placeholder(in _: Context) -> ScheduleWidgetEntry {
         let now = Date()
         return ScheduleWidgetEntry(

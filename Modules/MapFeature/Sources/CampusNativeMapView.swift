@@ -47,7 +47,7 @@ public final class CampusMapPreparation {
 
     fileprivate func prepare(
         in host: UIView, preset: CampusPreset, target: UpcomingCourseMapTarget?,
-        configuration: MKMapConfiguration, configurationID: String
+        displayMode: CampusMapDisplayMode
     ) {
         guard !isClaimed, !isPreparing, host.window != nil, !host.bounds.isEmpty else { return }
         isPreparing = true
@@ -59,14 +59,14 @@ public final class CampusMapPreparation {
             mapView = CampusNativeMapView.makeMapView(
                 frame: host.bounds, coordinator: coordinator, focusRequest: focusRequest,
                 nextCourseTarget: target, requestedLocation: nil,
-                configuration: configuration, configurationID: configurationID)
+                displayMode: displayMode)
         }
         guard let mapView else { return }
         if mapView.frame != host.bounds { mapView.frame = host.bounds }
         if mapView.superview !== host { host.addSubview(mapView) }
-        if coordinator.lastMapConfigurationID != configurationID {
-            mapView.preferredConfiguration = configuration
-            coordinator.lastMapConfigurationID = configurationID
+        if coordinator.lastMapConfigurationID != displayMode.rawValue {
+            mapView.preferredConfiguration = displayMode.configuration
+            coordinator.lastMapConfigurationID = displayMode.rawValue
         }
         coordinator.syncNextCourseAnnotation(target, in: mapView)
         if coordinator.lastFocusID != focusRequest.id {
@@ -102,13 +102,11 @@ public struct CampusMapPreparationHost: UIViewRepresentable {
     private func configure(_ view: CampusMapPreparationView) {
         let preset = nextCourseTarget?.campus ?? CampusPreset(rawValue: campusID) ?? .liangxiang
         let displayMode = CampusMapDisplayMode(rawValue: mode) ?? .standard
-        let configuration = displayMode.configuration
         let preparation = preparation
         let target = nextCourseTarget
         view.prepare = { host in
             preparation.prepare(
-                in: host, preset: preset, target: target, configuration: configuration,
-                configurationID: displayMode.rawValue)
+                in: host, preset: preset, target: target, displayMode: displayMode)
         }
         view.setNeedsLayout()
     }
@@ -136,8 +134,7 @@ struct CampusNativeMapView: UIViewRepresentable {
     let isActive: Bool
     let nextCourseTarget: UpcomingCourseMapTarget?
     let requestedLocation: CampusMapLocationRequest?
-    let mapConfiguration: MKMapConfiguration
-    let mapConfigurationID: String
+    let displayMode: CampusMapDisplayMode
     let onLocationFailure: (Error) -> Void
     var preparation: CampusMapPreparation? = nil
 
@@ -163,7 +160,7 @@ struct CampusNativeMapView: UIViewRepresentable {
             Self.makeMapView(
                 frame: .zero, coordinator: context.coordinator, focusRequest: focusRequest,
                 nextCourseTarget: nextCourseTarget, requestedLocation: requestedLocation,
-                configuration: mapConfiguration, configurationID: mapConfigurationID)
+                displayMode: displayMode)
         }
         let mapView = preparation?.claim(makeView) ?? makeView()
         let host = AppPreparedViewHost(content: mapView)
@@ -175,13 +172,12 @@ struct CampusNativeMapView: UIViewRepresentable {
     static func makeMapView(
         frame: CGRect, coordinator: Coordinator, focusRequest: MapFocusRequest,
         nextCourseTarget: UpcomingCourseMapTarget?, requestedLocation: CampusMapLocationRequest?,
-        configuration mapConfiguration: MKMapConfiguration,
-        configurationID mapConfigurationID: String
+        displayMode: CampusMapDisplayMode
     ) -> MKMapView {
         let mapView = MKMapView(frame: frame)
         mapView.delegate = coordinator
-        mapView.preferredConfiguration = mapConfiguration
-        coordinator.lastMapConfigurationID = mapConfigurationID
+        mapView.preferredConfiguration = displayMode.configuration
+        coordinator.lastMapConfigurationID = displayMode.rawValue
         mapView.showsCompass = true
         mapView.showsScale = true
         mapView.showsUserLocation = false
@@ -213,9 +209,9 @@ struct CampusNativeMapView: UIViewRepresentable {
         if mapView.delegate !== coordinator { mapView.delegate = coordinator }
         coordinator.onLocationFailure = onLocationFailure
         coordinator.reduceMotion = reduceMotion
-        if coordinator.lastMapConfigurationID != mapConfigurationID {
-            mapView.preferredConfiguration = mapConfiguration
-            coordinator.lastMapConfigurationID = mapConfigurationID
+        if coordinator.lastMapConfigurationID != displayMode.rawValue {
+            mapView.preferredConfiguration = displayMode.configuration
+            coordinator.lastMapConfigurationID = displayMode.rawValue
         }
         coordinator.syncNextCourseAnnotation(nextCourseTarget, in: mapView)
         let requestedLocationChanged = coordinator.syncRequestedLocation(

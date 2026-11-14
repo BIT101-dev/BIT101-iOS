@@ -401,6 +401,9 @@ extension CourseResponse {
 }
 
 extension ExamResponse {
+    private nonisolated static let examTimeExpression: NSRegularExpression? =
+        try? NSRegularExpression(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
+
     @concurrent
     func examRecords() async throws -> [ExamRecord] {
         var exams: [ExamRecord] = []
@@ -418,7 +421,7 @@ extension ExamResponse {
                 .last
                 .map(String.init) ?? rawCourseName
 
-            let times = row.timeDescription.captureGroups(pattern: #"(\d{2}:\d{2})-(\d{2}:\d{2})"#)
+            let times = row.timeDescription.captureGroups(regex: Self.examTimeExpression)
             let beginTime = times.first ?? ""
             let endTime = times.dropFirst().first ?? ""
             let timeDescription = row.timeDescription.trimmingCharacters(

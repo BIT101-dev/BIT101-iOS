@@ -7,6 +7,7 @@ from functools import cache
 from pathlib import Path
 from swift_source_index import (
     FACTS_BY_SOURCE,
+    RAW_FACTS_BY_SOURCE,
     canonical_type_scope,
     expected_argument_types,
     swift_syntax_index_sources,
@@ -62,7 +63,11 @@ def expanded_resource_source(
         re.search(r"\b" + re.escape(alias[0]) + r"\b", code) for alias in aliases
     ):
         return source
-    facts = swift_syntax_index_sources({path: source})[path]
+    facts = (
+        FACTS_BY_SOURCE.get(source)
+        or RAW_FACTS_BY_SOURCE.get(source)
+        or swift_syntax_index_sources({path: source}, resolve_tests=False)[path]
+    )
     aliases = tuple(dict.fromkeys(aliases + type_aliases({path: facts})))
 
     def lookup(name, scope, lexical, owner_path):
@@ -432,11 +437,13 @@ def normalized_resource_source(source: str) -> str:
 
 
 @cache
-@cache
 def resource_facts(source: str) -> dict:
     return (
         FACTS_BY_SOURCE.get(source)
-        or swift_syntax_index_sources({"resource-source": source})["resource-source"]
+        or RAW_FACTS_BY_SOURCE.get(source)
+        or swift_syntax_index_sources({"resource-source": source}, resolve_tests=False)[
+            "resource-source"
+        ]
     )
 
 

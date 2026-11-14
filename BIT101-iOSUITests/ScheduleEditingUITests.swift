@@ -63,7 +63,7 @@ nonisolated final class ScheduleEditingUITests: UIAutomationTestCase {
         XCTAssertEqual(app.buttons["第1周"].value as? String, "已选择")
         tap("第3周")
         tap("完成")
-        choose("星期", option: "周2")
+        choose("星期", option: "周二")
         tap("开始节次")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "第1节")).firstMatch
             .tapBriefly()

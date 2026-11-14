@@ -375,9 +375,15 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         let responseURL = response.url ?? context.formAction
-        if let failure = SchoolServiceFailure.schoolResponse(String(decoding: data, as: UTF8.self))
-        {
+        let html = String(decoding: data, as: UTF8.self)
+        if let failure = SchoolServiceFailure.schoolResponse(html) {
             throw failure
+        }
+        if SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: html,
+            baseURL: schoolSSOBaseURL, documentURL: responseURL
+        ) != nil {
+            throw ScheduleServiceError.schoolSMSCodeInvalid("短信验证码错误或已失效，请重新发起验证。")
         }
         let issuedServiceTicket =
             acceptingServiceTicket && (300..<400).contains(response.statusCode)
@@ -394,15 +400,14 @@ extension ScheduleService {
                     schoolHost: schoolSSOBaseURL.host
                 )
         else {
+            if response.statusCode == 401 {
+                throw ScheduleServiceError.schoolSMSCodeInvalid(
+                    "学校短信验证会话已超时或验证码已失效，请重新发起操作。"
+                )
+            }
             throw schoolSMSRequestFailure(
                 .schoolSMSUnavailable("学校短信验证请求失败，HTTP 状态码 \(response.statusCode)。"),
                 status: response.statusCode)
-        }
-        if SchoolLoginHTMLParser.parseSecondFactorPage(
-            html: String(decoding: data, as: UTF8.self),
-            baseURL: schoolSSOBaseURL, documentURL: responseURL
-        ) != nil {
-            throw ScheduleServiceError.schoolSMSCodeInvalid("短信验证码错误或已失效，请重新发起验证。")
         }
     }
 
@@ -429,8 +434,11 @@ extension ScheduleService {
 
         let (data, response) = try await sendRequest(request, owner: owner)
         guard (200..<300).contains(response.statusCode) else {
+            let message =
+                response.statusCode == 401
+                ? "学校验证会话已失效，请重新发起本次操作。" : "无法获取短信验证手机号。"
             throw schoolSMSRequestFailure(
-                .schoolSMSUnavailable("无法获取短信验证手机号。"), status: response.statusCode)
+                .schoolSMSUnavailable(message), status: response.statusCode)
         }
         let decrypted = try crypto.decryptSchoolResponse(data, aesKey: encrypted.aesKey)
         guard let value = try phonePayload(from: decrypted, aesKey: encrypted.aesKey) else {
@@ -543,10 +551,16 @@ extension ScheduleService {
         guard
             (200..<300).contains(response.statusCode) || response.statusCode == 412 && reusableCode
         else {
+            let message =
+                if response.statusCode == 401 {
+                    "学校验证会话已失效，请重新发起本次操作。"
+                } else if response.statusCode == 412 {
+                    "短信发送暂时受限，请稍后重试。"
+                } else {
+                    "短信验证码发送失败。"
+                }
             throw schoolSMSRequestFailure(
-                .schoolSMSUnavailable(
-                    response.statusCode == 412
-                        ? "短信发送暂时受限，请稍后重试。" : "短信验证码发送失败。"), status: response.statusCode)
+                .schoolSMSUnavailable(message), status: response.statusCode)
         }
         let code = responseCode(from: data)
         let message = responseMessage(from: data)
@@ -656,7 +670,7 @@ extension ScheduleService {
         retriedAfterSecondFactor: Bool = false
     ) async throws -> [DDLEventRecord] {
         // 订阅链接可能使用 webcal:// 或 http://，请求前统一升级为 HTTPS。
-        let secureURLString = HTTPSURLUpgrade.upgradedURLString(from: urlString)
+        let secureURLString = Self.normalizedCalendarURLString(from: urlString)
 
         guard let url = URL(string: secureURLString) else {
             throw ScheduleServiceError.invalidCalendarURL
@@ -716,13 +730,19 @@ extension ScheduleService {
         html.captureGroups(pattern: pattern, options: [.dotMatchesLineSeparators]).first
             .map { rawURLString in
                 // 乐学页面可能把参数中的 & 转义为 &amp;，请求前需要还原。
-                let urlString = decodeHTML(urlString: rawURLString)
-
-                if urlString.lowercased().hasPrefix("webcal://") {
-                    return "https://" + urlString.dropFirst("webcal://".count)
-                }
-                return HTTPSURLUpgrade.upgradedURLString(from: urlString)
+                Self.normalizedCalendarURLString(from: decodeHTML(urlString: rawURLString))
             }
+    }
+
+    private static func normalizedCalendarURLString(from urlString: String) -> String {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate: String
+        if trimmed.lowercased().hasPrefix("webcal://") {
+            candidate = "https://" + trimmed.dropFirst("webcal://".count)
+        } else {
+            candidate = trimmed
+        }
+        return HTTPSURLUpgrade.upgradedURLString(from: candidate)
     }
 
     /// 还原 HTML 属性里的常见实体转义。

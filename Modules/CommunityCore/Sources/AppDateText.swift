@@ -5,25 +5,31 @@ import Foundation
 /// 课程评论、话廊帖子和消息接口共用以下日期格式；业务页面提供空值回退文案，
 /// AppDateText 统一维护日期格式和解析顺序。
 public enum AppDateText {
-    private static let inputFormats = [
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSZ",
-        "yyyy-MM-dd'T'HH:mm:ssZ",
-    ]
-
-    private static let inputFormatters = inputFormats.map { makeInputFormatter($0) }
+    private static let plainFormatter = makeInputFormatter("yyyy-MM-dd HH:mm:ss")
+    private static let fractionalISOFormatter = makeInputFormatter("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+    private static let basicISOFormatter = makeInputFormatter("yyyy-MM-dd'T'HH:mm:ssZ")
     private static let isoFormatter = ISO8601DateFormatter()
     private static let dayFormatter = makeOutputFormatter("yyyy-MM-dd")
     private static let timestampFormatter = makeOutputFormatter("yyyy-MM-dd HH:mm")
     private static let relativeFormatter = makeRelativeFormatter()
 
     public static func date(from raw: String) -> Date? {
-        for formatter in inputFormatters {
-            if let date = formatter.date(from: raw) {
-                return date
+        if raw.utf8.contains(UInt8(ascii: "T")) {
+            if raw.utf8.contains(UInt8(ascii: ".")) {
+                return fractionalISOFormatter.date(from: raw)
+                    ?? basicISOFormatter.date(from: raw)
+                    ?? plainFormatter.date(from: raw)
+                    ?? isoFormatter.date(from: raw)
             }
+            return basicISOFormatter.date(from: raw)
+                ?? fractionalISOFormatter.date(from: raw)
+                ?? plainFormatter.date(from: raw)
+                ?? isoFormatter.date(from: raw)
         }
-        return isoFormatter.date(from: raw)
+        return plainFormatter.date(from: raw)
+            ?? fractionalISOFormatter.date(from: raw)
+            ?? basicISOFormatter.date(from: raw)
+            ?? isoFormatter.date(from: raw)
     }
 
     public static func relativeText(from raw: String, fallback: String) -> String {

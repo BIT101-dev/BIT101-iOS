@@ -1,5 +1,6 @@
 import DesignSystemKit
 import Foundation
+import SchedulePorts
 import TransportCore
 
 /// 日程页统一使用的提示模型。
@@ -28,6 +29,9 @@ extension ScheduleStateConsumer {
 
     nonisolated static func isSchoolTransportError(_ error: Error) -> Bool {
         ErrorChain.contains(error) { candidate in
+            if (candidate as? ScheduleServiceError)?.isSchoolTransportFailure == true {
+                return true
+            }
             guard let urlError = candidate as? URLError else { return false }
             return [
                 .cannotConnectToHost,

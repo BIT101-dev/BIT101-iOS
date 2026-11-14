@@ -92,7 +92,9 @@ extension ReleaseNetworkSmokeRunner {
                 responseHeaders: ErrorReportRedactor.redactHeaders(record.responseHeaders),
                 responseBody: record.responseBody.map(ErrorReportRedactor.sanitized),
                 finalURL: record.finalURL.map(ErrorReportRedactor.sanitized),
-                finalMethod: record.finalMethod)
+                finalMethod: record.finalMethod,
+                responseBytes: record.responseBytes,
+                upstreamCode: record.upstreamCode.map(ErrorReportRedactor.sanitized))
         }
         report.exemptedProbes = scope.exemptedProbes
         report.requestEvidenceRequired = dependencies.requiresRequestEvidence

@@ -6,11 +6,16 @@ private nonisolated struct LoginServerResponseError: LocalizedError, SchoolServi
     let schoolServiceFailure: SchoolServiceFailure?
     let statusCode: Int
     let message: String?
+    let fallbackDescription: String?
 
-    init(statusCode: Int, message: String?, schoolServiceFailure: SchoolServiceFailure? = nil) {
+    init(
+        statusCode: Int, message: String?, schoolServiceFailure: SchoolServiceFailure? = nil,
+        fallbackDescription: String? = nil
+    ) {
         self.statusCode = statusCode
         self.message = message
         self.schoolServiceFailure = schoolServiceFailure
+        self.fallbackDescription = fallbackDescription
     }
 
     var indicatesCredentialFailure: Bool {
@@ -19,7 +24,7 @@ private nonisolated struct LoginServerResponseError: LocalizedError, SchoolServi
 
     var errorDescription: String? {
         guard let message, !message.isEmpty else {
-            return "请求失败，HTTP 状态码 \(statusCode)。"
+            return fallbackDescription ?? "请求失败，HTTP 状态码 \(statusCode)。"
         }
         return "服务器响应异常（HTTP \(statusCode)）：\(message)"
     }
@@ -180,15 +185,25 @@ struct BIT101APIClient {
         }
 
         let html = String(decoding: data, as: UTF8.self)
+        let documentURL = response.url ?? requestURL
         if let failure = SchoolServiceFailure.schoolResponse(html) { throw failure }
+        if let context = SchoolLoginHTMLParser.parseSecondFactorPage(
+            html: html,
+            baseURL: schoolBaseURL, documentURL: documentURL
+        ) {
+            throw LoginServiceError.schoolSMSRequired(context)
+        }
         if SchoolLoginHTMLParser.rejectsPassword(html: html) {
             throw LoginServiceError.schoolPasswordRejected
+        }
+        if response.statusCode == 401 {
+            throw SchoolServiceFailure.authenticationRestricted
         }
         guard (200..<300).contains(response.statusCode) else {
             throw errorForStatusCode(response.statusCode)
         }
 
-        return try schoolLoginResult(data, documentURL: response.url ?? requestURL)
+        return SchoolLoginHTMLParser.parse(html: html).isLoggedIn
     }
 
     private func schoolLoginResult(_ data: Data, documentURL: URL) throws -> Bool {
@@ -421,11 +436,16 @@ struct BIT101APIClient {
         let response = wire.response
         guard (200..<300).contains(response.statusCode) else {
             let message = responseMessage(from: data)
+            let fallback =
+                url.path == "/user/webvpn_verify" && response.statusCode == 409
+                ? "WebVPN 身份校验暂时受限（HTTP 409），请稍后重试，或切换为校园邮箱完成验证。"
+                : nil
             throw LoginServerResponseError(
                 statusCode: response.statusCode,
                 message: message,
                 schoolServiceFailure: url.path == "/user/webvpn_verify_init"
-                    ? message.flatMap(SchoolServiceFailure.authenticationResponse) : nil
+                    ? message.flatMap(SchoolServiceFailure.authenticationResponse) : nil,
+                fallbackDescription: fallback
             )
         }
 

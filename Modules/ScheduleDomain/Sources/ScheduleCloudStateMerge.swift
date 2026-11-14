@@ -70,9 +70,12 @@ public nonisolated enum ScheduleCloudStateMerge {
     private static func choose(
         _ base: Any?, _ lhs: Any?, _ rhs: Any?, resolution: ScheduleCacheConflictResolution? = nil
     ) throws -> Value {
-        if try bytes(lhs) == bytes(rhs) { return .merged(lhs) }
-        if try bytes(lhs) == bytes(base) { return .merged(rhs) }
-        if try bytes(rhs) == bytes(base) { return .merged(lhs) }
+        let lhsBytes = try bytes(lhs)
+        let rhsBytes = try bytes(rhs)
+        if lhsBytes == rhsBytes { return .merged(lhs) }
+        let baseBytes = try bytes(base)
+        if lhsBytes == baseBytes { return .merged(rhs) }
+        if rhsBytes == baseBytes { return .merged(lhs) }
         switch resolution {
         case .keepLocal: return .merged(lhs)
         case .useCloud: return .merged(rhs)

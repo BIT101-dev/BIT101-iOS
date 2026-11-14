@@ -18,11 +18,13 @@ extension ScheduleViewModel {
 
     /// 把同一门课的多项时间安排合并为编辑草稿。
     func courseArrangementDrafts(forCourseID id: String) -> [CourseArrangementDraft] {
-        guard let anchor = courseState.courses.first(where: { $0.id == id }) else {
+        let courses = courseState.courses
+        guard let anchor = courses.first(where: { $0.id == id }) else {
             return []
         }
-        let relatedCourses = courseState.courses.filter {
-            scheduleCourseIdentity($0) == scheduleCourseIdentity(anchor)
+        let anchorIdentity = scheduleCourseIdentity(anchor)
+        let relatedCourses = courses.filter {
+            scheduleCourseIdentity($0) == anchorIdentity
         }
         var groups: [[CourseRecord]] = []
         for course in relatedCourses {
@@ -92,7 +94,7 @@ extension ScheduleViewModel {
         let previousCourses = courseState.courses
         let updatedCourses = try ScheduleCourseEditor.adding(
             draft,
-            to: courseState.courses,
+            to: previousCourses,
             term: courseState.currentTerm
         )
         replaceCurrentCourses(updatedCourses, previousCourses: previousCourses)
@@ -127,7 +129,7 @@ extension ScheduleViewModel {
             id: id,
             weeks: weeks,
             with: draft,
-            in: courseState.courses
+            in: previousCourses
         )
         if let anchor {
             try validateCourseConflicts(
@@ -149,7 +151,7 @@ extension ScheduleViewModel {
         let updatedCourses = ScheduleCourseEditor.deletingOccurrence(
             id: id,
             week: week,
-            from: courseState.courses
+            from: previousCourses
         )
         replaceCurrentCourses(updatedCourses, previousCourses: previousCourses)
         persist()
@@ -171,7 +173,7 @@ extension ScheduleViewModel {
         try repository.requireWritable()
         let previousCourses = courseState.courses
         let updatedCourses = ScheduleCourseEditor.removingOccurrences(
-            from: courseState.courses,
+            from: previousCourses,
             week: week,
             weekday: weekday
         )
@@ -190,7 +192,7 @@ extension ScheduleViewModel {
         let previousCourses = courseState.courses
         let target = try courseDayContext(for: targetDate)
         let updatedCourses = try ScheduleCourseEditor.transferring(
-            courses: courseState.courses,
+            courses: previousCourses,
             fromWeek: fromWeek,
             fromWeekday: fromWeekday,
             toWeek: target.week,
@@ -341,17 +343,19 @@ extension ScheduleViewModel {
         let title = try validatedScheduleTitle(draft)
         let dates = try customScheduleDates(for: draft)
 
-        guard let index = courseState.customSchedules.firstIndex(where: { $0.id == id }) else {
+        var state = courseState
+        guard let index = state.customSchedules.firstIndex(where: { $0.id == id }) else {
             return
         }
-        courseState.customSchedules[index].title = title
-        courseState.customSchedules[index].subtitle = draft.subtitle
-        courseState.customSchedules[index].description = draft.description
-        courseState.customSchedules[index].dateString = dates[0]
-        courseState.customSchedules[index].additionalDateStrings =
+        state.customSchedules[index].title = title
+        state.customSchedules[index].subtitle = draft.subtitle
+        state.customSchedules[index].description = draft.description
+        state.customSchedules[index].dateString = dates[0]
+        state.customSchedules[index].additionalDateStrings =
             dates.count > 1 ? Array(dates.dropFirst()) : nil
-        courseState.customSchedules[index].beginTime = ScheduleDateCodec.formatTime(draft.beginTime)
-        courseState.customSchedules[index].endTime = ScheduleDateCodec.formatTime(draft.endTime)
+        state.customSchedules[index].beginTime = ScheduleDateCodec.formatTime(draft.beginTime)
+        state.customSchedules[index].endTime = ScheduleDateCodec.formatTime(draft.endTime)
+        courseState = state
         persist()
     }
 

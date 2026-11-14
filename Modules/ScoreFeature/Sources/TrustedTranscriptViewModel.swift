@@ -288,36 +288,25 @@ import UIKit
         var sizes = sameReport ? encodedBytesByPage : stagedBytes
         var failure = result.failure
         let pending = result.pages.filter { retained[$0.number] == nil }
-        var remainingEncoded = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
+        let remainingQuota = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
+        var remainingEncoded = remainingQuota
         for page in pending {
             guard page.data.count <= remainingEncoded else {
                 throw HTTPClientError.responseTooLarge
             }
             remainingEncoded -= page.data.count
         }
-        for page in pending {
-            do {
-                try Task.checkCancellation()
-                guard BoundedStillImageDecoder.hasCompleteImage(in: page.data) else {
-                    throw ScoreServiceError.invalidResponse
-                }
-                let remaining = max(0, limits.maximumEncodedBytes - sizes.values.reduce(0, +))
-                let prepared = try await Self.prepareImages(
-                    .init(pages: [page], expectedPageCount: result.expectedPageCount),
-                    limits: .init(
-                        maximumPageCount: limits.maximumPageCount,
-                        maximumEncodedBytes: remaining,
-                        maximumDecodedBytes: limits.maximumDecodedBytes))
-                try Task.checkCancellation()
-                for (number, image) in zip(prepared.numbers, prepared.images) {
-                    retained[number] = image
-                }
-                sizes.merge(prepared.bytes) { _, new in new }
-                failure = failure ?? prepared.failure
-            } catch {
-                if TaskCancellation.matches(error) { throw error }
-                failure = failure ?? error
+        if !pending.isEmpty {
+            try Task.checkCancellation()
+            let prepared = try await Self.prepareImages(
+                pending, expectedPageCount: result.expectedPageCount,
+                remainingEncodedBytes: remainingQuota, limits: limits, initialFailure: failure)
+            try Task.checkCancellation()
+            for (number, image) in zip(prepared.numbers, prepared.images) {
+                retained[number] = image
             }
+            sizes.merge(prepared.bytes) { _, new in new }
+            failure = failure ?? prepared.failure
         }
         try Task.checkCancellation()
         if !sameReport {
@@ -362,27 +351,32 @@ import UIKit
 
     @concurrent
     private nonisolated static func prepareImages(
-        _ result: TrustedTranscriptPages, limits: TrustedTranscriptResourceLimits
+        _ pages: [TrustedTranscriptPages.Page], expectedPageCount: Int, remainingEncodedBytes: Int,
+        limits: TrustedTranscriptResourceLimits, initialFailure: (any Error)?
     ) async throws
         -> (images: [UIImage], numbers: [Int], bytes: [Int: Int], failure: (any Error)?)
     {
-        guard result.expectedPageCount > 0, result.expectedPageCount <= limits.maximumPageCount,
-            !result.pages.isEmpty, result.pages.count <= result.expectedPageCount
+        guard expectedPageCount > 0, expectedPageCount <= limits.maximumPageCount,
+            !pages.isEmpty, pages.count <= expectedPageCount
         else { throw ScoreServiceError.invalidResponse }
-        var remainingBytes = limits.maximumEncodedBytes
-        for page in result.pages {
+        var remainingBytes = remainingEncodedBytes
+        for page in pages {
             guard page.data.count <= remainingBytes else {
                 throw HTTPClientError.responseTooLarge
             }
             remainingBytes -= page.data.count
         }
-        let perPageBudget = limits.maximumDecodedBytes / 2 / result.expectedPageCount
+        let perPageBudget = limits.maximumDecodedBytes / 2 / expectedPageCount
         var images: [UIImage] = []
         var numbers: [Int] = []
         var sizes: [Int: Int] = [:]
-        var failure = result.failure
-        for page in result.pages {
+        var failure = initialFailure
+        for page in pages {
             try Task.checkCancellation()
+            guard BoundedStillImageDecoder.hasCompleteImage(in: page.data) else {
+                if failure == nil { failure = ScoreServiceError.invalidResponse }
+                continue
+            }
             if let image = BoundedStillImageDecoder.image(
                 from: page.data, maximumDecodedBytes: perPageBudget)
             {
@@ -393,7 +387,6 @@ import UIKit
                 failure = ScoreServiceError.queryFailed("部分成绩单图片读取失败，请重试。")
             }
         }
-        guard !images.isEmpty else { throw failure ?? ScoreServiceError.invalidResponse }
         return (images, numbers, sizes, failure)
     }
 }

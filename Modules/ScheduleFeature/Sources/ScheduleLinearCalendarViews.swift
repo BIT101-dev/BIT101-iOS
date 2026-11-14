@@ -197,6 +197,18 @@ private struct LinearScheduleHeader: View {
     }
 }
 
+private struct LinearScheduleCalendarVisualState: Equatable {
+    let currentDate: Date
+    let entries: [ScheduleCalendarEntry]
+    let timeTable: [TimeSlot]
+    let displayMode: ScheduleDisplayMode
+    let cardContentMode: ScheduleCardContentMode
+    let currentWeek: Int
+    let week: Int
+    let showSaturday: Bool
+    let showSunday: Bool
+}
+
 private struct LinearScheduleCalendarConfiguration {
     let currentDate: Date
     let entries: [ScheduleCalendarEntry]
@@ -212,6 +224,20 @@ private struct LinearScheduleCalendarConfiguration {
     let onPrepareCourseShare: (ScheduleCalendarEntry) -> Void
     let onShareSchedule: () -> Void
     let onImportSchedule: () -> Void
+
+    var visualState: LinearScheduleCalendarVisualState {
+        LinearScheduleCalendarVisualState(
+            currentDate: currentDate,
+            entries: entries,
+            timeTable: timeTable,
+            displayMode: displayMode,
+            cardContentMode: cardContentMode,
+            currentWeek: currentWeek,
+            week: week,
+            showSaturday: showSaturday,
+            showSunday: showSunday
+        )
+    }
 }
 
 private struct LinearTimelineScrollContainer: UIViewRepresentable {
@@ -230,9 +256,10 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: LinearTimelineScrollView, context: Context) {
-        context.coordinator.configuration = configuration
-        context.coordinator.updateContent()
-        if !uiView.isZooming, abs(uiView.timelineScale - zoomScale) > 0.001 {
+        context.coordinator.updateContent(with: configuration)
+        if !uiView.isZooming, !uiView.isPinchingTimeline,
+            abs(uiView.timelineScale - zoomScale) > 0.001
+        {
             uiView.setScale(zoomScale, preserveVisibleCenter: true)
         }
     }
@@ -240,6 +267,7 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var configuration: LinearScheduleCalendarConfiguration
+        private var renderedVisualState: LinearScheduleCalendarVisualState?
         var zoomScale: Binding<CGFloat>
         var hostingController: UIHostingController<LinearScheduleCanvasView>?
 
@@ -249,9 +277,33 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
             super.init()
         }
 
+        private func canvasConfiguration() -> LinearScheduleCalendarConfiguration {
+            LinearScheduleCalendarConfiguration(
+                currentDate: configuration.currentDate,
+                entries: configuration.entries,
+                timeTable: configuration.timeTable,
+                displayMode: configuration.displayMode,
+                cardContentMode: configuration.cardContentMode,
+                currentWeek: configuration.currentWeek,
+                week: configuration.week,
+                showSaturday: configuration.showSaturday,
+                showSunday: configuration.showSunday,
+                onSelect: { [weak self] entry in self?.configuration.onSelect(entry) },
+                onLongPressCourse: { [weak self] entry in
+                    self?.configuration.onLongPressCourse(entry)
+                },
+                onPrepareCourseShare: { [weak self] entry in
+                    self?.configuration.onPrepareCourseShare(entry)
+                },
+                onShareSchedule: { [weak self] in self?.configuration.onShareSchedule() },
+                onImportSchedule: { [weak self] in self?.configuration.onImportSchedule() }
+            )
+        }
+
         func install(in scrollView: LinearTimelineScrollView) {
+            renderedVisualState = configuration.visualState
             let controller = UIHostingController(
-                rootView: LinearScheduleCanvasView(configuration: configuration)
+                rootView: LinearScheduleCanvasView(configuration: canvasConfiguration())
             )
             controller.view.backgroundColor = .clear
             controller.view.isOpaque = false
@@ -264,8 +316,14 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
             }
         }
 
-        func updateContent() {
-            hostingController?.rootView = LinearScheduleCanvasView(configuration: configuration)
+        func updateContent(with nextConfiguration: LinearScheduleCalendarConfiguration) {
+            configuration = nextConfiguration
+            let nextVisualState = nextConfiguration.visualState
+            guard renderedVisualState != nextVisualState else { return }
+            renderedVisualState = nextVisualState
+            hostingController?.rootView = LinearScheduleCanvasView(
+                configuration: canvasConfiguration()
+            )
         }
 
         func gestureRecognizer(
@@ -280,6 +338,7 @@ private struct LinearTimelineScrollContainer: UIViewRepresentable {
 private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate {
     var onScaleChange: ((CGFloat) -> Void)?
     var timelineScale: CGFloat { zoomScale }
+    private(set) var isPinchingTimeline = false
 
     private let zoomContainer = UIView()
     private weak var canvasView: UIView?
@@ -321,21 +380,25 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     @objc private func zoomTimeline(_ gesture: UIPinchGestureRecognizer) {
         let anchorY = gesture.location(in: self).y - contentOffset.y
         if gesture.state == .began {
+            isPinchingTimeline = true
             pinchViewport = ScheduleTimelineViewport(
                 viewportHeight: bounds.height, scale: zoomScale, offsetY: contentOffset.y)
             pinchAnchorY = anchorY
         }
-        guard let initial = pinchViewport else { return }
+        guard let initial = pinchViewport else {
+            isPinchingTimeline = false
+            return
+        }
         let next = initial.zoomed(
             to: initial.scale * gesture.scale, initialAnchorY: pinchAnchorY,
             currentAnchorY: anchorY)
         pendingScale = next.scale
-        setZoomScale(next.scale, animated: false)
-        updateCanvasGeometry()
+        applyZoomScale(next.scale)
         setVerticalOffset(next.offsetY)
-        onScaleChange?(next.scale)
         if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            isPinchingTimeline = false
             pinchViewport = nil
+            onScaleChange?(zoomScale)
         }
     }
 
@@ -372,14 +435,14 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
 
         if !hasInitialPosition {
             hasInitialPosition = true
-            setZoomScale(ScheduleTimelineViewport.clampedScale(pendingScale), animated: false)
-            updateCanvasGeometry()
+            applyZoomScale(ScheduleTimelineViewport.clampedScale(pendingScale))
             let initial = ScheduleTimelineViewport.initial(
                 viewportHeight: viewportSize.height,
                 scale: zoomScale,
                 currentMinute: currentMinute()
             )
             setContentOffset(CGPoint(x: 0, y: initial.offsetY), animated: false)
+            onScaleChange?(zoomScale)
         }
     }
 
@@ -400,11 +463,11 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
             initialAnchorY: bounds.height / 2,
             currentAnchorY: bounds.height / 2
         )
-        setZoomScale(resolvedScale, animated: false)
-        updateCanvasGeometry()
+        applyZoomScale(resolvedScale)
         if preserveVisibleCenter {
             setVerticalOffset(nextViewport.offsetY)
         }
+        onScaleChange?(zoomScale)
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -414,7 +477,9 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         updateCanvasGeometry()
         clampHorizontalOffset()
-        onScaleChange?(zoomScale)
+        if !isPinchingTimeline {
+            onScaleChange?(zoomScale)
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -427,7 +492,17 @@ private final class LinearTimelineScrollView: UIScrollView, UIScrollViewDelegate
         atScale scale: CGFloat
     ) {
         pendingScale = scale
-        onScaleChange?(scale)
+        if !isPinchingTimeline {
+            onScaleChange?(scale)
+        }
+    }
+
+    private func applyZoomScale(_ scale: CGFloat) {
+        let previousScale = zoomScale
+        setZoomScale(scale, animated: false)
+        if abs(zoomScale - previousScale) <= .ulpOfOne {
+            updateCanvasGeometry()
+        }
     }
 
     private func updateCanvasGeometry() {

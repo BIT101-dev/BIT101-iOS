@@ -18,7 +18,8 @@ import TransportCore
     private let prepare: @MainActor (Data) async throws -> Data
     private let isCurrentSession: () -> Bool
     @ObservationIgnored private var generation = 0
-    @ObservationIgnored private var importTask: Task<Void, Never>?
+    @ObservationIgnored private var importID: UUID?
+    @ObservationIgnored private var importTask: Task<[Task<Void, Never>], Never>?
     @ObservationIgnored private var uploads: [UUID: Task<Void, Never>] = [:]
 
     public init(
@@ -44,6 +45,7 @@ import TransportCore
         generation &+= 1
         importTask?.cancel()
         importTask = nil
+        importID = nil
         for task in uploads.values { task.cancel() }
         uploads.removeAll()
         for index in drafts.indices where drafts[index].isUploading {
@@ -63,18 +65,21 @@ import TransportCore
         drafts.removeAll { $0.id == id }
     }
 
-    public func waitForImport() async { await importTask?.value }
+    public func waitForImport() async { _ = await importTask?.value }
 
     public func addImages(
         from sources: [@MainActor () async throws -> Data?], existingImageCount: Int = 0
     ) async {
         let operation = generation
         guard importTask == nil, isCurrent(operation) else { return }
+        let currentImportID = UUID()
+        importID = currentImportID
         isAddingImages = true
         errorMessage = nil
         let remaining = max(
             0, ComposerDraftImagePolicy.maximumImageCount - existingImageCount - drafts.count)
-        let task = Task { [weak self, prepare] in
+        let task = Task { @MainActor [weak self, prepare] () -> [Task<Void, Never>] in
+            var batchTasks: [Task<Void, Never>] = []
             await ImageDataCompressor.importImages(
                 from: Array(sources.prefix(remaining)), prepare: prepare,
                 isCurrent: { self?.isCurrent(operation) == true },
@@ -84,27 +89,32 @@ import TransportCore
                         previewData: prepared, filename: "image-\(UUID().uuidString).jpg",
                         uploadData: prepared)
                     self.drafts.append(draft)
-                    self.startUpload(id: draft.id)
+                    if let uploadTask = self.startUpload(id: draft.id) {
+                        batchTasks.append(uploadTask)
+                    }
                 }, onFailure: { self?.errorMessage = $0.localizedDescription })
+            return batchTasks
         }
         importTask = task
-        defer {
-            if generation == operation {
-                importTask = nil
-                isAddingImages = false
-            }
-        }
-        await withTaskCancellationHandler {
+        defer { finishImport(operation: operation, id: currentImportID) }
+        let batchTasks = await withTaskCancellationHandler {
             await task.value
         } onCancel: {
             task.cancel()
         }
-        let pending = Array(uploads.values)
+        finishImport(operation: operation, id: currentImportID)
         await withTaskCancellationHandler {
-            for task in pending { await task.value }
+            for uploadTask in batchTasks { await uploadTask.value }
         } onCancel: {
-            for task in pending { task.cancel() }
+            for uploadTask in batchTasks { uploadTask.cancel() }
         }
+    }
+
+    private func finishImport(operation: Int, id: UUID) {
+        guard generation == operation, importID == id else { return }
+        importTask = nil
+        importID = nil
+        isAddingImages = false
     }
 
     public func retry(id: UUID) async {

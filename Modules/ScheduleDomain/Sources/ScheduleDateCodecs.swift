@@ -1,7 +1,7 @@
 import Foundation
 import ScheduleContracts
 
-public enum ScheduleDateCodec {
+public nonisolated enum ScheduleDateCodec {
     /// 采用固定公历计算周数，独立于系统日历设置。
     public static let calendar = ScheduleSharedDateCodec.calendar
 
@@ -20,16 +20,6 @@ public enum ScheduleDateCodec {
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
         formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
-        formatter.dateFormat = "HH:mm"
-        formatter.isLenient = false
         return formatter
     }()
 
@@ -52,17 +42,12 @@ public enum ScheduleDateCodec {
 
     /// 解析 `HH:mm` 文本为一个只关心时分的 `Date`。
     public static func parseTime(_ string: String) -> Date? {
-        guard let date = timeFormatter.date(from: string),
-            timeFormatter.string(from: date) == string
-        else {
-            return nil
-        }
-        return date
+        ScheduleSharedDateCodec.parseTime(string)
     }
 
     /// 格式化时分文本。
     public static func formatTime(_ date: Date) -> String {
-        timeFormatter.string(from: date)
+        ScheduleSharedDateCodec.formatTime(date)
     }
 
     /// 格式化 `yyyy-MM-dd` 文本。

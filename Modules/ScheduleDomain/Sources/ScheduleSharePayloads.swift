@@ -587,20 +587,7 @@ public nonisolated enum ScheduleShareCodeCodec {
         guard let compressedData = Data(base64Encoded: body) else {
             throw ScheduleShareCodeError.invalidBase64
         }
-        var jsonData = Data(count: maximumDecodedBytes + 1)
-        let decodedCount = jsonData.withUnsafeMutableBytes { output in
-            compressedData.withUnsafeBytes { input -> Int in
-                guard let destination = output.bindMemory(to: UInt8.self).baseAddress,
-                    let source = input.bindMemory(to: UInt8.self).baseAddress
-                else { return 0 }
-                return compression_decode_buffer(
-                    destination, output.count, source, input.count, nil, COMPRESSION_LZFSE)
-            }
-        }
-        guard decodedCount > 0, decodedCount <= maximumDecodedBytes else {
-            throw ScheduleShareCodeError.decompressionFailed
-        }
-        jsonData.count = decodedCount
+        let jsonData = try decompressLZFSE(compressedData)
 
         let decoder = JSONDecoder()
         do {
@@ -624,6 +611,37 @@ public nonisolated enum ScheduleShareCodeCodec {
             throw error
         } catch {
             throw ScheduleShareCodeError.invalidFormat
+        }
+    }
+
+    private static func decompressLZFSE(_ compressedData: Data) throws -> Data {
+        let maxCapacity = maximumDecodedBytes + 1
+        var capacity = min(64 * 1024, maxCapacity)
+        while true {
+            var buffer = Data(count: capacity)
+            let decodedCount = buffer.withUnsafeMutableBytes { output in
+                compressedData.withUnsafeBytes { input -> Int in
+                    guard let destination = output.bindMemory(to: UInt8.self).baseAddress,
+                        let source = input.bindMemory(to: UInt8.self).baseAddress
+                    else { return 0 }
+                    return compression_decode_buffer(
+                        destination, output.count, source, input.count, nil, COMPRESSION_LZFSE)
+                }
+            }
+            guard decodedCount > 0 else {
+                throw ScheduleShareCodeError.decompressionFailed
+            }
+            if decodedCount < capacity {
+                guard decodedCount <= maximumDecodedBytes else {
+                    throw ScheduleShareCodeError.decompressionFailed
+                }
+                buffer.count = decodedCount
+                return buffer
+            }
+            guard capacity < maxCapacity else {
+                throw ScheduleShareCodeError.decompressionFailed
+            }
+            capacity = min(capacity * 2, maxCapacity)
         }
     }
 

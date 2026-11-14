@@ -19,6 +19,7 @@ from python_shell import (
 
 import argparse
 import ast
+from concurrent.futures import ThreadPoolExecutor
 import re
 import runpy
 import shlex
@@ -156,9 +157,9 @@ def checked_python(source, path, *, lint=True, imports=None):
             raise SyntaxError(f"{path}:\n{result.stdout or result.stderr}")
 
 
-def compile_embedded_python(source, path, *, imports=None):
+def compile_embedded_python(source, path, *, lint=True, imports=None):
     def check(body, start, end, inline):
-        checked_python(body, path, imports=imports)
+        checked_python(body, path, lint=lint, imports=imports)
 
     visit_python_shell(source, path, check)
 
@@ -190,18 +191,22 @@ if args.self_test:
         label = command_argument(opening, re.match(r"<<-?\s*", opening).end())[0].decode("utf-8")
         prefix = "\t" if opening == "<<-PY" else ""
         compile_embedded_python(
-            f"python3 - {opening}\n{prefix}pass\n{prefix}{label}\n", "heredoc-self-test"
+            f"python3 - {opening}\n{prefix}pass\n{prefix}{label}\n",
+            "heredoc-self-test",
+            lint=False,
         )
         try:
             compile_embedded_python(
-                f"python3 - {opening}\n{prefix}if True\n{prefix}{label}\n", "heredoc-self-test"
+                f"python3 - {opening}\n{prefix}if True\n{prefix}{label}\n",
+                "heredoc-self-test",
+                lint=False,
             )
         except SyntaxError:
             pass
         else:
             raise AssertionError(f"Python heredoc 语法审计遗漏：{opening}")
 
-    compile_embedded_python("cat <<'EOF'\nif True\nEOF\n", "shell-text-self-test")
+    compile_embedded_python("cat <<'EOF'\nif True\nEOF\n", "shell-text-self-test", lint=False)
     for command in (
         "echo python3",
         "python3 -c 'pass'",
@@ -209,11 +214,13 @@ if args.self_test:
         "python3 script.py",
         "python3 -m package",
     ):
-        compile_embedded_python(command + " <<'EOF'\nif True\nEOF\n", "python-stdin-data-self-test")
+        compile_embedded_python(
+            command + " <<'EOF'\nif True\nEOF\n", "python-stdin-data-self-test", lint=False
+        )
     for command in ("python3", "python3 -B -", '"/fixture/Python Tools/python3" -', "python3 -- -"):
         try:
             compile_embedded_python(
-                command + " <<'EOF'\nif True\nEOF\n", "python-stdin-code-self-test"
+                command + " <<'EOF'\nif True\nEOF\n", "python-stdin-code-self-test", lint=False
             )
         except SyntaxError:
             pass
@@ -229,9 +236,13 @@ if args.self_test:
         "python3 /dev/fd/3 <<'DATA' 3<<'CODE'\nif True\nDATA\n{code}\nCODE\n",
         "python3 /dev/fd/3 3<<'CODE' 4<<'DATA'\n{code}\nCODE\nif True\nDATA\n",
     ):
-        compile_embedded_python(source.format(code="pass"), "descriptor-code-self-test")
+        compile_embedded_python(
+            source.format(code="pass"), "descriptor-code-self-test", lint=False
+        )
         try:
-            compile_embedded_python(source.format(code="if True"), "descriptor-code-self-test")
+            compile_embedded_python(
+                source.format(code="if True"), "descriptor-code-self-test", lint=False
+            )
         except SyntaxError:
             pass
         else:
@@ -244,7 +255,9 @@ if args.self_test:
         "cat 3<<'CODE'",
         "python3 /dev/fd/3 argument3<<'CODE'",
     ):
-        compile_embedded_python(command + "\nif True\nCODE\n", "descriptor-data-self-test")
+        compile_embedded_python(
+            command + "\nif True\nCODE\n", "descriptor-data-self-test", lint=False
+        )
     optimized = subprocess.run(
         [sys.executable, "-O", "-B", str(Path(__file__).resolve()), str(root)],
         capture_output=True,
@@ -260,11 +273,15 @@ if args.self_test:
         ("python3 - <<'FIRST' | python3 - <<'SECOND'", "pass\nFIRST\n{python}\nSECOND\n"),
     ]:
         compile_embedded_python(
-            command + "\n" + bodies.format(python="pass"), "multiple-heredoc-self-test"
+            command + "\n" + bodies.format(python="pass"),
+            "multiple-heredoc-self-test",
+            lint=False,
         )
         try:
             compile_embedded_python(
-                command + "\n" + bodies.format(python="if True"), "multiple-heredoc-self-test"
+                command + "\n" + bodies.format(python="if True"),
+                "multiple-heredoc-self-test",
+                lint=False,
             )
         except SyntaxError:
             pass
@@ -276,13 +293,13 @@ if args.self_test:
         'echo "python3 <<PY"\n',
         "cat <<'EOF'\n# python3 <<'PY'\nEOF\n",
     ):
-        compile_embedded_python(source, "shell-lexical-self-test")
+        compile_embedded_python(source, "shell-lexical-self-test", lint=False)
     for source in (
         "python3 - \\\n <<'EOF'\nif True\nEOF\n",
         "value=\"$(python3 - <<'EOF'\nif True\nEOF\n)\"\n",
     ):
         try:
-            compile_embedded_python(source, "shell-continuation-self-test")
+            compile_embedded_python(source, "shell-continuation-self-test", lint=False)
         except SyntaxError:
             pass
         else:
@@ -298,10 +315,14 @@ if args.self_test:
         "value=\"`python3 -c '{code}'`\"",
         "value=`python3 -c {code}`",
     ):
-        compile_embedded_python(source.format(code="pass"), "redirect-substitution-self-test")
+        compile_embedded_python(
+            source.format(code="pass"), "redirect-substitution-self-test", lint=False
+        )
         try:
             compile_embedded_python(
-                source.format(code="if True"), "redirect-substitution-self-test"
+                source.format(code="if True"),
+                "redirect-substitution-self-test",
+                lint=False,
             )
         except SyntaxError:
             pass
@@ -313,7 +334,7 @@ if args.self_test:
         "echo '`python3 -c if True`'",
         'echo "\\`python3 -c if True\\`"',
     ):
-        compile_embedded_python(source, "redirect-substitution-text-self-test")
+        compile_embedded_python(source, "redirect-substitution-text-self-test", lint=False)
 
     for prefix in (
         "python3 -c ",
@@ -341,17 +362,23 @@ if args.self_test:
         for quote in ("'", '"', "$'"):
             closing = quote[-1]
             compile_embedded_python(
-                prefix + quote + "pass" + closing + suffix, "inline-python-self-test"
+                prefix + quote + "pass" + closing + suffix,
+                "inline-python-self-test",
+                lint=False,
             )
             try:
                 compile_embedded_python(
-                    prefix + quote + "if True" + closing + suffix, "inline-python-self-test"
+                    prefix + quote + "if True" + closing + suffix,
+                    "inline-python-self-test",
+                    lint=False,
                 )
             except SyntaxError:
                 pass
             else:
                 raise AssertionError("Python -c 字面量需要参与语法审计")
-    compile_embedded_python('python3 -c "print(\\"literal\\")"', "inline-escape-self-test")
+    compile_embedded_python(
+        'python3 -c "print(\\"literal\\")"', "inline-escape-self-test", lint=False
+    )
     for argument, expected in ((r"$'\q'", b"q"), (r"$'\c?\cA'", b"c?cA"), (r"$'a\0b'", b"a")):
         assert command_argument(argument, 0)[0] == expected
     for argument in (
@@ -367,7 +394,9 @@ if args.self_test:
         "\\\n    'pass'",
         "p\\ass",
     ):
-        compile_embedded_python("python3 -Bc " + argument, "inline-argument-self-test")
+        compile_embedded_python(
+            "python3 -Bc " + argument, "inline-argument-self-test", lint=False
+        )
     for argument in (
         "'if ''True'",
         "$'if True\\n    pass'",
@@ -377,7 +406,9 @@ if args.self_test:
         "\\\n  'if True'",
     ):
         try:
-            compile_embedded_python("python3 -c " + argument, "inline-argument-self-test")
+            compile_embedded_python(
+                "python3 -c " + argument, "inline-argument-self-test", lint=False
+            )
         except SyntaxError:
             pass
         else:
@@ -392,7 +423,7 @@ if args.self_test:
         "python3 script.py -c 'if True'",
         "printf '%s' $'\\xff'",
     ):
-        compile_embedded_python(source, "inline-shell-text-self-test")
+        compile_embedded_python(source, "inline-shell-text-self-test", lint=False)
 
     checked_python("from datetime import timezone\nprint(timezone.utc)", "defined-name-self-test")
     for source in (
@@ -480,6 +511,7 @@ sources = {
 }
 
 python_paths = []
+shell_tasks = []
 for name, source in script_sources.items():
     if syntax_targets is not None and name not in syntax_targets:
         continue
@@ -488,7 +520,15 @@ for name, source in script_sources.items():
         if not args.staged:
             python_paths.append(str(root / name))
     else:
-        compile_embedded_python(source, root / name, imports=sources)
+        shell_tasks.append((source, root / name))
+if shell_tasks:
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = [
+            pool.submit(compile_embedded_python, src, path, imports=sources)
+            for src, path in shell_tasks
+        ]
+        for future in futures:
+            future.result()
 if python_paths:
     result = run_ruff(["--", *python_paths])
     if result.returncode:

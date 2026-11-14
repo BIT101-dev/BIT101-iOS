@@ -36,6 +36,7 @@ struct NativeLoginTests {
         var schoolSessionReady = false
         var schoolRisk = false
         var schoolRiskStatus = 200
+        var webVPNConflict = false
         var onSchoolPage: (() throws -> Void)?
         func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
             let result = try await data(for: request)
@@ -75,7 +76,10 @@ struct NativeLoginTests {
                     5MDEyMzQ1Ng=="}
                     """#
             case "/user/webvpn_verify":
-                if identityPasswordRejections > 0 {
+                if webVPNConflict {
+                    status = 409
+                    text = ""
+                } else if identityPasswordRejections > 0 {
                     identityPasswordRejections -= 1
                     status = 401
                     text = #"{"msg":"用户名或密码错误"}"#
@@ -773,6 +777,77 @@ struct NativeLoginTests {
             }
             #expect(transport.requests.count == 1 && transport.requests.first?.httpMethod == "GET")
             #expect(prompts() == 0 && storage.fakeCookie == "community-cookie")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func casPost401SecondFactorAndRestricted() async throws {
+        try await fixture { storage, transport, _, _, _ in
+            try storage.saveLoginState(
+                studentID: "owner", password: "school-B", fakeCookie: "community-cookie")
+            let client = HTTPClient(transport: transport, observer: nil)
+            let cookies = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+            let api = BIT101APIClient(
+                httpClient: client, noRedirectHTTPClient: client,
+                schoolCookieStorage: { cookies })
+            let page = try await api.fetchSchoolLoginPage()
+            transport.schoolFailureStatus = 401
+            transport.schoolFailureBody =
+                #"""
+                <form id="secondSmsLoginForm" action="/cas/login"><p id="login-page-flowkey">sms-\#
+                401</p><p id="user-object-id">owner-401</p></form>
+                """#
+            do {
+                _ = try await api.loginSchool(credentials: storage, page: page)
+                Issue.record("HTTP 401 二次短信页应触发短信验证流程。")
+            } catch LoginServiceError.schoolSMSRequired(let context) {
+                #expect(context.execution == "sms-401" && context.userObjectID == "owner-401")
+            }
+            transport.schoolFailureBody = "<html>unauthorized</html>"
+            do {
+                _ = try await api.loginSchool(credentials: storage, page: page)
+                Issue.record("HTTP 401 登录拒绝应识别为学校认证受限。")
+            } catch {
+                #expect(SchoolServiceFailure.from(error) == .authenticationRestricted)
+            }
+            do {
+                _ = try await api.submitSchoolServiceLogin(
+                    url: page.url, html: page.html, credentials: storage,
+                    cookieStorage: { cookies })
+                Issue.record("CAS service HTTP 401 应识别为学校认证受限。")
+            } catch {
+                #expect(SchoolServiceFailure.from(error) == .authenticationRestricted)
+            }
+            for (code, expected) in [
+                ("1320007", SchoolServiceFailure.captchaRequired),
+                ("1320009", .authenticationRestricted),
+            ] {
+                transport.schoolFailureBody = "<span id='login-error-code'>\(code)</span>"
+                do {
+                    _ = try await api.loginSchool(credentials: storage, page: page)
+                    Issue.record("CAS 错误码 \(code) 应映射为学校认证失败。")
+                } catch {
+                    #expect(SchoolServiceFailure.from(error) == expected)
+                }
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func webvpnVerifyConflictProvidesGuidance() async throws {
+        try await fixture { _, transport, _, _, _ in
+            transport.webVPNConflict = true
+            let client = HTTPClient(transport: transport, observer: nil)
+            let api = BIT101APIClient(httpClient: client, noRedirectHTTPClient: client)
+            do {
+                _ = try await api.webVPNVerify(
+                    studentID: "owner", password: "secret", execution: "flow",
+                    cookie: "cookie", salt: "salt")
+                Issue.record("HTTP 409 应抛出身份校验受限提示。")
+            } catch {
+                #expect(BIT101APIClient.allowsSchoolOnlyLogin(after: error))
+                #expect(
+                    error.localizedDescription
+                        == "WebVPN 身份校验暂时受限（HTTP 409），请稍后重试，或切换为校园邮箱完成验证。")
+            }
         }
     }
 }

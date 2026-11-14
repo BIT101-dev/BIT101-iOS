@@ -104,6 +104,9 @@ extension ScheduleService {
 
         func inspect(_ value: Any, path: [String]) {
             guard !Task.isCancelled else { return }
+            if path.last.map({ recordKeys.contains($0.lowercased()) }) == true {
+                return
+            }
             if let dictionary = value as? [String: Any] {
                 let explicitError = (field(dictionary, named: "error") as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -114,39 +117,36 @@ extension ScheduleService {
                     ?? (field(dictionary, named: "message") as? String)
                 let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let normalizedPath = path.map { $0.lowercased() }
-                let isRecord = normalizedPath.contains(where: recordKeys.contains)
                 let isEnvelope =
                     path.isEmpty || normalizedPath.last.map(envelopeKeys.contains) == true
-                if !isRecord {
-                    let code = normalizedBusinessCode(field(dictionary, named: "code"))
-                    let success = normalizedBusinessFlag(field(dictionary, named: "success"))
-                    let reportsSuccess = success == true || isBusinessSuccess(trimmed)
-                    let priority: Int?
-                    if explicitErrorMessage != nil {
-                        priority = 0
-                    } else if isEnvelope, success == false {
-                        priority = 1
-                    } else if isEnvelope,
-                        success != true,
-                        isBusinessFailure(trimmed)
-                    {
-                        priority = 2
-                    } else if isEnvelope, let code, !successCodes.contains(code), !reportsSuccess {
-                        priority = 3
-                    } else {
-                        priority = nil
-                    }
-                    if let priority {
-                        candidates.append(
-                            (
-                                priority: priority,
-                                depth: path.count,
-                                path: path.joined(separator: "."),
-                                message: trimmed.isEmpty ? "学校接口返回失败状态。" : trimmed
-                            ))
-                    }
+                let code = normalizedBusinessCode(field(dictionary, named: "code"))
+                let success = normalizedBusinessFlag(field(dictionary, named: "success"))
+                let reportsSuccess = success == true || isBusinessSuccess(trimmed)
+                let priority: Int?
+                if explicitErrorMessage != nil {
+                    priority = 0
+                } else if isEnvelope, success == false {
+                    priority = 1
+                } else if isEnvelope,
+                    success != true,
+                    isBusinessFailure(trimmed)
+                {
+                    priority = 2
+                } else if isEnvelope, let code, !successCodes.contains(code), !reportsSuccess {
+                    priority = 3
+                } else {
+                    priority = nil
                 }
-                for key in dictionary.keys.sorted() {
+                if let priority {
+                    candidates.append(
+                        (
+                            priority: priority,
+                            depth: path.count,
+                            path: path.joined(separator: "."),
+                            message: trimmed.isEmpty ? "学校接口返回失败状态。" : trimmed
+                        ))
+                }
+                for key in dictionary.keys.sorted() where !recordKeys.contains(key.lowercased()) {
                     if let child = dictionary[key] {
                         inspect(child, path: path + [key])
                     }
@@ -355,12 +355,12 @@ extension ScheduleService {
         {
             throw ScheduleServiceError.teachingCenterSessionExpired
         }
-        if looksLikeLoginHTML(data) { throw ScheduleServiceError.teachingCenterSessionExpired }
+        if looksLikeLoginHTML(lowercasedPrefix: html) {
+            throw ScheduleServiceError.teachingCenterSessionExpired
+        }
     }
 
-    private func looksLikeLoginHTML(_ data: Data) -> Bool {
-        guard !data.isEmpty else { return false }
-        let prefix = String(decoding: data.prefix(16_384), as: UTF8.self).lowercased()
+    private func looksLikeLoginHTML(lowercasedPrefix prefix: String) -> Bool {
         guard prefix.contains("<html") || prefix.contains("<!doctype html") else { return false }
         return prefix.contains("统一身份认证")
             || prefix.contains("用户名密码")

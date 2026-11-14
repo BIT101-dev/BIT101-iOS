@@ -379,15 +379,41 @@ nonisolated enum ErrorReportRedactor {
     }
 
     static func sanitizedURL(_ string: String, credentials: [String], studentID: String) -> String {
-        guard var components = URLComponents(string: string) else {
-            return sanitized(string, credentials: credentials, studentID: studentID)
+        let fallback = {
+            let withoutFragment =
+                string.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+                .first.map(String.init) ?? string
+            let stripped =
+                withoutFragment.firstIndex(of: "?").map {
+                    String(withoutFragment[..<$0]) + "?[REDACTED]"
+                } ?? withoutFragment
+            return sanitized(stripped, credentials: credentials, studentID: studentID)
         }
+        guard var components = URLComponents(string: string) else { return fallback() }
         components.path = sanitized(components.path, credentials: credentials, studentID: studentID)
-        components.query = components.queryItems?.map { "\($0.name)=[REDACTED]" }.joined(
-            separator: "&")
+        components.query = components.queryItems?.map {
+            "\(sanitized($0.name, credentials: credentials, studentID: studentID))=[REDACTED]"
+        }.joined(separator: "&")
         components.fragment = nil
-        return sanitized(
-            components.string ?? string, credentials: credentials, studentID: studentID)
+        guard let rendered = components.string else { return fallback() }
+        return sanitized(rendered, credentials: credentials, studentID: studentID)
+    }
+
+    static func sanitizedResponseHeaders(
+        _ headers: [String: String], credentials: [String], studentID: String
+    ) -> [String: String] {
+        headers.reduce(into: [:]) { result, pair in
+            switch pair.key.lowercased() {
+            case "location":
+                result[pair.key] = sanitizedURL(
+                    pair.value, credentials: credentials, studentID: studentID)
+            case "content-type", "server":
+                result[pair.key] = sanitized(
+                    pair.value, credentials: credentials, studentID: studentID)
+            default:
+                break
+            }
+        }
     }
 }
 
@@ -397,6 +423,34 @@ nonisolated struct FeedbackDeviceContext: Codable, Sendable {
     let interfaceStyle: String
     let orientation: String
     let networkStatus: String
+    let virtualNetworkLikely: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case locale, timeZone, interfaceStyle, orientation, networkStatus, virtualNetworkLikely
+    }
+
+    init(
+        locale: String, timeZone: String, interfaceStyle: String, orientation: String,
+        networkStatus: String, virtualNetworkLikely: Bool = false
+    ) {
+        self.locale = locale
+        self.timeZone = timeZone
+        self.interfaceStyle = interfaceStyle
+        self.orientation = orientation
+        self.networkStatus = networkStatus
+        self.virtualNetworkLikely = virtualNetworkLikely
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        locale = try container.decode(String.self, forKey: .locale)
+        timeZone = try container.decode(String.self, forKey: .timeZone)
+        interfaceStyle = try container.decode(String.self, forKey: .interfaceStyle)
+        orientation = try container.decodeIfPresent(String.self, forKey: .orientation) ?? "unknown"
+        networkStatus = try container.decode(String.self, forKey: .networkStatus)
+        virtualNetworkLikely =
+            try container.decodeIfPresent(Bool.self, forKey: .virtualNetworkLikely) ?? false
+    }
 
     @MainActor
     static var current: FeedbackDeviceContext {
@@ -407,15 +461,30 @@ nonisolated struct FeedbackDeviceContext: Codable, Sendable {
         default: style = "unspecified"
         }
 
-        let orientation = String(describing: UIDevice.current.orientation)
+        let orientation = Self.orientationLabel(UIDevice.current.orientation)
+        let snapshot = NetworkConnectionDescription.shared.snapshot
 
         return FeedbackDeviceContext(
             locale: Locale.current.identifier,
             timeZone: TimeZone.current.identifier,
             interfaceStyle: style,
             orientation: orientation,
-            networkStatus: NetworkConnectionDescription.shared.current
+            networkStatus: snapshot.summary,
+            virtualNetworkLikely: snapshot.virtualNetworkLikely
         )
+    }
+
+    static func orientationLabel(_ orientation: UIDeviceOrientation) -> String {
+        switch orientation {
+        case .portrait: "portrait"
+        case .portraitUpsideDown: "portraitUpsideDown"
+        case .landscapeLeft: "landscapeLeft"
+        case .landscapeRight: "landscapeRight"
+        case .faceUp: "faceUp"
+        case .faceDown: "faceDown"
+        case .unknown: "unknown"
+        @unknown default: "unknown"
+        }
     }
 }
 
@@ -502,11 +571,23 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
     let context: FeedbackDeviceContext
     let diagnosticSummary: FeedbackDiagnosticSummary
     var scheduleCacheReadFailure: String?
+    var errorChain: [String]? = nil
+
+    static func describeErrorChain(_ error: (any Error)?) -> [String]? {
+        guard let error else { return nil }
+        var entries: [String] = []
+        _ = ErrorChain.contains(error) { candidate in
+            let nsError = candidate as NSError
+            entries.append("\(type(of: candidate))(\(nsError.domain):\(nsError.code))")
+            return entries.count >= 8
+        }
+        return entries.isEmpty ? nil : entries
+    }
 
     func hasSameContent(as other: Self) -> Bool {
         mode == other.mode && comment == other.comment && contact == other.contact
             && errorTitle == other.errorTitle && errorMessage == other.errorMessage
-            && diagnostics == other.diagnostics
+            && diagnostics == other.diagnostics && errorChain == other.errorChain
     }
 
     func fittingMetadataBudget() throws -> Self {
@@ -529,7 +610,8 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
                     elapsedMilliseconds: record.elapsedMilliseconds,
                     error: record.error, responseHeaders: record.responseHeaders,
                     responseBody: body,
-                    finalURL: record.finalURL, finalMethod: record.finalMethod)
+                    finalURL: record.finalURL, finalMethod: record.finalMethod,
+                    responseBytes: record.responseBytes, upstreamCode: record.upstreamCode)
             }
         }
         return bounded
@@ -555,7 +637,8 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
                 statusCode: record.statusCode, elapsedMilliseconds: record.elapsedMilliseconds,
                 error: record.error.map(redact),
                 responseHeaders: sanitized
-                    ? [:]
+                    ? ErrorReportRedactor.sanitizedResponseHeaders(
+                        record.responseHeaders, credentials: credentials, studentID: studentID)
                     : ErrorReportRedactor.redactHeaders(
                         record.responseHeaders, credentials: credentials),
                 responseBody: sanitized
@@ -568,7 +651,9 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
                         ? ErrorReportRedactor.sanitizedURL(
                             $0, credentials: credentials, studentID: studentID)
                         : ErrorReportRedactor.forced($0, credentials: credentials)
-                }, finalMethod: record.finalMethod)
+                }, finalMethod: record.finalMethod,
+                responseBytes: record.responseBytes,
+                upstreamCode: record.upstreamCode.map(redact))
         }
         return try Self(
             requestID: requestID, mode: mode, isDevelopmentBuild: isDevelopmentBuild,
@@ -580,7 +665,8 @@ nonisolated struct ErrorReportPayload: FeedbackSubmissionPayload {
             diagnostics: selected,
             submittedAt: submittedAt, context: context,
             diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: selected),
-            scheduleCacheReadFailure: scheduleCacheReadFailure.map(redact)
+            scheduleCacheReadFailure: scheduleCacheReadFailure.map(redact),
+            errorChain: errorChain?.map(redact)
         )
         .fittingMetadataBudget()
     }
@@ -785,7 +871,8 @@ struct FeedbackSubmissionClient {
             submittedAt: Date(),
             context: context,
             diagnosticSummary: FeedbackDiagnosticSummary(diagnostics: diagnostics),
-            scheduleCacheReadFailure: await ScheduleCacheStore.readFailureAsync()
+            scheduleCacheReadFailure: await ScheduleCacheStore.readFailureAsync(),
+            errorChain: ErrorReportPayload.describeErrorChain(alert.underlyingError)
         )
         do {
             try Task.checkCancellation()

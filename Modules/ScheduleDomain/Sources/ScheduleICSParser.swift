@@ -136,7 +136,9 @@ public nonisolated enum ScheduleICSParser {
     }
 
     public static func decodeValue(_ value: String) -> String {
+        guard value.contains("\\") else { return value }
         var decoded = ""
+        decoded.reserveCapacity(value.count)
         let characters = Array(value)
         var index = 0
         while index < characters.count {

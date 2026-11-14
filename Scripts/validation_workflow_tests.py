@@ -25,9 +25,9 @@ from validation_inputs import self_test as input_self_test
 from validation_performance_tests import run_self_test as performance_self_test
 
 
-def verify_workflow_inputs(subject, fixture_environment):
+def verify_workflow_inputs(subject, fixture_environment, run_subsuites: bool = True):
     core, current_digest, module_name, relocated = verify_build_workflow_inputs(
-        fixture_environment, subject
+        fixture_environment, subject, run_subsuites=run_subsuites
     )
     compiler = verify_restoration_workflow_inputs(
         core, current_digest, fixture_environment, module_name, relocated, subject
@@ -42,30 +42,23 @@ def verify_test_inventory(subject, stable_inputs):
     return test, icloud_summary
 
 
-def verify_build_workflow_inputs(fixture_environment, subject):
+def verify_build_workflow_inputs(fixture_environment, subject, run_subsuites: bool = True):
     module_name = subject.__name__
-    from validation_provenance_tests import run_self_test as provenance_self_test
-    from validation_test_areas import inventory_findings
+    if run_subsuites:
+        from validation_provenance_tests import run_self_test as provenance_self_test
+        from validation_manual_tests import run_self_test as manual_self_test
+        from validation_restore import self_test as restore_self_test
+        from validation_coverage import self_test as coverage_self_test
+        from ci_evidence import self_test as ci_evidence_self_test
+        from validation_publication import self_test as publication_self_test
 
-    provenance_self_test(subject.record)
-    from validation_manual_tests import (
-        run_self_test as manual_self_test,
-    )
-
-    manual_self_test()
-    performance_self_test()
-    from validation_restore import self_test as restore_self_test
-
-    restore_self_test()
-    from validation_coverage import self_test as coverage_self_test
-
-    coverage_self_test(subject)
-    from ci_evidence import self_test as ci_evidence_self_test
-
-    ci_evidence_self_test()
-    from validation_publication import self_test as publication_self_test
-
-    publication_self_test()
+        provenance_self_test(subject.record)
+        manual_self_test()
+        performance_self_test()
+        restore_self_test()
+        coverage_self_test(subject)
+        ci_evidence_self_test()
+        publication_self_test()
     from validation_merge import findings as merge_findings
     from validation_provenance import utc_now
 

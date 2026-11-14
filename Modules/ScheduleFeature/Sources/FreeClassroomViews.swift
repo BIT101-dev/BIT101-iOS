@@ -28,7 +28,10 @@ struct FreeClassroomTabView: View {
     }
 
     private func classroomResults(usesSidebar: Bool, controlsOnly: Bool = false) -> some View {
-        let availabilities = viewModel.classroomAvailabilities(at: currentDate)
+        let availabilities =
+            controlsOnly ? [] : viewModel.classroomAvailabilities(at: currentDate)
+        let selectedSections = controlsOnly ? [] : viewModel.cache.selectedClassroomSectionIDs
+        let timeTable = controlsOnly ? [] : viewModel.cache.timeTable
         return List {
             if controlsOnly || !usesSidebar { classroomControls(usesSidebar: controlsOnly) }
             if !controlsOnly, availabilities.isEmpty, !viewModel.isRefreshingPage {
@@ -46,7 +49,11 @@ struct FreeClassroomTabView: View {
                 Section {
                     // ViewModel 已完成排序和筛选，列表在此展示可用教室结果。
                     ForEach(availabilities) { classroom in
-                        classroomRow(classroom)
+                        classroomRow(
+                            classroom,
+                            selectedSections: selectedSections,
+                            timeTable: timeTable
+                        )
                     }
                 }
             }
@@ -65,8 +72,16 @@ struct FreeClassroomTabView: View {
         }
     }
 
-    private func classroomRow(_ classroom: ClassroomAvailability) -> some View {
-        let matchesAllSelectedSections = isExactMatch(for: classroom)
+    private func classroomRow(
+        _ classroom: ClassroomAvailability,
+        selectedSections: [Int],
+        timeTable: [TimeSlot]
+    ) -> some View {
+        let matchesAllSelectedSections = isExactMatch(
+            for: classroom,
+            selectedSections: selectedSections,
+            timeTable: timeTable
+        )
         let font =
             matchesAllSelectedSections
             ? AppDesignSystem.Typography.subheadlineEmphasis
@@ -175,11 +190,15 @@ struct FreeClassroomTabView: View {
         return canClearSectionFilter ? "当前筛选条件下没有空教室。" : "先选定校区和教学楼，再刷新一次。"
     }
 
-    private func isExactMatch(for classroom: ClassroomAvailability) -> Bool {
+    private func isExactMatch(
+        for classroom: ClassroomAvailability,
+        selectedSections: [Int],
+        timeTable: [TimeSlot]
+    ) -> Bool {
         switch ClassroomAvailabilityCalculator.sectionMatch(
             freeSections: classroom.freeSections,
-            selectedSections: viewModel.cache.selectedClassroomSectionIDs,
-            timeTable: viewModel.cache.timeTable
+            selectedSections: selectedSections,
+            timeTable: timeTable
         ) {
         case .full:
             return true

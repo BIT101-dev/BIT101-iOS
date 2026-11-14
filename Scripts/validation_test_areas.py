@@ -197,7 +197,9 @@ extension ExistingRegularTests { @Test func productionOnly() {} }
     } == {"addedContract"}
 
 
-def network_capability_findings(index: dict) -> list[str]:
+def network_capability_findings(
+    index: dict, *, precomputed: tuple[dict, dict] | None = None
+) -> list[str]:
     from pathlib import Path
     from swift_type_index import SwiftTypeIndex
     from validation_manual import MANUAL_DEVICE_CHECKS, MANUAL_SCENARIOS
@@ -211,13 +213,12 @@ def network_capability_findings(index: dict) -> list[str]:
     )
 
     index = execution_index(index)
-    actual = business_methods(index)
+    actual, reachable = precomputed or (business_methods(index), reachable_smoke_calls(index))
     types = SwiftTypeIndex(index)
     receiver_owner = smoke_receiver_resolver(index)
     reachable_capabilities = {"network": set(), "community-writes": set()}
     edges = {}
     all_functions = {}
-    reachable = reachable_smoke_calls(index)
     for owner in actual:
         scope = owner.split(".")[1:]
         all_functions[owner] = [

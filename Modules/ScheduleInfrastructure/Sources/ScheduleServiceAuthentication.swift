@@ -270,7 +270,7 @@ extension ScheduleService {
         ) { challengeID in
             try await validateAuthOwner(owner)
             var request = URLRequest(
-                url: bitLoginBaseURL.appending(path: "api/auth/\(challengeID)")
+                url: bitLoginBaseURL.appending(components: "api", "auth", challengeID)
             )
             request.setValue(accessToken, forHTTPHeaderField: "X-Challenge-Token")
             let wire = try await sendObservedRequest(request)

@@ -60,7 +60,7 @@ extension Int {
     }
 
     @ObservationIgnored private var courseScheduleProjection:
-        (revision: Int, values: [CourseScheduleVariant])?
+        (token: Int, values: [CourseScheduleVariant])?
 
     /// 当前选中的一级分栏。
     public var selectedSection: ScheduleSection = .courses
@@ -123,7 +123,13 @@ extension Int {
     let courseSyncCoordinator: ScheduleCourseSyncCoordinator
     let platformActions: any SchedulePlatformActions
     let newCustomScheduleDraft: () -> CustomScheduleDraft
+    @ObservationIgnored private var initialLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var initialLoadID: UUID?
+    @ObservationIgnored private var hasAccountResetLoad = false
+    @ObservationIgnored private var initialLoadWaiters: [UUID: CheckedContinuation<Void, Never>] =
+        [:]
     @ObservationIgnored var cloudSyncEnableTask: Task<Void, Never>?
+    @ObservationIgnored var activityReminderEnableTask: Task<Void, Never>?
     private var hasLoaded = false
 
     public init(
@@ -159,22 +165,36 @@ extension Int {
         }
     }
 
-    deinit { cloudSyncEnableTask?.cancel() }
+    deinit {
+        initialLoadTask?.cancel()
+        cloudSyncEnableTask?.cancel()
+        activityReminderEnableTask?.cancel()
+    }
 
     public func dismissNotice() { notice = nil }
 
     public func resetForCurrentAccount() {
+        initialLoadTask?.cancel()
+        initialLoadTask = nil
+        initialLoadID = nil
+        hasAccountResetLoad = false
+        resumeInitialLoadWaiters()
         cloudSyncEnableTask?.cancel()
         cloudSyncEnableTask = nil
+        activityReminderEnableTask?.cancel()
+        activityReminderEnableTask = nil
         repository.resetForCurrentAccount()
-        selectedCourseScheduleIndex = 0
+        courseScheduleProjection = nil
+        selectedCourseScheduleID = "__primary__"
+        selectedWeek = 1
         classroom.reset()
         ddl.reset()
         hasLoaded = false
         requestedSystemCalendarEvent = nil
         courseSyncCoordinator.reset()
         notice = nil
-        Task { @MainActor [weak self] in await self?.reloadFromDisk() }
+        hasAccountResetLoad = true
+        startInitialLoadIfNeeded()
     }
 
     /// 构造日程模块统一使用的本地校验错误。
@@ -203,9 +223,8 @@ extension Int {
     ///
     /// 顺序固定为：我的课表在前，导入的分享课表依次排在后面。
     var courseSchedules: [CourseScheduleVariant] {
-        repository.trackCourseSection()
-        let revision = repository.revision
-        if let courseScheduleProjection, courseScheduleProjection.revision == revision {
+        let token = repository.courseToken
+        if let courseScheduleProjection, courseScheduleProjection.token == token {
             return courseScheduleProjection.values
         }
         let state = courseState
@@ -243,7 +262,7 @@ extension Int {
         }
 
         let values = [primary] + shared
-        courseScheduleProjection = (revision, values)
+        courseScheduleProjection = (token, values)
         return values
     }
 
@@ -257,6 +276,69 @@ extension Int {
     ///
     /// 日程页先展示本地缓存，联网同步由用户主动触发；冷启动直接进入缓存内容。
     public func loadIfNeeded() async {
+        guard !hasLoaded, !Task.isCancelled else { return }
+        startInitialLoadIfNeeded()
+        guard initialLoadTask != nil else { return }
+        let waiter = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                self.registerInitialLoadWaiter(waiter, continuation: continuation)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                await self?.cancelInitialLoadWaiter(waiter)
+            }
+        }
+    }
+
+    private func registerInitialLoadWaiter(
+        _ waiter: UUID, continuation: CheckedContinuation<Void, Never>
+    ) {
+        if initialLoadTask == nil || hasLoaded {
+            continuation.resume()
+            return
+        }
+        initialLoadWaiters[waiter] = continuation
+        if Task.isCancelled {
+            Task { @MainActor [weak self] in
+                await self?.cancelInitialLoadWaiter(waiter)
+            }
+        }
+    }
+
+    private func startInitialLoadIfNeeded() {
+        guard !hasLoaded, initialLoadTask == nil else { return }
+        let loadID = UUID()
+        initialLoadID = loadID
+        initialLoadTask = Task { @MainActor [weak self] in
+            await self?.performInitialLoad()
+            guard let self, self.initialLoadID == loadID else { return }
+            self.initialLoadTask = nil
+            self.initialLoadID = nil
+            self.hasAccountResetLoad = false
+            self.resumeInitialLoadWaiters()
+        }
+    }
+
+    private func cancelInitialLoadWaiter(_ waiter: UUID) async {
+        guard let removed = initialLoadWaiters.removeValue(forKey: waiter) else { return }
+        if initialLoadWaiters.isEmpty, !hasAccountResetLoad {
+            let task = initialLoadTask
+            initialLoadTask = nil
+            initialLoadID = nil
+            task?.cancel()
+            await task?.value
+        }
+        removed.resume()
+    }
+
+    private func resumeInitialLoadWaiters() {
+        let waiters = Array(initialLoadWaiters.values)
+        initialLoadWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func performInitialLoad() async {
         guard !hasLoaded, !Task.isCancelled else { return }
         let generation = repository.accountGeneration
 

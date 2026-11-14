@@ -165,6 +165,8 @@ def plist_values(path: Path, keys: tuple[str, ...]) -> dict:
 def host_environment() -> dict:
     selected = os.environ.get("DEVELOPER_DIR") or "/var/db/xcode_select_link"
     developer = Path(selected).resolve()
+    if not os.environ.get("DEVELOPER_DIR") and not developer.exists():
+        developer = Path("/Applications/Xcode.app/Contents/Developer").resolve()
     if developer.suffix == ".app":
         developer = (developer / "Contents/Developer").resolve()
     frontend = Path(

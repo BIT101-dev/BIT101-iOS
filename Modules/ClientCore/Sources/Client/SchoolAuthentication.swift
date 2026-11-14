@@ -9,8 +9,8 @@ public nonisolated protocol SchoolServiceFailureProviding: Error {
 public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable,
     SchoolServiceFailureProviding
 {
-    case authenticationChannel, authenticationRestricted, accountLocked, sessionExpired,
-        accessDenied, secureConnection, unavailable
+    case authenticationChannel, authenticationRestricted, captchaRequired, accountLocked,
+        sessionExpired, accessDenied, secureConnection, unavailable
 
     public var schoolServiceFailure: Self? { self }
 
@@ -28,18 +28,32 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable,
     public static func authenticationResponse(_ message: String) -> Self? {
         let value = message.lowercased()
         if accountIsLocked(message) { return .accountLocked }
-        if value.contains("risk=ustc-token") { return .authenticationRestricted }
+        if let failure = schoolResponse(message) { return failure }
+        if hasErrorCode("1320007", in: message) { return .captchaRequired }
+        if hasErrorCode("1320009", in: message) { return .authenticationRestricted }
+        if value.contains("risk=ustc-token") || value.contains("risk=error-fallback") {
+            return .authenticationRestricted
+        }
         if value.contains("初始化webvpn验证失败") || value.contains("jxzxehall: 解析 service url 失败") {
             return .authenticationChannel
         }
-        return schoolResponse(message)
+        return nil
     }
 
     public static func schoolResponse(_ message: String) -> Self? {
         if accountIsLocked(message) { return .accountLocked }
+        switch SchoolLoginHTMLParser.loginErrorCode(html: message) {
+        case "1320007": return .captchaRequired
+        case "1320009": return .authenticationRestricted
+        default: break
+        }
         if message.contains("无权访问该资源") { return .accessDenied }
         if message.contains("会话已经过期") { return .sessionExpired }
         return nil
+    }
+
+    private static func hasErrorCode(_ code: String, in message: String) -> Bool {
+        message.range(of: #"(?<![0-9])"# + code + #"(?![0-9])"#, options: .regularExpression) != nil
     }
 
     private static func accountIsLocked(_ message: String) -> Bool {
@@ -56,6 +70,8 @@ public nonisolated enum SchoolServiceFailure: LocalizedError, Equatable,
             "学校认证通道暂时无法完成请求。请稍后重试，也可通过学校官方入口核对服务状态。"
         case .authenticationRestricted:
             "学校统一认证拒绝了本次认证请求。请通过学校官方入口核对账号与验证要求，稍后重试。"
+        case .captchaRequired:
+            "学校统一认证要求完成图形验证码核验。请通过学校官方入口登录一次后再返回重试。"
         case .accountLocked:
             "学校统一认证提示账号已被锁定。请通过学校官方入口确认解锁方式，或联系学校服务渠道处理。"
         case .sessionExpired:
@@ -162,22 +178,6 @@ public nonisolated struct BITLoginChallengePayload: Decodable, Sendable {
 public enum BITLoginChallengeSupport {
     private struct PollDeadlineReached: Error {}
 
-    private final class FetchOperation: Sendable {
-        let call: @Sendable (String) async throws -> BITLoginChallengePayload
-
-        init(call: @escaping @Sendable (String) async throws -> BITLoginChallengePayload) {
-            self.call = call
-        }
-    }
-
-    private final class FetchResult: Sendable {
-        let payload: BITLoginChallengePayload
-
-        nonisolated init(payload: BITLoginChallengePayload) {
-            self.payload = payload
-        }
-    }
-
     public nonisolated static func decodePayload(from data: Data) throws -> BITLoginChallengePayload
     {
         try JSONDecoder().decode(BITLoginChallengePayload.self, from: data)
@@ -194,7 +194,6 @@ public enum BITLoginChallengeSupport {
         var payload = initialPayload
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(timeout))
-        let fetchOperation = FetchOperation(call: fetch)
 
         while ["running", "processing"].contains(payload.status) {
             let remaining = deadline - clock.now
@@ -206,9 +205,11 @@ public enum BITLoginChallengeSupport {
 
             let challengeID = payload.challengeID
             do {
-                let result = try await withThrowingTaskGroup(of: FetchResult.self) { group in
+                payload = try await withThrowingTaskGroup(
+                    of: BITLoginChallengePayload.self
+                ) { group in
                     group.addTask {
-                        FetchResult(payload: try await fetchOperation.call(challengeID))
+                        try await fetch(challengeID)
                     }
                     group.addTask {
                         try await clock.sleep(until: deadline)
@@ -224,7 +225,6 @@ public enum BITLoginChallengeSupport {
                     }
                     return result
                 }
-                payload = result.payload
             } catch is PollDeadlineReached {
                 break
             }
@@ -255,7 +255,7 @@ public enum BITLoginChallengeSupport {
     ) throws -> URLRequest {
         let step = challenge.isCaptcha ? "captcha" : "sms"
         var request = URLRequest(
-            url: baseURL.appending(path: "api/auth/\(challenge.challengeID)/\(step)"))
+            url: baseURL.appending(components: "api", "auth", challenge.challengeID, step))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(challenge.accessToken, forHTTPHeaderField: "X-Challenge-Token")

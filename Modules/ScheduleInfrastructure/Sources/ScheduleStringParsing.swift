@@ -6,9 +6,11 @@ import Foundation
 /// 无效正则表达式和匹配失败时返回空数组。
 nonisolated extension String {
     func captureGroups(pattern: String, options: NSRegularExpression.Options = []) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
-            return []
-        }
+        captureGroups(regex: try? NSRegularExpression(pattern: pattern, options: options))
+    }
+
+    func captureGroups(regex: NSRegularExpression?) -> [String] {
+        guard let regex else { return [] }
 
         let range = NSRange(startIndex..., in: self)
         guard let match = regex.firstMatch(in: self, options: [], range: range) else {

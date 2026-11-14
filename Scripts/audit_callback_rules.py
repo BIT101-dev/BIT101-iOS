@@ -127,11 +127,16 @@ node() { emit node "$@"; }
 find() { emit find "$@" || return 7; printf 'fixture.swift\0'; }
 rg() { emit rg "$@" || return 7; printf 'fixture.swift\0'; }
 xargs() {
-  local payload
+  local payload has_null=0
   read -r -d '' payload || return 0
-  [[ "$1" == -0 ]] || return 8
-  shift
-  if [[ "$1" == -n ]]; then [[ "$2" == 1 ]] || return 8; shift 2; fi
+  while [[ "${1:-}" == -* ]]; do
+    case "$1" in
+    -0) has_null=1; shift ;;
+    -n|-P) [[ "${2:-}" == <-> && "$2" -gt 0 ]] || return 8; shift 2 ;;
+    *) return 8 ;;
+    esac
+  done
+  (( has_null )) || return 8
   "$@" "$payload"
 }
 """

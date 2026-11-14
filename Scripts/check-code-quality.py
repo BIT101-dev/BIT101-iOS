@@ -2,7 +2,11 @@
 """Run source quality checks through the shared rule module."""
 
 import sys
+from concurrent.futures import ProcessPoolExecutor
+import contextlib
 import importlib.util
+import io
+import multiprocessing
 
 sys.dont_write_bytecode = True
 import json
@@ -105,6 +109,59 @@ def self_test_findings(checker) -> list[str]:
         return [f"自测失败 {checker.__name__}：{frame.filename}:{frame.lineno} {error}"]
 
 
+def _emit_captured(out: str, err: str) -> None:
+    if out:
+        sys.stdout.write(out)
+    if err:
+        sys.stderr.write(err)
+
+
+def _run_combined_parallel(syntax_index, module, checker_boundary_findings):
+    from code_quality_tests import (
+        QUALITY_SELF_TEST_SHARDS,
+        run_self_test_shard,
+        run_ui_consistency_worker,
+    )
+
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=6, mp_context=context) as pool:
+        ui_future = pool.submit(run_ui_consistency_worker)
+        quality_started = time.monotonic()
+        q_out, q_err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(q_out), contextlib.redirect_stderr(q_err):
+            quality_status = main(syntax_index)
+            explanatory_text_report()
+        quality_elapsed = time.monotonic() - quality_started
+        ui_status, ui_elapsed, ui_out, ui_err = ui_future.result()
+        _emit_captured(ui_out, ui_err)
+        _emit_captured(q_out.getvalue(), q_err.getvalue())
+        test_rules = "--self-test" in sys.argv and ui_status == quality_status == 0
+        rules_started = time.monotonic()
+        if not test_rules:
+            return ui_status, quality_status, [], ui_elapsed, quality_elapsed, 0.0
+        ui_checkers = (
+            module.ast_marker_boundary_findings,
+            module.source_boundary_findings,
+            module.map_theme_color_contract_findings,
+            module.interaction_inventory_boundary_findings,
+        )
+        if getattr(checker_boundary_findings, "__module__", "") == "code_quality_tests":
+            batches = list(pool.map(run_self_test_shard, (*QUALITY_SELF_TEST_SHARDS, *ui_checkers)))
+            findings = [item for batch in batches for item in batch]
+        else:
+            findings = self_test_findings(checker_boundary_findings) + [
+                finding for checker in ui_checkers for finding in self_test_findings(checker)
+            ]
+        return (
+            ui_status,
+            quality_status,
+            findings,
+            ui_elapsed,
+            quality_elapsed,
+            time.monotonic() - rules_started,
+        )
+
+
 def combined_main() -> int:
     from code_quality_tests import checker_boundary_findings
 
@@ -123,36 +180,50 @@ def combined_main() -> int:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     indexed = time.monotonic()
-    ui_syntax = {str(path): syntax_index[str(path)] for path in module.swift_files()}
-    ui_status = module.main(ui_syntax)
-    ui_checked = time.monotonic()
-    quality_status = main(syntax_index)
-    explanatory_text_report()
-    quality_checked = time.monotonic()
-    test_rules = "--self-test" in sys.argv and ui_status == quality_status == 0
-    quality_boundaries = self_test_findings(checker_boundary_findings) if test_rules else []
-    ui_boundaries = (
-        [
-            finding
-            for checker in (
-                module.ast_marker_boundary_findings,
-                module.source_boundary_findings,
-                module.map_theme_color_contract_findings,
-                module.interaction_inventory_boundary_findings,
-            )
-            for finding in self_test_findings(checker)
-        ]
-        if test_rules
-        else []
-    )
-    if quality_boundaries or ui_boundaries:
-        print("\n".join(quality_boundaries + ui_boundaries))
-    tested = time.monotonic()
+    if getattr(module, "__file__", None) == str(ui_path):
+        (
+            ui_status,
+            quality_status,
+            all_boundaries,
+            ui_elapsed,
+            quality_elapsed,
+            rules_elapsed,
+        ) = _run_combined_parallel(syntax_index, module, checker_boundary_findings)
+    else:
+        ui_syntax = {str(path): syntax_index[str(path)] for path in module.swift_files()}
+        ui_status = module.main(ui_syntax)
+        ui_checked = time.monotonic()
+        quality_status = main(syntax_index)
+        explanatory_text_report()
+        quality_checked = time.monotonic()
+        test_rules = "--self-test" in sys.argv and ui_status == quality_status == 0
+        quality_boundaries = self_test_findings(checker_boundary_findings) if test_rules else []
+        ui_boundaries = (
+            [
+                finding
+                for checker in (
+                    module.ast_marker_boundary_findings,
+                    module.source_boundary_findings,
+                    module.map_theme_color_contract_findings,
+                    module.interaction_inventory_boundary_findings,
+                )
+                for finding in self_test_findings(checker)
+            ]
+            if test_rules
+            else []
+        )
+        all_boundaries = quality_boundaries + ui_boundaries
+        tested = time.monotonic()
+        ui_elapsed = ui_checked - indexed
+        quality_elapsed = quality_checked - ui_checked
+        rules_elapsed = tested - quality_checked
+    if all_boundaries:
+        print("\n".join(all_boundaries))
     print(
-        f"审计耗时：索引 {indexed - started:.1f} 秒 · UI {ui_checked - indexed:.1f} 秒 · "
-        f"代码 {quality_checked - ui_checked:.1f} 秒 · 规则自测 {tested - quality_checked:.1f} 秒"
+        f"审计耗时：索引 {indexed - started:.1f} 秒 · UI {ui_elapsed:.1f} 秒 · "
+        f"代码 {quality_elapsed:.1f} 秒 · 规则自测 {rules_elapsed:.1f} 秒"
     )
-    return int(ui_status != 0 or quality_status != 0 or bool(quality_boundaries or ui_boundaries))
+    return int(ui_status != 0 or quality_status != 0 or bool(all_boundaries))
 
 
 if __name__ == "__main__":

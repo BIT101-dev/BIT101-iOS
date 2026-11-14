@@ -106,8 +106,10 @@ function isSchoolServiceReport(report) {
       value.includes(part),
     ) ||
     /\bcode["']?\s*[:=]\s*["']?1030028\b/i.test(value) ||
+    /(?<![0-9])132000[79](?![0-9])/.test(value) ||
     value.includes("jxzxehall: 解析 service url 失败") ||
     value.includes("risk=ustc-token") ||
+    value.includes("risk=error-fallback") ||
     value.includes("学校统一认证服务暂时无法建立安全连接") ||
     (schoolOperation &&
       (value.includes("学校会话自动恢复失败") ||
@@ -436,6 +438,10 @@ function reportEmailBody(id, receivedAt, report) {
     `标题：${emailText(report.errorTitle || "")}`,
     `消息：${emailText(report.errorMessage || "")}`,
   ];
+  const errorChain = Array.isArray(report.errorChain)
+    ? report.errorChain.slice(0, 8).map(emailLine).filter(Boolean)
+    : [];
+  if (errorChain.length) lines.push(`错误链：${errorChain.join(" → ")}`);
 
   if (report.comment) {
     lines.push("", "用户补充：", emailText(report.comment, 2400));
@@ -460,6 +466,9 @@ function reportEmailBody(id, receivedAt, report) {
         record.statusCode == null ? "无状态码" : `HTTP ${emailLine(record.statusCode)}`;
       const elapsed =
         record.elapsedMilliseconds == null ? "" : ` ${emailLine(record.elapsedMilliseconds)}ms`;
+      const bytes =
+        record.responseBytes == null ? "" : ` ${emailLine(record.responseBytes)}B`;
+      const upstream = record.upstreamCode ? ` [${emailLine(record.upstreamCode)}]` : "";
       const error = record.error ? ` · ${emailLine(record.error)}` : "";
       const redirect =
         record.finalURL &&
@@ -468,7 +477,7 @@ function reportEmailBody(id, receivedAt, report) {
           ? ` → ${emailLine(record.finalMethod || "?")} ${emailText(record.finalURL, 500)}`
           : "";
       const target = `${emailLine(record.method || "?")} ${emailText(record.url, 500)}`;
-      lines.push(`- ${target}${redirect} · ${status}${elapsed}${error}`);
+      lines.push(`- ${target}${redirect} · ${status}${elapsed}${bytes}${upstream}${error}`);
     }
   }
 
@@ -816,15 +825,18 @@ export default {
           ...fields,
           data: attachments[index].data,
         }));
-      serializedRecord = JSON.stringify({
-        id,
-        receivedAt,
-        report,
-        emailDelivery: {
-          status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled",
-          attempts: 0,
-        },
-      });
+      if (report.requestID == null || report.mode === "network-smoke") {
+        serializedRecord = JSON.stringify({
+          id,
+          receivedAt,
+          report,
+          emailDelivery: {
+            status:
+              env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled",
+            attempts: 0,
+          },
+        });
+      }
     } catch {
       return json({ error: "invalid_report" }, 400);
     }

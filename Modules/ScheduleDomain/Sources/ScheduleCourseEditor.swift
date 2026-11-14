@@ -16,14 +16,17 @@ public nonisolated enum ScheduleCourseEditor {
         rules: [ScheduleCourseRule],
         with incomingCourses: [CourseRecord]
     ) -> CourseRuleReconciliation {
+        guard !rules.isEmpty else {
+            return CourseRuleReconciliation(
+                courses: incomingCourses, validRules: [], invalidRules: [])
+        }
+        let incomingBySource = Dictionary(grouping: incomingCourses, by: courseSourceIdentity)
         var projectedCourses = incomingCourses
         var validRules: [ScheduleCourseRule] = []
         var invalidRules: [ScheduleCourseRule] = []
 
         for rule in rules {
-            let matchingCourses = incomingCourses.filter {
-                courseSourceIdentity($0) == rule.sourceIdentity
-            }
+            let matchingCourses = incomingBySource[rule.sourceIdentity] ?? []
             let sourceMatches =
                 rule.isLocalAddition
                 || courseSourcesEqual(matchingCourses, rule.sourceCourses)

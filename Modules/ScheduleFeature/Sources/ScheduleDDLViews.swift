@@ -46,6 +46,13 @@ struct DDLScheduleTabView: View {
                 selectedEvent = nil
             }
         }
+        .onChange(of: viewModel.accountGeneration) { _, _ in
+            isShowingSheet = false
+            imageViewer = nil
+            selectedEvent = nil
+            editingEventID = nil
+            draft = DDLDraft()
+        }
         .systemImagePreview(item: $imageViewer)
     }
 
@@ -101,10 +108,11 @@ struct DDLScheduleTabView: View {
     }
 
     private var eventList: some View {
-        List {
+        let visibleEvents = viewModel.visibleDDLEvents(at: currentDate)
+        return List {
             Section { refreshRow }
 
-            if viewModel.visibleDDLEvents(at: currentDate).isEmpty {
+            if visibleEvents.isEmpty {
                 Section {
                     AppEmptyState(
                         title: "暂无 DDL",
@@ -114,7 +122,7 @@ struct DDLScheduleTabView: View {
                     .frame(maxWidth: .infinity)
                 }
             } else {
-                ForEach(viewModel.visibleDDLEvents(at: currentDate)) { event in
+                ForEach(visibleEvents) { event in
                     Section {
                         eventRow(event)
                             .appListRowInsets()
@@ -187,15 +195,16 @@ private struct DDLEventRow: View {
     }
 
     private var eventContent: some View {
-        HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
+        let text = displayText
+        return HStack(alignment: .top, spacing: AppDesignSystem.Spacing.content) {
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: AppDesignSystem.Spacing.regular) {
                     Text(event.displayTitle)
                         .font(AppDesignSystem.Typography.title)
                         .strikethrough(event.done)
 
-                    if !displayText.isEmpty {
-                        Text(displayText)
+                    if !text.isEmpty {
+                        Text(text)
                             .font(AppDesignSystem.Typography.body)
                             .foregroundStyle(AppDesignSystem.Foreground.secondary)
                             .lineLimit(3)
@@ -293,8 +302,9 @@ private struct DDLEventDetailSheet: View {
                 }
 
                 Section("详情") {
+                    let text = detailText
                     Text(remainText(currentDate))
-                    Text(detailText.isEmpty ? "无详情" : detailText)
+                    Text(text.isEmpty ? "无详情" : text)
                 }
 
                 imageSection
@@ -422,7 +432,9 @@ private struct DDLEditSheet: View {
                 try await ImageDataCompressor.prepare(
                     $0, maximumBytes: DDLImagePolicy.maximumImageBytes)
             },
-            isCurrent: { true },
+            isCurrent: {
+                !Task.isCancelled && draft.images.count < DDLImagePolicy.maximumImageCount
+            },
             onPrepared: { draft.images.append(DDLImageAttachment(data: $0)) },
             onFailure: { importError = "图片处理失败：\($0.localizedDescription)" })
         guard !Task.isCancelled else { return }

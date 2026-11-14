@@ -45,10 +45,11 @@ struct ScheduleEntryDetailSheet: View {
     }
 
     var body: some View {
+        let courseGroups = entry.kind == .course ? academicCourseGroupsByCourse : []
         NavigationStack {
             List {
-                if entry.kind == .course, !academicCourseGroups.isEmpty {
-                    courseDetailSections
+                if !courseGroups.isEmpty {
+                    courseDetailSections(courseGroups)
                 } else {
                     nonCourseDetailSections
                 }
@@ -121,7 +122,7 @@ struct ScheduleEntryDetailSheet: View {
             }
         }
 
-        if entry.kind == .exam {
+        if entry.kind == .exam, allowsCustomScheduleMutation {
             examActionSection
         }
     }
@@ -211,9 +212,9 @@ struct ScheduleEntryDetailSheet: View {
     }
 
     @ViewBuilder
-    private var courseDetailSections: some View {
-        ForEach(academicCourseGroupsByCourse.indices, id: \.self) { index in
-            let arrangements = academicCourseGroupsByCourse[index]
+    private func courseDetailSections(_ courseGroups: [[[CourseRecord]]]) -> some View {
+        ForEach(courseGroups.indices, id: \.self) { index in
+            let arrangements = courseGroups[index]
             let allCourses = arrangements.flatMap { $0 }
             let first = allCourses[0]
             let target = entry.courseOccurrence(in: allCourses, currentWeek: currentWeek)
@@ -286,7 +287,7 @@ struct ScheduleEntryDetailSheet: View {
                 }
             }
 
-            if index < academicCourseGroupsByCourse.count - 1 {
+            if index < courseGroups.count - 1 {
                 Divider()
                     .listRowInsets(
                         EdgeInsets(

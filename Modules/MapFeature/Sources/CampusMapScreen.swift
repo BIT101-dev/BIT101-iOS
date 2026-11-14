@@ -104,8 +104,7 @@ public struct CampusMapScreen: View {
                 isActive: isVisible && scenePhase == .active,
                 nextCourseTarget: nextCourseTarget,
                 requestedLocation: activeRequestedLocation,
-                mapConfiguration: displayMode.configuration,
-                mapConfigurationID: displayMode.rawValue,
+                displayMode: displayMode,
                 onLocationFailure: { error in
                     locationController.handleLocationFailure(error)
                 }, preparation: preparation

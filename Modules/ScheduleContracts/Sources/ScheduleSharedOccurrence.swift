@@ -49,18 +49,7 @@ public nonisolated enum ScheduleDisplayNormalizer {
         }
 
         // 教学楼后缀字母与楼名保持同一行，房间号另起一行，例如“文萃楼I101”显示为“文萃I\n101”。
-        let building = location.lightBuilding
-        let suffix = String(building.suffix(1))
-        let buildingPrefix = String(building.dropLast())
-        if !buildingPrefix.isEmpty,
-            suffix.unicodeScalars.count == 1,
-            suffix.rangeOfCharacter(from: .letters) != nil,
-            suffix.unicodeScalars.first?.value ?? 0 < 128
-        {
-            return "\(buildingPrefix)\(suffix)\n\(room)"
-        }
-
-        return "\(building)\n\(room)"
+        return "\(location.lightBuilding)\n\(room)"
     }
 
     /// 提供跨 target 展示所需的简洁文本、完整文本、楼名和教室号。
@@ -279,6 +268,7 @@ public nonisolated enum ScheduleSharedDateCodec {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 8 * 3600)
         formatter.dateFormat = "HH:mm"
+        formatter.isLenient = false
         return formatter
     }()
 
@@ -303,6 +293,16 @@ public nonisolated enum ScheduleSharedDateCodec {
 
     public static func formatDate(_ date: Date) -> String {
         dateFormatter.string(from: date)
+    }
+
+    public static func parseTime(_ string: String) -> Date? {
+        guard !string.isEmpty,
+            let date = timeFormatter.date(from: string),
+            timeFormatter.string(from: date) == string
+        else {
+            return nil
+        }
+        return date
     }
 
     public static func formatTime(_ date: Date) -> String {
@@ -634,22 +634,26 @@ public nonisolated enum ScheduleOccurrenceResolver {
     private static func rawOccurrences(from snapshot: ScheduleExternalSnapshot, now: Date)
         -> [ScheduleExternalOccurrence]
     {
-        let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString)
-
-        let slotMap = Dictionary(
-            snapshot.timeTable.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        let courseOccurrences = snapshot.courses
-            .flatMap { course in
-                course.weeks.compactMap { week -> ScheduleExternalOccurrence? in
-                    guard
-                        !Task.isCancelled, let firstDay,
+        var rawOccurrencesByID: [String: ScheduleExternalOccurrence] = [:]
+        if !snapshot.courses.isEmpty,
+            let firstDay = ScheduleSharedDateCodec.parseDate(snapshot.firstDayString)
+        {
+            let slotMap = Dictionary(
+                snapshot.timeTable.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for course in snapshot.courses {
+                guard !Task.isCancelled,
+                    (1...7).contains(course.weekday),
+                    let startSlot = slotMap[course.startSection],
+                    let endSlot = slotMap[course.endSection]
+                else { continue }
+                let normalizedTitle = ScheduleDisplayNormalizer.normalizeCourseTitle(course.name)
+                let normalizedClassroom = ScheduleDisplayNormalizer.normalizeClassroom(
+                    course.classroom)
+                for week in course.weeks {
+                    guard !Task.isCancelled,
                         ScheduleCourseConstraints.isValidWeek(week),
-                        (1...7).contains(course.weekday),
-                        let startSlot = slotMap[course.startSection],
-                        let endSlot = slotMap[course.endSection],
                         let startDate = ScheduleSharedDateCodec.combine(
                             firstDay: firstDay, week: week, weekday: course.weekday,
                             time: startSlot.start),
@@ -658,38 +662,36 @@ public nonisolated enum ScheduleOccurrenceResolver {
                             time: endSlot.end),
                         endDate > startDate,
                         endDate > now
-                    else {
-                        return nil
-                    }
-
-                    return ScheduleExternalOccurrence(
+                    else { continue }
+                    let occurrence = ScheduleExternalOccurrence(
                         id: "\(course.id)-\(week)",
-                        title: ScheduleDisplayNormalizer.normalizeCourseTitle(course.name),
-                        classroom: ScheduleDisplayNormalizer.normalizeClassroom(course.classroom),
+                        title: normalizedTitle,
+                        classroom: normalizedClassroom,
                         teacher: course.teacher,
                         startDate: startDate,
                         endDate: endDate,
                         displayUntilDate: endDate
                     )
+                    rawOccurrencesByID[occurrence.id] = occurrence
                 }
             }
-        let customOccurrences = snapshot.customSchedules.flatMap { item in
-            item.dateStrings.compactMap { value -> ScheduleExternalOccurrence? in
-                guard !Task.isCancelled, let day = ScheduleSharedDateCodec.parseDate(value),
+        }
+        for item in snapshot.customSchedules {
+            guard !Task.isCancelled else { break }
+            for value in item.dateStrings {
+                guard !Task.isCancelled,
+                    let day = ScheduleSharedDateCodec.parseDate(value),
                     let start = ScheduleSharedDateCodec.combine(date: day, time: item.beginTime),
                     let end = ScheduleSharedDateCodec.combine(date: day, time: item.endTime),
                     end > start, end > now
-                else { return nil }
-                return ScheduleExternalOccurrence(
+                else { continue }
+                let occurrence = ScheduleExternalOccurrence(
                     id: "custom-\(item.id)-\(value)", title: item.title,
                     classroom: item.subtitle, teacher: "", startDate: start, endDate: end,
                     displayUntilDate: end)
+                rawOccurrencesByID[occurrence.id] = occurrence
             }
         }
-        let rawOccurrencesByID = (courseOccurrences + customOccurrences)
-            .reduce(into: [String: ScheduleExternalOccurrence]()) { result, occurrence in
-                result[occurrence.id] = occurrence
-            }
         return rawOccurrencesByID.values
             .sorted { lhs, rhs in
                 if lhs.startDate != rhs.startDate {
@@ -700,7 +702,6 @@ public nonisolated enum ScheduleOccurrenceResolver {
                 }
                 return lhs.id < rhs.id
             }
-
     }
 
     private static func visibleOccurrences(

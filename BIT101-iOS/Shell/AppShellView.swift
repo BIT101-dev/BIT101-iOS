@@ -758,15 +758,22 @@ private struct AppMapSurfaceView: View {
     @State private var courseTarget = UpcomingCourseMapProjection()
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            let target = courseTarget.resolve(in: schedule.courseSnapshot, now: context.date)
+        Group {
             if isPreparing {
-                CampusMapPreparationHost(preparation: preparation, nextCourseTarget: target)
-                    .ignoresSafeArea(edges: [.top, .bottom])
+                CampusMapPreparationHost(
+                    preparation: preparation,
+                    nextCourseTarget: courseTarget.resolve(
+                        in: schedule.courseSnapshot, now: Date())
+                )
+                .ignoresSafeArea(edges: [.top, .bottom])
             } else {
-                CampusMapScreen(
-                    nextCourseTarget: target, requestedLocation: requestedLocation,
-                    preparation: preparation)
+                TimelineView(.everyMinute) { context in
+                    CampusMapScreen(
+                        nextCourseTarget: courseTarget.resolve(
+                            in: schedule.courseSnapshot, now: context.date),
+                        requestedLocation: requestedLocation,
+                        preparation: preparation)
+                }
             }
         }
         .task { await schedule.loadIfNeeded() }

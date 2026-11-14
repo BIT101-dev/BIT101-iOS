@@ -154,18 +154,21 @@ extension ScheduleViewModel {
 
     /// 设置周六课程显示。
     public func setShowSaturday(_ value: Bool) {
+        guard presentationPreferences.showSaturday != value else { return }
         presentationPreferences.showSaturday = value
         persist()
     }
 
     /// 设置周日课程显示。
     public func setShowSunday(_ value: Bool) {
+        guard presentationPreferences.showSunday != value else { return }
         presentationPreferences.showSunday = value
         persist()
     }
 
     /// 设置课表网格中的考试块显示。
     public func setShowExamInfo(_ value: Bool) {
+        guard presentationPreferences.showExamInfo != value else { return }
         presentationPreferences.showExamInfo = value
         persist()
     }
@@ -207,19 +210,31 @@ extension ScheduleViewModel {
 
     /// 设置课程提醒 Live Activity 启用状态。
     public func setActivityReminder(_ value: Bool) {
+        guard presentationPreferences.showCourseLiveActivityReminder != value else { return }
+        activityReminderEnableTask?.cancel()
+        activityReminderEnableTask = nil
         presentationPreferences.showCourseLiveActivityReminder = value
-        persist()
 
         if value {
             let session = repository.accountSession
-            Task { [platformActions] in
+            let generation = repository.accountGeneration
+            activityReminderEnableTask = Task { [repository, platformActions] in
+                guard await repository.persistAndWait(),
+                    repository.accountGeneration == generation,
+                    repository.accountSession == session,
+                    repository.presentationPreferences.showCourseLiveActivityReminder,
+                    !Task.isCancelled
+                else { return }
                 await platformActions.enableCourseReminder(session: session)
             }
+        } else {
+            persist()
         }
     }
 
     /// 设置灵动岛/锁屏提醒的提前显示阈值。
     public func setActivityLeadMinutes(_ value: Int) {
+        guard presentationPreferences.courseLiveActivityLeadMinutes != value else { return }
         presentationPreferences.courseLiveActivityLeadMinutes = value
         persist()
     }

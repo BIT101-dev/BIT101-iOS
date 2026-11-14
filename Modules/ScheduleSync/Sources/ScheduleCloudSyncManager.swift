@@ -1,6 +1,7 @@
 import Foundation
 import ScheduleDomain
 import StorageCore
+import TransportCore
 import os
 
 public actor ScheduleCloudSyncManager {
@@ -98,25 +99,37 @@ public actor ScheduleCloudSyncManager {
         }
         while let pendingLocalCache {
             self.pendingLocalCache = nil
-            guard await isCurrentCloudState(for: pendingLocalCache.account),
-                await hasAvailableCloudAccount(for: pendingLocalCache.account)
-            else { continue }
-            guard
-                let latestState = await currentLocalCloudState(matching: pendingLocalCache.account)
+            let account = pendingLocalCache.account
+            guard !Task.isCancelled,
+                await local.currentAccount() == account,
+                await hasAvailableCloudAccount(for: account),
+                let latestState = await currentLocalCloudState(matching: account)
             else {
+                if Task.isCancelled {
+                    await resetCancelledSyncStatusIfNeeded(for: account)
+                    return
+                }
                 continue
             }
-            await publishStatus(.syncing, for: pendingLocalCache.account)
+            await publishStatus(.syncing, for: account)
             do {
                 try await uploadAndReport(
                     remoteWith: latestState.cache,
-                    account: pendingLocalCache.account,
+                    account: account,
                     expectedLocalUpdatedAt: latestState.cache.updatedAt
                 )
-                await finishStatus(for: pendingLocalCache.account)
+                if Task.isCancelled {
+                    await resetCancelledSyncStatusIfNeeded(for: account)
+                    return
+                }
+                await finishStatus(for: account)
             } catch {
-                await publishStatus(
-                    .failed(error.localizedDescription), for: pendingLocalCache.account)
+                if Task.isCancelled || TaskCancellation.matches(error) {
+                    await resetCancelledSyncStatusIfNeeded(for: account)
+                    if Task.isCancelled { return }
+                    continue
+                }
+                await publishStatus(.failed(error.localizedDescription), for: account)
                 logError("push latest local cache failed: \(error.localizedDescription)")
             }
         }
@@ -146,13 +159,19 @@ public actor ScheduleCloudSyncManager {
             }
         }
         guard localCache.iCloudSyncEnabled,
-            await isCurrentCloudState(for: account),
-            await hasAvailableCloudAccount(for: account)
+            !Task.isCancelled,
+            await local.currentAccount() == account,
+            await hasAvailableCloudAccount(for: account),
+            !Task.isCancelled
         else { return }
 
         await publishStatus(.syncing, for: account)
         await performReconciliation(
             localCache: localCache, account: account, allowCloudApply: allowCloudApply)
+        if Task.isCancelled {
+            await resetCancelledSyncStatusIfNeeded(for: account)
+            return
+        }
         await finishStatus(for: account)
     }
 
@@ -168,7 +187,10 @@ public actor ScheduleCloudSyncManager {
 
         do {
             let remoteRecord = try await transport.record(named: account.recordName)
-            guard await isCurrentCloudState(for: account) else { return }
+            guard let currentLocalState = await currentLocalCloudState(matching: account) else {
+                if Task.isCancelled { await resetCancelledSyncStatusIfNeeded(for: account) }
+                return
+            }
             guard
                 let decodedRemote = decodeCache(
                     from: remoteRecord,
@@ -181,15 +203,6 @@ public actor ScheduleCloudSyncManager {
                 return
             }
             let remoteCache = decodedRemote.cache
-            guard let currentLocalState = await currentLocalCloudState(matching: account) else {
-                return
-            }
-            guard
-                await isCurrentCloudState(
-                    for: account,
-                    expectedUpdatedAt: currentLocalState.cache.updatedAt
-                )
-            else { return }
             let remoteModifiedAt = remoteRecord.modificationDate ?? remoteCache.cloudSyncBaselineAt
             let remoteRecordTag = remoteRecord.recordChangeTag ?? ""
 
@@ -275,8 +288,8 @@ public actor ScheduleCloudSyncManager {
                         expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                     )
                 } catch {
-                    await publishStatus(.failed(error.localizedDescription), for: account)
-                    logError("reconcile local upload failed: \(error.localizedDescription)")
+                    await handleSyncFailure(
+                        error, for: account, context: "reconcile local upload failed")
                 }
             case .noChange:
                 logDebug("reconcile: timestamps match")
@@ -288,8 +301,8 @@ public actor ScheduleCloudSyncManager {
                             expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                         )
                     } catch {
-                        await publishStatus(.failed(error.localizedDescription), for: account)
-                        logError("legacy payload migration failed: \(error.localizedDescription)")
+                        await handleSyncFailure(
+                            error, for: account, context: "legacy payload migration failed")
                     }
                 }
             }
@@ -297,6 +310,7 @@ public actor ScheduleCloudSyncManager {
             if error == .unknownItem {
                 logDebug("remote record unavailable (\(error)); uploading initial local cache")
                 guard let currentLocalState = await currentLocalCloudState(matching: account) else {
+                    if Task.isCancelled { await resetCancelledSyncStatusIfNeeded(for: account) }
                     return
                 }
                 var initialUpload = currentLocalState.cache
@@ -310,17 +324,15 @@ public actor ScheduleCloudSyncManager {
                         expectedLocalUpdatedAt: currentLocalState.cache.updatedAt
                     )
                 } catch {
-                    await publishStatus(.failed(error.localizedDescription), for: account)
-                    logError(
-                        "initial upload after unknownItem failed: \(error.localizedDescription)")
+                    await handleSyncFailure(
+                        error, for: account, context: "initial upload after unknownItem failed")
                 }
             } else {
                 await publishStatus(.failed(error.localizedDescription), for: account)
                 logError("reconcile cloud error: \(error.localizedDescription)")
             }
         } catch {
-            await publishStatus(.failed(error.localizedDescription), for: account)
-            logError("reconcile failed: \(error.localizedDescription)")
+            await handleSyncFailure(error, for: account, context: "reconcile failed")
         }
     }
 
@@ -332,7 +344,7 @@ public actor ScheduleCloudSyncManager {
         remoteModifiedAt: Date,
         remoteRecordTag: String
     ) async {
-        guard await isCurrentCloudState(for: account) else { return }
+        guard !Task.isCancelled, await local.currentAccount() == account else { return }
         await publishStatus(.conflict, for: account)
         guard !Task.isCancelled else { return }
         let signature = [
@@ -430,14 +442,12 @@ public actor ScheduleCloudSyncManager {
                 return
             }
         } catch {
-            await publishStatus(.failed(error.localizedDescription), for: conflict.account)
-            logError(
-                """
-                cloud conflict resolution could not verify the remote version: \
-                \(error.localizedDescription)
-                """
-            )
             promptedConflictSignatures.remove(signature)
+            await handleSyncFailure(
+                error,
+                for: conflict.account,
+                context: "cloud conflict resolution could not verify the remote version"
+            )
             return
         }
 
@@ -494,8 +504,8 @@ public actor ScheduleCloudSyncManager {
             }
         } catch {
             promptedConflictSignatures.remove(signature)
-            await publishStatus(.failed(error.localizedDescription), for: conflict.account)
-            logError("cloud conflict resolution failed: \(error.localizedDescription)")
+            await handleSyncFailure(
+                error, for: conflict.account, context: "cloud conflict resolution failed")
         }
     }
 
@@ -504,6 +514,10 @@ public actor ScheduleCloudSyncManager {
     ) async throws {
         let saved = try await upsert(
             remoteWith: cache, account: account, expectedLocalUpdatedAt: expectedLocalUpdatedAt)
+        if Task.isCancelled {
+            await resetCancelledSyncStatusIfNeeded(for: account)
+            return
+        }
         if !saved, reportedStatus?.0 == account, reportedStatus?.1 == .syncing {
             await publishStatus(.pending, for: account)
         }
@@ -516,13 +530,15 @@ public actor ScheduleCloudSyncManager {
         expectedLocalUpdatedAt: Date?
     ) async throws -> Bool {
         guard cache.iCloudSyncEnabled,
-            await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
+            !Task.isCancelled,
+            await local.currentAccount() == account
         else { return false }
 
         logDebug(
             "upsert start record=\(account.recordName) updatedAt=\(debugDate(cache.updatedAt))")
 
         var record: ScheduleCloudRecord
+        let alreadyVerifiedState: Bool
         do {
             record = try await transport.record(named: account.recordName)
             logDebug("upsert fetched existing remote record")
@@ -535,8 +551,10 @@ public actor ScheduleCloudSyncManager {
             ) {
                 return outcome
             }
+            alreadyVerifiedState = true
         } catch let error as ScheduleCloudTransportError where error == .unknownItem {
             record = ScheduleCloudRecord(recordName: account.recordName, recordType: recordType)
+            alreadyVerifiedState = false
             logDebug("upsert will create new remote record after fetch error code=\(error)")
         }
 
@@ -545,7 +563,8 @@ public actor ScheduleCloudSyncManager {
             cache: cache,
             account: account,
             expectedLocalUpdatedAt: expectedLocalUpdatedAt,
-            retryOnConflict: true
+            retryOnConflict: true,
+            alreadyVerifiedCurrentState: alreadyVerifiedState
         )
     }
 
@@ -618,11 +637,14 @@ public actor ScheduleCloudSyncManager {
         cache: ScheduleCache,
         account: CloudAccountContext,
         expectedLocalUpdatedAt: Date?,
-        retryOnConflict: Bool
+        retryOnConflict: Bool,
+        alreadyVerifiedCurrentState: Bool = false
     ) async throws -> Bool {
-        guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
-        else {
-            return false
+        if !alreadyVerifiedCurrentState {
+            guard await isCurrentCloudState(for: account, expectedUpdatedAt: expectedLocalUpdatedAt)
+            else {
+                return false
+            }
         }
 
         let payloadJSON = try encodeCache(cache)
@@ -664,7 +686,8 @@ public actor ScheduleCloudSyncManager {
                 cache: cache,
                 account: account,
                 expectedLocalUpdatedAt: expectedLocalUpdatedAt,
-                retryOnConflict: false
+                retryOnConflict: false,
+                alreadyVerifiedCurrentState: true
             )
         }
     }
@@ -754,7 +777,8 @@ public actor ScheduleCloudSyncManager {
         else { return false }
         return try await save(
             record, cache: current.cache, account: account,
-            expectedLocalUpdatedAt: current.cache.updatedAt, retryOnConflict: false)
+            expectedLocalUpdatedAt: current.cache.updatedAt, retryOnConflict: false,
+            alreadyVerifiedCurrentState: true)
     }
 
     private func hasAvailableCloudAccount(for account: CloudAccountContext) async -> Bool {
@@ -765,10 +789,41 @@ public actor ScheduleCloudSyncManager {
             if !available { await publishStatus(.unavailable, for: account) }
             return available
         } catch {
-            await publishStatus(.failed(error.localizedDescription), for: account)
-            logError("cloud account status query failed: \(error.localizedDescription)")
+            await handleSyncFailure(
+                error, for: account, context: "cloud account status query failed")
             return false
         }
+    }
+
+    private func handleSyncFailure(
+        _ error: Error, for account: CloudAccountContext, context: String
+    ) async {
+        if Task.isCancelled || TaskCancellation.matches(error) {
+            await resetCancelledSyncStatusIfNeeded(for: account)
+            return
+        }
+        await publishStatus(.failed(error.localizedDescription), for: account)
+        logError("\(context): \(error.localizedDescription)")
+    }
+
+    private func resetCancelledSyncStatusIfNeeded(for account: CloudAccountContext) async {
+        guard reportedStatus?.0 == account, reportedStatus?.1 == .syncing,
+            await local.currentAccount() == account
+        else { return }
+        let result = await local.load(account.session)
+        guard reportedStatus?.0 == account, reportedStatus?.1 == .syncing,
+            await local.currentAccount() == account
+        else { return }
+        let nextStatus: ScheduleCloudSyncStatus =
+            if case .loaded(let cache) = result, cache.iCloudSyncEnabled,
+                cache.hasUnpushedCloudChanges
+            {
+                .pending
+            } else {
+                .idle
+            }
+        reportedStatus = (account, nextStatus)
+        await reportStatus(account, nextStatus)
     }
 
     private func publishStatus(_ status: ScheduleCloudSyncStatus, for account: CloudAccountContext)
@@ -781,7 +836,15 @@ public actor ScheduleCloudSyncManager {
 
     private func finishStatus(for account: CloudAccountContext) async {
         guard reportedStatus?.0 == account, reportedStatus?.1 == .syncing else { return }
+        if Task.isCancelled {
+            await resetCancelledSyncStatusIfNeeded(for: account)
+            return
+        }
         guard let state = await currentLocalCloudState(matching: account) else {
+            if Task.isCancelled {
+                await resetCancelledSyncStatusIfNeeded(for: account)
+                return
+            }
             await publishStatus(.failed("本机日程需要恢复后继续同步。"), for: account)
             return
         }

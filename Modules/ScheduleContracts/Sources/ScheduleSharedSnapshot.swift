@@ -298,19 +298,29 @@ public nonisolated enum ScheduleExternalSnapshotCodec {
                     }
             })
         else { throw CocoaError(.coderInvalidValue) }
-        var fields = [snapshot.studentID, snapshot.firstDayString]
-        fields.append(contentsOf: snapshot.timeTable.flatMap { [$0.start, $0.end] })
-        fields.append(
-            contentsOf: snapshot.courses.flatMap { [$0.id, $0.name, $0.classroom, $0.teacher] })
-        fields.append(
-            contentsOf: snapshot.customSchedules.flatMap {
-                [$0.id, $0.title, $0.subtitle, $0.beginTime, $0.endTime] + $0.dateStrings
-            })
-        fields.append(
-            contentsOf: snapshot.deadlines.flatMap {
-                [$0.id, $0.title, $0.subtitle, $0.sourceTitle]
-            })
-        guard fields.reduce(0, { $0 + $1.utf8.count }) <= maximumEncodedBytes else {
+        var totalBytes = snapshot.studentID.utf8.count + snapshot.firstDayString.utf8.count
+        for slot in snapshot.timeTable {
+            totalBytes += slot.start.utf8.count + slot.end.utf8.count
+        }
+        for course in snapshot.courses {
+            totalBytes +=
+                course.id.utf8.count + course.name.utf8.count
+                + course.classroom.utf8.count + course.teacher.utf8.count
+        }
+        for item in snapshot.customSchedules {
+            totalBytes +=
+                item.id.utf8.count + item.title.utf8.count + item.subtitle.utf8.count
+                + item.beginTime.utf8.count + item.endTime.utf8.count
+            for dateString in item.dateStrings {
+                totalBytes += dateString.utf8.count
+            }
+        }
+        for deadline in snapshot.deadlines {
+            totalBytes +=
+                deadline.id.utf8.count + deadline.title.utf8.count
+                + deadline.subtitle.utf8.count + deadline.sourceTitle.utf8.count
+        }
+        guard totalBytes <= maximumEncodedBytes else {
             throw CocoaError(.fileReadTooLarge)
         }
     }

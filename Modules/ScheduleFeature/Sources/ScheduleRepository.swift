@@ -33,7 +33,7 @@ import TransportCore
     private(set) var isResolvingPersistenceConflict = false
     @ObservationIgnored private var loadedCache: ScheduleCache?
     @ObservationIgnored private var loadedRevision = 0
-    @ObservationIgnored private(set) var accountGeneration = 0
+    private(set) var accountGeneration = 0
     @ObservationIgnored private(set) var revision = 0
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var hasLoaded = false
@@ -427,18 +427,23 @@ import TransportCore
 
     var persistenceSnapshot: ScheduleCache { cache }
 
-    /// 读取课程分区令牌，使缓存命中的读取方也登记对课程分区的观察。
-    func trackCourseSection() { _ = courseToken }
-
     private func noteSectionChanges(from old: ScheduleCache) {
-        if ScheduleCourseState(cache: cache) != ScheduleCourseState(cache: old)
+        let courseDataChanged = cache.courseData != old.courseData
+        if courseDataChanged
+            || cache.classroomData.cachedClassroomBuildingsByCampusCode
+                != old.classroomData.cachedClassroomBuildingsByCampusCode
             || cache.presentation != old.presentation
             || cache.iCloudSyncEnabled != old.iCloudSyncEnabled
         {
             courseToken &+= 1
         }
         if cache.ddlData != old.ddlData { ddlToken &+= 1 }
-        if ScheduleClassroomState(cache: cache) != ScheduleClassroomState(cache: old) {
+        if cache.classroomData != old.classroomData
+            || (courseDataChanged
+                && (cache.courseData.firstDayString != old.courseData.firstDayString
+                    || cache.courseData.timeTable != old.courseData.timeTable
+                    || cache.courseData.courses != old.courseData.courses))
+        {
             classroomToken &+= 1
         }
     }
@@ -492,15 +497,22 @@ typealias ScheduleDDLState = ScheduleDDLData
 @dynamicMemberLookup
 nonisolated struct ScheduleClassroomState: Equatable {
     var data: ScheduleClassroomData
-    let courses: [CourseRecord]
-    let firstDay: Date?
-    let timeTable: [TimeSlot]
+    private let courseData: ScheduleCourseData
+
+    var courses: [CourseRecord] { courseData.courses }
+    var firstDay: Date? { courseData.firstDay }
+    var timeTable: [TimeSlot] { courseData.timeTable }
 
     init(cache: ScheduleCache) {
         data = cache.classroomData
-        courses = cache.courses
-        firstDay = cache.firstDay
-        timeTable = cache.timeTable
+        courseData = cache.courseData
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.data == rhs.data
+            && lhs.courseData.firstDayString == rhs.courseData.firstDayString
+            && lhs.courseData.timeTable == rhs.courseData.timeTable
+            && lhs.courseData.courses == rhs.courseData.courses
     }
 
     subscript<Value>(dynamicMember keyPath: KeyPath<ScheduleClassroomData, Value>) -> Value {

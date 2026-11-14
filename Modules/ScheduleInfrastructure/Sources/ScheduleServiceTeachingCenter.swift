@@ -115,9 +115,16 @@ extension ScheduleService {
                         break
                     }
                 }
+                if let failure = [error, webVPNError]
+                    .compactMap(SchoolServiceFailure.from)
+                    .first(where: { $0 != .sessionExpired })
+                {
+                    throw failure
+                }
+                let webVPNText = Self.stripDiagnosticTags(webVPNError.localizedDescription)
+                let directText = Self.stripDiagnosticTags(error.localizedDescription)
                 throw ScheduleServiceError.authenticationFailed(
-                    "WebVPN 教学中心恢复失败：\(webVPNError.localizedDescription)；"
-                        + "学校 SSO 直连恢复失败：\(error.localizedDescription)"
+                    "WebVPN 教学中心恢复失败：\(webVPNText)；学校 SSO 直连恢复失败：\(directText)"
                 )
             }
         }
@@ -160,11 +167,40 @@ extension ScheduleService {
             teachingCenterState.invalidate()
             do { return try await withRelayTeachingRetry(operation: operation) } catch {
                 try validateAuthOwner(owner)
-                if case ScheduleServiceError.secondFactorRequired = error { throw error }
-                throw ScheduleServiceError.authenticationFailed(
-                    "学校本机认证：\(localError.localizedDescription)；中转恢复：\(error.localizedDescription)")
+                if Task.isCancelled || TaskCancellation.matches(error) { throw error }
+                throw Self.resolvedRelayFailure(localError: localError, relayError: error)
             }
         }
+    }
+
+    private static func resolvedRelayFailure(
+        localError: any Error, relayError: any Error
+    ) -> any Error {
+        switch relayError {
+        case ScheduleServiceError.secondFactorRequired,
+            ScheduleServiceError.schoolSecondFactorRequired:
+            return relayError
+        default:
+            if let failure = SchoolServiceFailure.from(localError)
+                ?? SchoolServiceFailure.from(relayError)
+                ?? SchoolServiceFailure.authenticationResponse(relayError.localizedDescription)
+            {
+                return failure
+            }
+            let localText = stripDiagnosticTags(localError.localizedDescription)
+            let relayText = stripDiagnosticTags(relayError.localizedDescription)
+            return ScheduleServiceError.authenticationFailed(
+                "学校本机认证：\(localText)；中转恢复：\(relayText)"
+            )
+        }
+    }
+
+    private static func stripDiagnosticTags(_ message: String) -> String {
+        message.replacingOccurrences(
+            of: #"\s*\[[A-Za-z0-9_]+=[^\[\]]*\]"#,
+            with: "",
+            options: .regularExpression
+        )
     }
 
     /// 已验证当前网络适合校内直连时直接执行；仅在业务接口明确返回登录页时恢复一次 SSO。

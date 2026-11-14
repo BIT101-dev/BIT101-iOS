@@ -132,10 +132,10 @@ swift_parse() {
   find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
     -type f -name '*.swift' -print0 \
-    | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG || return 1
+    | xargs -0 -n 24 -P 6 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG || return 1
   find "$ROOT_DIR/BIT101-iOSTests" "$ROOT_DIR/BIT101-iOSUITests" "$ROOT_DIR/ModuleTests" -type f \
     -name '*.swift' -print0 \
-    | xargs -0 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG -D EXTENDED_AUTOMATION
+    | xargs -0 -n 24 -P 6 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG -D EXTENDED_AUTOMATION
 }
 
 shell_parse() {
@@ -152,7 +152,7 @@ worker_parse() {
   find "$ROOT_DIR/Cloudflare" \
     \( -name node_modules -o -name .wrangler -o -name .git \) -prune -o \
     -type f -name '*.js' -print0 \
-    | xargs -0 -n 1 node --check
+    | xargs -0 -n 1 -P 4 node --check
 }
 dependency_audit() {
   (cd "$ROOT_DIR/Cloudflare/EmergencyUpdateWorker" && npm audit --audit-level=high \
@@ -192,9 +192,34 @@ rm -f "$LOG_DIR/source-facts.json"
 if (( run_artifacts )) && [[ "${BIT101_AUDIT_ARTIFACTS_PREPARED:-0}" != 1 ]]; then
   bit101_run_audit_group artifact-hygiene artifact_hygiene || failed_groups+=(artifact-hygiene)
 fi
-for (( index = 1; index <= ${#group_names}; index++ )); do
-  bit101_start_audit_group "$group_names[$index]" "$group_commands[$index]"
-done
+if (( ${group_names[(Ie)module-boundary]} && ${group_names[(Ie)checkers]} )); then
+  active_names=() active_commands=() deferred_names=() deferred_commands=()
+  for (( index = 1; index <= ${#group_names}; index++ )); do
+    case "$group_names[$index]" in
+    module-boundary|checkers)
+      deferred_names+=("$group_names[$index]")
+      deferred_commands+=("$group_commands[$index]")
+      ;;
+    *)
+      active_names+=("$group_names[$index]")
+      active_commands+=("$group_commands[$index]")
+      ;;
+    esac
+  done
+  group_names=("${active_names[@]}" "${deferred_names[@]}")
+  group_commands=("${active_commands[@]}" "${deferred_commands[@]}")
+  for (( index = 1; index <= ${#active_names}; index++ )); do
+    bit101_start_audit_group "$active_names[$index]" "$active_commands[$index]"
+  done
+  python3 "$ROOT_DIR/Scripts/check-code-quality.py" --swift-syntax-index >/dev/null || true
+  for (( index = 1; index <= ${#deferred_names}; index++ )); do
+    bit101_start_audit_group "$deferred_names[$index]" "$deferred_commands[$index]"
+  done
+else
+  for (( index = 1; index <= ${#group_names}; index++ )); do
+    bit101_start_audit_group "$group_names[$index]" "$group_commands[$index]"
+  done
+fi
 bit101_wait_audit_groups
 if (( ${#failed_groups[@]} > 0 )); then
   printf '[失败汇总] %s\n' "${(j:, :)failed_groups}" >&2

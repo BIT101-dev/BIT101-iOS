@@ -39,6 +39,10 @@ private nonisolated struct DDLPersistenceFailure: Error {}
         self.virtualNetworkLikely = virtualNetworkLikely
     }
 
+    deinit {
+        schoolSMSContinuation?.resume(throwing: CancellationError())
+    }
+
     public func refreshFromUser() async {
         guard !isSyncingDDL else { return }
         await beforeSchoolRequest()
@@ -73,21 +77,36 @@ private nonisolated struct DDLPersistenceFailure: Error {}
     func makeSchoolSMSCodeHandler(for generation: Int? = nil) -> SchoolSMSCodeHandler {
         { @MainActor [weak self] request in
             guard let self else { throw CancellationError() }
-            if let generation, self.accountGeneration != generation {
-                throw CancellationError()
-            }
-            guard self.schoolSMSContinuation == nil else { throw CancellationError() }
-            let waitID = UUID()
-            self.schoolSMSWaitID = waitID
-            self.schoolSMSCodeRequest = request
-            return try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
+            return try await self.awaitSchoolSMSCode(request, generation: generation)
+        }
+    }
+
+    private func awaitSchoolSMSCode(
+        _ request: SchoolSMSCodeRequest,
+        generation: Int?
+    ) async throws -> String {
+        try Task.checkCancellation()
+        if let generation, accountGeneration != generation {
+            throw CancellationError()
+        }
+        guard schoolSMSContinuation == nil else { throw CancellationError() }
+        let waitID = UUID()
+        schoolSMSWaitID = waitID
+        schoolSMSCodeRequest = request
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled {
+                    self.schoolSMSWaitID = nil
+                    self.schoolSMSCodeRequest = nil
+                    continuation.resume(throwing: CancellationError())
+                } else {
                     self.schoolSMSContinuation = continuation
                 }
-            } onCancel: {
-                Task { @MainActor [weak self] in
-                    self?.cancelSchoolSMSWait(matching: waitID)
-                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelSchoolSMSWait(matching: waitID)
             }
         }
     }
@@ -287,12 +306,16 @@ private nonisolated struct DDLPersistenceFailure: Error {}
     ///
     /// `done` 记录 App 内的完成状态。
     func toggleDDLDone(_ event: DDLEventRecord) {
-        guard cache.ddlEvents.contains(where: { $0.id == event.id }) else { return }
-        cache.ddlEvents = ScheduleDDLEditor.togglingDone(id: event.id, in: cache.ddlEvents)
-        if let updated = cache.ddlEvents.first(where: { $0.id == event.id }), updated.isSchoolSynced
+        var updatedState = cache
+        guard updatedState.ddlEvents.contains(where: { $0.id == event.id }) else { return }
+        updatedState.ddlEvents = ScheduleDDLEditor.togglingDone(
+            id: event.id, in: updatedState.ddlEvents)
+        if let updated = updatedState.ddlEvents.first(where: { $0.id == event.id }),
+            updated.isSchoolSynced
         {
-            cache.lexueDDLCompletionByID[updated.id] = updated.done
+            updatedState.lexueDDLCompletionByID[updated.id] = updated.done
         }
+        cache = updatedState
         persist()
     }
 
@@ -393,27 +416,30 @@ private nonisolated struct DDLPersistenceFailure: Error {}
         try Task.checkCancellation()
         guard accountGeneration == generation else { throw CancellationError() }
         try repository.requireWritable()
-        if payload.syncedGroups.contains("lexue") { cache.lexueCalendarURL = payload.url }
-        for event in cache.ddlEvents
-        where event.isSchoolSynced && (event.done || cache.lexueDDLCompletionByID[event.id] != nil)
+        var updatedState = cache
+        if payload.syncedGroups.contains("lexue") { updatedState.lexueCalendarURL = payload.url }
+        for event in updatedState.ddlEvents
+        where event.isSchoolSynced
+            && (event.done || updatedState.lexueDDLCompletionByID[event.id] != nil)
         {
-            cache.lexueDDLCompletionByID[event.id] = event.done
+            updatedState.lexueDDLCompletionByID[event.id] = event.done
         }
         let syncedEvents = payload.events.map { event in
             var event = event
-            event.done = cache.lexueDDLCompletionByID[event.id] ?? event.done
-            if event.done { cache.lexueDDLCompletionByID[event.id] = true }
+            event.done = updatedState.lexueDDLCompletionByID[event.id] ?? event.done
+            if event.done { updatedState.lexueDDLCompletionByID[event.id] = true }
             return event
         }
-        cache.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
+        updatedState.ddlEvents = ScheduleDDLEditor.mergingSyncedEvents(
             syncedEvents,
-            into: cache.ddlEvents,
+            into: updatedState.ddlEvents,
             syncedGroups: payload.syncedGroups
         )
-        cache.reconcileCompleted(
+        updatedState.reconcileCompleted(
             currentIDs: Set(payload.events.map(\.id)),
             syncedGroups: payload.syncedGroups, now: Date())
-        cache.ddlUpdatedAt = Date()
+        updatedState.ddlUpdatedAt = Date()
+        cache = updatedState
         guard await persistAndWait(), accountGeneration == generation else {
             try Task.checkCancellation()
             guard accountGeneration == generation else { throw CancellationError() }

@@ -364,10 +364,15 @@ actor ScheduleSystemCalendarManager {
                     replacingTerm
                     ? events(forTerm: term, batches: importedBatches)
                     : events(matchingMarkerIDs: markerIDs, term: term, batches: importedBatches)
-                let existingEvents = Dictionary(
-                    uniqueKeysWithValues: markerEvents.map { ($0.eventIdentifier, $0) }
-                ).values
-                let removedIdentifiers = Set(existingEvents.compactMap(\.eventIdentifier))
+                let existingByIdentifier = Dictionary(
+                    markerEvents.compactMap { event -> (String, EKEvent)? in
+                        guard let id = event.eventIdentifier, !id.isEmpty else { return nil }
+                        return (id, event)
+                    },
+                    uniquingKeysWith: { _, latest in latest }
+                )
+                let existingEvents = existingByIdentifier.values
+                let removedIdentifiers = Set(existingByIdentifier.keys)
                 for event in existingEvents {
                     try eventStore.remove(event, span: .thisEvent, commit: false)
                 }
@@ -425,10 +430,14 @@ actor ScheduleSystemCalendarManager {
         try Task.checkCancellation()
         storageSession = AppStorageSession(accountIdentifier: owner.accountIdentifier)
         let importedBatches = try loadBatches()
+        let matchingEvents = events(
+            matchingMarkerIDs: markerIDs, term: term, batches: importedBatches)
         let eventsByIdentifier = Dictionary(
-            uniqueKeysWithValues: events(
-                matchingMarkerIDs: markerIDs, term: term, batches: importedBatches
-            ).map { ($0.eventIdentifier, $0) }
+            matchingEvents.compactMap { event -> (String, EKEvent)? in
+                guard let id = event.eventIdentifier, !id.isEmpty else { return nil }
+                return (id, event)
+            },
+            uniquingKeysWith: { _, latest in latest }
         )
         guard !eventsByIdentifier.isEmpty else { return .noOp }
 
@@ -587,10 +596,14 @@ actor ScheduleSystemCalendarManager {
                         endDate: batch.endDate))
             }
         }
+        var seenIdentifiers = Set<String>()
+        let uniqueIdentifiers = identifiers.filter {
+            !$0.isEmpty && seenIdentifiers.insert($0).inserted
+        }
         result.append(
             ImportedBatch(
                 term: added.term, calendarIdentifier: added.calendarIdentifier,
-                eventIdentifiers: identifiers, startDate: start, endDate: end))
+                eventIdentifiers: uniqueIdentifiers, startDate: start, endDate: end))
         return result
     }
 
@@ -755,9 +768,10 @@ actor ScheduleSystemCalendarManager {
             if let term, batch.term != term { continue }
             for identifier in batch.eventIdentifiers {
                 if let event = eventStore.event(withIdentifier: identifier),
+                    let eventID = event.eventIdentifier, !eventID.isEmpty,
                     isBIT101Event(event, term: term)
                 {
-                    eventsByIdentifier[identifier] = event
+                    eventsByIdentifier[eventID] = event
                 }
             }
             for event in taggedEvents(
@@ -766,7 +780,9 @@ actor ScheduleSystemCalendarManager {
                 endDate: batch.endDate,
                 term: term
             ) {
-                eventsByIdentifier[event.eventIdentifier] = event
+                if let eventID = event.eventIdentifier, !eventID.isEmpty {
+                    eventsByIdentifier[eventID] = event
+                }
             }
         }
         if let calendar = existingBIT101Calendar() {
@@ -779,7 +795,9 @@ actor ScheduleSystemCalendarManager {
             for event in taggedEvents(
                 calendars: [calendar], startDate: lowerBound, endDate: upperBound, term: term)
             {
-                eventsByIdentifier[event.eventIdentifier] = event
+                if let eventID = event.eventIdentifier, !eventID.isEmpty {
+                    eventsByIdentifier[eventID] = event
+                }
             }
         }
         return Array(eventsByIdentifier.values)

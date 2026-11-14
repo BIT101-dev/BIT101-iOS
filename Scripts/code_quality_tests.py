@@ -12,7 +12,9 @@ from worker_contract_tests import worker_boundary_findings
 from report_inbox_tests import report_inbox_boundary_findings, community_recovery_self_test
 
 from pathlib import Path
-import json, os, re, subprocess, sys, shutil, signal
+from concurrent.futures import ProcessPoolExecutor
+import importlib.util
+import json, multiprocessing, os, re, subprocess, sys, shutil, signal, time, traceback
 import shlex
 from contextlib import nullcontext, redirect_stdout, redirect_stderr
 from io import BytesIO, StringIO
@@ -131,20 +133,87 @@ def campus_fixture_self_test() -> None:
         shutil.rmtree(directory, ignore_errors=True)
 
 
-def checker_boundary_findings() -> list[str]:
-    findings, wait_path = verify_style_and_async_rules()
+def run_ui_consistency_worker() -> tuple[int, float, str, str]:
+    out, err = StringIO(), StringIO()
+    started = time.monotonic()
+    ui_path = SCRIPT_ROOT / "check-ui-consistency.py"
+    spec = importlib.util.spec_from_file_location("check_ui_consistency", ui_path)
+    if spec is None or spec.loader is None:
+        return 1, 0.0, "", f"[失败] UI 检查器加载：{ui_path}\n"
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    with redirect_stdout(out), redirect_stderr(err):
+        spec.loader.exec_module(module)
+        from code_quality_rules import swift_syntax_index
+
+        ui_syntax = swift_syntax_index(module.swift_files())
+        status = module.main(ui_syntax)
+    return status, time.monotonic() - started, out.getvalue(), err.getvalue()
+
+
+def run_self_test_shard(checker) -> list[str]:
+    try:
+        return checker()
+    except AssertionError as error:
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        return [f"自测失败 {checker.__name__}：{frame.filename}:{frame.lineno} {error}"]
+
+
+def _call_shard(checker) -> list[str]:
+    return checker()
+
+
+def _quality_shard_style_core() -> list[str]:
+    findings, _ = verify_style_and_async_rules(include_workflows=False)
+    campus_fixture_self_test()
+    return findings
+
+
+def _quality_shard_script_output() -> list[str]:
+    return script_output_boundary_findings()
+
+
+def _quality_shard_dev_workflow() -> list[str]:
+    from development_workflow_tests import development_workflow_self_test
+
+    development_workflow_self_test()
+    return []
+
+
+def _quality_shard_view_storage() -> list[str]:
+    findings: list[str] = []
+    wait_path = ROOT / "ModuleTests/Transport/EventTests.swift"
     unwrap_facts, write_facts, write_path, write_source = verify_view_and_file_error_rules(
         findings, wait_path
     )
     verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_path, write_source)
+    return findings
 
+
+def _quality_shard_concurrency_target() -> list[str]:
+    findings: list[str] = []
     verify_concurrency_and_target_rules(findings)
-
     verify_native_target_graph(findings)
     return findings
 
 
-def verify_style_and_async_rules():
+QUALITY_SELF_TEST_SHARDS = (
+    _quality_shard_style_core,
+    _quality_shard_script_output,
+    _quality_shard_dev_workflow,
+    _quality_shard_view_storage,
+    _quality_shard_concurrency_target,
+)
+
+
+def checker_boundary_findings() -> list[str]:
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=5, mp_context=context) as pool:
+        batches = list(pool.map(_call_shard, QUALITY_SELF_TEST_SHARDS))
+    return [item for batch in batches for item in batch]
+
+
+def verify_style_and_async_rules(include_workflows: bool = True):
     from code_style_tests import self_test as test_style
 
     test_style()
@@ -257,11 +326,12 @@ def verify_style_and_async_rules():
     removed["all"].discard(next(iter(CRITICAL_CONTRACTS["all"].values())))
     assert critical_findings(removed)
     findings.extend(community_recovery_self_test())
-    findings.extend(script_output_boundary_findings())
-    campus_fixture_self_test()
-    from development_workflow_tests import development_workflow_self_test
+    if include_workflows:
+        findings.extend(script_output_boundary_findings())
+        campus_fixture_self_test()
+        from development_workflow_tests import development_workflow_self_test
 
-    development_workflow_self_test()
+        development_workflow_self_test()
     markers = mask_literals_and_comments(
         '// TODO\n/* FIXME /* HACK */ */\nlet text = "TODO"', keep_comments=True
     )
@@ -306,7 +376,7 @@ enum Consumer {
 def verify_view_and_file_error_rules(findings, wait_path):
     view_path = str(ROOT / "BIT101-iOS/Example.swift")
     transport_path = str(ROOT / "Modules/TransportCore/Sources/HTTPClient.swift")
-    for body, expected in (
+    view_cases = (
         (
             (
                 "struct Example: View { let client: HTTPClient; let request: URLRequest; var body:"
@@ -396,31 +466,59 @@ def verify_view_and_file_error_rules(findings, wait_path):
             ),
             False,
         ),
-    ):
-        index = swift_syntax_index_sources(
-            {view_path: body, transport_path: "public struct HTTPClient {}"}
-        )
-        if bool(view_transport_findings(index)) != expected:
-            findings.append("视图网络传输自测：现成请求、视图工厂及同名业务方法按所属类型验收")
+    )
     storage_path = str(ROOT / "Modules/StorageCore/Sources/AppFileService.swift")
-    for argument, expected in (
+    file_cases = (
         ("root", True),
         ('root.appendingPathComponent("cache")', True),
         ('"cache"', False),
-    ):
-        source = """struct FileHelper { let files: any AppFileService;
+    )
+    helper_template = """struct FileHelper { let files: any AppFileService;
             func run(_ root: URL) { try? save(ARGUMENT) }
             private func save(_ location: URL) throws { try files.writeData(Data(), to: location) }
-            private func save(_ text: String) throws {} }""".replace("ARGUMENT", argument)
-        index = swift_syntax_index_sources(
-            {
-                view_path: source,
-                storage_path: (
-                    "public protocol AppFileService { func writeData(_ data: Data, to url: URL) th"
-                    "rows }"
-                ),
-            }
-        )
+            private func save(_ text: String) throws {} }"""
+    unwrap_source = (
+        '\n// value!\nlet example = "value!"\nlet unwrapped = value!\nlet subscriptValue = entries'
+        "[index]!\nlet tupleValue = pair.0!; let forcedTry = try! operation(); let forcedCast = va"
+        'lue as! String\nlet interpolated = "\\(entry!)"\nlet comparison = left != right\nstruct H'
+        "andler { var value: String!; func read() -> String { value }; func catches() { do {} catc"
+        "h _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { _ = error }; do "
+        "{} catch let failure { let _ = failure }; do {} catch { handle(error) }; do {} catch { _ "
+        "= record(error) } } }\n"
+    )
+    write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
+    write_source = (
+        "func update(files: AppFileService) { try? files.removeItem(at: url); _ = try? files.write"
+        "Data(data, to: url); let result = try? files.createDirectory(at: url); let data = try? fi"
+        "les.readData(at: url) }"
+    )
+    batch_sources = {
+        transport_path: "public struct HTTPClient {}",
+        storage_path: (
+            "public protocol AppFileService { func writeData(_ data: Data, to url: URL) throws }"
+        ),
+        "Unwrap.swift": unwrap_source,
+        str(write_path): write_source,
+        **{f"view-case-{idx}.swift": body for idx, (body, _) in enumerate(view_cases)},
+        **{
+            f"file-case-{idx}.swift": helper_template.replace("ARGUMENT", arg)
+            for idx, (arg, _) in enumerate(file_cases)
+        },
+    }
+    batch_index = swift_syntax_index_sources(batch_sources, resolve_tests=False)
+    for idx, (_, expected) in enumerate(view_cases):
+        index = {
+            view_path: batch_index[f"view-case-{idx}.swift"],
+            transport_path: batch_index[transport_path],
+        }
+        if bool(view_transport_findings(index)) != expected:
+            findings.append("视图网络传输自测：现成请求、视图工厂及同名业务方法按所属类型验收")
+    for idx, (argument, expected) in enumerate(file_cases):
+        source = batch_sources[f"file-case-{idx}.swift"]
+        index = {
+            view_path: batch_index[f"file-case-{idx}.swift"],
+            storage_path: batch_index[storage_path],
+        }
         if (
             bool(
                 discarded_file_write_findings(
@@ -433,23 +531,8 @@ def verify_view_and_file_error_rules(findings, wait_path):
     from swift_type_index_tests import asynchronous_wait_self_test
 
     asynchronous_wait_self_test(wait_path)
-    unwrap_source = (
-        '\n// value!\nlet example = "value!"\nlet unwrapped = value!\nlet subscriptValue = entries'
-        "[index]!\nlet tupleValue = pair.0!; let forcedTry = try! operation(); let forcedCast = va"
-        'lue as! String\nlet interpolated = "\\(entry!)"\nlet comparison = left != right\nstruct H'
-        "andler { var value: String!; func read() -> String { value }; func catches() { do {} catc"
-        "h _ {}; do {} catch let error {}; do {} catch is Error {}; do {} catch { _ = error }; do "
-        "{} catch let failure { let _ = failure }; do {} catch { handle(error) }; do {} catch { _ "
-        "= record(error) } } }\n"
-    )
-    unwrap_facts = swift_syntax_index_sources({"Unwrap.swift": unwrap_source})["Unwrap.swift"]
-    write_path = ROOT / "Modules/CommunityPersistence/Sources/Example.swift"
-    write_source = (
-        "func update(files: AppFileService) { try? files.removeItem(at: url); _ = try? files.write"
-        "Data(data, to: url); let result = try? files.createDirectory(at: url); let data = try? fi"
-        "les.readData(at: url) }"
-    )
-    write_facts = swift_syntax_index_sources({str(write_path): write_source})[str(write_path)]
+    unwrap_facts = batch_index["Unwrap.swift"]
+    write_facts = batch_index[str(write_path)]
     if len(discarded_file_write_findings(write_path, write_source, write_facts)) != 3:
         findings.append("代码质量自测：文件副作用的丢弃结果需要错误处理，已消费结果沿调用方处理")
     return unwrap_facts, write_facts, write_path, write_source
@@ -497,7 +580,7 @@ def verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_pa
         + " }"
         for statement in writes
     }
-    write_index = swift_syntax_index_sources(write_sources)
+    write_index = swift_syntax_index_sources(write_sources, resolve_tests=False)
     for statement, expected in writes.items():
         if (
             bool(
@@ -537,7 +620,7 @@ def verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_pa
             write_path.with_name("Extension.swift")
         ): "extension Store { func reset() { try? self.again() } }",
     }
-    wrapper_index = swift_syntax_index_sources(wrapper_sources)
+    wrapper_index = swift_syntax_index_sources(wrapper_sources, resolve_tests=False)
     wrapper_writes = file_write_calls(wrapper_index)
     if (
         sum(
@@ -571,7 +654,7 @@ def verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_pa
     }
     if not ast_has_view_request(view_facts) or ast_has_view_request(model_facts):
         findings.append("代码质量规则界限自检失败：SwiftSyntax View 请求范围匹配")
-    for constructor in (
+    constructors = (
         "Foundation.URLRequest(url: url)",
         "Foundation . URLRequest(url: url)",
         "URLRequest.init(url: url)",
@@ -586,17 +669,16 @@ def verify_storage_operation_rules(findings, unwrap_facts, write_facts, write_pa
         "func consume(_ requests: [URLRequest]) {}; consume([.init(url: url)])",
         "func consume(_ request: URLRequest, enabled: Bool = true) {}; consume(.init(url: url))",
         "func consume(_ requests: URLRequest...) {}; consume(.init(url: url), .init(url: other))",
-    ):
+    )
+    request_sources = {
+        f"view-request-{idx}-{kind}": f"struct SampleView: {kind} {{ func load() {{ {item} }} }}"
+        for idx, item in enumerate(constructors)
+        for kind in ("View", "ViewModifier", "App", "Scene")
+    }
+    request_index = swift_syntax_index_sources(request_sources, resolve_tests=False)
+    for idx in range(len(constructors)):
         if not all(
-            ast_has_view_request(
-                swift_syntax_index_sources(
-                    {
-                        "view-request": (
-                            f"struct SampleView: {kind} {{ func load() {{ {constructor} }} }}"
-                        )
-                    }
-                )["view-request"]
-            )
+            ast_has_view_request(request_index[f"view-request-{idx}-{kind}"])
             for kind in ("View", "ViewModifier", "App", "Scene")
         ):
             findings.append("View 请求构造自测：限定类型、显式及推断构造")

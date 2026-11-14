@@ -1,6 +1,12 @@
 """Regression cases for the module and resource ownership rules."""
 
+from concurrent.futures import ProcessPoolExecutor
+from functools import cache
+import importlib.util
+import multiprocessing
+import os
 import re
+import sys
 from pathlib import Path
 
 from module_resource_tests import (
@@ -475,22 +481,67 @@ def manifest_lock_self_test(read_manifest) -> None:
         shutil.rmtree(root)
 
 
-def run_self_test(rules: dict) -> None:
+@cache
+def _boundary_rules() -> dict:
+    main_dict = sys.modules["__main__"].__dict__
+    if "service_boundary_errors" in main_dict:
+        return main_dict
+    path = Path(__file__).resolve().with_name("check-module-boundaries.py")
+    spec = importlib.util.spec_from_file_location("check_module_boundaries", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.__dict__
+
+
+def _run_boundary_self_test_shard(name: str) -> None:
     from swift_type_index_tests import (
         foundation_collection_self_test,
         resource_audit_execution_self_test,
     )
 
-    foundation_collection_self_test(rules["service_boundary_errors"])
-    resource_audit_execution_self_test(rules)
-    module_coverage_binary_self_test()
-    package_test_module_self_test()
-    callable_network_api_self_test(rules)
-    stream_network_self_test(rules)
-    streaming_transport_self_test()
-    local_resource_self_test(rules)
-    subprocess_resource_self_test(rules)
-    manifest_lock_self_test(rules["read_manifest"])
-    resource_access_self_test(rules)
-    module_types_self_test(rules)
-    service_access_self_test(rules)
+    rules = _boundary_rules()
+    shards = {
+        "foundation_collection": lambda: foundation_collection_self_test(
+            rules["service_boundary_errors"]
+        ),
+        "resource_audit_execution": lambda: resource_audit_execution_self_test(rules),
+        "module_coverage_binary": module_coverage_binary_self_test,
+        "package_test_module": package_test_module_self_test,
+        "callable_network_api": lambda: callable_network_api_self_test(rules),
+        "stream_network": lambda: stream_network_self_test(rules),
+        "streaming_transport": streaming_transport_self_test,
+        "local_resource": lambda: local_resource_self_test(rules),
+        "subprocess_resource": lambda: subprocess_resource_self_test(rules),
+        "manifest_lock": lambda: manifest_lock_self_test(rules["read_manifest"]),
+        "resource_access": lambda: resource_access_self_test(rules),
+        "module_types": lambda: module_types_self_test(rules),
+        "service_access": lambda: service_access_self_test(rules),
+    }
+    shards[name]()
+
+
+SELF_TEST_SHARDS = (
+    "resource_audit_execution",
+    "service_access",
+    "resource_access",
+    "callable_network_api",
+    "local_resource",
+    "module_types",
+    "stream_network",
+    "foundation_collection",
+    "streaming_transport",
+    "module_coverage_binary",
+    "package_test_module",
+    "subprocess_resource",
+    "manifest_lock",
+)
+
+
+def run_self_test(rules: dict) -> None:
+    workers = min(8, os.cpu_count() or 4, len(SELF_TEST_SHARDS))
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        list(pool.map(_run_boundary_self_test_shard, SELF_TEST_SHARDS))

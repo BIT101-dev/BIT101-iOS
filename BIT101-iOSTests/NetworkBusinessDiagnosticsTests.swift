@@ -22,6 +22,26 @@ struct NetworkBusinessDiagnosticsTests {
                 .authenticationRestricted
             ),
             (
+                ScheduleServiceError.authenticationFailed("[status=401, risk=error-fallback]"),
+                .authenticationRestricted
+            ),
+            (
+                ScheduleServiceError.authenticationFailed("认证受限 (1320009)"),
+                .authenticationRestricted
+            ),
+            (
+                ScheduleServiceError.authenticationFailed("需要图形验证码 (1320007)"),
+                .captchaRequired
+            ),
+            (
+                ScheduleServiceError.schoolResponse("<span id='login-error-code'>1320007</span>"),
+                .captchaRequired
+            ),
+            (
+                ScheduleServiceError.schoolResponse("<span id='login-error-code'>1320009</span>"),
+                .authenticationRestricted
+            ),
+            (
                 ScheduleServiceError.authenticationFailed(
                     "账号已被锁定 (code: 1030028) [risk=ustc-token]"), .accountLocked
             ),
@@ -44,7 +64,8 @@ struct NetworkBusinessDiagnosticsTests {
         for (title, failure) in [
             ("登录失败", SchoolServiceFailure.authenticationChannel),
             ("身份验证失败", .authenticationChannel), ("加载话廊失败", .authenticationChannel),
-            ("课表同步失败", .authenticationRestricted), ("课表同步失败", .accountLocked),
+            ("课表同步失败", .authenticationRestricted), ("课表同步失败", .captchaRequired),
+            ("课表同步失败", .accountLocked),
             ("学期列表加载失败", .sessionExpired),
             ("验证已失效", .authenticationChannel), ("成绩查询失败", .authenticationChannel),
             ("可信成绩单申请失败", .sessionExpired), ("课表同步失败", .accessDenied),
@@ -55,12 +76,12 @@ struct NetworkBusinessDiagnosticsTests {
             let expectedTitle: String
             switch failure {
             case .authenticationChannel: expectedTitle = "学校认证通道异常"
-            case .authenticationRestricted: expectedTitle = "学校认证受限"
+            case .authenticationRestricted, .captchaRequired: expectedTitle = "学校认证受限"
             case .accountLocked: expectedTitle = "学校账号已锁定"
             default: expectedTitle = "学校服务异常"
             }
             #expect(presentation.title == expectedTitle && presentation.message.contains("学校"))
-            if [.authenticationRestricted, .accountLocked].contains(failure) {
+            if [.authenticationRestricted, .captchaRequired, .accountLocked].contains(failure) {
                 #expect(presentation.schoolServiceLinkTitle == "打开学校统一认证")
             }
             #expect(!presentation.allowsDiagnostics && presentation.allowsSchoolServiceLink)

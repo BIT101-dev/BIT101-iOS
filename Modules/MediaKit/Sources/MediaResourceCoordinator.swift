@@ -188,9 +188,9 @@ final class MediaDisplayedImage {
     @ObservationIgnored private var budget: MediaDisplayBudget?
 
     deinit {
-        let selectedBudget = budget
+        guard let selectedBudget = budget else { return }
         let selectedOwner = owner
-        Task { @MainActor in selectedBudget?.release(owner: selectedOwner) }
+        Task { @MainActor in selectedBudget.release(owner: selectedOwner) }
     }
 
     @discardableResult

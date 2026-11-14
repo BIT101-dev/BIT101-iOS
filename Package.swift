@@ -110,7 +110,8 @@ let package = Package(
             dependencies: ["DesignSystemKit", "ScheduleContracts", "TransportCore"],
             path: "Modules/MapFeature/Sources", swiftSettings: mainActorIsolation),
         .target(
-            name: "ScheduleSync", dependencies: ["ScheduleDomain", "StorageCore"],
+            name: "ScheduleSync",
+            dependencies: ["ScheduleDomain", "StorageCore", "TransportCore"],
             path: "Modules/ScheduleSync/Sources", swiftSettings: mainActorIsolation
         ),
         .target(

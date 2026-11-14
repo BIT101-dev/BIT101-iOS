@@ -16,6 +16,18 @@ public actor SchedulePersistenceStore {
     private nonisolated static let logger = Logger(subsystem: "BIT101", category: "ScheduleCache")
     private var lastReadFailure: (url: URL, summary: String)?
     private nonisolated struct CacheVersion: Decodable { let schemaVersion: Int }
+    private nonisolated struct DecodedScheduleCacheEnvelope: Decodable {
+        let hasSchemaVersion: Bool
+        let cache: ScheduleCache
+
+        private enum ProbeKeys: String, CodingKey { case schemaVersion }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: ProbeKeys.self)
+            hasSchemaVersion = container.contains(.schemaVersion)
+            cache = try ScheduleCache(from: decoder)
+        }
+    }
     private static let legacyBlockKeys: [String: Set<String>] = [
         "courseData": [
             "storedCourseScheduleParserVersion", "primaryScheduleTitle", "currentTerm",
@@ -55,15 +67,9 @@ public actor SchedulePersistenceStore {
     }
 
     public func load(for session: AppStorageSession) -> ScheduleCacheLoadResult {
-        let result = read(
+        read(
             accountIdentifier: session.accountStorageIdentifier,
             legacyAccountIdentifier: session.legacyAccountDirectoryNameForMigration)
-        if case .loaded(let cache) = result {
-            migrateLegacyIfNeeded(
-                cache, accountIdentifier: session.accountStorageIdentifier,
-                legacyAccountIdentifier: session.legacyAccountDirectoryNameForMigration)
-        }
-        return result
     }
 
     public nonisolated func cacheFileURL(for accountIdentifier: String) -> URL {
@@ -115,21 +121,30 @@ public actor SchedulePersistenceStore {
 
         let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
         guard legacyURL != currentURL else { return .missing }
-        return readCacheFile(at: legacyURL)
+        let legacyResult = readCacheFile(at: legacyURL)
+        if case .loaded(let cache) = legacyResult, lastReadFailure?.url != legacyURL {
+            migrateLegacyCache(cache, from: legacyURL, to: currentURL)
+        }
+        return legacyResult
     }
 
-    private func readCacheFile(at url: URL) -> ScheduleCacheLoadResult {
-        if lastReadFailure?.url == url { lastReadFailure = nil }
+    private func readCacheFile(
+        at url: URL,
+        recordFailure: Bool = true
+    ) -> ScheduleCacheLoadResult {
+        if recordFailure, lastReadFailure?.url == url { lastReadFailure = nil }
         var operation = "protection"
         do {
             try files.setPrivateFileProtection(at: url)
             operation = "read"
             let data = try files.readData(at: url, maximumBytes: Self.maximumCacheBytes)
+            var decodeFailure: String?
             let result = Self.decodeCache(data) { summary in
-                lastReadFailure = (url, summary)
+                decodeFailure = summary
             }
-            if let failure = lastReadFailure, failure.url == url {
-                Self.logger.error("课表缓存重建：\(failure.summary, privacy: .public)")
+            if let decodeFailure, recordFailure {
+                lastReadFailure = (url, decodeFailure)
+                Self.logger.error("课表缓存重建：\(decodeFailure, privacy: .public)")
             }
             let recovered = result.isUnreadable
             guard var cache = result.cacheIfReadable ?? Self.resetDamagedBlocks(data) else {
@@ -153,10 +168,12 @@ public actor SchedulePersistenceStore {
             return recovered ? .recovered(cache) : .loaded(cache)
         } catch {
             if AppFileSystem.isMissingFile(error) { return .missing }
-            let failure = error as NSError
-            let summary = "file.\(operation):\(failure.domain).\(failure.code)"
-            lastReadFailure = (url, summary)
-            Self.logger.error("课表缓存读取失败，保留现有内容：\(summary, privacy: .public)")
+            if recordFailure {
+                let failure = error as NSError
+                let summary = "file.\(operation):\(failure.domain).\(failure.code)"
+                lastReadFailure = (url, summary)
+                Self.logger.error("课表缓存读取失败，保留现有内容：\(summary, privacy: .public)")
+            }
             return .unreadable
         }
     }
@@ -390,13 +407,19 @@ public actor SchedulePersistenceStore {
             onFailure("decode.sizeLimit")
             return .unreadable
         }
-        guard admittedRoot(data) != nil else {
-            onFailure("decode.root")
-            return .unreadable
-        }
         do {
-            return .loaded(try Self.makeDecoder().decode(ScheduleCache.self, from: data))
+            let decoded = try Self.makeDecoder().decode(
+                DecodedScheduleCacheEnvelope.self, from: data)
+            if !decoded.hasSchemaVersion, admittedRoot(data) == nil {
+                onFailure("decode.root")
+                return .unreadable
+            }
+            return .loaded(decoded.cache)
         } catch {
+            guard admittedRoot(data) != nil else {
+                onFailure("decode.root")
+                return .unreadable
+            }
             onFailure(decodingFailureSummary(error))
             return .unreadable
         }
@@ -445,18 +468,11 @@ public actor SchedulePersistenceStore {
         return "decode.\(kind):\(location.isEmpty ? "$" : location.joined(separator: "."))"
     }
 
-    private func migrateLegacyIfNeeded(
+    private func migrateLegacyCache(
         _ cache: ScheduleCache,
-        accountIdentifier: String,
-        legacyAccountIdentifier: String
+        from legacyURL: URL,
+        to currentURL: URL
     ) {
-        guard accountIdentifier != legacyAccountIdentifier else { return }
-        let currentURL = cacheFileURL(for: accountIdentifier)
-        let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
-        guard case .missing = readCacheFile(at: currentURL),
-            case .loaded = readCacheFile(at: legacyURL), lastReadFailure?.url != legacyURL
-        else { return }
-
         do {
             try files.createDirectory(at: currentURL.deletingLastPathComponent())
             let data = try Self.makeEncoder().encode(cache)
@@ -505,6 +521,7 @@ public actor SchedulePersistenceStore {
         }
         var storedUpdatedAt = Date.distantPast
         var storedCache: ScheduleCache?
+        var preloadedLegacyResult: ScheduleCacheLoadResult?
         switch currentResult {
         case .loaded(let currentCache), .recovered(let currentCache):
             storedUpdatedAt = currentCache.updatedAt
@@ -516,6 +533,7 @@ public actor SchedulePersistenceStore {
         {
             let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
             let legacyResult = readCacheFile(at: legacyURL)
+            preloadedLegacyResult = legacyResult
             isRecovering = legacyResult.isRecovered
             isRebuilding = legacyResult.isDamaged
             guard
@@ -579,7 +597,8 @@ public actor SchedulePersistenceStore {
             removeMigratedCache(
                 accountIdentifier: accountIdentifier,
                 legacyAccountIdentifier: legacyAccountIdentifier,
-                includingDamaged: confirmsRebuild
+                includingDamaged: confirmsRebuild,
+                preloadedResult: preloadedLegacyResult
             )
             return cache
         } catch {
@@ -614,11 +633,12 @@ public actor SchedulePersistenceStore {
     private func removeMigratedCache(
         accountIdentifier: String,
         legacyAccountIdentifier: String,
-        includingDamaged: Bool = false
+        includingDamaged: Bool = false,
+        preloadedResult: ScheduleCacheLoadResult? = nil
     ) {
         guard accountIdentifier != legacyAccountIdentifier else { return }
         let legacyURL = cacheFileURL(for: legacyAccountIdentifier)
-        let result = readCacheFile(at: legacyURL)
+        let result = preloadedResult ?? readCacheFile(at: legacyURL, recordFailure: false)
         switch result {
         case .loaded: break
         case .damaged where includingDamaged: break

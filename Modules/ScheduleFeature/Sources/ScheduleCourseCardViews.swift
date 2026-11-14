@@ -7,18 +7,38 @@ import UIKit
 /// 复用原生 UILabel 和排版结果，文字始终由 UIKit 显示。
 @MainActor
 final class ScheduleCardTextView: UIView {
-    private struct MeasurementKey: Equatable {
+    private struct MeasurementKey: Hashable {
         let text: String
         let font: UIFont
         let width: CGFloat
     }
-    private struct LocationKey: Equatable {
+    private struct LocationKey: Hashable {
         let measurement: MeasurementKey
         let height: CGFloat
         let scale: CGFloat
     }
-    private static var lastMeasurement: (key: MeasurementKey, height: CGFloat)?
-    private static var lastLocation: (key: LocationKey, font: UIFont, height: CGFloat)?
+    private struct BoundedCache<Key: Hashable, Value> {
+        private let capacity = 64
+        private var values: [Key: Value] = [:]
+        private var order: [Key] = []
+
+        func value(for key: Key) -> Value? {
+            values[key]
+        }
+
+        mutating func insert(_ value: Value, for key: Key) {
+            if values[key] == nil {
+                if order.count >= capacity {
+                    let evicted = order.removeFirst()
+                    values.removeValue(forKey: evicted)
+                }
+                order.append(key)
+            }
+            values[key] = value
+        }
+    }
+    private static var measurementCache = BoundedCache<MeasurementKey, CGFloat>()
+    private static var locationCache = BoundedCache<LocationKey, (font: UIFont, height: CGFloat)>()
     let titleLabel = UILabel()
     let locationLabel = UILabel()
     private var title = ""
@@ -76,11 +96,12 @@ final class ScheduleCardTextView: UIView {
 
     func layout(size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
-        guard laidOutSize != size || laidOutScale != scale else { return }
+        let resolvedScale = max(scale > 0 ? scale : traitCollection.displayScale, 1)
+        guard laidOutSize != size || laidOutScale != resolvedScale else { return }
         bounds = CGRect(origin: .zero, size: size)
-        layoutScale = scale
+        layoutScale = resolvedScale
         laidOutSize = size
-        laidOutScale = scale
+        laidOutScale = resolvedScale
 
         switch scheduleContentMode {
         case .name:
@@ -180,13 +201,14 @@ final class ScheduleCardTextView: UIView {
         let key = LocationKey(
             measurement: MeasurementKey(text: text, font: baseFont, width: width),
             height: height, scale: layoutScale)
-        if let cached = Self.lastLocation, cached.key == key { return (cached.font, cached.height) }
+        if let cached = Self.locationCache.value(for: key) { return cached }
         let naturalHeight = measuredHeight(text: text, font: baseFont, width: width)
         var font = baseFont
         if naturalHeight > height {
             var lower = baseFont.pointSize * height / naturalHeight
             var upper = baseFont.pointSize
-            while upper - lower > 1 / layoutScale {
+            let tolerance = 1 / max(layoutScale, 1)
+            while upper - lower > tolerance {
                 let size = (lower + upper) / 2
                 if measuredHeight(text: text, font: baseFont.withSize(size), width: width) <= height
                 {
@@ -198,8 +220,9 @@ final class ScheduleCardTextView: UIView {
             font = baseFont.withSize(lower)
         }
         let fittedHeight = min(measuredHeight(text: text, font: font, width: width), height)
-        Self.lastLocation = (key, font, fittedHeight)
-        return (font, fittedHeight)
+        let result = (font: font, height: fittedHeight)
+        Self.locationCache.insert(result, for: key)
+        return result
     }
 
     private func configureLocationLabel(text: String, height: CGFloat, font: UIFont) {
@@ -213,13 +236,13 @@ final class ScheduleCardTextView: UIView {
 
     private func measuredHeight(text: String, font: UIFont, width: CGFloat) -> CGFloat {
         let key = MeasurementKey(text: text, font: font, width: width)
-        if let cached = Self.lastMeasurement, cached.key == key { return cached.height }
+        if let cached = Self.measurementCache.value(for: key) { return cached }
         let rect = (text as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font], context: nil)
         let height = ceil(rect.height)
-        Self.lastMeasurement = (key, height)
+        Self.measurementCache.insert(height, for: key)
         return height
     }
 

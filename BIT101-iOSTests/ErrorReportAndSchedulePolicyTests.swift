@@ -148,6 +148,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
                     }
                     XCTAssertTrue(try XCTUnwrap(record.responseBody).hasSuffix("[响应正文已按反馈大小限制截取]"))
                 } else {
+                    XCTAssertEqual(record.responseHeaders, ["Content-Type": "text/plain"])
                     XCTAssertNil(record.responseBody)
                 }
             }
@@ -875,5 +876,101 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
             id: id, term: "2024-2025-1", name: name, teacher: "教师", classroom: "教室",
             description: "", weeks: [1, 2], weekday: 1, startSection: 1, endSection: 2,
             campus: "", number: id, credit: 1, hour: 16, type: "", category: "", department: "")
+    }
+
+    @MainActor
+    func testSanitizedReportRetainsSafeMetadata() async throws {
+        let account = DiagnosticAccount()
+        let store = NetworkDiagnosticStore(currentIdentity: { account.identity })
+        let cases: [(String, String, [String: String], String?)] = [
+            (
+                "https://sso.bit.edu.cn/cas/login",
+                "<span id='login-error-code'>1320007</span>",
+                [
+                    "content-type": "text/html; charset=utf-8",
+                    "Location": "https://sso.bit.edu.cn/students/2026123456?ticket=SECRET_ST",
+                    "Set-Cookie": "CASTGC=SECRET_COOKIE",
+                ],
+                "cas:1320007"
+            ),
+            (
+                "https://sso.bit.edu.cn/cas/sms",
+                "<form id='secondSmsLoginForm' action='/cas/login'><p id='login-page-flowkey'>"
+                    + "flow</p><p id='user-object-id'>u1</p></form>",
+                ["Server": "nginx"],
+                "cas:second-factor"
+            ),
+            (
+                "https://sso.bit.edu.cn/api/sms",
+                #"{"code":412,"data":{"errorCode":8000068}}"#,
+                ["X-Secret-Token": "SECRET_HEADER"],
+                "json:412/8000068"
+            ),
+            (
+                "https://sso.bit.edu.cn/api/bool",
+                #"{"code":true}"#,
+                [:],
+                nil
+            ),
+        ]
+        for (urlString, body, headers, expectedCode) in cases {
+            let url = try XCTUnwrap(URL(string: urlString))
+            let response = try XCTUnwrap(
+                HTTPURLResponse(url: url, statusCode: 401, httpVersion: nil, headerFields: headers))
+            await store.record(
+                owner: account.identity, request: URLRequest(url: url), data: Data(body.utf8),
+                response: response, error: nil, elapsed: 0.02)
+            let recent = await store.recent()
+            let recorded = try XCTUnwrap(recent.last)
+            XCTAssertEqual(recorded.responseBytes, body.utf8.count)
+            XCTAssertEqual(recorded.upstreamCode, expectedCode)
+        }
+        let rootError = NSError(
+            domain: "InnerDomain", code: -1001,
+            userInfo: [NSLocalizedDescriptionKey: "2026123456 个人隐私文本"])
+        let wrappedError = NSError(
+            domain: "OuterDomain", code: 401, userInfo: [NSUnderlyingErrorKey: rootError])
+        var submitted: ErrorReportPayload?
+        let viewModel = ErrorReportViewModel(
+            alert: AppAlert(title: "请求失败", message: "请重试", underlyingError: wrappedError),
+            submitReport: { submitted = $0 })
+        viewModel.mode = .sanitized
+        viewModel.diagnostics = await store.recent()
+        let ok = await viewModel.submit()
+        XCTAssertTrue(ok)
+        let payload = try XCTUnwrap(submitted)
+        XCTAssertEqual(payload.errorChain?.count, 2)
+        XCTAssertEqual(payload.errorChain?.contains { $0.contains("OuterDomain:401") }, true)
+        XCTAssertEqual(payload.errorChain?.contains { $0.contains("InnerDomain:-1001") }, true)
+        XCTAssertEqual(payload.errorChain?.contains { $0.contains("2026123456") }, false)
+        let first = try XCTUnwrap(payload.diagnostics.first)
+        XCTAssertNil(first.responseBody)
+        XCTAssertEqual(first.upstreamCode, "cas:1320007")
+        XCTAssertEqual(first.responseHeaders["content-type"], "text/html; charset=utf-8")
+        XCTAssertNil(first.responseHeaders["Set-Cookie"])
+        let sanitizedLocation = try XCTUnwrap(first.responseHeaders["Location"])
+        XCTAssertFalse(sanitizedLocation.contains("SECRET_ST"))
+        XCTAssertFalse(sanitizedLocation.contains("2026123456"))
+        XCTAssertEqual(FeedbackDeviceContext.orientationLabel(.portrait), "portrait")
+        XCTAssertEqual(FeedbackDeviceContext.orientationLabel(.landscapeLeft), "landscapeLeft")
+        let legacyText =
+            #"{"locale":"zh_CN","timeZone":"Asia/Shanghai","#
+            + #""interfaceStyle":"light","networkStatus":"Wi-Fi"}"#
+        let decodedContext = try JSONDecoder().decode(
+            FeedbackDeviceContext.self, from: Data(legacyText.utf8))
+        XCTAssertEqual(decodedContext.orientation, "unknown")
+        XCTAssertFalse(decodedContext.virtualNetworkLikely)
+        for relativeLocation in [
+            "//path?foo=bar#frag",
+            "///path?2026123456=bar#frag",
+            "/cas/login?foo=bar baz#frag",
+        ] {
+            let redacted = ErrorReportRedactor.sanitizedResponseHeaders(
+                ["Location": relativeLocation], credentials: [], studentID: "2026123456")
+            let value = try XCTUnwrap(redacted["Location"])
+            XCTAssertFalse(value.contains("bar"))
+            XCTAssertFalse(value.contains("frag"))
+            XCTAssertFalse(value.contains("2026123456"))
+        }
     }
 }

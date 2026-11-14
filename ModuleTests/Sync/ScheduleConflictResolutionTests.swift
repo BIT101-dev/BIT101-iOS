@@ -66,7 +66,8 @@ extension ScheduleSyncTests {
         #expect(
             local.cache.primaryScheduleTitle == "local" && local.sources.isEmpty
                 && local.resolutions.isEmpty)
-        #expect(local.statuses == statuses)
+        let resetStatus: ScheduleCloudSyncStatus = stage == "apply" ? .idle : .pending
+        #expect(local.statuses == statuses + [resetStatus])
         #expect(await cloud.saved.count == (stage == "save" ? 1 : 0))
         await manager.refreshFromCloudIfNeeded()
         if stage == "conflict" {

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Regression contracts for evidence inputs, inventories and release summaries."""
 
+from concurrent.futures import ProcessPoolExecutor
 import json
+import multiprocessing
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 from swift_source_index import swift_syntax_index_sources
 from validation_performance_tests import developer_directory_self_test
@@ -218,41 +220,131 @@ def sms_request_mode_self_test() -> None:
             assert not network_requests_complete(required, dict(deepcopy(proof), **changes))
 
 
-@patch.dict(os.environ, GITHUB_ACTIONS="false", GITHUB_SHA="")
-def run_self_test(subject) -> int:
-    from validation_provenance_tests import test_identity_self_test, probe_identity_self_test
+def _fixture_environment() -> dict:
+    env = {
+        "host": {"system": "fixture"},
+        "developer": "/fixture",
+        "xcode": {"version": "fixture"},
+        "compiler": {
+            "path": "/fixture/swift-frontend",
+            "modified": 1,
+            "size": 100,
+            "version": "a" * 64,
+        },
+        "sdks": {"fixture": {"Version": "1"}},
+        "device": {
+            "identifier": "fixture-phone",
+            "systemVersion": "fixture-os",
+            "systemBuild": "fixture-build",
+        },
+    }
+    env["runtimes"] = {
+        name: "fixture-version" for name in ("python", "ruby", "node", "npm", "ruff")
+    }
+    return env
 
-    test_identity_self_test()
-    probe_identity_self_test(subject)
-    package_condition_self_test()
-    additional_network_probe_self_test()
-    sms_request_mode_self_test()
-    from validation_manual_tests import registration_self_test, source_identity_fixture
 
-    registration_self_test(subject)
-    network_scope_boolean_self_test(subject)
-    developer_directory_self_test()
-    from validation_compilation import self_test as compilation_cache_self_test
+@contextmanager
+def _evidence_worker_context(with_fixture_patches: bool = False):
+    from worker_deployment_tests import committed_worker_tree
 
-    compilation_cache_self_test()
-    module_events_self_test(subject)
-    native_cases_self_test(subject)
-    summary_status_self_test(subject)
+    with (
+        committed_worker_tree(),
+        patch.dict(os.environ, GITHUB_ACTIONS="false", GITHUB_SHA=""),
+        ExitStack() as stack,
+    ):
+        if with_fixture_patches:
+            import validation_evidence as subject
+            from validation_manual_tests import source_identity_fixture
+
+            env = _fixture_environment()
+            name = subject.__name__
+            stack.enter_context(patch(f"{name}.environment_context", return_value=env))
+            stack.enter_context(
+                patch(
+                    "validation_provenance._local_source_identity",
+                    side_effect=source_identity_fixture(),
+                )
+            )
+            stack.enter_context(patch("validation_merge.environment_context", return_value=env))
+            stack.enter_context(
+                patch("validation_provenance.environment_context", return_value=env)
+            )
+            stack.enter_context(
+                patch("validation_merge.result_bundle_findings", side_effect=lambda *a, **k: [])
+            )
+            stack.enter_context(
+                patch(f"{name}.result_bundle_findings", side_effect=lambda *a, **k: [])
+            )
+            stack.enter_context(patch("validation_merge.performance_findings", return_value=[]))
+        yield
+
+
+def _shard_formal_inventory() -> None:
+    from validation_policy import workflow_budget_self_test
     from validation_test_areas import formal_inventory_self_test
 
-    formal_inventory_self_test()
-    from validation_policy import workflow_budget_self_test
+    with _evidence_worker_context():
+        package_condition_self_test()
+        workflow_budget_self_test()
+        formal_inventory_self_test()
 
-    workflow_budget_self_test()
-    network_route_identity_self_test()
-    from validation_provenance_tests import source_snapshot_self_test
 
-    source_snapshot_self_test()
-    request_body_shape_self_test()
-    module_name = subject.__name__
-    original_is_file = Path.is_file
-    from validation_environment import host_environment
-    from validation_environment import ci_commit_findings
+def _shard_provenance_manual_perf() -> None:
+    import validation_evidence as subject
+    from validation_compilation import self_test as compilation_cache_self_test
+    from validation_manual_tests import run_self_test as manual_self_test
+    from validation_performance_tests import run_self_test as performance_self_test
+    from validation_provenance_tests import run_self_test as provenance_self_test
+
+    with _evidence_worker_context(with_fixture_patches=True):
+        provenance_self_test(subject.record)
+        manual_self_test()
+        performance_self_test()
+        developer_directory_self_test()
+        compilation_cache_self_test()
+
+
+def _shard_network_and_routes() -> None:
+    import validation_evidence as subject
+    from validation_provenance_tests import (
+        probe_identity_self_test,
+        source_snapshot_self_test,
+        test_identity_self_test,
+    )
+
+    with _evidence_worker_context():
+        test_identity_self_test()
+        probe_identity_self_test(subject)
+        additional_network_probe_self_test()
+        sms_request_mode_self_test()
+        network_route_identity_self_test()
+        source_snapshot_self_test()
+        request_body_shape_self_test()
+        network_scope_boolean_self_test(subject)
+
+
+def _shard_restore_ci_coverage() -> None:
+    import validation_evidence as subject
+    from ci_evidence import self_test as ci_evidence_self_test
+    from validation_coverage import self_test as coverage_self_test
+    from validation_manual_tests import registration_self_test
+    from validation_publication import self_test as publication_self_test
+    from validation_restore import self_test as restore_self_test
+
+    with _evidence_worker_context(with_fixture_patches=True):
+        registration_self_test(subject)
+        restore_self_test()
+        coverage_self_test(subject)
+        ci_evidence_self_test()
+        publication_self_test()
+        module_events_self_test(subject)
+        native_cases_self_test(subject)
+        summary_status_self_test(subject)
+
+
+def _run_host_and_commit_checks() -> None:
+    from validation_environment import ci_commit_findings, host_environment
 
     with patch.dict(os.environ, GITHUB_SHA="a" * 40):
         assert ci_commit_findings("a" * 40) == []
@@ -278,43 +370,48 @@ def run_self_test(subject) -> int:
         assert host_environment.__wrapped__()["compiler"]["path"] == selected_compiler
         lookup.assert_called_once_with(["xcrun", "--find", "swift-frontend"], text=True)
 
-    fixture_environment = {
-        "host": {"system": "fixture"},
-        "developer": "/fixture",
-        "xcode": {"version": "fixture"},
-        "compiler": {
-            "path": "/fixture/swift-frontend",
-            "modified": 1,
-            "size": 100,
-            "version": "a" * 64,
-        },
-        "sdks": {"fixture": {"Version": "1"}},
-        "device": {
-            "identifier": "fixture-phone",
-            "systemVersion": "fixture-os",
-            "systemBuild": "fixture-build",
-        },
-    }
-    fixture_environment["runtimes"] = {
-        name: "fixture-version" for name in ("python", "ruby", "node", "npm", "ruff")
-    }
-    with (
-        patch(f"{module_name}.environment_context", return_value=fixture_environment),
-        patch(
-            "validation_provenance._local_source_identity", side_effect=source_identity_fixture()
-        ),
-        patch("validation_merge.environment_context", return_value=fixture_environment),
-        patch("validation_provenance.environment_context", return_value=fixture_environment),
-        patch("validation_merge.result_bundle_findings", side_effect=lambda *args, **kwargs: []),
-        patch(f"{module_name}.result_bundle_findings", side_effect=lambda *args, **kwargs: []),
-        patch("validation_merge.performance_findings", return_value=[]),
-        ExitStack() as stable_inputs,
-    ):
-        compiler = verify_workflow_inputs(subject, fixture_environment)
-        test, icloud_summary = verify_test_inventory(subject, stable_inputs)
-        return verify_group_summaries(
-            subject, test, icloud_summary, fixture_environment, compiler, original_is_file
-        )
+
+@patch.dict(os.environ, GITHUB_ACTIONS="false", GITHUB_SHA="")
+def run_self_test(subject) -> int:
+    from validation_manual_tests import source_identity_fixture
+
+    subject.compilation_condition("swift(>=6.0)", "all")
+    module_name = subject.__name__
+    original_is_file = Path.is_file
+    fixture_environment = _fixture_environment()
+    shards = (
+        _shard_formal_inventory,
+        _shard_provenance_manual_perf,
+        _shard_network_and_routes,
+        _shard_restore_ci_coverage,
+    )
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=4, mp_context=context) as pool:
+        futures = [pool.submit(shard) for shard in shards]
+        _run_host_and_commit_checks()
+        with (
+            patch(f"{module_name}.environment_context", return_value=fixture_environment),
+            patch(
+                "validation_provenance._local_source_identity",
+                side_effect=source_identity_fixture(),
+            ),
+            patch("validation_merge.environment_context", return_value=fixture_environment),
+            patch("validation_provenance.environment_context", return_value=fixture_environment),
+            patch(
+                "validation_merge.result_bundle_findings", side_effect=lambda *args, **kwargs: []
+            ),
+            patch(f"{module_name}.result_bundle_findings", side_effect=lambda *args, **kwargs: []),
+            patch("validation_merge.performance_findings", return_value=[]),
+            ExitStack() as stable_inputs,
+        ):
+            compiler = verify_workflow_inputs(subject, fixture_environment, run_subsuites=False)
+            test, icloud_summary = verify_test_inventory(subject, stable_inputs)
+            status = verify_group_summaries(
+                subject, test, icloud_summary, fixture_environment, compiler, original_is_file
+            )
+        for future in futures:
+            future.result()
+    return status
 
 
 def summary_status_self_test(subject) -> None:
@@ -758,5 +855,7 @@ def network_scope_boolean_self_test(subject) -> None:
 
 if __name__ == "__main__":
     import validation_evidence
+    from worker_deployment_tests import committed_worker_tree
 
-    raise SystemExit(run_self_test(validation_evidence))
+    with committed_worker_tree():
+        raise SystemExit(run_self_test(validation_evidence))

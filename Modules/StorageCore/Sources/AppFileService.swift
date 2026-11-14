@@ -224,8 +224,14 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public func regularFileSize(at url: URL) -> Int? {
-        guard isRegularFile(at: url) else { return nil }
-        return try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        var uncachedURL = url
+        uncachedURL.removeAllCachedResourceValues()
+        guard
+            let values = try? uncachedURL.resourceValues(
+                forKeys: [.isRegularFileKey, .fileSizeKey]),
+            values.isRegularFile == true
+        else { return nil }
+        return values.fileSize
     }
 
     public func atomicFileIdentity(at url: URL) -> String? {
@@ -238,11 +244,17 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
     }
 
     public func isRegularFile(at url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        var uncachedURL = url
+        uncachedURL.removeAllCachedResourceValues()
+        return (try? uncachedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
     }
 
     public func modificationDate(at url: URL) -> Date? {
-        try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        var uncachedURL = url
+        uncachedURL.removeAllCachedResourceValues()
+        return try? uncachedURL.resourceValues(
+            forKeys: [.contentModificationDateKey]
+        ).contentModificationDate
     }
 
     public func setModificationDate(_ date: Date, at url: URL) throws {
@@ -290,7 +302,13 @@ public nonisolated struct LocalAppFileService: AppFileService, Sendable {
         else { return 0 }
         var total: Int64 = 0
         for case let url as URL in enumerator {
-            total += Int64(regularFileSize(at: url) ?? 0)
+            guard
+                let values = try? url.resourceValues(
+                    forKeys: [.isRegularFileKey, .fileSizeKey]),
+                values.isRegularFile == true,
+                let size = values.fileSize
+            else { continue }
+            total += Int64(size)
         }
         return total
     }

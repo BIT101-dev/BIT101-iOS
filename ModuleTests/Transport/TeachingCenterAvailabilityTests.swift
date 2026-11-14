@@ -517,4 +517,141 @@ struct TeachingCenterAvailabilityTests {
         #expect(try await service().fetchAvailableTerms() == ["term"])
         #expect(transport.authenticationRequests == 1 && transport.configurationRequests == 1)
     }
+
+    private final class SMS401Transport: HTTPTransport {
+        let stage: String
+        init(stage: String) { self.stage = stage }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            var status = 200
+            let body: String
+            switch url.path {
+            case "/cas/api/protected/sms/getPhoneNumberByUserId":
+                status = stage == "phone" ? 401 : 200
+                body = #"{"code":200,"data":{"tel":"13800000000","maskTel":"138****0000"}}"#
+            case "/cas/api/protected/sms/publicNoToken/sendSmsCode":
+                status = stage == "send" ? 401 : 200
+                body = #"{"code":200}"#
+            case "/cas/api/protected/sms/checkToken":
+                body = #"{"code":200}"#
+            case "/cas/login":
+                status = 401
+                body =
+                    stage == "form-sms"
+                    ? "<form id='secondSmsLoginForm' action='/cas/login'><p id='login-page-flowkey'"
+                        + ">sms-flow</p><p id='user-object-id'>owner</p></form>"
+                    : "<html>expired</html>"
+            default:
+                throw URLError(.badURL)
+            }
+            return (
+                Data(body.utf8),
+                try #require(
+                    HTTPURLResponse(
+                        url: url, statusCode: status, httpVersion: nil, headerFields: nil))
+            )
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            try await data(for: request)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["phone", "send", "form-sms", "form-expired"])
+    func schoolSMS401ClarifiesSessionAndCode(stage: String) async throws {
+        let credentials = Credentials()
+        let state = TeachingCenterSessionState(
+            cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(), schoolSessionRestorer: DirectRestorer(),
+            teachingCenterState: state, transport: SMS401Transport(stage: stage))
+        let context = SchoolSecondFactorContext(
+            execution: "sms-flow",
+            formAction: AppURL.required("https://sso.bit.edu.cn/cas/login"),
+            userObjectID: "owner")
+        do {
+            try await service.finishSchoolVerification(
+                context, handler: { _ in "123456" }, smsDeliveryMode: .send,
+                owner: credentials.schoolSessionIdentity)
+            Issue.record("短信阶段 HTTP 401 应返回明确提示。")
+        } catch ScheduleServiceError.schoolSMSUnavailable(let message) {
+            #expect(["phone", "send"].contains(stage))
+            #expect(message == "学校验证会话已失效，请重新发起本次操作。")
+        } catch ScheduleServiceError.schoolSMSCodeInvalid(let message) {
+            let expected =
+                stage == "form-sms"
+                ? "短信验证码错误或已失效，请重新发起验证。"
+                : "学校短信验证会话已超时或验证码已失效，请重新发起操作。"
+            #expect(message == expected)
+        }
+    }
+
+    private final class RelayFallbackTransport: HTTPTransport {
+        let relayError: String
+        init(relayError: String) { self.relayError = relayError }
+        func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            let url = try #require(request.url)
+            guard url.path.hasSuffix("/jxzxehall/cookies") else {
+                throw URLError(.cannotConnectToHost)
+            }
+            let body =
+                #"{"detail":{"challenge_id":"c1","access_token":"t1","status":"failed","error":""#
+                + relayError + #""}}"#
+            return (
+                Data(body.utf8),
+                try #require(
+                    HTTPURLResponse(url: url, statusCode: 202, httpVersion: nil, headerFields: nil))
+            )
+        }
+        func data(for request: URLRequest, maximumBytes: Int?) async throws -> (Data, URLResponse) {
+            try await data(for: request)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["captcha", "restricted", "tagged"])
+    func nativeRelayForwardsStructuredAndStripsTags(kind: String) async throws {
+        let credentials = Credentials()
+        let state = TeachingCenterSessionState(
+            cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let relayError =
+            switch kind {
+            case "captcha": "触发图形验证 (1320007) [risk=error-fallback, flow=replaced]"
+            case "restricted": "认证失败 [status=401, risk=error-fallback, flow=replaced]"
+            default: "认证通道暂时繁忙 [status=502, flow=replaced, captcha=none]"
+            }
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(), schoolSessionRestorer: Restorer(),
+            teachingCenterState: state, transport: RelayFallbackTransport(relayError: relayError),
+            nativeAuthenticator: UnavailableNativeAuthenticator())
+        do {
+            _ = try await service.fetchAvailableTerms()
+            Issue.record("中转失败应抛出结构化学校错误或清理后的描述。")
+        } catch let failure as SchoolServiceFailure {
+            let expected: SchoolServiceFailure =
+                kind == "captcha" ? .captchaRequired : .authenticationRestricted
+            #expect(failure == expected)
+        } catch ScheduleServiceError.authenticationFailed(let message) {
+            #expect(kind == "tagged")
+            #expect(!message.contains("flow=replaced") && !message.contains("captcha="))
+            #expect(message.contains("认证通道暂时繁忙"))
+        }
+    }
+
+    private struct RestrictedRestorer: SchoolSessionRestoring {
+        func restoreSchoolSession() async throws -> String? {
+            throw SchoolServiceFailure.captchaRequired
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func relayRecoveryForwardsSchoolError() async throws {
+        let credentials = Credentials()
+        let state = TeachingCenterSessionState(
+            cookieStorage: try #require(URLSessionConfiguration.ephemeral.httpCookieStorage))
+        let service = ScheduleService(
+            credentials: credentials, crypto: Crypto(), schoolSessionRestorer: RestrictedRestorer(),
+            teachingCenterState: state, transport: RouteTransport(rejectionStatus: 401))
+        await #expect(throws: SchoolServiceFailure.captchaRequired) {
+            _ = try await service.fetchAvailableTerms()
+        }
+    }
 }

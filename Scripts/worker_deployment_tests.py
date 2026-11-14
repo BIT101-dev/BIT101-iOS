@@ -1,8 +1,48 @@
 """Check Worker deployment configuration."""
 
+from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@contextmanager
+def committed_worker_tree():
+    import subprocess
+    from unittest.mock import patch
+    from validation_provenance import WORKER_FOLDERS, worker_input_name
+
+    original_read = Path.read_bytes
+    head_files: dict[Path, bytes] = {}
+    for folder in WORKER_FOLDERS:
+        paths = [
+            f"Cloudflare/{folder}",
+            "Cloudflare/EmergencyUpdateWorker/package.json",
+            "Cloudflare/EmergencyUpdateWorker/package-lock.json",
+        ]
+        if folder == "OpenWorker":
+            paths.append("BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png")
+        names = (
+            subprocess.check_output(
+                ["git", "ls-tree", "-r", "--name-only", "-z", "HEAD", "--", *paths],
+                cwd=ROOT,
+            )
+            .decode()
+            .split("\0")
+        )
+        for name in names:
+            if name and worker_input_name(folder, name):
+                target = ROOT / name
+                if target not in head_files:
+                    head_files[target] = subprocess.check_output(
+                        ["git", "show", f"HEAD:{name}"], cwd=ROOT
+                    )
+    with patch.object(
+        Path,
+        "read_bytes",
+        lambda path: head_files[path] if path in head_files else original_read(path),
+    ):
+        yield
 
 
 def emergency_configuration_fixture(enabled: bool = False, notice_id: str | None = None) -> dict:

@@ -344,18 +344,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             }
         }
         .sheet(isPresented: $isShowingTimeTableEditor) {
-            TimeTableEditorSheet(
-                text: $timeTableText,
-                onSubmit: {
-                    do {
-                        try viewModel.setTimeTable(from: timeTableText)
-                        isShowingTimeTableEditor = false
-                    } catch {
-                        viewModel.notice = ScheduleNotice.userInput(
-                            title: "设置失败", message: error.localizedDescription)
-                    }
-                }
-            )
+            TimeTableEditorSheet(text: $timeTableText, onSubmit: applyTimeTableEdit)
         }
         .sheet(isPresented: $isShowingSemesterStartDatePicker) {
             if let firstDay = viewModel.settingsSnapshot.firstDay {
@@ -381,47 +370,19 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         .sheet(item: $exportedScheduleCode) { payload in
             ScheduleExportCodeSheet(code: payload.code)
         }
-        .sheet(
-            item: $importSheetPresentation,
-            onDismiss: {
-                if didImportSchedule {
-                    didImportSchedule = false
-                    viewModel.notice = ScheduleNotice.informational(
-                        title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
-                }
-            }
-        ) { _ in
+        .sheet(item: $importSheetPresentation, onDismiss: dismissImportSheet) { _ in
             ScheduleImportCodeSheet(
                 initialText: "",
                 appStoreURL: appStoreURL,
-                onImport: { text in
-                    try await importScheduleCode(text)
-                }
+                onImport: { text in try await importScheduleCode(text) }
             )
         }
         .sheet(item: $renamingScheduleTarget) { target in
-            ScheduleRenameSheet(
-                title: target.title,
-                initialName: target.currentName
-            ) { newName in
-                switch target.kind {
-                case .primary:
-                    try viewModel.renamePrimarySchedule(to: newName)
-                case .shared(let id):
-                    try viewModel.renameSharedSchedule(id: id, to: newName)
-                }
+            ScheduleRenameSheet(title: target.title, initialName: target.currentName) { newName in
+                try renameSchedule(target, to: newName)
             }
         }
-        .sheet(
-            item: Binding(
-                get: { viewModel.verificationChallenge },
-                set: { challenge in
-                    if challenge == nil {
-                        viewModel.dismissChallenge()
-                    }
-                }
-            )
-        ) { challenge in
+        .sheet(item: verificationChallengeBinding) { challenge in
             AppVerificationSheet(
                 maskedPhone: challenge.maskedPhone,
                 isSubmitting: viewModel.isSubmittingVerificationCode,
@@ -439,11 +400,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             scheduleExportTask?.cancel()
         }
         .onChange(of: viewModel.accountGeneration) { _, _ in
-            cancelCalendarMutation()
-            scheduleExportTask?.cancel()
-            isShowingSystemCalendarImportConfirmation = false
-            isShowingSystemCalendarDeleteConfirmation = false
-            isShowingCalendarHistoryRecoveryConfirmation = false
+            handleAccountGenerationChange()
         }
         .alert("重建日历导入记录？", isPresented: $isShowingCalendarHistoryRecoveryConfirmation) {
             Button("重建") { rebuildCalendarHistory() }
@@ -493,11 +450,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         }
         .alert("导入分享课表提示", isPresented: $isShowingSharedScheduleImportGuide) {
             Button("知道了") {
-                hasSeenSharedScheduleImportGuide = true
-                if shouldOpenImportSheetAfterGuide {
-                    importSheetPresentation = ImportSheetPresentation()
-                }
-                shouldOpenImportSheetAfterGuide = false
+                confirmSharedScheduleImportGuide()
             }
             .accessibilityIdentifier("ui.calendar-settings-page.知道了")
             Button("取消", role: .cancel) {
@@ -507,6 +460,67 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
         } message: {
             Text("单击课表名称可改名，左滑可删除；在日程界面上下滑可循环切换课表；每个小组件使用自己的课表作为数据源。")
         }
+    }
+
+    private var verificationChallengeBinding: Binding<BITLoginAuthenticationChallenge?> {
+        Binding(
+            get: { viewModel.verificationChallenge },
+            set: { if $0 == nil { viewModel.dismissChallenge() } }
+        )
+    }
+
+    private func applyTimeTableEdit() {
+        do {
+            try viewModel.setTimeTable(from: timeTableText)
+            isShowingTimeTableEditor = false
+        } catch {
+            viewModel.notice = ScheduleNotice.userInput(
+                title: "设置失败", message: error.localizedDescription)
+        }
+    }
+
+    private func dismissImportSheet() {
+        guard didImportSchedule else { return }
+        didImportSchedule = false
+        viewModel.notice = ScheduleNotice.informational(
+            title: "导入成功", message: "分享课表已导入。考试、DDL 与自定义日程保持当前内容。")
+    }
+
+    private func renameSchedule(_ target: RenamingScheduleTarget, to newName: String) throws {
+        switch target.kind {
+        case .primary:
+            try viewModel.renamePrimarySchedule(to: newName)
+        case .shared(let id):
+            try viewModel.renameSharedSchedule(id: id, to: newName)
+        }
+    }
+
+    private func confirmSharedScheduleImportGuide() {
+        hasSeenSharedScheduleImportGuide = true
+        if shouldOpenImportSheetAfterGuide {
+            importSheetPresentation = ImportSheetPresentation()
+        }
+        shouldOpenImportSheetAfterGuide = false
+    }
+
+    private func handleAccountGenerationChange() {
+        cancelCalendarMutation()
+        scheduleExportTask?.cancel()
+        scheduleExportTask = nil
+        isShowingTimeTableEditor = false
+        isShowingSemesterStartDatePicker = false
+        isShowingLiveActivityLeadMinutesPicker = false
+        isShowingEmptyScheduleExportConfirmation = false
+        isShowingSharedScheduleImportGuide = false
+        isShowingLiveActivityExperimentalWarning = false
+        isShowingSystemCalendarImportConfirmation = false
+        isShowingSystemCalendarDeleteConfirmation = false
+        isShowingCalendarHistoryRecoveryConfirmation = false
+        shouldOpenImportSheetAfterGuide = false
+        didImportSchedule = false
+        exportedScheduleCode = nil
+        importSheetPresentation = nil
+        renamingScheduleTarget = nil
     }
 
     private func cancelCalendarMutation() {
@@ -588,14 +602,21 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
             return
         }
 
+        let account = viewModel.accountGeneration
         scheduleExportTask = Task { @MainActor in
-            defer { scheduleExportTask = nil }
+            defer {
+                if viewModel.accountGeneration == account {
+                    scheduleExportTask = nil
+                }
+            }
             do {
                 let code = try await viewModel.exportScheduleCode()
+                guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
                 exportedScheduleCode = ExportedScheduleCode(code: code)
-            } catch  where TaskCancellation.matches(error) {
+            } catch where TaskCancellation.matches(error) {
                 return
             } catch {
+                guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
                 viewModel.notice = ScheduleNotice(title: "导出失败", error: error)
             }
         }

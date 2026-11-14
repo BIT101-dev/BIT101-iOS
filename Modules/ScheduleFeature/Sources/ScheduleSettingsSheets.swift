@@ -78,7 +78,8 @@ public struct ScheduleTermPickerPage: View {
     }
 
     private func termRow(_ term: String) -> some View {
-        Button {
+        let isCurrentTerm = viewModel.settingsSnapshot.currentTerm == term
+        return Button {
             selectionFeedbackToken &+= 1
             Task { await viewModel.syncCourses(term: term) }
         } label: {
@@ -90,10 +91,10 @@ public struct ScheduleTermPickerPage: View {
             .contentShape(Rectangle())
         }
         .disabled(
-            viewModel.isSyncingCourses || viewModel.isLoadingTerms
-                || viewModel.settingsSnapshot.currentTerm == term
+            viewModel.isSyncingCourses || viewModel.isLoadingTerms || isCurrentTerm
         )
         .appInteractiveListRow()
+        .accessibilityAddTraits(isCurrentTerm ? .isSelected : [])
         .accessibilityIdentifier("ui.schedule-term-picker-page.term")
     }
 
@@ -138,6 +139,7 @@ public struct ScheduleSemesterStartDatePickerPage: View {
             )
             .datePickerStyle(.wheel)
             .labelsHidden()
+            .accessibilityLabel("学期起始日期")
             .environment(\.calendar, ScheduleDateCodec.calendar)
             .environment(\.timeZone, ScheduleDateCodec.calendar.timeZone)
             .appSelectionFeedback(trigger: draftDate)
@@ -191,6 +193,7 @@ public struct CourseLiveActivityLeadMinutesPickerPage: View {
         }
         .pickerStyle(.wheel)
         .labelsHidden()
+        .accessibilityLabel("提前显示阈值")
         .appSelectionFeedback(trigger: draftValue)
         .navigationTitle("提前显示阈值")
         .navigationBarTitleDisplayMode(.inline)
@@ -264,7 +267,6 @@ public struct ScheduleExportCodeSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     ShareLink(item: code)
-                        .accessibilityIdentifier("schedule.share-code")
                         .accessibilityIdentifier("schedule.export.share")
                 }
             }

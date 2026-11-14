@@ -187,6 +187,7 @@ extension CourseScheduleTabView {
                 .endMinutes,
             title: normalizeCourseTitle(course.name),
             subtitle: subtitleParts.joined(separator: "\n"),
+            subtitleDisplaysWeeks: includeWeekInfo,
             detailLines: [
                 course.teacher.isEmpty ? nil : "教师：\(course.teacher)",
                 course.classroom.isEmpty ? nil : "教室：\(normalizeClassroom(course.classroom))",
@@ -302,6 +303,7 @@ extension CourseScheduleTabView {
             endMinutes: entries.compactMap(\.endMinutes).max(),
             title: title,
             subtitle: subtitle,
+            subtitleDisplaysWeeks: true,
             detailLines: detailLines,
             kind: .course,
             backgroundLayers: entries.flatMap(\.backgroundLayers)

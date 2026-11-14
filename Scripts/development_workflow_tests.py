@@ -600,6 +600,8 @@ def readiness_diagnostics(fixture: Path) -> None:
                 f'urn 0\n}}\npython3() {{\n  if [[ "$1" == */validation_restore.py ]'
                 f"""]; then\n    if [[ "$failure" == probe ]]; then print -u2 'fixt"""
                 f"ure initialization pending'; return 1; fi\n    return 0\n  fi\n "
+                f' if [[ "$1" == */validation_artifacts.py && "${{2:-}}" == --disk-usage ]];'
+                f" then return 0; fi\n "
                 f' command python3 "$@"\n}}\nsleep() {{ SECONDS=$(( SECONDS + 60 ));'
                 f" }}\n"
             )

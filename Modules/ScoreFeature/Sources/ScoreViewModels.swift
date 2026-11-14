@@ -538,30 +538,7 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
     /// 当前筛选与排序条件下实际展示的成绩。
     var visibleRows: [ScoreRow] {
         if let visibleProjection { return visibleProjection }
-        let rowsForDisplay = filteredRows
-
-        let values = rowsForDisplay.enumerated()
-            .sorted { lhs, rhs in
-                let lhsMissingValue = sortIndex.isMissingValue(in: lhs.element)
-                let rhsMissingValue = sortIndex.isMissingValue(in: rhs.element)
-
-                if lhsMissingValue != rhsMissingValue {
-                    return !lhsMissingValue
-                }
-
-                let comparison = sortIndex.compare(lhs.element, rhs.element)
-                if comparison == .orderedSame {
-                    return lhs.offset < rhs.offset
-                }
-
-                switch sortOrder {
-                case .ascending:
-                    return comparison == .orderedAscending
-                case .descending:
-                    return comparison == .orderedDescending
-                }
-            }
-            .map(\.element)
+        let values = sortIndex.sorted(filteredRows, order: sortOrder)
         visibleProjection = values
         return values
     }
@@ -601,25 +578,25 @@ private nonisolated enum ScorePersistenceError: LocalizedError {
         guard coveredTerms.count == scoreTerms.count else { return nil }
         guard availableCourseTypes.isEmpty || !selectedCourseTypes.isEmpty else { return [] }
 
-        let scoredNumbers = Set(
-            rows.compactMap { row -> String? in
-                let number = normalizedCourseIdentity(row.courseNumber)
-                let term = normalizedFilterValue(row.term)
-                return number.isEmpty || term.isEmpty ? nil : "\(term)|\(number)"
-            })
-        let scoredNames = Set(
-            rows.compactMap { row -> String? in
-                let name = normalizedCourseIdentity(row.courseName)
-                let term = normalizedFilterValue(row.term)
-                return name.isEmpty || term.isEmpty ? nil : "\(term)|\(name)"
-            })
-        let scoredNamesWithoutNumbers = Set(
-            rows.compactMap { row -> String? in
-                let name = normalizedCourseIdentity(row.courseName)
-                let term = normalizedFilterValue(row.term)
-                return normalizedCourseIdentity(row.courseNumber).isEmpty && !name.isEmpty
-                    && !term.isEmpty ? "\(term)|\(name)" : nil
-            })
+        var scoredNumbers = Set<String>()
+        var scoredNames = Set<String>()
+        var scoredNamesWithoutNumbers = Set<String>()
+        for row in rows {
+            let term = normalizedFilterValue(row.term)
+            guard !term.isEmpty else { continue }
+            let number = normalizedCourseIdentity(row.courseNumber)
+            let name = normalizedCourseIdentity(row.courseName)
+            if !number.isEmpty {
+                scoredNumbers.insert("\(term)|\(number)")
+            }
+            if !name.isEmpty {
+                let identity = "\(term)|\(name)"
+                scoredNames.insert(identity)
+                if number.isEmpty {
+                    scoredNamesWithoutNumbers.insert(identity)
+                }
+            }
+        }
         var pendingByIdentity: [String: ScoreCourseSummary] = [:]
 
         for term in coveredTerms {
