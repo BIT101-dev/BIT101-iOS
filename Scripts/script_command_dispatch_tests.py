@@ -514,6 +514,8 @@ def check_command_dispatch(cases, environment, findings, frame, support):
             )
             + (
                 '\npython3() { if [[ "$*" == *"validation_performance.py"* ]]; then return 0; fi; '
+                'if [[ "$1" == */validation_artifacts.py && ( "${2:-}" == --app-size || '
+                '"${2:-}" == --disk-usage ) ]]; then return 0; fi; '
                 'if [[ "$*" == *"validation_provenance.py worker-snapshot"* ]]; then print "{}"; r'
                 'eturn 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_'
                 'PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud'
