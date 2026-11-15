@@ -44,8 +44,8 @@ def verify_service_capability_index():
     from unittest.mock import patch
     from validation_compilation import compilation_condition
 
-    assert compilation_condition("RELEASE_NETWORK_SMOKE", "network")
-    assert not compilation_condition("DEBUG", "network")
+    assert compilation_condition("DEBUG", "network")
+    assert not compilation_condition("DEBUG", "restore")
     from network_capability_rules import signature_function, method_signature
 
     for signature in (
@@ -105,7 +105,7 @@ def verify_service_capability_index():
             "production",
         ),
     )
-    guard = "#if RELEASE_NETWORK_SMOKE\n"
+    guard = "#if DEBUG\n"
     offset = len(guard)
     for route, file, scope, entry in entries:
         selected = [

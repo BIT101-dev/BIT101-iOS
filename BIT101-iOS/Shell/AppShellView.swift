@@ -85,7 +85,7 @@ final class AppInterfaceOrientationView: UIView {
 /// 应用主导航的稳定分组标识。
 ///
 /// 主入口使用固定顺序。
-enum AppTab: String, Identifiable, Codable {
+nonisolated enum AppTab: String, Identifiable, Codable, Sendable {
     case schedule
     case map
     case gallery
@@ -136,7 +136,7 @@ enum AppTab: String, Identifiable, Codable {
     }
 
     /// 当前 tab 选中时使用的强调色。
-    var tintColor: Color {
+    @MainActor var tintColor: Color {
         switch self {
         case .schedule:
             return AppDesignSystem.Schedule.tabAccent
@@ -152,7 +152,7 @@ enum AppTab: String, Identifiable, Codable {
     }
 }
 
-private enum AppDestination: String, CaseIterable, Identifiable, Hashable {
+private nonisolated enum AppDestination: String, CaseIterable, Identifiable, Hashable, Sendable {
     case schedule, classroom, map, topics, papers, scores, courses, mine
     var id: String { rawValue }
     var title: String {
@@ -225,8 +225,10 @@ struct AppShellView: View {
         }
     }
     private var scoreSelection: Binding<ScoreSurface> {
-        @Bindable var navigation = navigation
-        return $navigation.scoreSurface
+        let navigation = navigation
+        return Binding(
+            get: { navigation.scoreSurface },
+            set: { navigation.scoreSurface = $0 })
     }
     private var gallerySelection: Binding<GallerySurface> {
         let navigation = navigation
@@ -264,10 +266,12 @@ struct AppShellView: View {
     @Environment(ScheduleViewModel.self) private var scheduleViewModel: ScheduleViewModel
     @Environment(AppAccountLifecycle.self) private var lifecycle: AppAccountLifecycle
     @Environment(AppPromptCoordinator.self) private var promptCoordinator: AppPromptCoordinator
-    #if BIT101_UI_TESTING
-    @State private var uiTestSettingsRoute = AppUITestBootstrap.environment[
-        "BIT101_UI_TEST_SETTINGS"
-    ].flatMap(SettingsRoute.init(rawValue:))
+    #if DEBUG
+    @State private var uiTestSettingsRoute: SettingsRoute? =
+        AppFileDirectories.isRunningUITest
+        ? AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"]
+            .flatMap(SettingsRoute.init(rawValue:))
+        : nil
     #endif
     @State private var requestedScheduleSection: ScheduleSection?
     @State private var requestedCalendarRoute: AppDeepLinkRoute?
@@ -330,7 +334,7 @@ struct AppShellView: View {
             scheduleViewModel.requestCalendarEntry(markerID: markerID, term: term)
         }
         .onAppear {
-            #if BIT101_UI_TESTING
+            #if DEBUG
             guard !AppFileDirectories.isRunningUITest else { return }
             #endif
             enqueueStartupPrompts()
@@ -369,9 +373,10 @@ struct AppShellView: View {
             destinationContent(destination)
                 .tint(destination.tab.tintColor)
                 .appNativeTabBarBackground(isPresented: layout.usesOpaqueNavigation)
-                .modifier(AppShellPageVisibility {
-                    destination == destinationSelection.wrappedValue
-                })
+                .modifier(
+                    AppShellPageVisibility {
+                        destination == destinationSelection.wrappedValue
+                    })
         }
     }
 
@@ -406,17 +411,19 @@ struct AppShellView: View {
         switch destination {
         case .topics: AnyView(galleryContent(includesPaperSurface: false))
         case .papers:
-            AnyView(paperContent
-                .appBrowserHeader(isPresented: !usesExpandedNavigation) {
-                    GallerySurfacePicker(selection: gallerySelection)
-                })
+            AnyView(
+                paperContent
+                    .appBrowserHeader(isPresented: !usesExpandedNavigation) {
+                        GallerySurfacePicker(selection: gallerySelection)
+                    })
         case .schedule, .classroom:
             AnyView(scheduleContent(showingClassrooms: destination == .classroom))
         case .scores, .courses:
-            AnyView(AppScoreSurfaceView(
-                courses: community.course, transcriptService: transcriptService,
-                requestedCourse: $requestedCourse,
-                selection: scoreSelection, showingCourses: destination == .courses).equatable())
+            AnyView(
+                AppScoreSurfaceView(
+                    courses: community.course, transcriptService: transcriptService,
+                    requestedCourse: $requestedCourse,
+                    selection: scoreSelection, showingCourses: destination == .courses))
         case .mine: tabContent(.mine)
         default:
             AnyView(NavigationStack { tabContent(destination.tab) })
@@ -428,27 +435,32 @@ struct AppShellView: View {
         case .schedule:
             AnyView(scheduleContent())
         case .map:
-            AnyView(AppMapSurfaceView(
-                schedule: scheduleViewModel, requestedLocation: requestedMapLocation,
-                preparation: mapPreparation))
+            AnyView(
+                AppMapSurfaceView(
+                    schedule: scheduleViewModel, requestedLocation: requestedMapLocation,
+                    preparation: mapPreparation))
         case .score:
-            AnyView(AppScoreSurfaceView(
-                courses: community.course, transcriptService: transcriptService,
-                requestedCourse: $requestedCourse, selection: scoreSelection).equatable())
+            AnyView(
+                AppScoreSurfaceView(
+                    courses: community.course, transcriptService: transcriptService,
+                    requestedCourse: $requestedCourse, selection: scoreSelection))
         case .gallery:
             AnyView(galleryContent())
         case .mine:
-            AnyView(MineRootView(
-                dependencies: community.mine, media: destinations.media,
-                posters: destinations.posters,
-                settings: destinations.settings, fallbackStudentID: studentID, onLogout: onLogout,
-                requestedSettings: requestedMineSettings))
+            AnyView(
+                MineRootView(
+                    dependencies: community.mine, media: destinations.media,
+                    posters: destinations.posters,
+                    settings: destinations.settings, fallbackStudentID: studentID,
+                    onLogout: onLogout,
+                    requestedSettings: requestedMineSettings))
         }
     }
 
     private var requestedMineSettings: Binding<CommunitySettingsEntry?> {
-        #if BIT101_UI_TESTING
-        Binding(
+        #if DEBUG
+        guard AppFileDirectories.isRunningUITest else { return .constant(nil) }
+        return Binding(
             get: {
                 uiTestSettingsRoute.flatMap { route in
                     destinations.settings.settingsEntries.first { $0.id == route.rawValue }
@@ -463,8 +475,9 @@ struct AppShellView: View {
         AppScheduleSurfaceView(
             viewModel: scheduleViewModel, courses: community.course, navigation: navigation,
             requestedSection: $requestedScheduleSection, requestedCourse: $requestedCourse,
-            requestedMapLocation: $requestedMapLocation, showingClassrooms: showingClassrooms)
-            .equatable()
+            requestedMapLocation: $requestedMapLocation, showingClassrooms: showingClassrooms
+        )
+        .equatable()
     }
 
     private func galleryContent(includesPaperSurface: Bool = true) -> some View {
@@ -570,7 +583,7 @@ struct AppShellView: View {
     ///
     /// 提示状态集中在这里处理，多个入口共享同一套判断。
     private func refreshReminderPrompt() {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         guard !AppFileDirectories.isRunningUITest else { return }
         #endif
         notificationPromptTask?.cancel()
@@ -693,6 +706,7 @@ private struct AppScheduleSurfaceView: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.viewModel === rhs.viewModel && lhs.courses === rhs.courses
             && lhs.navigation === rhs.navigation && lhs.showingClassrooms == rhs.showingClassrooms
+            && lhs.requestedSection == rhs.requestedSection
     }
 
     var body: some View {
@@ -717,11 +731,13 @@ private struct AppScheduleSurfaceView: View, Equatable {
 private final class AppShellNavigation {
     var scoreSurface: ScoreSurface = .score
     var gallerySurface: GallerySurface = .gallery
-    #if BIT101_UI_TESTING
-    var selectedTab: AppTab =
-        AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
-        ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule")
-            ?? .schedule : .mine
+    #if DEBUG
+    var selectedTab: AppTab = {
+        guard AppFileDirectories.isRunningUITest else { return .schedule }
+        return AppUITestBootstrap.environment["BIT101_UI_TEST_SETTINGS"] == nil
+            ? AppTab(rawValue: AppUITestBootstrap.environment["BIT101_UI_TEST_TAB"] ?? "schedule")
+                ?? .schedule : .mine
+    }()
     #else
     var selectedTab: AppTab = .schedule
     #endif

@@ -23,12 +23,18 @@ struct ExtendedSchedulePolicyTests {
         let now = try time("07:55")
         let snapshot = ScheduleExternalSnapshot(
             isLoggedIn: true, studentID: "student", firstDayString: "2024-02-26",
-            timeTable: [.init(id: 1, start: "08:00", end: "08:45"),
-                        .init(id: 2, start: "10:00", end: "10:45")],
-            courses: [.init(id: "first", name: "高数", classroom: "文萃楼", teacher: "教师",
-                            weeks: [1], weekday: 1, startSection: 1, endSection: 1),
-                      .init(id: "last", name: "物理", classroom: "文萃楼", teacher: "教师",
-                            weeks: [1], weekday: 1, startSection: 2, endSection: 2)])
+            timeTable: [
+                .init(id: 1, start: "08:00", end: "08:45"),
+                .init(id: 2, start: "10:00", end: "10:45"),
+            ],
+            courses: [
+                .init(
+                    id: "first", name: "高数", classroom: "文萃楼", teacher: "教师",
+                    weeks: [1], weekday: 1, startSection: 1, endSection: 1),
+                .init(
+                    id: "last", name: "物理", classroom: "文萃楼", teacher: "教师",
+                    weeks: [1], weekday: 1, startSection: 2, endSection: 2),
+            ])
         let entries = ScheduleOccurrenceResolver.resolvedTimeline(
             from: snapshot, now: now, includeDisplayUntilDates: true, limit: 1)
         func entry(_ value: String) throws -> ScheduleExternalTimelineEntry {

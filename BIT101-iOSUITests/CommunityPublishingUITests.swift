@@ -138,7 +138,9 @@ nonisolated final class CommunityPublishingUITests: UIAutomationTestCase {
         dismissKeyboard()
         swipeSheetHeader(app.navigationBars["发布帖子"])
         assertUI(app.textFields["标题"].value as? String == "测试草稿", "下拉关闭应保留草稿输入并等待明确关闭操作。")
+        #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.press(.home)
+        #endif
         let application = app.native as? XCUIApplication
         assertUI(
             waitUntil(

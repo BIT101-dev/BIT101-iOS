@@ -1,10 +1,9 @@
+#if DEBUG
 import ClientCore
+import Foundation
 import ScoreDomain
 import ScoreFeature
 import ScorePorts
-
-#if BIT101_UI_TESTING
-import Foundation
 import UIKit
 
 struct UITestScoreService: ScoreListServicing, TrustedTranscriptServicing {

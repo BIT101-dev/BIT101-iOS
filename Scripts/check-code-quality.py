@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 import io
 import multiprocessing
+import os
 
 sys.dont_write_bytecode = True
 import json
@@ -124,7 +125,8 @@ def _run_combined_parallel(syntax_index, module, checker_boundary_findings):
     )
 
     context = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(max_workers=6, mp_context=context) as pool:
+    workers = 2 if os.getenv("BIT101_AUDIT_BACKGROUND") == "1" else 6
+    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
         ui_future = pool.submit(run_ui_consistency_worker)
         quality_started = time.monotonic()
         q_out, q_err = io.StringIO(), io.StringIO()

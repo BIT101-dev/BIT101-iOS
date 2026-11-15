@@ -121,7 +121,7 @@ import StorageCore
     }
 
     func start() {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         guard
             AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
         else { return }
@@ -151,7 +151,7 @@ import StorageCore
     }
 
     private func refreshScheduleFromCloud() {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         guard
             AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
         else { return }
@@ -167,7 +167,7 @@ import StorageCore
     }
 
     private func refreshExternalDisplays(trigger: String, syncWidgetSnapshot: Bool) {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         guard
             AppUITestBootstrap.usesProductionComposition || !AppFileDirectories.isRunningUITest
         else { return }

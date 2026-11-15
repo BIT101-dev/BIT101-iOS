@@ -25,19 +25,21 @@ def test_build_argument_findings(output: str, *, testing_device: bool = False) -
             continue
         arguments = shlex.split(line)[3:]
         if arguments[:1] == ["xcodebuild"]:
-            selected = [value.partition(":")[2] for value in arguments
-                        if value.startswith("-only-testing:")]
+            selected = [
+                value.partition(":")[2] for value in arguments if value.startswith("-only-testing:")
+            ]
             performance = bool(selected) and all(
                 value.partition("/")[2].split("/")[0]
                 in {"MaintenancePerformanceTests", "MaintenancePerformanceUITests"}
-                for value in selected)
+                for value in selected
+            )
             coverage = "NO" if performance else "YES"
             required = (
                 f"-enableCodeCoverage {coverage}",
                 f"ENABLE_CODE_COVERAGE={coverage}",
                 "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
                 "GCC_TREAT_WARNINGS_AS_ERRORS=YES",
-                "-configuration Release",
+                "-configuration Debug",
             )
             if testing_device:
                 required += ("ONLY_ACTIVE_ARCH=YES",)
@@ -179,16 +181,13 @@ def restore_installation_boundary_findings() -> list[str]:
     )
     native = (SCRIPT_ROOT / "run-extended-tests.sh").read_text()
     native = re.sub(r"\\\n[ \t]*", "", native)
-    start = (
-        '  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runt'
-        "ime ]]; then"
-    )
-    native = start + native.split(start, 1)[1].split("  TEST_DURATION_SECONDS=", 1)[0]
+    start = '  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst ]]; then'
+    native = start + native.split(start, 1)[1].split('\n  return "$exit_code"', 1)[0]
     native = (
         (
-            "group=fixture log=/fixture test_action=test diagnostics=never conditions= TEST_DESTIN"
-            "ATION=phone\nexecution_args=() only_testing=() SIGNING_ARGS=() coverage_args=() proje"
-            "ct_args=()\nexecute_test() {\n"
+            "group=fixture log=/fixture test_action=test diagnostics=never conditions= "
+            "performance_only=0 TEST_DESTINATION=phone\nexecution_args=() only_testing=() "
+            "target_testing=() SIGNING_ARGS=() coverage_args=() project_args=()\nexecute_test() {\n"
         )
         + native
         + "\n}\nexecute_test\n"
@@ -226,7 +225,6 @@ def restore_installation_boundary_findings() -> list[str]:
             ("all", "false", 13),
             ("ui", "false", 13),
             ("catalyst", "false", 13),
-            ("catalyst-release-runtime", "false", 13),
             ("all", "true", 13),
         ]
     ]
@@ -259,7 +257,7 @@ def restore_installation_boundary_findings() -> list[str]:
     findings = []
     for program, context, invalidation, expected, events in cases:
         stub = (
-            "python3() { [[ \"$2\" != --app-size ]] || return 0; "
+            'python3() { [[ "$2" != --app-size ]] || return 0; '
             f"print CLEAR; return {invalidation}; }}\n"
         )
         result = subprocess.run(

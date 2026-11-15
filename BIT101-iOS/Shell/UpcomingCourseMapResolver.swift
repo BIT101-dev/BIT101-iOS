@@ -34,7 +34,8 @@ enum UpcomingCourseMapResolver {
         guard let firstDay = snapshot.firstDay,
             let dayOffset = calendar.dateComponents(
                 [.day], from: calendar.startOfDay(for: firstDay),
-                to: calendar.startOfDay(for: now)).day
+                to: calendar.startOfDay(for: now)
+            ).day
         else { return nil }
         let currentWeekOffset = ScheduleWeekCodec.weekOffset(
             forWeekNumber: ScheduleWeekCodec.weekNumber(forDayOffset: dayOffset))

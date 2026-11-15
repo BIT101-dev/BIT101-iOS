@@ -580,12 +580,10 @@ struct MediaDependencyTests {
         media.cacheLimitMB = 1
         let owner = UUID()
         media.beginPreview(owner: owner)
-        let first = try await media.images.file(
-            for: AppURL.required("https://example.invalid/first.png"))
-        _ = try await media.previewFile(at: first, owner: owner)
-        let second = try await media.images.file(
-            for: AppURL.required("https://example.invalid/second.png"))
-        _ = try await media.previewFile(at: second, owner: owner)
+        let first = try await media.remotePreviewFile(
+            for: AppURL.required("https://example.invalid/first.png"), owner: owner)
+        let second = try await media.remotePreviewFile(
+            for: AppURL.required("https://example.invalid/second.png"), owner: owner)
         let third = try await media.images.file(
             for: AppURL.required("https://example.invalid/third.png"))
         await media.enforceCurrentLimit()

@@ -233,10 +233,17 @@ def performance_coverage_findings() -> list[str]:
         tree = {"nodeType": "Test Case", "nodeIdentifier": identifier, "duration": "1 s"}
         summary = {"totalTestCount": 1, "passedTests": 1, "result": "Passed"}
         with (
-            patch.dict(os.environ, BIT101_TEST_PERFORMANCE_ONLY="1" if performance else "0",
-                       BIT101_VALIDATION_INPUT_IDENTITY="input", BIT101_VALIDATION_RUN_ID="run"),
-            patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(
-                [], 0, json.dumps(summary), "")),
+            patch.dict(
+                os.environ,
+                BIT101_TEST_PERFORMANCE_ONLY="1" if performance else "0",
+                BIT101_VALIDATION_INPUT_IDENTITY="input",
+                BIT101_VALIDATION_RUN_ID="run",
+            ),
+            patch.object(
+                subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, json.dumps(summary), ""),
+            ),
             patch.object(subprocess, "check_output", return_value=json.dumps(tree)),
             patch("test_results.append_catalyst_coverage_lines") as coverage,
             patch("validation_evidence.native_case_summary", return_value={}),
@@ -260,7 +267,7 @@ def native_test_batch_findings() -> list[str]:
         re.search(rf"(?ms)^{name}\(\) \{{\n.*?^\}}$", source)[0]
         for name in ("run_native_test_batch", "run_tests")
     )
-    harness = r'''
+    harness = r"""
 set -euo pipefail
 MODE="$1"
 BUILD_ONLY="$2"
@@ -285,7 +292,8 @@ record_metrics() { print -r -- METRICS; }
 rm() { return "${PROFILE_REMOVE_EXIT:-0}"; }
 python3() {
   [[ "$2" != "${PHASE_FAILURE:-}" ]] || return 11
-  if [[ "$2" == runtime-suites ]]; then print -r -- ProductionAssemblyTests
+  if [[ "$2" == smoke-suites ]]; then
+    print -rl -- ReleaseNetworkSmokeTests NetworkSmokeRegressionTests ICloudCrossDeviceSmokeTests
   elif [[ "$2" != failures ]]; then print -r -- "PHASE:$2"; fi
 }
 bit101_run_logged() {
@@ -293,29 +301,33 @@ bit101_run_logged() {
   print -r -- "COMMAND:$BIT101_TEST_PERFORMANCE_ONLY:${(j:|:)@}"
   return "${BATCH_TEST_EXIT:-0}"
 }
-'''
+"""
     findings = []
     for mode, build, selections, expected_flags in (
         ("catalyst", "false", [], [1, 0]),
-        ("catalyst", "false", ["MaintenancePerformanceTests/testSwitch",
-                               "FeatureTests/testFunction"], [1, 0]),
+        (
+            "catalyst",
+            "false",
+            ["MaintenancePerformanceTests/testSwitch", "FeatureTests/testFunction"],
+            [1, 0],
+        ),
         ("catalyst", "false", ["FeatureTests/testFunction"], [0]),
         ("catalyst", "false", ["MaintenancePerformanceTests/testSwitch"], [1]),
         ("ui", "false", [], [1, 1, 0, 0]),
-        ("catalyst-release-runtime", "false", [], [0]),
         ("catalyst", "true", [], [0]),
     ):
-        group = "ReleaseRuntimeContractTests" if "release-runtime" in mode else "all-tests"
         program = (
-            harness + functions
-            + f'\nif run_tests {group} conditions; then :; else exit $?; fi\n'
+            harness + functions + "\nif run_tests all-tests conditions; then :; else exit $?; fi\n"
         )
         program += 'print -r -- "FINAL:$BIT101_TEST_PERFORMANCE_ONLY"\n'
         result = subprocess.run(
             ["zsh", "-c", program, "native-test-batches", mode, build, *selections],
-            capture_output=True, text=True)
-        rows = [line.split(":", 2) for line in result.stdout.splitlines()
-                if line.startswith("COMMAND:")]
+            capture_output=True,
+            text=True,
+        )
+        rows = [
+            line.split(":", 2) for line in result.stdout.splitlines() if line.startswith("COMMAND:")
+        ]
         if result.returncode or [int(row[1]) for row in rows] != expected_flags:
             findings.append(f"原生测试批次需要保留测试范围：{mode} {selections} {result.stderr}")
             continue
@@ -326,28 +338,51 @@ bit101_run_logged() {
                 findings.append("功能批次采集覆盖率，性能批次独立测量。")
         mixed = 0 in expected_flags and 1 in expected_flags
         phases = [line for line in result.stdout.splitlines() if line.startswith("PHASE:")]
-        if phases != (["PHASE:stage-native-performance", "PHASE:merge-native-performance"]
-                      if mixed else []):
+        if phases != (
+            ["PHASE:stage-native-performance", "PHASE:merge-native-performance"] if mixed else []
+        ):
             findings.append("混合测试需要合并两个批次的全部原生结果。")
         final = 1 if expected_flags == [1] else 0
         if f"FINAL:{final}" not in result.stdout:
             findings.append("合并结果需要保留功能测试的覆盖率验收。")
         if mode == "catalyst" and not selections and build == "false":
             failed = subprocess.run(
-                ["zsh", "-c", "BATCH_TEST_EXIT=7\n" + program,
-                 "native-test-batches", mode, build], capture_output=True, text=True)
+                ["zsh", "-c", "BATCH_TEST_EXIT=7\n" + program, "native-test-batches", mode, build],
+                capture_output=True,
+                text=True,
+            )
             if failed.returncode != 1 or "METRICS" not in failed.stdout:
                 findings.append("任一测试批次失败时保留失败状态与结果汇总。")
             failed = subprocess.run(
-                ["zsh", "-c", "PROFILE_REMOVE_EXIT=9\n" + program,
-                 "native-test-batches", mode, build], capture_output=True, text=True)
+                [
+                    "zsh",
+                    "-c",
+                    "PROFILE_REMOVE_EXIT=9\n" + program,
+                    "native-test-batches",
+                    mode,
+                    build,
+                ],
+                capture_output=True,
+                text=True,
+            )
             if failed.returncode != 1 or "COMMAND:" in failed.stdout:
                 findings.append("覆盖率准备失败时停止测试并保留失败状态。")
-            for phase, commands in (("stage-native-performance", 1),
-                                    ("merge-native-performance", 2)):
+            for phase, commands in (
+                ("stage-native-performance", 1),
+                ("merge-native-performance", 2),
+            ):
                 failed = subprocess.run(
-                    ["zsh", "-c", f"PHASE_FAILURE={phase}\n" + program,
-                     "native-test-batches", mode, build], capture_output=True, text=True)
+                    [
+                        "zsh",
+                        "-c",
+                        f"PHASE_FAILURE={phase}\n" + program,
+                        "native-test-batches",
+                        mode,
+                        build,
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
                 if failed.returncode != 11 or failed.stdout.count("COMMAND:") != commands:
                     findings.append("结果暂存或合并失败时立即停止原生测试流程。")
     return findings
@@ -362,7 +397,7 @@ def catalyst_signing_boundary_findings() -> list[str]:
         'set -euo pipefail\nGITHUB_ACTIONS="$2" BIT101_CATALYST_UNSIGNED_TESTS="$3"\n' + signing
     )
     findings = []
-    for mode in ("catalyst", "catalyst-release-runtime"):
+    for mode in ("catalyst",):
         for ci in ("", "false", "true"):
             for unsigned in ("", "0", "1"):
                 result = subprocess.run(
@@ -381,7 +416,7 @@ def catalyst_signing_boundary_findings() -> list[str]:
                 expected = (
                     ["CODE_SIGNING_ALLOWED=NO"]
                     if ci == "true" or unsigned == "1"
-                    else ["-allowProvisioningUpdates"]
+                    else ["-allowProvisioningUpdates", "-allowProvisioningDeviceRegistration"]
                 )
                 if result.returncode or result.stdout.splitlines() != expected:
                     findings.append(

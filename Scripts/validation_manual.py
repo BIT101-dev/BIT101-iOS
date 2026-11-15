@@ -505,7 +505,7 @@ def manual_structure(check: str) -> dict:
             )
         }
         structure["application"].update(
-            configuration="Release",
+            configuration="Debug" if check == "catalyst-desktop" else "Release",
             testHostMarkers=[],
             executableUUIDs=[{"architecture": "实际体系结构", "uuid": "实际可执行 UUID"}],
         )
@@ -667,7 +667,8 @@ def application_identity_complete(proof: dict, platform: str) -> bool:
         and contract["platform"] == ("watchOS" if platform == "watchOS" else "iOS")
         and application.get("version") == contract["version"]
         and application.get("build") == contract["build"]
-        and application.get("configuration") == "Release"
+        and application.get("configuration")
+        == ("Debug" if platform == "macCatalyst" else "Release")
         and application.get("testHostMarkers") == []
         and minimum_os_version(application.get("minimumOSVersion")) == minimum
         and valid_executable_uuids(application.get("executableUUIDs"))

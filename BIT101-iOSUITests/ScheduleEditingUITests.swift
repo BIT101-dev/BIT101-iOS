@@ -394,7 +394,9 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
             app.activate()
             _ = waitUntil(NSPredicate { _, _ in self.app.state == .runningForeground }, on: app)
         }
+        #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.press(.home)
+        #endif
         springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.82)).press(
             forDuration: 2)
         let edit = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Edit", "编辑"]))
@@ -472,10 +474,7 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                 let container =
                     switch page {
                     case "课表":
-                        UIElement(
-                            app.native.collectionViews.containing(
-                                .other, identifier: "schedule.refresh-status"
-                            ).firstMatch)
+                        app.descendants(matching: .any)["interaction.CourseScheduleTabView.list"]
                     case "DDL":
                         app.descendants(matching: .any)["interaction.DDLScheduleTabView.list"]
                     case "空教室": app.descendants(matching: .any)["schedule.section-surface"]
@@ -485,8 +484,10 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                 let action = container.native.buttons[actionID]
                 let timestamp = container.native.staticTexts["app.refresh-status.timestamp"]
                     .firstMatch
-                let cell = container.native.cells.containing(.button, identifier: actionID)
-                    .firstMatch
+                let cell =
+                    page == "课表"
+                    ? container.native.otherElements["schedule.refresh-status"].firstMatch
+                    : container.native.cells.containing(.button, identifier: actionID).firstMatch
                 assertUI(
                     timestamp.waitForExistence(timeout: 5) && cell.exists,
                     "\(page)应呈现更新时间行。")
@@ -511,13 +512,15 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
                     "\(page)更新时间文字应完整落在行内容区域。")
             }
             guard
-                let buttonAllowance = samples.map({ max(0, $0.cell.height - 8 - $0.action.height) })
+                let listAllowance = samples.filter({ $0.page != "课表" })
+                    .map({ max(0, $0.cell.height - 8 - $0.action.height) })
                     .min()
             else {
                 XCTFail("四个数据页应提供布局样本。")
                 return
             }
             for sample in samples {
+                let buttonAllowance = sample.page == "课表" ? 0 : listAllowance
                 let expectedHeight =
                     largeText
                     ? max(44, sample.text.height, sample.action.height + buttonAllowance) + 8 : 52
@@ -535,9 +538,10 @@ nonisolated final class ScheduleLayoutUITests: UIAutomationTestCase {
     @MainActor
     func testRecurringSchedulesUseDisplayedWeek() {
         app = configureApp(resetStorage: true)
-        let calendar = app.native.cells.containing(.button, identifier: "schedule.add-content")
-            .firstMatch
-        assertUI(calendar.appears(timeout: 5), "课表应完成布局。")
+        let calendar = app.scrollViews["interaction.CourseScheduleTabView.list"]
+        assertUI(
+            calendar.appears(timeout: 5) && app.buttons["schedule.add-content"].appears(timeout: 5),
+            "课表应完成布局。")
         checkScheduleGeometry()
         tap("下一周")
         tap("下一周")

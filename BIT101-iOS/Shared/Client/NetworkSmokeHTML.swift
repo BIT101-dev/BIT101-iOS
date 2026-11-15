@@ -1,6 +1,6 @@
+#if DEBUG
 import Foundation
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 /// 分享页沿目的地址与静态可见内容核对入口，浏览器交接沿人工专项验收。
 nonisolated enum NetworkSmokeHTML {
     static func validate(_ html: String, appURL: String?) throws {

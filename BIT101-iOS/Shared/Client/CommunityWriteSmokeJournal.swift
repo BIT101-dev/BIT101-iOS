@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 nonisolated struct CommunityWriteRecoveryConfirmation: Codable, Sendable {
@@ -9,7 +10,6 @@ nonisolated struct CommunityWriteRecoveryConfirmation: Codable, Sendable {
     var settledMutations: [String]? = nil
 }
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 extension CommunityWriteRecoveryConfirmation {
     @MainActor
     func validate(for journal: CommunityWriteSmoke.Journal) throws {

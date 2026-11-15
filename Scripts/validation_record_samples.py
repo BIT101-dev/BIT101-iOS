@@ -146,9 +146,7 @@ def native_case_fixture(summary, counts, group="all"):
             "byTest": counts,
             "destinations": [
                 {
-                    "platform": "macOS"
-                    if group in {"catalyst", "catalyst-release-runtime"}
-                    else "iOS",
+                    "platform": "macOS" if group == "catalyst" else "iOS",
                     "deviceIdentifier": "fixture-device",
                 }
             ],

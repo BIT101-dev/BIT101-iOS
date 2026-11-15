@@ -294,8 +294,38 @@ def list_semantics_findings(syntax: dict[str, dict]) -> list[str]:
     return findings
 
 
+def button_contrast_findings(syntax: dict[str, dict]) -> list[str]:
+    findings = []
+    for path, facts in syntax.items():
+        source = facts.get("source", "")
+        for row in facts.get("accessibilityControls", []):
+            if row["name"] != "Button":
+                continue
+            suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]) :])
+            invocation = mask_comments(row["invocation"]).split("label:", 1)[0]
+            is_destructive = bool(re.search(r"\brole\s*:\s*\.destructive\b", invocation))
+            line = source.encode()[: row["start"]].count(b"\n") + 1
+            if (
+                re.search(r"\.buttonStyle\s*\(\s*\.bordered\s*\)", suffix)
+                and not is_destructive
+                and not re.search(
+                    r"\.tint\s*\(\s*AppDesignSystem\.Foreground\.primaryColor\s*\)", suffix
+                )
+            ):
+                findings.append(
+                    f"{path}:{line}: 次级边框按钮需指定 AppDesignSystem.Foreground.primaryColor 保持黑白文字"
+                )
+            if re.search(r"\.buttonStyle\s*\(\s*\.borderedProminent\s*\)", suffix) and (
+                is_destructive
+                or "Status.danger" in mask_literals_and_comments(row["expression"])
+            ):
+                findings.append(f"{path}:{line}: 警示操作按钮搭配透明或中性底色")
+    return findings
+
+
 def check_interactive_list_colors(errors: list[str], syntax: dict[str, dict]) -> None:
     errors.extend(list_semantics_findings(syntax))
+    errors.extend(button_contrast_findings(syntax))
     errors.extend(list_row_size_findings(syntax))
     for path in swift_files():
         errors.extend(interactive_list_row_findings(path, syntax[str(path)], syntax))
@@ -308,12 +338,12 @@ def list_row_size_findings(syntax: dict[str, dict]) -> list[str]:
         for call in calls:
             reason = list_row_size_issue(call, facts)
             if reason:
-                line = facts["source"].encode()[:call["start"]].count(b"\n") + 1
+                line = facts["source"].encode()[: call["start"]].count(b"\n") + 1
                 findings.append(f"{path}:{line}: {reason}")
         for row in facts.get("accessibilityControls", []):
             reason = list_picker_row_issue(row, facts)
             if reason:
-                line = facts["source"].encode()[:row["start"]].count(b"\n") + 1
+                line = facts["source"].encode()[: row["start"]].count(b"\n") + 1
                 findings.append(f"{path}:{line}: {reason}")
     return findings
 
@@ -321,7 +351,7 @@ def list_row_size_findings(syntax: dict[str, dict]) -> list[str]:
 def list_picker_row_issue(row: dict, facts: dict) -> str | None:
     if row["name"] != "Picker" or not is_interactive_list_row(row, facts):
         return None
-    suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]):])
+    suffix = mask_literals_and_comments(row["expression"][len(row["invocation"]) :])
     if re.search(r"\.pickerStyle\(\s*\.(inline|wheel|segmented|navigationLink)\s*\)", suffix):
         return None
     if not re.search(r"\.appListRowInsets\s*\(\s*\)", suffix):
@@ -336,20 +366,24 @@ def list_row_size_issue(call: dict, facts: dict) -> str | None:
         return "分组列表行高继承系统默认值，组件专用高度只用于对应组件"
     labels = call.get("argumentLabels", [])
     vertical = name == "padding" and (
-        not arguments or re.search(r"\.(vertical|all|top|bottom)\b", arguments[0])
-        or len(arguments) == 1 and not arguments[0].strip().startswith(".")
+        not arguments
+        or re.search(r"\.(vertical|all|top|bottom)\b", arguments[0])
+        or len(arguments) == 1
+        and not arguments[0].strip().startswith(".")
     )
     height = name == "frame" and set(labels) & {"height", "minHeight"}
     if not (vertical or height):
         return None
     calls = facts.get("invocations", [])
     parents = [
-        parent for parent in calls
+        parent
+        for parent in calls
         if parent["start"] < call["start"]
         and call["start"] < parent["start"] + len(parent["value"].encode())
     ]
     row = {
-        **call, "name": name,
+        **call,
+        "name": name,
         "containers": [call_name(item["calledExpression"]) for item in parents],
     }
     if not is_interactive_list_row(row, facts):
@@ -364,9 +398,13 @@ def list_row_size_issue(call: dict, facts: dict) -> str | None:
         return None
     if height and "TextEditor" in names:
         return None
-    if height and "TextField" in names and any(
-        "axis" in item.get("argumentLabels", [])
-        and ".vertical" in item.get("arguments", []) for item in chain
+    if (
+        height
+        and "TextField" in names
+        and any(
+            "axis" in item.get("argumentLabels", []) and ".vertical" in item.get("arguments", [])
+            for item in chain
+        )
     ):
         return None
     if vertical and names & {"listRowInsets", "appListRowInsets"}:

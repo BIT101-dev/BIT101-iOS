@@ -212,9 +212,9 @@ actor GalleryThumbnailDecoder {
         guard let identity = files.atomicFileIdentity(at: file) else { return nil }
         let key =
             """
-                \(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)|\
-                \(viewport?.cacheKey ?? "none")
-                """
+            \(files.canonicalFileURL(file).path)|\(identity)|pixels:\(maximumPixelSize ?? 0)|\
+            \(viewport?.cacheKey ?? "none")
+            """
             as NSString
         if let cached = images.object(forKey: key) {
             return cached

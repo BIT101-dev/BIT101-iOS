@@ -927,21 +927,21 @@ def verify_cache_preservation(cache, data, derived, fixture, native, output, ori
     assert "缓存回收待重试" in output.getvalue()
     products = fixture / "products"
     products.mkdir()
-    app = products / "Release-iphonesimulator/App.app"
-    runner = products / "Release-iphonesimulator/Runner.app"
-    watch = products / "Release-watchsimulator/Watch.app"
-    unrelated = products / "Release-maccatalyst/Other.app"
+    app = products / "Debug-iphonesimulator/App.app"
+    runner = products / "Debug-iphonesimulator/Runner.app"
+    watch = products / "Debug-watchsimulator/Watch.app"
+    unrelated = products / "Debug-maccatalyst/Other.app"
     for path in (app, runner, watch, unrelated):
         path.mkdir(parents=True)
     target = dict(
-        TestHostPath="__TESTROOT__/Release-iphonesimulator/Runner.app",
-        UITargetAppPath="__TESTROOT__/Release-iphonesimulator/App.app",
+        TestHostPath="__TESTROOT__/Debug-iphonesimulator/Runner.app",
+        UITargetAppPath="__TESTROOT__/Debug-iphonesimulator/App.app",
         DependentProductPaths=[
-            "__TESTROOT__/Release-watchsimulator/Watch.app",
-            "__TESTROOT__/Release-iphonesimulator/Runner.app/PlugIns/tests.xctest",
+            "__TESTROOT__/Debug-watchsimulator/Watch.app",
+            "__TESTROOT__/Debug-iphonesimulator/Runner.app/PlugIns/tests.xctest",
         ],
     )
-    plan = products / "BIT101-iOS-UIAutomation_fixture_iphonesimulator.xctestrun"
+    plan = products / "BIT101-iOS_fixture_iphonesimulator.xctestrun"
     plan.write_bytes(plistlib.dumps(dict(TestConfigurations=[dict(TestTargets=[target])])))
     assert set(ui_host_product_paths(products)) == {plan, app, runner, watch}
     target["TestHostPath"] = "__TESTROOT__/../Other.app"

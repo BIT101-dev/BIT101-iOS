@@ -117,8 +117,12 @@ enum ScheduleServiceFactory {
             @escaping @MainActor (AppStorageSession, ScheduleCacheSaveSource, Bool) async -> Void
     ) -> ScheduleViewModel {
         let service: any ScheduleServicing
-        #if BIT101_UI_TESTING
-        service = UITestSchoolService()
+        #if DEBUG
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
+            service = UITestSchoolService()
+        } else {
+            service = make()
+        }
         #else
         service = make()
         #endif
@@ -129,9 +133,11 @@ enum ScheduleServiceFactory {
             session: { AppFileDirectories.currentSession },
             load: { await ScheduleCacheStore.loadResultAsync(for: $0) },
             save: { cache, source, session in
-                #if BIT101_UI_TESTING
-                try await AppUITestBootstrap.prepareScheduleConflictIfRequested(
-                    cache: cache, session: session)
+                #if DEBUG
+                if AppFileDirectories.isRunningUITest {
+                    try await AppUITestBootstrap.prepareScheduleConflictIfRequested(
+                        cache: cache, session: session)
+                }
                 #endif
                 guard
                     await ScheduleCacheStore.saveAndWait(
@@ -160,7 +166,7 @@ enum ScheduleServiceFactory {
     }
 
     private static func makeCustomScheduleDraft() -> CustomScheduleDraft {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         if AppFileDirectories.isRunningUITest {
             let calendar = ScheduleDateCodec.calendar
             let today = calendar.startOfDay(for: Date())

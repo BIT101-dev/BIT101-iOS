@@ -188,12 +188,11 @@ nonisolated enum ErrorReportRedactor {
 
     private static let authorizationExpression = try? NSRegularExpression(
         pattern:
-            """
-            (?i)((?:authorization|proxy-authorization|cookie|set-cookie)\\s*[=:]\\s*)[^&\\r\\n]+
-            """
+            "(?i)((?:authorization|proxy-authorization|cookie|set-cookie)\\s*[=:]\\s*)[^&\\r\\n]+"
     )
 
-    private static let protectedNamePattern = protectedNames
+    private static let protectedNamePattern =
+        protectedNames
         .map(NSRegularExpression.escapedPattern(for:))
         .joined(separator: "|")
 
@@ -212,18 +211,18 @@ nonisolated enum ErrorReportRedactor {
     private static let identityExpressions:
         [(expression: NSRegularExpression, replacement: String)] =
             [
-            (
-                "(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+",
-                "$1[REDACTED]"
-            ),
-            (
-                "(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")",
-                "$1[REDACTED]$2"
-            ),
-            ("(?<!\\d)\\d{8,12}(?!\\d)", "[REDACTED]"),
-        ].compactMap { pattern, replacement in
-            (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
-        }
+                (
+                    "(?i)(\\b(?:student_?id|username|name|phone|mobile)\\s*[=:：]\\s*)[^&\\s,;]+",
+                    "$1[REDACTED]"
+                ),
+                (
+                    "(?i)(\"(?:student_?id|username|name|phone|mobile)\"\\s*:\\s*\")[^\"]*(\")",
+                    "$1[REDACTED]$2"
+                ),
+                ("(?<!\\d)\\d{8,12}(?!\\d)", "[REDACTED]"),
+            ].compactMap { pattern, replacement in
+                (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
+            }
 
     private static func replace(
         _ expression: NSRegularExpression?, in source: String, with template: String
@@ -405,10 +404,13 @@ nonisolated enum ErrorReportRedactor {
         headers.reduce(into: [:]) { result, pair in
             switch pair.key.lowercased() {
             case "location":
-                result[pair.key] = sanitizedURL(
+                result["Location"] = sanitizedURL(
                     pair.value, credentials: credentials, studentID: studentID)
-            case "content-type", "server":
-                result[pair.key] = sanitized(
+            case "content-type":
+                result["Content-Type"] = sanitized(
+                    pair.value, credentials: credentials, studentID: studentID)
+            case "server":
+                result["Server"] = sanitized(
                     pair.value, credentials: credentials, studentID: studentID)
             default:
                 break
@@ -688,7 +690,7 @@ private enum FeedbackSubmissionError: LocalizedError {
     }
 }
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
+#if DEBUG
 private struct NetworkSmokePayload: Encodable {
     let mode = "network-smoke"
     let runID: String
@@ -747,7 +749,7 @@ struct FeedbackSubmissionClient {
         try validateSubmission(response, request: request, expectedReportID: payload.requestID)
     }
 
-    #if DEBUG || RELEASE_NETWORK_SMOKE
+    #if DEBUG
     static func submitNetworkSmoke(runID: String) async throws {
         var request = URLRequest(
             url: AppEndpoints.feedbackReports)
@@ -790,7 +792,7 @@ struct FeedbackSubmissionClient {
 
 @MainActor
 @Observable final class ErrorReportViewModel {
-    enum Mode: String, CaseIterable, Identifiable {
+    nonisolated enum Mode: String, CaseIterable, Identifiable, Hashable, Sendable {
         case sanitized
         case raw
         var id: String { rawValue }

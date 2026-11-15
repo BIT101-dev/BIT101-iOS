@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -10,7 +11,6 @@ import StorageCore
 import TransportCore
 import UIKit
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 /// 线上写入的事务记录原子保存到本机专用文件，清理复用服务端读取与删除入口。
 @MainActor
 final class CommunityWriteSmoke {

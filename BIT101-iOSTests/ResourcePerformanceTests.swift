@@ -79,15 +79,17 @@ private final class PerformanceDisplayFrame: NSObject {
 }
 
 extension MaintenancePerformanceTests {
+    #if targetEnvironment(macCatalyst)
     @MainActor
     func testNativeCommunityFirstContentPerformance() throws {
         try measureCommunityFirstContent(expanded: true)
     }
-
+    #else
     @MainActor
     func testCompactCommunityFirstLoadPerformance() throws {
         try measureCommunityFirstContent(expanded: false)
     }
+    #endif
 
     @MainActor
     private func measureCommunityFirstContent(expanded: Bool) throws {
@@ -205,15 +207,17 @@ extension MaintenancePerformanceTests {
         return view.subviews.lazy.compactMap { self.communityPicker(in: $0) }.first
     }
 
+    #if targetEnvironment(macCatalyst)
     @MainActor
     func testAppShellTabSwitchingPerformance() throws {
         try measureAppShellSwitching(workloadID: "app-shell-tab-switching", expanded: true)
     }
-
+    #else
     @MainActor
     func testCompactAppShellTabSwitchingPerformance() throws {
         try measureAppShellSwitching(workloadID: "compact-app-shell-tab-switching", expanded: false)
     }
+    #endif
 
     @MainActor
     private func measureAppShellSwitching(
@@ -396,14 +400,22 @@ extension MaintenancePerformanceTests {
         let actual = tabs.tabBar.tintColor.resolvedColor(with: tabs.traitCollection)
         let expected = UIColor(AppTab.allCases[index].tintColor)
             .resolvedColor(with: tabs.traitCollection)
-        var actualRed: CGFloat = 0, actualGreen: CGFloat = 0, actualBlue: CGFloat = 0
+        var actualRed: CGFloat = 0
+        var actualGreen: CGFloat = 0
+        var actualBlue: CGFloat = 0
         var actualAlpha: CGFloat = 0
-        var expectedRed: CGFloat = 0, expectedGreen: CGFloat = 0, expectedBlue: CGFloat = 0
+        var expectedRed: CGFloat = 0
+        var expectedGreen: CGFloat = 0
+        var expectedBlue: CGFloat = 0
         var expectedAlpha: CGFloat = 0
-        XCTAssertTrue(actual.getRed(&actualRed, green: &actualGreen,
-            blue: &actualBlue, alpha: &actualAlpha))
-        XCTAssertTrue(expected.getRed(&expectedRed, green: &expectedGreen,
-            blue: &expectedBlue, alpha: &expectedAlpha))
+        XCTAssertTrue(
+            actual.getRed(
+                &actualRed, green: &actualGreen,
+                blue: &actualBlue, alpha: &actualAlpha))
+        XCTAssertTrue(
+            expected.getRed(
+                &expectedRed, green: &expectedGreen,
+                blue: &expectedBlue, alpha: &expectedAlpha))
         XCTAssertEqual(actualRed, expectedRed, accuracy: 0.001, "Tab \(index) 红色分量")
         XCTAssertEqual(actualGreen, expectedGreen, accuracy: 0.001, "Tab \(index) 绿色分量")
         XCTAssertEqual(actualBlue, expectedBlue, accuracy: 0.001, "Tab \(index) 蓝色分量")
@@ -428,7 +440,8 @@ extension MaintenancePerformanceTests {
         _ index: Int, in tabs: UITabBarController, frame: PerformanceDisplayFrame? = nil
     ) async throws -> ShellSwitchTiming {
         let signpost = OSSignpostID(log: shellSwitchLog)
-        os_signpost(.begin, log: shellSwitchLog, name: "Tab display", signpostID: signpost,
+        os_signpost(
+            .begin, log: shellSwitchLog, name: "Tab display", signpostID: signpost,
             "tab=%{public}d", index)
         defer {
             os_signpost(.end, log: shellSwitchLog, name: "Tab display", signpostID: signpost)
@@ -538,6 +551,7 @@ extension MaintenancePerformanceTests {
         return cache
     }
 
+    #if !targetEnvironment(macCatalyst)
     @MainActor
     func testArticleTabSwitchingPerformance() throws {
         let workload = try PerformanceWorkload(
@@ -824,5 +838,6 @@ extension MaintenancePerformanceTests {
             XCTAssertTrue(entries.allSatisfy { $0.resolved.upcomingOccurrences.count <= 6 })
         }
     }
+    #endif
 }
 #endif

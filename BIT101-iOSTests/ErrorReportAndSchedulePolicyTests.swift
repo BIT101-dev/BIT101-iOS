@@ -946,7 +946,7 @@ nonisolated final class ErrorReportAndSchedulePolicyTests: XCTestCase {
         let first = try XCTUnwrap(payload.diagnostics.first)
         XCTAssertNil(first.responseBody)
         XCTAssertEqual(first.upstreamCode, "cas:1320007")
-        XCTAssertEqual(first.responseHeaders["content-type"], "text/html; charset=utf-8")
+        XCTAssertEqual(first.responseHeaders["Content-Type"], "text/html; charset=utf-8")
         XCTAssertNil(first.responseHeaders["Set-Cookie"])
         let sanitizedLocation = try XCTUnwrap(first.responseHeaders["Location"])
         XCTAssertFalse(sanitizedLocation.contains("SECRET_ST"))

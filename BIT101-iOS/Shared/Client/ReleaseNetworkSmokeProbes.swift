@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CourseFeature
@@ -15,8 +16,6 @@ import ScoreFeature
 import ScoreInfrastructure
 import ScorePorts
 import TransportCore
-
-#if DEBUG || RELEASE_NETWORK_SMOKE
 
 nonisolated struct EmergencyUpdateSmokeEnvelope: Decodable {
     let schemaVersion: Int

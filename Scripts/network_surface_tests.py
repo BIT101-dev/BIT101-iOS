@@ -25,7 +25,7 @@ def verify_service_entry_access():
     def assert_capability_variant(sources, harness_path, getter_path, signature, declaration):
         if signature == "init()":
             sources[harness_path] = (
-                "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
+                "#if DEBUG\n                        import NewForumFeature"
                 "\n                        enum Factory { static var existing: ReadService"
                 "; static func cached() -> ReadService { existing } }\n                   "
                 "     struct ReleaseNetworkSmokeRunner { func run() { _ = Factory.cached()"
@@ -47,7 +47,7 @@ def verify_service_entry_access():
                 ),
             )
             sources[harness_path] = (
-                "#if RELEASE_NETWORK_SMOKE\n                        import NewForumFeature"
+                "#if DEBUG\n                        import NewForumFeature"
                 "\n                        struct ReleaseNetworkSmokeRunner { var service:"
                 " ReadService; func run() { service.rows = existingTask } }\n             "
                 "           #endif"
@@ -98,7 +98,7 @@ def verify_service_entry_access():
                     f" }}"
                 ),
                 harness_path: (
-                    f"#if RELEASE_NETWORK_SMOKE\nimport NewForumFeature; struct ReleaseNetworkSm"
+                    f"#if DEBUG\nimport NewForumFeature; struct ReleaseNetworkSm"
                     f"okeRunner {{ let service: ReadService; func run() {{ _ = "
                     f"{invocation}"
                     f" }} }}\n#endif"

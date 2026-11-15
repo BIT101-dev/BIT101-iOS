@@ -305,10 +305,12 @@ public struct HTTPClient {
 
     public nonisolated static func errorMessage(from data: Data) -> String? {
         guard data.count <= HTTPResponseResourceLimits.maximumErrorBytes else { return nil }
-        guard let value = try? JSONSerialization.jsonObject(
-            with: data,
-            options: [.fragmentsAllowed]
-        ) else {
+        guard
+            let value = try? JSONSerialization.jsonObject(
+                with: data,
+                options: [.fragmentsAllowed]
+            )
+        else {
             guard
                 let text = String(data: data, encoding: .utf8)?.trimmingCharacters(
                     in: .whitespacesAndNewlines),

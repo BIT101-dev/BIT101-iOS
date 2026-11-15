@@ -1,8 +1,8 @@
 import DesignSystemKit
 import Foundation
 import MapKit
-import ScheduleDomain
 import ScheduleContracts
+import ScheduleDomain
 import StorageCore
 import SwiftUI
 import Testing
@@ -73,9 +73,10 @@ struct ScheduleTimelineViewportTests {
         let host = UIHostingController(
             rootView: ScheduleRootView(
                 viewModel: model, requestedSection: .constant(nil), destinations: destinations,
-                showingClassrooms: showingClassrooms)
-                .environment(FeatureCompositionTests().media())
-                .environment(\.appWindowLayout, layout).environment(\.appExpandedNavigation, true))
+                showingClassrooms: showingClassrooms
+            )
+            .environment(FeatureCompositionTests().media())
+            .environment(\.appWindowLayout, layout).environment(\.appExpandedNavigation, true))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer {
@@ -147,15 +148,18 @@ struct ScheduleTimelineViewportTests {
         let snapshot = ScheduleCourseSnapshot(
             firstDayString: "2026-09-07", timeTable: TimeSlot.default, courses: courses)
         let firstDay = try #require(snapshot.firstDay)
-        let day = try #require(ScheduleSharedDateCodec.calendar.date(
-            byAdding: .day, value: dayOffset, to: firstDay))
+        let day = try #require(
+            ScheduleSharedDateCodec.calendar.date(
+                byAdding: .day, value: dayOffset, to: firstDay))
         let slot = try #require(TimeSlot.default.first)
         for hour in [0, 8, 23] {
             let now = day.addingTimeInterval(Double(hour * 3_600))
             let occurrences = courses.flatMap { course in
                 course.weeks.compactMap { week -> (course: CourseRecord, date: Date)? in
-                    guard let date = ScheduleSharedDateCodec.combine(
-                        firstDay: firstDay, week: week, weekday: course.weekday, time: slot.start),
+                    guard
+                        let date = ScheduleSharedDateCodec.combine(
+                            firstDay: firstDay, week: week, weekday: course.weekday,
+                            time: slot.start),
                         date > now
                     else { return nil }
                     return (course, date)
@@ -179,8 +183,9 @@ struct ScheduleTimelineViewportTests {
             firstDayString: firstDayString, timeTable: TimeSlot.default, courses: courses)
         let firstDay = try #require(snapshot.firstDay)
         let slot = try #require(TimeSlot.default.first)
-        let start = try #require(ScheduleSharedDateCodec.combine(
-            firstDay: firstDay, week: 1, weekday: 1, time: slot.start))
+        let start = try #require(
+            ScheduleSharedDateCodec.combine(
+                firstDay: firstDay, week: 1, weekday: 1, time: slot.start))
         let projection = UpcomingCourseMapProjection()
         let before = try #require(
             projection.resolve(in: snapshot, now: start.addingTimeInterval(-1)))
@@ -282,7 +287,8 @@ struct ScheduleTimelineViewportTests {
                 guard let cards = calendar(in: host.view), cards.window != nil else { return nil }
                 guard let layer = viewport(for: cards).layer.presentation(),
                     layer.bounds.height > 0,
-                    layer.opacity > 0 else { return nil }
+                    layer.opacity > 0
+                else { return nil }
                 return layer.bounds.height
             }
             let heights = await sampler.sample()

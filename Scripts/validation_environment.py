@@ -14,7 +14,6 @@ from validation_policy import NETWORK_GROUPS
 
 DEVICE_GROUPS = {
     "all",
-    "release-runtime",
     "ui",
     "schedule",
     "infrastructure",
@@ -46,7 +45,7 @@ def native_destinations_complete(
         "iOS Simulator"
         if simulator
         else "macOS"
-        if group in {"catalyst", "catalyst-release-runtime"}
+        if group == "catalyst"
         else "iOS"
     )
     return (

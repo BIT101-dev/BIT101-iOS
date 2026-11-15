@@ -258,14 +258,17 @@ def list_row_layout_boundary_findings() -> list[str]:
         if bool(errors) != expected:
             findings.append("更新时间外观自测：圆角、背景和边距需要由完整组件统一持有")
     for modifier, expected in (
-        ("", False), (".clipShape(Capsule())", True),
-        (".background(Color.white)", True), (".listRowBackground(Color.white)", True),
+        ("", False),
+        (".clipShape(Capsule())", True),
+        (".background(Color.white)", True),
+        (".listRowBackground(Color.white)", True),
         (".background { GeometryReader { _ in Color.clear } }", False),
     ):
         source = "struct Page: View { var body: some View { ScoreRefreshStatusRow()" + modifier
         source += " } }"
         errors = list_row_layout_findings(
-            swift_syntax_index_sources({"ui-self-test.swift": source}))
+            swift_syntax_index_sources({"ui-self-test.swift": source})
+        )
         if bool(errors) != expected:
             findings.append("更新时间外观自测：调用位置应沿用共享背景和圆角")
     path = str(ROOT / "Modules/ScoreFeature/Sources/ScoreRootView.swift")

@@ -326,6 +326,7 @@ public struct ScheduleImportCodeSheet: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                    .tint(AppDesignSystem.Foreground.primaryColor)
 
                     Button(action: startImport) {
                         Label("导入", systemImage: "square.and.arrow.down")

@@ -64,9 +64,7 @@ def verify_build_and_native_summaries(subject, test):
         for name in (
             "modules",
             "all",
-            "release-runtime",
             "catalyst",
-            "catalyst-release-runtime",
             "ui",
         )
     }
@@ -101,8 +99,7 @@ def verify_build_and_native_summaries(subject, test):
             if name != "ScheduleActivityContracts"
         }
     )
-    summaries["catalyst-release-runtime"]["coverage"] = dict(summaries["catalyst"]["coverage"])
-    for group in ("catalyst", "catalyst-release-runtime"):
+    for group in ("catalyst",):
         assert subject.coverage_complete(group, summaries[group])
         assert not subject.coverage_complete(group, dict(summaries[group], coverage={}))
         for name in ("BIT101-iOS.app", "Catalyst/TransportCore", "Catalyst/StorageCore"):
@@ -607,7 +604,7 @@ def verify_cloud_and_group_summaries(
     groups["restore"]["runID"] = summaries["restore"]["runID"]
     from validation_manual import artifact_bytes
 
-    groups["catalyst-release-runtime"]["application"] = json.loads(
+    groups["catalyst"]["application"] = json.loads(
         artifact_bytes(summaries["manual-device"]["checks"]["catalyst-desktop"]["evidence"])
     )["application"]
     for name in subject.LIVE_GROUPS & groups.keys():
@@ -664,7 +661,7 @@ def verify_recorded_evidence_summaries(
         )
         for key, value in [("executableUUIDs", [])]:
             mismatched = json.loads(json.dumps(report))
-            mismatched["groups"]["catalyst-release-runtime"]["application"][key] = value
+            mismatched["groups"]["catalyst"]["application"][key] = value
             assert any(
                 "Catalyst 桌面专项" in error
                 for error in subject.release_findings(mismatched, "source")

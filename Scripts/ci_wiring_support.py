@@ -75,14 +75,11 @@ DIAGNOSTIC_PATHS = {
         ".build/extended-automation/test-metrics.txt",
     },
     "release-build": {
-        ".build/extended-automation/build-network-smoke.log",
-        ".build/extended-automation/build-icloud-smoke.log",
         ".build/extended-automation/diagnostics/test-results.xcresult",
         "build/DeviceInstall/build.log",
     },
     "catalyst-tests": {
         ".build/extended-automation/catalyst.log",
-        ".build/extended-automation/catalyst-release-runtime.log",
         ".build/extended-automation/test-metrics.txt",
         ".build/extended-automation/test-failures.txt",
         ".build/extended-automation/test-results.xcresult",
@@ -90,9 +87,6 @@ DIAGNOSTIC_PATHS = {
     "ios-tests": {
         ".build/extended-automation/simulator.log",
         ".build/extended-automation/all.log",
-        ".build/extended-automation/release-runtime.log",
-        "build/DeviceInstall/build.log",
-        ".build/extended-automation/restore.log",
         ".build/extended-automation/test-metrics.txt",
         ".build/extended-automation/test-results.xcresult",
         ".build/screenshot.png",
@@ -212,13 +206,13 @@ def ci_result_wiring_findings(jobs: dict) -> list[str]:
             "release-build",
             "release",
             CI_EXECUTION,
-            "Scripts/run-extended-tests.sh build icloud-smoke",
+            "Scripts/build-install-device.sh archive",
         ),
         (
             "catalyst-tests",
             "catalyst",
             CI_EXECUTION,
-            "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
+            "Scripts/run-extended-tests.sh verify catalyst",
         ),
         (
             "ios-tests",

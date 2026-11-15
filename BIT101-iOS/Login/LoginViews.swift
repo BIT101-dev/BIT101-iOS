@@ -366,7 +366,7 @@ private enum LoginField: Hashable {
 }
 
 private func loginContentType(_ type: UITextContentType) -> UITextContentType {
-    #if BIT101_UI_TESTING
+    #if DEBUG
     return AppFileDirectories.isRunningUITest ? .oneTimeCode : type
     #else
     return type

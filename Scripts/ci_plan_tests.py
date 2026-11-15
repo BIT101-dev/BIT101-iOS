@@ -121,12 +121,13 @@ def plan_self_test(subject) -> None:
         ([], set()),
         (["README.md"], set()),
         (["BIT101-iOSUITests/InteractionCoverageCommunityUITests.swift"], set()),
-        (["BIT101-iOSTests/AccountTests.swift"], {"release", "app", "catalyst"}),
-        (["BIT101-iOSTests/PerformanceWorkloads.json"], {"release", "app", "catalyst"}),
+        (["BIT101-iOSTests/AccountTests.swift"], {"app", "catalyst"}),
+        (["BIT101-iOSTests/PerformanceWorkloads.json"], {"app", "catalyst"}),
         (["BIT101-iOS/Feature.swift"], {"release", "app", "catalyst"}),
         (["Modules/Feature/Sources/Feature.swift"], set(CI_VALIDATION_GROUPS)),
         ([".github/workflows/ci.yml"], set(CI_VALIDATION_GROUPS)),
-        (["Scripts/simulator-tests.sh"], set(CI_VALIDATION_GROUPS)),
+        (["Scripts/simulator-tests.sh"], {"modules", "app", "catalyst"}),
+        (["Scripts/script-support.sh"], set(CI_VALIDATION_GROUPS)),
     ):
         plan = select_validation_plan(commit, "8", [candidate], lambda _: names)
         assert {group for group, row in plan["jobs"].items() if row["execute"]} == required, names
@@ -138,7 +139,7 @@ def plan_self_test(subject) -> None:
     for conclusion in ("failure", "timed_out", "action_required", "cancelled", "skipped", None):
         failed = deepcopy(candidate)
         next(
-            job for job in failed["jobs"] if job["name"] == "iOS Simulator app and formal runtime"
+            job for job in failed["jobs"] if job["name"] == "iOS Simulator app tests"
         )["conclusion"] = conclusion
         older = candidate | {"id": 6}
         plan = select_validation_plan(commit, "8", [failed, older], lambda _: [])
@@ -163,7 +164,7 @@ def plan_self_test(subject) -> None:
             assert plan["jobs"]["app"]["execute"]
     absent = deepcopy(candidate)
     absent["jobs"] = [
-        job for job in absent["jobs"] if job["name"] != "iOS Simulator app and formal runtime"
+        job for job in absent["jobs"] if job["name"] != "iOS Simulator app tests"
     ]
     assert (
         select_validation_plan(commit, "8", [absent, older], lambda _: [])["jobs"]["app"]["run"]

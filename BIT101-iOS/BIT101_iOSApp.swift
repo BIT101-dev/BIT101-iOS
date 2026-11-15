@@ -36,21 +36,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        #if RELEASE_NETWORK_SMOKE || ICLOUD_CROSS_DEVICE_SMOKE
-        application.isIdleTimerDisabled = true
-        return true
-        #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return true
-        #else
-        #if BIT101_UI_TESTING
-        guard
-            AppUITestBootstrap.usesProductionComposition
-                || !AppFileDirectories.isRunningUITest
-        else { return true }
+        #if DEBUG
+        if AppFileDirectories.isRunningNetworkSmoke || AppFileDirectories.isRunningICloudSmoke {
+            application.isIdleTimerDisabled = true
+            return true
+        }
+        if AppFileDirectories.isRunningIsolatedUnitTest {
+            return true
+        }
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
+            return true
+        }
         #endif
         ScheduleReminderBackgroundRefresh.register()
         return true
-        #endif
     }
 
 }
@@ -179,24 +178,37 @@ enum ScheduleReminderBackgroundRefresh {
 /// 挂载根视图，并协调课表缓存与外部展示同步。
 @main
 struct BIT101_iOSApp: App {
-    #if RELEASE_NETWORK_SMOKE
-    @State private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
-    #endif
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
-    #if !BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
-    #if BIT101_UI_TESTING
-    @State private var uiTestScene: UITestSceneState
-    private var lifecycle: AppAccountLifecycle { uiTestScene.lifecycle }
+    @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    private enum LaunchMode {
+        case icloudSmoke
+        case networkSmoke
+        case isolatedUnitTest
+        case uiTest(UITestSceneState)
+        case production(AppAccountLifecycle)
+    }
+    @State private var launchMode: LaunchMode
+    @State private var networkSmokeSMS = ReleaseNetworkSmokeSMSPrompt()
     #else
     @State private var lifecycle: AppAccountLifecycle
     #endif
-    @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        #if BIT101_UI_TESTING
-        AppUITestBootstrap.prepareForLaunch()
-        _uiTestScene = State(initialValue: UITestSceneState(makeLifecycle: Self.makeLifecycle))
+        #if DEBUG
+        if AppFileDirectories.isRunningICloudSmoke {
+            _launchMode = State(initialValue: .icloudSmoke)
+        } else if AppFileDirectories.isRunningNetworkSmoke {
+            _launchMode = State(initialValue: .networkSmoke)
+        } else if AppFileDirectories.isRunningIsolatedUnitTest {
+            _launchMode = State(initialValue: .isolatedUnitTest)
+        } else if AppFileDirectories.isRunningUITest {
+            AppUITestBootstrap.prepareForLaunch()
+            _launchMode = State(
+                initialValue: .uiTest(UITestSceneState(makeLifecycle: Self.makeLifecycle)))
+        } else {
+            _launchMode = State(initialValue: .production(Self.makeLifecycle()))
+        }
         #else
         _lifecycle = State(initialValue: Self.makeLifecycle())
         #endif
@@ -206,15 +218,15 @@ struct BIT101_iOSApp: App {
         let settings = AppSettingsStore.shared
         let stores = AppAccountStores.shared
         let preferenceCloudSync: ExperimentalPreferenceCloudSync
-        #if BIT101_UI_TESTING
-        if AppUITestBootstrap.usesProductionComposition {
-            preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
-        } else {
+        #if DEBUG
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
             let cloud = AutomatedTestPreferenceCloudStore()
             preferenceCloudSync = ExperimentalPreferenceCloudSync(
                 settings: settings, stores: stores, cloudStore: cloud,
                 scoreEncryption: ScoreCacheSyncEncryption(
                     defaults: AppFileDirectories.defaults, credentials: cloud))
+        } else {
+            preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
         }
         #else
         preferenceCloudSync = ExperimentalPreferenceCloudSync.shared
@@ -222,21 +234,17 @@ struct BIT101_iOSApp: App {
         let productionScores = ScoreService()
         let scores: any ScoreListServicing
         let transcripts: any TrustedTranscriptServicing
-        #if BIT101_UI_TESTING
-        scores =
-            AppFileDirectories.isRunningUITest
-                && !AppUITestBootstrap.usesProductionComposition
-            ? UITestScoreService() : productionScores
-        transcripts =
-            AppFileDirectories.isRunningUITest
-                && !AppUITestBootstrap.usesProductionComposition
-            ? UITestScoreService() : productionScores
+        #if DEBUG
+        let useUITestScores =
+            AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition
+        scores = useUITestScores ? UITestScoreService() : productionScores
+        transcripts = useUITestScores ? UITestScoreService() : productionScores
         #else
         scores = productionScores
         transcripts = productionScores
         #endif
         let diagnosisSchool: NetworkDiagnosisSchool = {
-            #if BIT101_UI_TESTING
+            #if DEBUG
             if AppFileDirectories.isRunningUITest
                 && !AppUITestBootstrap.usesProductionComposition
             {
@@ -305,8 +313,8 @@ struct BIT101_iOSApp: App {
     }
 
     private static func makeScheduleViewModel() -> ScheduleViewModel {
-        #if BIT101_UI_TESTING
-        if !AppUITestBootstrap.usesProductionComposition {
+        #if DEBUG
+        if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
             let actions = UITestSchedulePlatformActions(
                 historyNeedsRecovery:
                     AppUITestBootstrap.environment[
@@ -349,156 +357,189 @@ struct BIT101_iOSApp: App {
         return ScheduleServiceFactory.makeViewModel(
             platformActions: effects, didSave: effects.didSave)
     }
-    #endif
-    #endif
 
     /// 根场景定义。主题模式由设置快照驱动；登录态、课表缓存和场景状态变化时，
     /// 入口负责同步 Widget、Watch 和 Live Activity。
     var body: some Scene {
         WindowGroup {
-            #if ICLOUD_CROSS_DEVICE_SMOKE
-            Color.clear.accessibilityIdentifier("icloud-cross-device-smoke-host")
-            #elseif RELEASE_NETWORK_SMOKE
-            // 采样宿主通过当前登录会话执行网络采样，并承接短信验证码输入。
-            Color.clear
-                .accessibilityIdentifier("release-network-smoke-host")
-                .task {
-                    do {
-                        let smokeRequest =
-                            try ReleaseNetworkSmokeLaunchRequest.readPendingFile()
-                        _ = await ReleaseNetworkSmokeRunner().run(
-                            scope: smokeRequest.scope,
-                            runID: smokeRequest.runID,
-                            capture: smokeRequest.capture,
-                            term: smokeRequest.term,
-                            communityFollowTarget: smokeRequest.communityFollowTarget,
-                            communityExpectedAccount: smokeRequest.communityExpectedAccount,
-                            communityRecoveryConfirmation: smokeRequest
-                                .communityRecoveryConfirmation,
-                            fixtures: smokeRequest.fixtures,
-                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true
-                                ? networkSmokeSMS.requestCode : nil
-                        )
-                    } catch {
-                        let failure = error as NSError
-                        FileHandle.standardOutput.write(
-                            Data(
-                                """
-                                NETWORK_SMOKE_REQUEST_FAIL domain=\(failure.domain) code=\
-                                \(failure.code)\n
-                                """
-                                .utf8))
-                    }
-                }
-                .onOpenURL { url in
-                    guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else {
-                        return
-                    }
-                    Task {
-                        _ = await ReleaseNetworkSmokeRunner().run(
-                            scope: smokeRequest.scope,
-                            runID: smokeRequest.runID,
-                            capture: smokeRequest.capture,
-                            term: smokeRequest.term,
-                            communityFollowTarget: smokeRequest.communityFollowTarget,
-                            communityExpectedAccount: smokeRequest.communityExpectedAccount,
-                            communityRecoveryConfirmation: smokeRequest
-                                .communityRecoveryConfirmation,
-                            fixtures: smokeRequest.fixtures,
-                            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true
-                                ? networkSmokeSMS.requestCode : nil
-                        )
-                    }
-                }
-                .sheet(item: $networkSmokeSMS.request) { request in
-                    AppVerificationSheet(
-                        maskedPhone: request.maskedPhone, isSubmitting: false,
-                        errorMessage: nil,
-                        submitTitle: "验证并继续", onCancel: networkSmokeSMS.cancel,
-                        onSubmit: { networkSmokeSMS.submit($0) }
-                    )
-                    .interactiveDismissDisabled()
-                }
-            #elseif BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-            Color.clear.accessibilityIdentifier("behavior-test-host")
+            #if DEBUG
+            debugSceneRoot
             #else
-            ContentView(
-                transcriptService: lifecycle.transcriptService, localData: lifecycle.localData
-            )
-            #if BIT101_UI_TESTING
-            .uiTestExternalURLs()
-            #endif
-            .modifier(AppAccountEnvironment(lifecycle: lifecycle))
-            .appKeyboardDismissSupport()
-            #if BIT101_UI_TESTING
-            .environment(\.appInteractionEvidence) { identifier, action in
-                UITestAccessibilityActions.recordCallback(identifier, action: action)
-            }
-            #endif
-            .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
-            #if BIT101_UI_TESTING
-            .id(uiTestScene.revision)
-            .environment(
-                \.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large
-            )
-            .preferredColorScheme(uiTestScene.colorScheme)
-            .overlay(alignment: .topLeading) {
-                Color.clear.frame(
-                    width: AppDesignSystem.Size.Control.compact,
-                    height: AppDesignSystem.Size.Control.compact
-                )
-                .accessibilityElement()
-                .accessibilityIdentifier("ui-test.scene")
-                .accessibilityValue(
-                    Text(
-                        verbatim:
-                            """
-                            \(ProcessInfo.processInfo.processIdentifier):\
-                            \(uiTestScene.revision)
-                            """
-                    )
-                )
-                .allowsHitTesting(false)
-            }
-            #endif
-            .onOpenURL { url in
-                AppDeepLinkCoordinator.shared.receive(url)
-            }
-            .task {
-                lifecycle.start()
-                AppRestoreReadiness.initializedScene()
-                await AppFileDirectories.preparePersistentBackups()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: UIApplication.didBecomeActiveNotification)
-            ) { _ in
-                AppRestoreReadiness.recordIfReady()
-            }
+            productionSceneRoot(lifecycle: lifecycle)
             #endif
         }
-        #if !RELEASE_NETWORK_SMOKE && !ICLOUD_CROSS_DEVICE_SMOKE
-        #if !BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                #if BIT101_UI_TESTING
-                guard
-                    AppUITestBootstrap.usesProductionComposition
-                        || !AppFileDirectories.isRunningUITest
-                else { return }
-                #endif
-                // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
-                appDelegate.restoreLoginSession()
-                lifecycle.sceneBecameActive()
-                AppRestoreReadiness.recordIfReady()
-            }
+            guard newPhase == .active else { return }
+            handleSceneBecameActive()
         }
-        #endif
+    }
+
+    private func productionSceneRoot(lifecycle: AppAccountLifecycle) -> some View {
+        ContentView(
+            transcriptService: lifecycle.transcriptService, localData: lifecycle.localData
+        )
+        .modifier(AppAccountEnvironment(lifecycle: lifecycle))
+        .appKeyboardDismissSupport()
+        .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
+        .onOpenURL { url in
+            AppDeepLinkCoordinator.shared.receive(url)
+        }
+        .task {
+            lifecycle.start()
+            AppRestoreReadiness.initializedScene()
+            await AppFileDirectories.preparePersistentBackups()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.didBecomeActiveNotification)
+        ) { _ in
+            AppRestoreReadiness.recordIfReady()
+        }
+    }
+
+    private func activateProductionScene(lifecycle: AppAccountLifecycle) {
+        // 回到前台时导出本地快照并刷新时间线；学校请求由用户显式操作触发。
+        appDelegate.restoreLoginSession()
+        lifecycle.sceneBecameActive()
+        AppRestoreReadiness.recordIfReady()
+    }
+
+    private func handleSceneBecameActive() {
+        #if DEBUG
+        switch launchMode {
+        case .icloudSmoke, .networkSmoke, .isolatedUnitTest:
+            break
+        case .uiTest(let uiTestScene):
+            guard AppUITestBootstrap.usesProductionComposition else { return }
+            activateProductionScene(lifecycle: uiTestScene.lifecycle)
+        case .production(let lifecycle):
+            activateProductionScene(lifecycle: lifecycle)
+        }
+        #else
+        activateProductionScene(lifecycle: lifecycle)
         #endif
     }
+
+    #if DEBUG
+    @ViewBuilder
+    private var debugSceneRoot: some View {
+        switch launchMode {
+        case .icloudSmoke:
+            Color.clear.accessibilityIdentifier("icloud-cross-device-smoke-host")
+        case .networkSmoke:
+            networkSmokeSceneRoot
+        case .isolatedUnitTest:
+            Color.clear.accessibilityIdentifier("behavior-test-host")
+        case .uiTest(let uiTestScene):
+            uiTestSceneRoot(uiTestScene)
+        case .production(let lifecycle):
+            productionSceneRoot(lifecycle: lifecycle)
+        }
+    }
+
+    private var networkSmokeSceneRoot: some View {
+        // 采样宿主通过当前登录会话执行网络采样，并承接短信验证码输入。
+        Color.clear
+            .accessibilityIdentifier("release-network-smoke-host")
+            .task {
+                do {
+                    let smokeRequest = try ReleaseNetworkSmokeLaunchRequest.readPendingFile()
+                    await runNetworkSmoke(smokeRequest)
+                } catch {
+                    let failure = error as NSError
+                    FileHandle.standardOutput.write(
+                        Data(
+                            """
+                            NETWORK_SMOKE_REQUEST_FAIL domain=\(failure.domain) code=\
+                            \(failure.code)\n
+                            """
+                            .utf8))
+                }
+            }
+            .onOpenURL { url in
+                guard let smokeRequest = ReleaseNetworkSmokeLaunchRequest(url: url) else {
+                    return
+                }
+                Task { await runNetworkSmoke(smokeRequest) }
+            }
+            .sheet(item: $networkSmokeSMS.request) { request in
+                AppVerificationSheet(
+                    maskedPhone: request.maskedPhone, isSubmitting: false,
+                    errorMessage: nil, submitTitle: "验证并继续",
+                    onCancel: networkSmokeSMS.cancel,
+                    onSubmit: { networkSmokeSMS.submit($0) }
+                )
+                .interactiveDismissDisabled()
+            }
+    }
+
+    private func runNetworkSmoke(_ smokeRequest: ReleaseNetworkSmokeLaunchRequest) async {
+        _ = await ReleaseNetworkSmokeRunner().run(
+            scope: smokeRequest.scope,
+            runID: smokeRequest.runID,
+            capture: smokeRequest.capture,
+            term: smokeRequest.term,
+            communityFollowTarget: smokeRequest.communityFollowTarget,
+            communityExpectedAccount: smokeRequest.communityExpectedAccount,
+            communityRecoveryConfirmation: smokeRequest.communityRecoveryConfirmation,
+            fixtures: smokeRequest.fixtures,
+            schoolSMSCodeHandler: smokeRequest.interactiveSMS == true
+                ? networkSmokeSMS.requestCode : nil
+        )
+    }
+
+    private func uiTestSceneRoot(_ uiTestScene: UITestSceneState) -> some View {
+        let lifecycle = uiTestScene.lifecycle
+        return ContentView(
+            transcriptService: lifecycle.transcriptService, localData: lifecycle.localData
+        )
+        .uiTestExternalURLs()
+        .modifier(AppAccountEnvironment(lifecycle: lifecycle))
+        .appKeyboardDismissSupport()
+        .environment(\.appInteractionEvidence) { identifier, action in
+            UITestAccessibilityActions.recordCallback(identifier, action: action)
+        }
+        .appPromptHost(updates: lifecycle.updates, prompts: lifecycle.prompts)
+        .id(uiTestScene.revision)
+        .environment(\.sizeCategory, uiTestScene.largeText ? .accessibilityLarge : .large)
+        .preferredColorScheme(uiTestScene.colorScheme)
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(
+                width: AppDesignSystem.Size.Control.compact,
+                height: AppDesignSystem.Size.Control.compact
+            )
+            .accessibilityElement()
+            .accessibilityIdentifier("ui-test.scene")
+            .accessibilityValue(
+                Text(
+                    verbatim:
+                        """
+                        \(ProcessInfo.processInfo.processIdentifier):\
+                        \(uiTestScene.revision)
+                        """
+                )
+            )
+            .allowsHitTesting(false)
+        }
+        .onOpenURL { url in
+            AppDeepLinkCoordinator.shared.receive(url)
+        }
+        .task {
+            lifecycle.start()
+            AppRestoreReadiness.initializedScene()
+            await AppFileDirectories.preparePersistentBackups()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.didBecomeActiveNotification)
+        ) { _ in
+            AppRestoreReadiness.recordIfReady()
+        }
+    }
+    #endif
 }
 
-#if BIT101_UI_TESTING
+#if DEBUG
 @MainActor
 @Observable final class UITestSceneState {
     private(set) var lifecycle: AppAccountLifecycle

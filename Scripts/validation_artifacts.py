@@ -250,9 +250,7 @@ def disk_entries(root: Path, excluded: list[Path]) -> Iterator[Path]:
 
     for directory, children, names in os.walk(root, onerror=read_error):
         parent = Path(directory)
-        children[:] = [
-            name for name in children if disk_path_included(parent / name, excluded)
-        ]
+        children[:] = [name for name in children if disk_path_included(parent / name, excluded)]
         yield from (parent / name for name in names)
         yield from (parent / name for name in children)
 
@@ -293,25 +291,38 @@ def check_mac_disk_usage(app: Path) -> int:
     excluded = []
     if settings.get("gallery.image-cache.limit-mb", 500) > 0:
         excluded = [
-            cache / name for cache in caches
-            for name in ("BIT101GalleryImages", "BIT101ImageCache")
+            cache / name for cache in caches for name in ("BIT101GalleryImages", "BIT101ImageCache")
         ] + [temporary / "BIT101Previews", container / "tmp/BIT101Previews"]
-    data = [
-        library / "Application Support" / name
-        for name in ("BIT101-iOS", "ComposerDrafts", "NetworkSmoke")
-    ] + [
-        library / directory / identifier
-        for directory in ("Caches", "HTTPStorages", "WebKit")
-    ] + [
-        preferences, container,
-        library / "Saved Application State" / f"{identifier}.savedState",
-        library / "Group Containers" / "group.BIT101-dev.BIT101-iOS.shared",
-        temporary / "schedule-cloud-images.json",
-    ] + [home / "Documents" / name for name in (
-        "restore-readiness.json", "network-smoke-request.json",
-    )] + [cache / name for cache in caches for name in (
-        "BIT101GalleryImages", "BIT101ImageCache",
-    )] + [temporary / "BIT101Previews"]
+    data = (
+        [
+            library / "Application Support" / name
+            for name in ("BIT101-iOS", "ComposerDrafts", "NetworkSmoke")
+        ]
+        + [library / directory / identifier for directory in ("Caches", "HTTPStorages", "WebKit")]
+        + [
+            preferences,
+            container,
+            library / "Saved Application State" / f"{identifier}.savedState",
+            library / "Group Containers" / "group.BIT101-dev.BIT101-iOS.shared",
+            temporary / "schedule-cloud-images.json",
+        ]
+        + [
+            home / "Documents" / name
+            for name in (
+                "restore-readiness.json",
+                "network-smoke-request.json",
+            )
+        ]
+        + [
+            cache / name
+            for cache in caches
+            for name in (
+                "BIT101GalleryImages",
+                "BIT101ImageCache",
+            )
+        ]
+        + [temporary / "BIT101Previews"]
+    )
     total = disk_bytes([app, *data], excluded)
     print(f"[磁盘] {total / 1_000_000:.2f}MB / 100MB（扣除有上限的话廊缓存）")
     if total > 100_000_000:
@@ -348,12 +359,21 @@ def self_test() -> None:
         patch.object(Path, "exists", return_value=True),
         patch.object(Path, "is_dir", lambda path: path in directories),
         patch.object(Path, "is_symlink", lambda path: path.name == "Current"),
-        patch.object(Path, "stat", lambda path: SimpleNamespace(
-            st_size=sizes[path], st_blocks=0, st_dev=1, st_ino=str(path))),
-        patch.object(os, "walk", side_effect=lambda root, **_: {
-            app: [(str(app), [], ["binary", "Current"])],
-            data: [(str(data), ["gallery"], ["saved"]), (str(gallery), [], ["image"])],
-        }[root]),
+        patch.object(
+            Path,
+            "stat",
+            lambda path: SimpleNamespace(
+                st_size=sizes[path], st_blocks=0, st_dev=1, st_ino=str(path)
+            ),
+        ),
+        patch.object(
+            os,
+            "walk",
+            side_effect=lambda root, **_: {
+                app: [(str(app), [], ["binary", "Current"])],
+                data: [(str(data), ["gallery"], ["saved"]), (str(gallery), [], ["image"])],
+            }[root],
+        ),
     ):
         assert disk_bytes([app, data, gallery, data], [gallery]) == 100_000_002
         assert disk_bytes([app, data], []) == 600_000_003
@@ -361,16 +381,23 @@ def self_test() -> None:
         patch.object(Path, "exists", return_value=True),
         patch.object(Path, "is_dir", return_value=False),
         patch.object(Path, "is_symlink", return_value=False),
-        patch.object(Path, "stat", return_value=SimpleNamespace(
-            st_size=1, st_blocks=8, st_dev=1, st_ino=1)),
+        patch.object(
+            Path, "stat", return_value=SimpleNamespace(st_size=1, st_blocks=8, st_dev=1, st_ino=1)
+        ),
     ):
         assert disk_bytes([Path("/a"), Path("/b")], []) == 4096
 
     for size, limit in ((100_000_000, 500), (100_000_001, 500), (100_000_000, 0)):
         with (
-            patch.object(Path, "read_bytes", lambda path: plistlib.dumps(
-                {"CFBundleIdentifier": "app"} if path.name == "Info.plist"
-                else {"gallery.image-cache.limit-mb": limit})),
+            patch.object(
+                Path,
+                "read_bytes",
+                lambda path: plistlib.dumps(
+                    {"CFBundleIdentifier": "app"}
+                    if path.name == "Info.plist"
+                    else {"gallery.image-cache.limit-mb": limit}
+                ),
+            ),
             patch.object(Path, "exists", return_value=True),
             patch.dict(os.environ, {"TMPDIR": "/tmp"}),
             patch.object(sys.modules[__name__], "disk_bytes", return_value=size) as measure,

@@ -23,6 +23,20 @@
          </BuildActionEntry>
          <BuildActionEntry
             buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B10100000000000000000005"
+               BuildableName = "BIT101-iOSUITests.xctest"
+               BlueprintName = "BIT101-iOSUITests"
+               ReferencedContainer = "container:BIT101-iOS.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
             buildForRunning = "YES"
             buildForProfiling = "YES"
             buildForArchiving = "YES"
@@ -52,6 +66,16 @@
                BlueprintIdentifier = "111111111111111111111111"
                BuildableName = "BIT101-iOSTests.xctest"
                BlueprintName = "BIT101-iOSTests"
+               ReferencedContainer = "container:BIT101-iOS.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B10100000000000000000005"
+               BuildableName = "BIT101-iOSUITests.xctest"
+               BlueprintName = "BIT101-iOSUITests"
                ReferencedContainer = "container:BIT101-iOS.xcodeproj">
             </BuildableReference>
          </TestableReference>

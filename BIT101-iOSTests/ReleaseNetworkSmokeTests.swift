@@ -1,22 +1,35 @@
-#if RELEASE_NETWORK_SMOKE
+#if DEBUG
+import ClientCore
+import CommunityCore
+import CommunityTransport
+import CourseFeature
+import Darwin
+import Foundation
+import MediaKit
+import ScoreDomain
+import ScorePorts
+import ScheduleDomain
+import SchedulePorts
+import StorageCore
+import Testing
+import TransportCore
+import UIKit
 import XCTest
 @testable import BIT101_iOS
+@testable import GalleryFeature
+@testable import MineFeature
+@testable import PaperFeature
+@testable import ScheduleInfrastructure
 
 /// 发布前真机网络验收测试。
 ///
-/// 测试根据编译条件或 `BIT101_NETWORK_SMOKE_SCOPE` 选择 smoke 范围，调用共享 runner。
+/// 测试根据 `BIT101_NETWORK_SMOKE_SCOPE` 选择验收范围，调用共享 runner。
 /// 采样宿主的当前登录态网络验收通过 `bit101://network-smoke/...` 在主进程内触发同一 runner。
 nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
     @MainActor var scope: NetworkSmokeScope? {
-        #if SMOKE_BIT101
-        return .bit101
-        #elseif SMOKE_SCHOOL
-        return .school
-        #else
         let rawValue =
             ProcessInfo.processInfo.environment["BIT101_NETWORK_SMOKE_SCOPE"] ?? "all"
         return NetworkSmokeScope(rawValue: rawValue)
-        #endif
     }
 
     @MainActor
@@ -29,7 +42,7 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
             let request = ReleaseNetworkSmokeLaunchRequest(
                 scope: scope, environment: ProcessInfo.processInfo.environment)
         else {
-            XCTFail("网络 Smoke 环境参数需要有效的采样、课程、维护对象及专用账号配置")
+            XCTFail("网络验收环境参数需要有效的采样、课程、维护对象及专用账号配置")
             return
         }
         let report = await ReleaseNetworkSmokeRunner().run(
@@ -45,29 +58,6 @@ nonisolated final class ReleaseNetworkSmokeTests: XCTestCase {
         XCTAssertTrue(report.coverageComplete, report.failureMessage)
     }
 }
-#endif
-
-#if DEBUG
-import Darwin
-import Foundation
-import Testing
-import ClientCore
-import ScoreDomain
-import ScorePorts
-import CommunityCore
-import CommunityTransport
-import ScheduleDomain
-import SchedulePorts
-import TransportCore
-import StorageCore
-@testable import GalleryFeature
-@testable import PaperFeature
-@testable import MineFeature
-@testable import ScheduleInfrastructure
-import CourseFeature
-import UIKit
-import MediaKit
-@testable import BIT101_iOS
 
 @Suite("Network smoke lifecycle")
 @MainActor

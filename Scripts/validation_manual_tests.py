@@ -223,13 +223,13 @@ def verify_distribution_bundle_evidence():
     ):
         assert not evidence_content_complete("widget", malformed)
     contracts, report = distribution_fixture()
-    metadata = {"BIT101WorkflowConditions": "", "CFBundleExecutable": "application"}
+    metadata = {"CFBundleExecutable": "application"}
     with patch.object(Path, "read_bytes", return_value=b"production"):
         assert distribution.production_build_metadata(Path("/app"), metadata) == {
             "compilationConditions": [],
             "testHostMarkers": [],
         }
-        for conditions in (None, "DEBUG", "RELEASE_NETWORK_SMOKE"):
+        for conditions in ("", None, "DEBUG"):
             try:
                 distribution.production_build_metadata(
                     Path("/app"), dict(metadata, BIT101WorkflowConditions=conditions)
@@ -242,6 +242,8 @@ def verify_distribution_bundle_evidence():
         "behavior-test-host",
         "release-network-smoke-host",
         "icloud-cross-device-smoke-host",
+        "UITestControlServer",
+        "BIT101_UI_TEST_CONTROL_PORT",
         "The UI automation App requires its isolated launch configuration",
     ):
         with patch.object(Path, "read_bytes", return_value=marker.encode()):
@@ -383,7 +385,6 @@ def verify_distribution_signing_evidence(contracts, report):
                 "DTPlatformName": row["platform"],
                 "CFBundleSupportedPlatforms": row["supportedPlatforms"],
                 "MinimumOSVersion": row["minimumOSVersion"],
-                "BIT101WorkflowConditions": "",
                 "BIT101ArchiveInputDigest": report["archiveProvenance"]["inputDigest"],
                 "BIT101ArchiveRunIdentifier": report["archiveProvenance"]["runID"],
             }
@@ -637,7 +638,7 @@ def verify_feedback_receipt_evidence(checks, receipt):
         measurement = row["measurement"]
         for field, value in [
             ("deviceIdentifier", "other-phone"),
-            ("configuration", "Debug"),
+            ("configuration", "Release"),
             ("compilerVersion", ""),
         ]:
             changed = copy.deepcopy(measurement)
@@ -695,7 +696,7 @@ def verify_application_scenario_evidence(build, checks, desktop, main, report):
             changed.pop(field)
             assert not scenario_complete(check, changed), (check, field)
         changed = copy.deepcopy(proof)
-        changed["application"]["testHostMarkers"] = ["BIT101_AUTOMATED_TESTING"]
+        changed["application"]["testHostMarkers"] = ["behavior-test-host"]
         assert not scenario_complete(check, changed), check
         changed = copy.deepcopy(proof)
         changed["application"]["distributionChannel"] = "development"
@@ -747,8 +748,8 @@ def verify_application_scenario_evidence(build, checks, desktop, main, report):
         assert not scenario_complete("catalyst-desktop", desktop | {key: value}), key
     for key, value in [
         ("version", "other"),
-        ("configuration", "Debug"),
-        ("testHostMarkers", ["BIT101_AUTOMATED_TESTING"]),
+        ("configuration", "Release"),
+        ("testHostMarkers", ["behavior-test-host"]),
         ("minimumOSVersion", "99.0"),
         ("executableUUIDs", []),
     ]:
@@ -778,7 +779,7 @@ def verify_application_scenario_evidence(build, checks, desktop, main, report):
         ("version", "old"),
         ("build", "old"),
         ("configuration", "Debug"),
-        ("testHostMarkers", ["BIT101_AUTOMATED_TESTING"]),
+        ("testHostMarkers", ["behavior-test-host"]),
         ("minimumOSVersion", "99.0"),
         ("executableUUIDs", []),
     ]:

@@ -1,10 +1,17 @@
-import ScoreDomain
-import ScorePorts
-
-#if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
+#if DEBUG
+import CloudKit
+import CommunityCore
+import CommunityPersistence
 import Foundation
+import ScheduleDomain
+import SchedulePersistence
+import ScheduleSync
+import ScoreDomain
+import ScoreInfrastructure
+import ScorePorts
 import StorageCore
 import Testing
+import XCTest
 @testable import BIT101_iOS
 
 /// 同步证据同时核对完整载荷和本次业务域版本。
@@ -157,17 +164,6 @@ struct ICloudSmokeEvidenceTests {
                 localVersion: version, expectedVersion: version))
     }
 }
-#endif
-
-#if ICLOUD_CROSS_DEVICE_SMOKE
-import CloudKit
-import CommunityPersistence
-import CommunityCore
-import ScheduleDomain
-import ScheduleSync
-import SchedulePersistence
-import ScoreInfrastructure
-import XCTest
 
 /// 真机与 Catalyst 使用独立验收账号和磁盘仓库，验证生产协调器接收完整成绩载荷和业务版本。
 nonisolated final class ICloudCrossDeviceSmokeTests: XCTestCase {

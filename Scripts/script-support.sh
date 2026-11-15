@@ -96,7 +96,7 @@ bit101_catalyst_signing_arguments() {
   if [[ "${GITHUB_ACTIONS:-false}" == true || "${BIT101_CATALYST_UNSIGNED_TESTS:-0}" == 1 ]]; then
     print -r -- CODE_SIGNING_ALLOWED=NO
   else
-    print -r -- -allowProvisioningUpdates
+    print -rl -- -allowProvisioningUpdates -allowProvisioningDeviceRegistration
   fi
 }
 
@@ -133,26 +133,37 @@ PY
 
 bit101_ui_test_selections() {
   python3 - "$ROOT_DIR/Scripts" "$@" <<'PY'
+import os
 import sys
 
 sys.path.insert(0, sys.argv[1])
-from validation_evidence import normalized_test_id, test_inventory
+from validation_evidence import PERFORMANCE_SUITES, normalized_test_id, test_inventory
 
-tests = sorted(normalized_test_id(test) for test in test_inventory("ui"))
+all_tests = sorted(normalized_test_id(test) for test in test_inventory("ui"))
+simulator = os.getenv("BIT101_UI_SELECTION_SIMULATOR") == "1"
+tests = [
+    test for test in all_tests if not simulator or test.split("/", 1)[0] not in PERFORMANCE_SUITES
+]
 selected = []
 for keyword in sys.argv[2:]:
     name = keyword.removesuffix("()").casefold()
-    matches = [
-        test
-        for test in tests
-        if name
-        and (
-            name == test.casefold()
-            or name in test.split("/", 1)[0].casefold()
-            or name in test.split("/", 1)[1].casefold()
-        )
-    ]
+
+    def matched(pool):
+        return [
+            test
+            for test in pool
+            if name
+            and (
+                name == test.casefold()
+                or name in test.split("/", 1)[0].casefold()
+                or name in test.split("/", 1)[1].casefold()
+            )
+        ]
+
+    matches = matched(tests)
     if not matches:
+        if simulator and matched(all_tests):
+            raise SystemExit("模拟器入口排除性能测试，请在对应实体平台执行。")
         raise SystemExit(f"请核对 UI 用例关键词：{keyword}")
     selected.extend(matches)
 print("\n".join(dict.fromkeys(selected)))
@@ -222,13 +233,18 @@ if candidates:
     selected = min(candidates, key=lambda candidate: (*candidate[:2], candidate[3], candidate[2]))
     print("\n".join(selected[2:]))
 else:
-    phones = [device for device in devices
-              if device.get("hardwareProperties", {}).get("reality") == "physical"
-              and device.get("hardwareProperties", {}).get("deviceType") in {"iPhone", "iPad"}
-              and (not sys.argv[1]
-                   or device.get("hardwareProperties", {}).get("udid") == sys.argv[1])]
-    paired = [device for device in phones
-              if device.get("connectionProperties", {}).get("pairingState") == "paired"]
+    phones = [
+        device
+        for device in devices
+        if device.get("hardwareProperties", {}).get("reality") == "physical"
+        and device.get("hardwareProperties", {}).get("deviceType") in {"iPhone", "iPad"}
+        and (not sys.argv[1] or device.get("hardwareProperties", {}).get("udid") == sys.argv[1])
+    ]
+    paired = [
+        device
+        for device in phones
+        if device.get("connectionProperties", {}).get("pairingState") == "paired"
+    ]
     connected = any(
         device.get("connectionProperties", {}).get("transportType") in {"wired", "localNetwork"}
         for device in paired
@@ -304,7 +320,7 @@ bit101_verify_step() {
   local step_status=0
   local result_step=false
   case "$label" in
-    all|release-runtime|ui|catalyst|catalyst-release-runtime)
+    all|ui|catalyst)
       result_step=true
       if (( ${#completed_result_groups[@]} == 0 )); then
           result_lines="$(python3 "$ROOT_DIR/Scripts/validation_performance.py" begin-full \
@@ -371,11 +387,11 @@ PYHOST
   bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试宿主编译" xcodebuild build-for-testing -quiet \
     -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme "$scheme" -configuration "$configuration" \
       -derivedDataPath "$DERIVED_ROOT" \
-    -destination "$destination" ONLY_ACTIVE_ARCH=YES "BIT101_WORKFLOW_CONDITIONS=$conditions" \
+    -destination "$destination" ONLY_ACTIVE_ARCH=YES \
       ENABLE_TESTABILITY=YES \
     -enableCodeCoverage YES ENABLE_CODE_COVERAGE=YES \
-    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=- \
-      "${only_testing[@]}" || simulator_build_status=$?
+    SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
+    CODE_SIGN_IDENTITY=- || simulator_build_status=$?
   fi
   simulator_prepare_status=0
   if [[ -n "$simulator_prepare_pid" ]]; then wait "$simulator_prepare_pid" || \

@@ -135,9 +135,6 @@ public nonisolated enum ScheduleDisplayNormalizer {
             .init(source: "理学B2", light: "理学楼", max: "理学"),
             .init(source: "理学C1", light: "理学楼", max: "理学"),
             .init(source: "理学C", light: "理学楼", max: "理学"),
-            .init(source: "5号教学楼", light: "5号楼", max: "5号"),
-            .init(source: "6号教学楼", light: "6号楼", max: "6号"),
-            .init(source: "9号教学楼", light: "9号楼", max: "9号"),
             .init(source: "疏桐园A地下", light: "疏桐", max: "疏桐"),
             .init(source: "良乡体育馆", light: "体馆", max: "体馆"),
             .init(source: "交叉大楼", light: "交叉楼", max: "交叉"),
@@ -145,19 +142,23 @@ public nonisolated enum ScheduleDisplayNormalizer {
             .init(source: "天佑楼T", light: "天佑楼", max: "天佑"),
             .init(source: "工业生态楼", light: "工业楼", max: "工业"),
             .init(source: "化学实验中心", light: "化学楼", max: "化学"),
+            .init(source: "化学实验楼", light: "化学楼", max: "化学"),
             .init(source: "宇航楼", light: "宇航楼", max: "宇航"),
+            .init(source: "求是楼", light: "求是楼", max: "求是"),
             .init(source: "西山阻燃中心", light: "西山", max: "西山"),
             .init(source: "南操场", light: "南操场", max: "操场"),
-            .init(source: "5号楼", light: "5号楼", max: "5号"),
-            .init(source: "6号楼", light: "6号楼", max: "6号"),
-            .init(source: "8号楼", light: "8号楼", max: "8号"),
-            .init(source: "9号楼", light: "9号楼", max: "9号"),
-            .init(source: "3号楼", light: "3号楼", max: "3号"),
             .init(source: "主楼", light: "主楼", max: "主楼"),
             .init(source: "中教", light: "中教", max: "中教"),
             .init(source: "研楼", light: "研楼", max: "研楼"),
             .init(source: "理教楼", light: "理教", max: "理教"),
         ]
+
+        for number in 1...10 {
+            rules.append(
+                .init(source: "\(number)号教学楼", light: "\(number)号楼", max: "\(number)号"))
+            rules.append(
+                .init(source: "\(number)号楼", light: "\(number)号楼", max: "\(number)号"))
+        }
 
         for suffix in UInt8(ascii: "A")...UInt8(ascii: "M") {
             let letter = String(UnicodeScalar(suffix))
@@ -219,6 +220,12 @@ public nonisolated enum ScheduleDisplayNormalizer {
     ) {
         if let pair = knownBuildingPairs.first(where: { lightText.hasPrefix($0.light) }) {
             return pair
+        }
+        if let lightDigit = lightText.firstIndex(where: \.isNumber),
+            lightDigit > lightText.startIndex
+        {
+            let maxDigit = maxText.firstIndex(where: \.isNumber) ?? maxText.endIndex
+            return (String(lightText[..<lightDigit]), String(maxText[..<maxDigit]))
         }
 
         return (lightText, maxText)

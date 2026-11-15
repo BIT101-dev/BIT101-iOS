@@ -203,7 +203,7 @@ def manual_scenario_evidence(check, observations, make_action_entry):
                     "identifier": identifier,
                     "version": row["version"],
                     "build": row["build"],
-                    "configuration": "Release",
+                    "configuration": "Debug" if desktop else "Release",
                     "testHostMarkers": [],
                     "minimumOSVersion": minimum,
                     **({} if desktop else {"distributionChannel": "testflight"}),
@@ -214,69 +214,46 @@ def manual_scenario_evidence(check, observations, make_action_entry):
         ).encode()
     if check == "performance-baseline":
         from validation_manual import PERFORMANCE_WORKLOADS, performance_group
-        from validation_policy import workflow_conditions
+        from validation_performance import (
+            current_commit,
+            measurement_environment,
+            normalize_metrics,
+        )
+        from validation_provenance import input_identity
 
         for name, row in scenarios.items():
             test, workload = PERFORMANCE_WORKLOADS[name]
             group = performance_group(test)
-            current = {
-                "testIdentifier": test,
-                "sourceCommit": "a" * 40,
-                "input": workload,
-                "capturedAt": row["capturedAt"],
-                "environment": {
-                    "deviceIdentifier": "fixture-phone",
-                    "deviceModel": "iPhone",
-                    "systemVersion": "26.0",
-                    "systemBuild": "fixture",
-                    "xcodeBuild": "fixture",
-                    "configuration": "Release",
-                    "compilerVersion": "a" * 64,
-                    "compilationConditions": ["DEBUG", "BIT101_AUTOMATED_TESTING"],
-                },
-                "resultBundle": {
-                    "path": ".build/extended-automation/test-results.xcresult",
-                    "identity": "a" * 64,
-                },
-                "metrics": {
-                    "clockSeconds": {"samples": [0.1] * 10, "mean": 0.1},
-                    "peakPhysicalMemoryBytes": {"samples": [1024] * 10, "mean": 1024},
-                },
-            }
-            from validation_performance import current_commit
-            from validation_provenance import input_identity
-
+            target_id = "fixture-mac" if group == "catalyst" else "fixture-phone"
             context = {
-                "host": {"system": "fixture"},
+                "host": {
+                    "system": "Darwin",
+                    "architecture": "arm64",
+                    "ProductVersion": "26.0",
+                    "ProductBuildVersion": "fixture",
+                },
                 "developer": "/fixture",
                 "xcode": {"DTXcodeBuild": "fixture"},
                 "compiler": {"modified": 1, "size": 1, "version": "a" * 64},
                 "sdks": {"iPhoneOS": {"Version": "26.0"}},
-                "device": {
-                    "identifier": "fixture-phone",
-                    "model": "iPhone",
-                    "systemVersion": "26.0",
-                    "systemBuild": "fixture",
-                },
+                "device": (
+                    None
+                    if group == "catalyst"
+                    else {
+                        "identifier": "fixture-phone",
+                        "model": "iPhone",
+                        "systemVersion": "26.0",
+                        "systemBuild": "fixture",
+                    }
+                ),
             }
-            current["sourceCommit"] = current_commit()
-            current["environment"]["compilationConditions"] = sorted(workflow_conditions(group))
-            from validation_performance import normalize_metrics
-
-            current["execution"] = {
-                "group": group,
-                "runID": "fixture-run",
-                "environment": context,
-                "sourceCommit": current["sourceCommit"],
-                "inputDigest": input_identity(group, environment=context),
-                "bundleIdentity": "a" * 64,
-            }
-            current["xcresultMetrics"] = [
+            commit = current_commit()
+            raw = [
                 {
                     "testIdentifier": test + "()",
                     "testRuns": [
                         {
-                            "device": {"deviceId": "fixture-phone"},
+                            "device": {"deviceId": target_id},
                             "metrics": [
                                 {
                                     "identifier": "com.apple.dt.XCTMetric_Clock.time.monotonic",
@@ -293,9 +270,27 @@ def manual_scenario_evidence(check, observations, make_action_entry):
                     ],
                 }
             ]
-            current["metrics"] = normalize_metrics(
-                current["xcresultMetrics"], test, "fixture-phone"
-            )
+            current = {
+                "testIdentifier": test,
+                "sourceCommit": commit,
+                "input": workload,
+                "capturedAt": row["capturedAt"],
+                "environment": measurement_environment(context, group, device_id=target_id),
+                "execution": {
+                    "group": group,
+                    "runID": "fixture-run",
+                    "environment": context,
+                    "sourceCommit": commit,
+                    "inputDigest": input_identity(group, environment=context),
+                    "bundleIdentity": "a" * 64,
+                },
+                "resultBundle": {
+                    "path": ".build/extended-automation/test-results.xcresult",
+                    "identity": "a" * 64,
+                },
+                "xcresultMetrics": raw,
+                "metrics": normalize_metrics(raw, test, target_id),
+            }
             baseline = copy.deepcopy(current)
             baseline.update(
                 capturedAt=(utc_now() - timedelta(days=1)).isoformat(),

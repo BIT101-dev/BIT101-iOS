@@ -77,7 +77,7 @@ struct InfrastructureTests {
             root: FileManager.default.temporaryDirectory.appendingPathComponent(
                 "file-service-contract", isDirectory: true))
     }
-    #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+    #if DEBUG
     @Test(
         "Behavior host uses isolated account resources and blocks external transport",
         .timeLimit(.minutes(1)))

@@ -205,7 +205,7 @@ def write_result_metadata(
 def validated_scope(group: str, record: dict, commit: str, run: str, policy: dict, matches) -> dict:
     from validation_evidence import (
         selected_test_summary_complete,
-        test_inventory,
+        simulator_test_inventory,
         coverage_complete,
     )
     from validation_coverage import COVERAGE_GROUPS, regressions, policy_floors
@@ -219,7 +219,7 @@ def validated_scope(group: str, record: dict, commit: str, run: str, policy: dic
     if not isinstance(environment, dict) or not matches(name, environment):
         raise ValueError("模拟器验收环境需要对应当前工具链、SDK、宿主与系统运行时。")
     if not isinstance(summary, dict) or not selected_test_summary_complete(
-        summary, sorted(test_inventory(group)), group=group, simulator=True
+        summary, sorted(simulator_test_inventory(group)), group=group, simulator=True
     ):
         raise ValueError("模拟器完整验收需要执行全部测试及参数实例。")
     if group in COVERAGE_GROUPS and (
@@ -256,7 +256,7 @@ def result_rows(report: dict, plan: dict, commit: str, run: str, matches) -> dic
 
 
 def merge_ci_results(ci) -> None:
-    from validation_evidence import selected_test_summary_complete, test_inventory
+    from validation_evidence import selected_test_summary_complete, simulator_test_inventory
     from validation_coverage import SIMULATOR_SHARDS, shard_inventory, combined_line_coverage
     from validation_environment import ci_commit_findings
     from validation_provenance import report_lock, write_report
@@ -293,7 +293,7 @@ def merge_ci_results(ci) -> None:
     shutil.rmtree(retained, ignore_errors=True)
     shutil.rmtree(incoming, ignore_errors=True)
     records, metrics = {}, []
-    for group in ("all", "release-runtime"):
+    for group in ("all",):
         name = "ui" if group == "ui" else "app"
         source = plan[name]
         source_run, source_commit = (
@@ -316,11 +316,10 @@ def merge_ci_results(ci) -> None:
             if len(values) != 1:
                 raise ValueError("每份模拟器结果需要唯一的生产环境记录。")
             metadata = values[0]
-            scope = "full" if group == "release-runtime" else "shard"
             if (
                 metadata.get("identity")
                 != dict(group=group, index=index, count=count, commit=source_commit, run=source_run)
-                or metadata.get("scope") != scope
+                or metadata.get("scope") != "shard"
             ):
                 raise ValueError("模拟器结果需要绑定计划中的来源运行、提交及所属库存。")
             environment = metadata.get("environment")
@@ -329,16 +328,11 @@ def merge_ci_results(ci) -> None:
             ):
                 raise ValueError("模拟器生产环境需要对应当前任务的工具链和运行时。")
             environments.append(environment)
-            expected = (
-                sorted(test_inventory(group))
-                if group == "release-runtime"
-                else shard_inventory(group, index, count)
-            )
+            expected = shard_inventory(group, index, count)
             summary = ci.read_native_summary(bundle, group)
             if not selected_test_summary_complete(summary, expected, group=group, simulator=True):
                 raise ValueError("每个模拟器结果需要完整执行分配的测试及实例。")
-            if group != "release-runtime":
-                line_shards.append(metadata["coverageLines"])
+            line_shards.append(metadata["coverageLines"])
             if not (retained.exists()):
                 continue
             try:
@@ -381,8 +375,6 @@ def merge_ci_results(ci) -> None:
             + json.dumps(summary.get("coverage", {}))
         )
         print(f"{group} 完整验收通过：{summary['passedTests']} 项。")
-    if records["all"]["environment"] != records["release-runtime"]["environment"]:
-        raise ValueError("App 行为与正式组合需要同一模拟器环境。")
     with report_lock(path=ci.REPORT):
         report = json.loads(ci.REPORT.read_text())
         report["simulatorResults"] = records

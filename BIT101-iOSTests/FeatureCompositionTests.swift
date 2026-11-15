@@ -512,6 +512,9 @@ struct FeatureCompositionTests {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.frame =
+            previousWindow.flatMap { $0.bounds.isEmpty ? nil : $0.bounds }
+            ?? CGRect(x: 0, y: 0, width: 1024, height: 768)
         let controller = UIHostingController(
             rootView: Group {
                 if navigation { NavigationStack { view } } else { view }
@@ -585,6 +588,9 @@ struct FeatureCompositionTests {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.frame =
+            previousWindow.flatMap { $0.bounds.isEmpty ? nil : $0.bounds }
+            ?? CGRect(x: 0, y: 0, width: 1024, height: 768)
         let controller = UIHostingController(
             rootView: NavigationStack { view }.environment(\.scenePhase, .active))
         window.rootViewController = controller
@@ -959,6 +965,9 @@ struct FeatureCompositionTests {
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.frame =
+            previousWindow.flatMap { $0.bounds.isEmpty ? nil : $0.bounds }
+            ?? CGRect(x: 0, y: 0, width: 1024, height: 768)
         let controller = UIHostingController(
             rootView: NavigationStack { first }.environment(\.scenePhase, .active))
         window.rootViewController = controller

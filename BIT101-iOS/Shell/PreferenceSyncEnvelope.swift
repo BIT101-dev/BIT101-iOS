@@ -22,16 +22,17 @@ final class ScoreCacheSyncEncryption {
     }
 
     static func production(defaults: UserDefaults) -> ScoreCacheSyncEncryption {
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return ScoreCacheSyncEncryption(
-            defaults: defaults, credentials: AutomatedTestPreferenceCloudStore.shared)
-        #else
+        #if DEBUG
+        if AppFileDirectories.isRunningIsolatedUnitTest {
+            return ScoreCacheSyncEncryption(
+                defaults: defaults, credentials: AutomatedTestPreferenceCloudStore.shared)
+        }
+        #endif
         return ScoreCacheSyncEncryption(
             defaults: defaults,
             credentials:
                 KeychainLoginCredentials(
                     service: "BIT101.PreferenceCloud.ScoreKeys", synchronizable: true))
-        #endif
     }
 
     static func isEncrypted(_ data: Data) -> Bool { data.starts(with: magic) }

@@ -1,4 +1,4 @@
-#if EXTENDED_AUTOMATION
+#if DEBUG
 import XCTest
 @testable import BIT101_iOS
 

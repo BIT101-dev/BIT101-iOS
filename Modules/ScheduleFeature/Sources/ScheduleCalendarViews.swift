@@ -174,8 +174,10 @@ final class ScheduleBlankContextMenuControl: UIControl {
             entry.kind == .course || entry.backgroundLayers.count <= 1
                 ? AppDesignSystem.Opacity.full
                 : AppDesignSystem.Schedule.CoursePalette.secondaryLayerOpacity)
-        guard frames != backgroundFrames || entry.kind != backgroundKind
-            || opacity != backgroundOpacity else { return }
+        guard
+            frames != backgroundFrames || entry.kind != backgroundKind
+                || opacity != backgroundOpacity
+        else { return }
         backgroundFrames = frames
         backgroundKind = entry.kind
         backgroundOpacity = opacity
@@ -216,7 +218,8 @@ final class ScheduleBlankContextMenuControl: UIControl {
         for background in backgroundLayers {
             background.backgroundColor = fill.resolvedColor(with: traitCollection).cgColor
             background.borderColor = border.resolvedColor(with: traitCollection).cgColor
-            background.borderWidth = backgroundKind == .course
+            background.borderWidth =
+                backgroundKind == .course
                 ? 0 : AppDesignSystem.Schedule.Grid.courseBorderWidth
             background.opacity = backgroundOpacity
         }
@@ -600,7 +603,8 @@ struct CourseScheduleCalendarView: View {
                     touchContentBounds: CGRect(
                         x: leftWidth, y: headerHeight,
                         width: proxy.size.width - leftWidth,
-                        height: rowHeight * CGFloat(timeTable.count)))
+                        height: rowHeight * CGFloat(timeTable.count))
+                )
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .zIndex(1)
 

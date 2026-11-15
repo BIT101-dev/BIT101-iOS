@@ -211,33 +211,35 @@ def check_validation_execution(findings):
     simulator_source = (SCRIPT_ROOT / "simulator-tests.sh").read_text()
     import validation_evidence as evidence
 
-    inventory = ["Suite/first", "Suite/second"]
+    functional_inventory = ["Suite/first", "Suite/second"]
+    raw_inventory = functional_inventory + ["MaintenancePerformanceTests/testBudget"]
     with (
-        patch("validation_result_readers.test_inventory", return_value=set(inventory)),
+        patch("validation_result_readers.test_inventory", return_value=set(raw_inventory)),
         patch(
             "validation_result_readers.test_selectors",
-            return_value={name: name + "()" for name in inventory},
+            return_value={name: name + "()" for name in raw_inventory},
         ),
-        patch.object(evidence, "test_inventory", return_value=set(inventory)),
+        patch.object(evidence, "test_inventory", return_value=set(raw_inventory)),
         patch.object(
-            evidence, "test_selectors", return_value={name: name + "()" for name in inventory}
+            evidence, "test_selectors", return_value={name: name + "()" for name in raw_inventory}
         ),
-        patch("validation_coverage.shard_inventory", return_value=inventory),
+        patch("validation_coverage.shard_inventory", return_value=functional_inventory),
     ):
         for scope, selected, shard in (
             ("full", [], None),
             ("shard", [], "0/1"),
-            ("selected", inventory[:1], None),
+            ("selected", functional_inventory[:1], None),
         ):
             expected, selectors = evidence.simulator_test_selection("all", scope, selected, shard)
-            assert expected == (selected if scope == "selected" else inventory)
+            assert expected == (selected if scope == "selected" else functional_inventory)
             assert selectors == [name + "()" for name in expected]
-        try:
-            evidence.simulator_test_selection("all", "selected", ["Missing/test"], None)
-        except ValueError:
-            pass
-        else:
-            findings.append("模拟器库存规划需要传播失效筛选。")
+        for invalid in (["Missing/test"], ["MaintenancePerformanceTests/testBudget"]):
+            try:
+                evidence.simulator_test_selection("all", "selected", invalid, None)
+            except ValueError:
+                pass
+            else:
+                findings.append("模拟器库存规划需要传播失效或性能用例筛选。")
     from types import SimpleNamespace
     from validation_coverage import run_simulator_ui, SIMULATOR_KEYBOARD_TESTS
 

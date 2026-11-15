@@ -48,7 +48,7 @@ def sampled_module_inputs_self_test() -> None:
         sampled_module_inputs(host)
     assert includes_input("Modules/StorageCore/Sources/AppFileService.swift", "icloud")
     assert not includes_input("Modules/CommunityUI/Sources/CommunityViews.swift", "icloud")
-    assert includes_input("Modules/CommunityUI/Sources/CommunityViews.swift", "build-icloud-smoke")
+    assert includes_input("Modules/CommunityUI/Sources/CommunityViews.swift", "build-all")
 
 
 def source_snapshot_self_test() -> None:
@@ -331,7 +331,7 @@ def run_self_test(recorder) -> None:
             assert recorder(group, 0, "full", start) == expected, (group, artifact)
             assert saved.call_args.args[0]["groups"][group]["exitCode"] == expected
             assert saved.call_args.args[0]["groups"][group]["durationSeconds"] == 12.5
-            if group in {"all", "ui"} and expected == 0:
+            if group in {"all", "catalyst", "ui"} and expected == 0:
                 assert saved.call_args.args[0]["groups"][group]["resultBundleIdentity"] == "a" * 64
                 assert saved.call_args.args[0]["groups"][group]["sourceCommit"] == "head"
     group_row = {
@@ -428,7 +428,7 @@ def run_self_test(recorder) -> None:
 def check_group_bundle_self_test(module) -> None:
     from validation_performance import result_bundle_findings
 
-    for group in ("all", "ui"):
+    for group in ("all", "catalyst", "ui"):
         for stored, raw in (
             ("a" * 64, "a" * 64),
             ("b" * 64, "a" * 64),

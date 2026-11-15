@@ -51,13 +51,15 @@ def log_output_boundary_findings() -> list[str]:
 
     output, raw = captured_command(
         ['Error Domain=com.apple.dt.deviceprep Code=-3 "Unlock Phone to Continue"\n'] * 3,
-        status=0, executable="xcodebuild",
+        status=0,
+        executable="xcodebuild",
     )
     assert output.count("设备已找到，正在等待解锁") == 1 and raw.count("Unlock Phone") == 3
     collector = CommandStreamCollector(40, BoundedLines(40), FailureSummary(40))
     with redirect_stdout(output := StringIO()):
         collector.process_line(
-            "Xcode cannot launch App on Phone because the device is locked.\n", True, StringIO())
+            "Xcode cannot launch App on Phone because the device is locked.\n", True, StringIO()
+        )
         assert "正在等待解锁" in output.getvalue()
     findings, shown = verify_compiler_output_filtering()
     repeated = verify_result_warning_output()
@@ -93,17 +95,27 @@ def authorization_wait_self_test():
         stop.assert_not_called()
         create_timer.reset_mock()
         UIAuthorizationWait(process, False, messages.append).observe(
-            "AppUITests-Runner[1] [Default] Running tests...")
+            "AppUITests-Runner[1] [Default] Running tests..."
+        )
         create_timer.assert_not_called()
     with (
         patch("command_output.UI_AUTHORIZATION_TIMEOUT_SECONDS", 0.05),
         redirect_stdout(output := StringIO()),
     ):
-        result = run_command([
-            "/dev/null", "UI 授权等待测试", sys.executable, "-u", "-c",
-            'import time; print("AppUITests-Runner[1] Running tests...",flush=True);time.sleep(30)',
-            "xcodebuild", "test-without-building", "BIT101_UI_TESTING",
-        ])
+        result = run_command(
+            [
+                "/dev/null",
+                "UI 授权等待测试",
+                sys.executable,
+                "-u",
+                "-c",
+                'import time; print("AppUITests-Runner[1] Running tests...", flush=True); '
+                "time.sleep(30)",
+                "xcodebuild",
+                "test-without-building",
+                "-only-testing:BIT101-iOSUITests",
+            ]
+        )
     assert result == 124 and "XCTest 密码验证" in output.getvalue()
     for reason in ("Timed out while enabling automation mode.", "认证已取消。. Canceled by user."):
         error = f"Failed to initialize for UI testing: {reason}\n"

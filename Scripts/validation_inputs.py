@@ -89,18 +89,18 @@ CI_RESULT_ARTIFACTS = {
 CI_VALIDATION_GROUPS = {
     "modules": (("modules",), ("Static audit (Apple toolchain)",), ("validation-static-audit",)),
     "release": (
-        ("build-archive", "build-network-smoke", "build-icloud-smoke"),
+        ("build-archive",),
         ("Release app and extension builds",),
         ("validation-release-build",),
     ),
     "catalyst": (
-        ("catalyst", "catalyst-release-runtime"),
+        ("catalyst",),
         ("Mac Catalyst behavior tests",),
         ("validation-catalyst-tests",),
     ),
     "app": (
-        ("all", "release-runtime"),
-        ("iOS Simulator app and formal runtime", "iOS Simulator behavior tests"),
+        ("all",),
+        ("iOS Simulator app tests", "iOS Simulator behavior tests"),
         ("validation-ios-test-shards-app-0", "validation-ios-app-tests"),
     ),
 }
@@ -453,7 +453,7 @@ def includes_input(name: str, group: str) -> bool:
         tests = root == "ModuleTests" or fixture
         scripts = TEST_SCRIPTS
     elif host in APP_TEST_GROUPS:
-        tests = root == "BIT101-iOSTests"
+        tests = root == "BIT101-iOSTests" or build and root == "BIT101-iOSUITests"
         scripts = TEST_SCRIPTS
     elif host == "ui":
         tests = root == "BIT101-iOSUITests" or name in {
@@ -750,6 +750,16 @@ def native_project_targets(project: dict, root: Path) -> list[tuple[str, set[str
     return result
 
 
+PERFORMANCE_GROUPS = ("all", "catalyst", "ui")
+PERFORMANCE_SUITES = frozenset({"MaintenancePerformanceTests", "MaintenancePerformanceUITests"})
+CATALYST_PERFORMANCE_TESTS = frozenset(
+    {
+        "MaintenancePerformanceTests/testNativeCommunityFirstContentPerformance",
+        "MaintenancePerformanceTests/testAppShellTabSwitchingPerformance",
+    }
+)
+
+
 @cache
 def performance_workloads() -> dict:
     return {
@@ -763,7 +773,11 @@ def performance_workloads() -> dict:
 
 
 def performance_group(test: str) -> str:
-    return "ui" if test.startswith("MaintenancePerformanceUITests/") else "all"
+    if test.startswith("MaintenancePerformanceUITests/"):
+        return "ui"
+    if test in CATALYST_PERFORMANCE_TESTS:
+        return "catalyst"
+    return "all"
 
 
 def verify_group_specific_inputs():
@@ -811,11 +825,12 @@ def verify_group_specific_inputs():
         assert (
             includes_input(name, "all")
             and includes_input(name, "ui")
-            and includes_input(name, "build-ui")
+            and includes_input(name, "build-all")
         )
     assert includes_input("Cloudflare/OpenWorker/worker.js", "network")
-    for group in ("build-icloud-smoke", "build-network-smoke"):
+    for group in ("build-all", "build-catalyst"):
         assert includes_input("BIT101-iOSTests/InfrastructureTests.swift", group)
+        assert includes_input("BIT101-iOSUITests/LoginAndScheduleUITests.swift", group)
         assert includes_input("BIT101-iOSTests/Fixtures/schedule-service-response.json", group)
         assert includes_input("ModuleTests/Support/FileServiceContract.swift", group)
         assert includes_input("BIT101-iOSTests/PerformanceWorkloads.json", group)

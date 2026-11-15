@@ -138,10 +138,14 @@ def audit_wiring_findings(
             and ("SWIFT_COMPILATION_MODE") in configuration.get(("buildSettings"), {})
         ):
             continue
-        if "$(BIT101_WORKFLOW_CONDITIONS)" not in configuration["buildSettings"].get(
-            "SWIFT_ACTIVE_COMPILATION_CONDITIONS", ""
+        expected_conditions = (
+            "DEBUG $(inherited)" if configuration.get("name") == "Debug" else "$(inherited)"
+        )
+        if (
+            configuration["buildSettings"].get("SWIFT_ACTIVE_COMPILATION_CONDITIONS")
+            != expected_conditions
         ):
-            errors.append("App 工程编译条件需要接入工作流变量")
+            errors.append("App 工程编译条件需要保持纯净 Debug 与 Release 配置")
     for name in (
         "run-extended-tests.sh",
         "run_icloud_cross_device_smoke.sh",
@@ -264,7 +268,7 @@ def verify_ci_trigger_and_cache_rules(workflow_source):
     removed = source[:baseline_start] + source[baseline_end:]
     assert any("catalyst-tests 基准载入" in row for row in ci_wiring_findings(removed))
     execution = removed.index(
-        "run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
+        "run: Scripts/run-extended-tests.sh verify catalyst",
         catalyst_start,
     )
     after = removed.index("\n", execution) + 1
@@ -443,7 +447,7 @@ def verify_ci_job_mutations(source, workflow_source):
     app_block = re.search(r"(?ms)^  ios-app-tests:\n.*?(?=^  [\w-]+:|\Z)", source)[0]
     upload = app_block[
         app_block.index("      - name: Select validation diagnostics") : app_block.index(
-            "      - name: Run complete formal runtime inventory"
+            "      - name: Prepare native compilation cache"
         )
     ]
     for replacement in (
@@ -456,8 +460,8 @@ def verify_ci_job_mutations(source, workflow_source):
             "同设备" in row for row in ci_wiring_findings(source.replace(upload, replacement, 1))
         )
     reordered = app_block.replace(upload, "").replace(
-        "      - name: Prepare native compilation cache",
-        upload + "      - name: Prepare native compilation cache",
+        "      - name: Select validation diagnostics\n        id: diagnostics",
+        upload + "      - name: Select validation diagnostics\n        id: diagnostics",
         1,
     )
     assert any(
@@ -525,10 +529,10 @@ def verify_ci_evidence_mutations(checkout, findings, workflow_source):
         findings.append("代码质量规则界限自检失败：Worker 冷启动依赖准备")
     for command in (
         "Scripts/run-extended-tests.sh verify audit modules",
-        "Scripts/run-extended-tests.sh build network-smoke",
-        "Scripts/run-extended-tests.sh simulator release-runtime",
+        "Scripts/build-install-device.sh archive",
+        "Scripts/run-extended-tests.sh simulator app",
         "Scripts/run-extended-tests.sh simulator merge",
-        "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
+        "Scripts/run-extended-tests.sh verify catalyst",
     ):
         for modifier in (
             "if: false",
@@ -584,7 +588,7 @@ def verify_ci_evidence_mutations(checkout, findings, workflow_source):
     if not any("静态审计 Job 缺少执行入口" in item for item in ci_wiring_findings(misplaced_audit)):
         findings.append("代码质量规则界限自检失败：CI 注释中的审计标记隔离")
     skipped_catalyst = workflow_source.replace(
-        "run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
+        "run: Scripts/run-extended-tests.sh verify catalyst",
         "run: echo skipped",
         1,
     )
@@ -593,7 +597,7 @@ def verify_ci_evidence_mutations(checkout, findings, workflow_source):
     ):
         findings.append("代码质量规则界限自检失败：并行 Catalyst 行为用例执行检查")
     for before, after in (
-        ("timeout-minutes: 105", "timeout-minutes: 20"),
+        ("timeout-minutes: 60", "timeout-minutes: 20"),
         ('baseline "$BIT101_BASE_COMMIT"', 'baseline "wrong-commit"'),
     ):
         assert ci_wiring_findings(workflow_source.replace(before, after))
@@ -622,8 +626,8 @@ def verify_ci_recovery_mutations(findings, workflow_source):
     for before, after in (
         ("Scripts/build-install-device.sh toolchain", "Scripts/build-install-device.sh  toolchain"),
         (
-            "Scripts/run-extended-tests.sh build network-smoke",
-            "Scripts/run-extended-tests.sh build   network-smoke",
+            "Scripts/run-extended-tests.sh verify catalyst",
+            "Scripts/run-extended-tests.sh verify   catalyst",
         ),
         ("npm ci", "npm  ci"),
     ):
@@ -647,7 +651,7 @@ def verify_ci_recovery_mutations(findings, workflow_source):
             job + " Job 需要覆盖所属执行及恢复额度" in item for item in ci_wiring_findings(changed)
         ):
             findings.append(f"代码质量规则界限自检失败：{job} 执行额度")
-    release_minimum = workflow_timeout_seconds(("build-archive", "network", "icloud")) // 60 + 10
+    release_minimum = workflow_timeout_seconds(("build-archive",)) // 60 + 10
     for timeout, expected in ((45, True), (release_minimum - 1, True), (release_minimum, False)):
         changed = re.sub(
             r"(?s)(  release-build:.*?timeout-minutes:) \d+",

@@ -395,20 +395,12 @@ class _CIWorkflowAnalysis:
             ),
             "catalyst-tests": (
                 (
-                    "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
-                    "Mac Catalyst 行为 Job 需要聚合执行行为用例和正式组合约定",
+                    "Scripts/run-extended-tests.sh verify catalyst",
+                    "Mac Catalyst 行为 Job 需要聚合执行完整行为用例",
                 ),
             ),
             "release-build": (
                 ("Scripts/build-install-device.sh archive", "CI 需要正式归档编译模式验证"),
-                (
-                    "Scripts/run-extended-tests.sh build network-smoke",
-                    "CI 需要网络 Smoke 编译条件构建",
-                ),
-                (
-                    "Scripts/run-extended-tests.sh build icloud-smoke",
-                    "CI 需要 iCloud Smoke 编译条件构建",
-                ),
             ),
             "ios-tests": (
                 (
@@ -417,12 +409,8 @@ class _CIWorkflowAnalysis:
                 ),
             ),
             "ios-app-tests": (
-                ("Scripts/run-extended-tests.sh simulator prepare", "正式组合需要准备完整模拟器"),
+                ("Scripts/run-extended-tests.sh simulator prepare", "模拟器测试需要准备完整模拟器"),
                 ("Scripts/run-extended-tests.sh simulator app", "App 行为需要执行完整约定库存"),
-                (
-                    "Scripts/run-extended-tests.sh simulator release-runtime",
-                    "正式组合需要执行完整约定库存",
-                ),
             ),
         }
         for name, rules in required.items():
@@ -476,10 +464,7 @@ class _CIWorkflowAnalysis:
             self.errors.append(".github/workflows/ci.yml: 最终验收需要绑定静态与完整验收范围")
         for name, command in (
             ("static-audit", "Scripts/run-extended-tests.sh verify audit modules"),
-            (
-                "catalyst-tests",
-                "Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime",
-            ),
+            ("catalyst-tests", "Scripts/run-extended-tests.sh verify catalyst"),
             ("ios-tests", "Scripts/run-extended-tests.sh simulator merge"),
             ("ios-app-tests", "Scripts/run-extended-tests.sh simulator app"),
         ):
@@ -518,13 +503,13 @@ class _CIWorkflowAnalysis:
 
         if (
             workflow_mapping(self.formal_job.get("env")).get("BIT101_CI_SHARD")
-            != f"0/{SIMULATOR_SHARDS['release-runtime']}"
+            != f"0/{SIMULATOR_SHARDS['all']}"
             or workflow_mapping(self.formal_job.get("env")).get("BIT101_SIMULATOR_WORKERS")
-            != str(SIMULATOR_WORKERS["release-runtime"])
+            != str(SIMULATOR_WORKERS["app"])
             or "strategy" in self.formal_job
         ):
             self.errors.append(
-                ".github/workflows/ci.yml: App 与正式组合需要共用完整库存和单个工作进程"
+                ".github/workflows/ci.yml: App 测试需要共用完整库存和单个工作进程"
             )
         app_steps = self.formal_job.get("steps", [])
         app_run = next(
@@ -537,14 +522,11 @@ class _CIWorkflowAnalysis:
             ),
             -1,
         )
-        formal_run = next(
+        cache_prepare = next(
             (
                 i
                 for i, step in enumerate(app_steps)
-                if command_matches(
-                    str(step.get("run") or ""),
-                    "Scripts/run-extended-tests.sh simulator release-runtime",
-                )
+                if workflow_step_has_role(step, ("Prepare native compilation cache"))
             ),
             -1,
         )
@@ -555,7 +537,7 @@ class _CIWorkflowAnalysis:
         ]
         if (
             len(app_upload) != 1
-            or not 0 <= app_run < app_steps.index(app_upload[0]) < formal_run
+            or not 0 <= app_run < app_steps.index(app_upload[0]) < cache_prepare
             or app_upload[0].get("if") != CI_DIAGNOSTICS
             or not str(app_upload[0].get("uses", "")).startswith("actions/upload-artifact@")
             or any(
@@ -571,14 +553,14 @@ class _CIWorkflowAnalysis:
             != DIAGNOSTIC_PATHS["ios-app-tests"]
         ):
             self.errors.append(
-                ".github/workflows/ci.yml: 同设备正式组合前需要顺序执行 App 库存并保留原始诊断上传"
+                ".github/workflows/ci.yml: 同设备缓存导出前需要顺序执行 App 库存并保留原始诊断上传"
             )
 
     def check_permissions(self):
         for job, groups in (
             ("static-audit", ("audit", "modules")),
-            ("release-build", ("build-archive", "network", "icloud")),
-            ("catalyst-tests", ("catalyst", "catalyst-release-runtime")),
+            ("release-build", ("build-archive",)),
+            ("catalyst-tests", ("catalyst",)),
         ):
             timeout = workflow_mapping(self.jobs.get(job)).get("timeout-minutes")
             if type(timeout) is not int or timeout < workflow_timeout_seconds(groups) // 60 + 10:
@@ -586,7 +568,7 @@ class _CIWorkflowAnalysis:
                     f".github/workflows/ci.yml: {job} Job 需要覆盖所属执行及恢复额度"
                 )
         for job, minimum in (
-            ("ios-app-tests", workflow_timeout_seconds(("all", "release-runtime")) // 60 + 10),
+            ("ios-app-tests", workflow_timeout_seconds(("all",)) // 60 + 10),
             ("ios-tests", 10),
         ):
             timeout = workflow_mapping(self.jobs.get(job)).get("timeout-minutes")

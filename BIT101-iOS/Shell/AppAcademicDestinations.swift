@@ -7,7 +7,7 @@ import ScoreFeature
 import ScorePorts
 import SwiftUI
 
-enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
+nonisolated enum ScoreSurface: String, CaseIterable, Identifiable, Hashable, Sendable {
     case score
     case course
 
@@ -23,20 +23,24 @@ enum ScoreSurface: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+struct ScoreSurfacePicker: View {
+    @Binding private var selection: ScoreSurface
+    init(selection: Binding<ScoreSurface>) { _selection = selection }
+    var body: some View {
+        AppTopSegmentedPicker(title: "成绩内容", selection: $selection) {
+            ForEach(ScoreSurface.allCases) { surface in Text(surface.title).tag(surface) }
+        }
+    }
+}
+
 /// 成绩与课程入口共享分区选择与课程路由，各自沿原生浏览分栏呈现。
-struct AppScoreSurfaceView: View, Equatable {
+struct AppScoreSurfaceView: View {
     private let courses: CourseDependencies
     private let transcriptService: any TrustedTranscriptServicing
     private let requestedCourse: Binding<CourseNavigationRequest?>
     private let selection: Binding<ScoreSurface>?
     private let showingCourses: Bool?
-    private let identity: ObjectIdentifier
-
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.identity == rhs.identity && lhs.showingCourses == rhs.showingCourses
-            && lhs.transcriptService.transcriptServiceIdentity
-                == rhs.transcriptService.transcriptServiceIdentity
-    }
+    private let identity: [AnyHashable]
 
     init(
         courses: CourseDependencies, transcriptService: any TrustedTranscriptServicing,
@@ -49,7 +53,10 @@ struct AppScoreSurfaceView: View, Equatable {
         self.requestedCourse = requestedCourse
         self.selection = selection
         self.showingCourses = showingCourses
-        identity = ObjectIdentifier(courses)
+        identity = [
+            AnyHashable(ObjectIdentifier(courses)),
+            AnyHashable(transcriptService.transcriptServiceIdentity),
+        ]
     }
 
     var body: some View {
@@ -71,11 +78,16 @@ private struct AppScoreSurfaceScene: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
     private let showingCourses: Bool?
     @State private var localSurface: ScoreSurface = .score
-    private let selection: Binding<ScoreSurface>?
+    @Binding private var externalSurface: ScoreSurface
+    private let hasExternalSelection: Bool
     private var selectedSurface: ScoreSurface {
-        get { selection?.wrappedValue ?? localSurface }
+        get { hasExternalSelection ? externalSurface : localSurface }
         nonmutating set {
-            if let selection { selection.wrappedValue = newValue } else { localSurface = newValue }
+            if hasExternalSelection {
+                externalSurface = newValue
+            } else {
+                localSurface = newValue
+            }
         }
     }
     @Binding private var requestedCourse: CourseNavigationRequest?
@@ -88,7 +100,8 @@ private struct AppScoreSurfaceScene: View {
         showingCourses: Bool? = nil
     ) {
         self.courses = courses
-        self.selection = selection
+        _externalSurface = selection ?? .constant(.score)
+        hasExternalSelection = selection != nil
         self.showingCourses = showingCourses
         _ownedCourseViewModel = State(initialValue: AppViewModelOwner(courses.makeListViewModel()))
         self.transcriptService = transcriptService
@@ -98,7 +111,9 @@ private struct AppScoreSurfaceScene: View {
     var body: some View {
         pages
             .accessibilityElement(children: .contain)
-            .appBrowserHeader(isPresented: !expandedNavigation) { surfaceTabs }
+            .appBrowserHeader(isPresented: !expandedNavigation) {
+                ScoreSurfacePicker(selection: surfaceSelection)
+            }
             .background(AppDesignSystem.Palette.Background.grouped)
             .task(id: requestedCourse?.id) {
                 guard displayedSurface == .course, let requestedCourse else { return }
@@ -148,12 +163,6 @@ private struct AppScoreSurfaceScene: View {
 
     private var displayedSurface: ScoreSurface {
         showingCourses.map { $0 ? .course : .score } ?? selectedSurface
-    }
-
-    private var surfaceTabs: some View {
-        AppTopSegmentedPicker(title: "成绩内容", selection: surfaceSelection) {
-            ForEach(ScoreSurface.allCases) { surface in Text(surface.title).tag(surface) }
-        }
     }
 
     private var detailRequest: Binding<CourseNavigationRequest?> {

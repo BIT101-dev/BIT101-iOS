@@ -100,19 +100,25 @@ extension NetworkSmokeCoverageTests {
     func preparedWebEntryKeepsLoadedContent(surface: GallerySurface) async throws {
         let factory = FeatureCompositionTests()
         var webViews: [PreparedWebView] = []
-        let dependencies = factory.gallery(.init(), webViewProvider: {
-            let view = PreparedWebView(frame: .zero, configuration: $0)
-            webViews.append(view)
-            return view
-        })
+        let dependencies = factory.gallery(
+            .init(),
+            webViewProvider: {
+                let view = PreparedWebView(frame: .zero, configuration: $0)
+                webViews.append(view)
+                return view
+            })
         defer { dependencies.releasePreparedWebContent() }
         let request = FeatureCompositionTests.PaperRequest()
         request.id = nil
         let page = PreparedWebPage(request: request, dependencies: dependencies, surface: surface)
-        try await factory.host(page, navigation: false) {
+        var controller: UIViewController?
+        try await factory.host(page, navigation: false, prepare: { controller = $0 }) {
             var phase = "creating preparation views"
             defer { #expect(phase == "done", "phase=\(phase), views=\(webViews.count)") }
-            try await waitForTestEvent { webViews.count == 2 }
+            try await waitForTestEvent {
+                controller?.view.layoutIfNeeded()
+                return webViews.count == 2
+            }
             let coordinator = dependencies.webCoordinator(for: surface, openExternal: { _ in })
             phase = "preparing content"
             try await waitForTestEvent { coordinator.firstContentDuration != nil }
@@ -132,7 +138,9 @@ extension NetworkSmokeCoverageTests {
             request.id = 1
             phase = "displaying content"
             try await waitForTestEvent {
-                view.superview !== preparationHost && coordinator.firstContentLocalDuration != nil
+                controller?.view.layoutIfNeeded()
+                return view.superview !== preparationHost
+                    && coordinator.firstContentLocalDuration != nil
             }
             #expect(view.window === window && view.windowDetachments == detachments)
             #expect(try #require(coordinator.firstContentLocalDuration) < 0.2)

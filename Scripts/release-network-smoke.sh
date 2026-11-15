@@ -245,15 +245,13 @@ fi
 DEVICETCL_DEVICE_ID="${BIT101_DEVICETCL_DEVICE_ID:-}"
 
 echo "[网络 Smoke] $SMOKE_SCOPE · $BIT101_DEVICE_NAME"
-if bit101_run_logged "$BUILD_LOG" "Release 网络采样构建输出" xcodebuild build \
+if bit101_run_logged "$BUILD_LOG" "Debug 网络采样构建输出" xcodebuild build \
   -quiet \
   -project "$PROJECT" \
   -scheme BIT101-iOS \
-  -configuration Release \
+  -configuration Debug \
   -destination "$SMOKE_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
-  "BIT101_WORKFLOW_CONDITIONS=$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions \
-    network)" \
   "${SMOKE_SIGNING[@]}"; then
   BUILD_STATUS=0
 else
@@ -264,7 +262,7 @@ if [[ $BUILD_STATUS -ne 0 ]]; then
   exit $BUILD_STATUS
 fi
 
-SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Release-$SMOKE_PLATFORM/BIT101-iOS.app"
+SMOKE_APP_PATH="$DERIVED_DATA/Build/Products/Debug-$SMOKE_PLATFORM/BIT101-iOS.app"
 bit101_invalidate_restore
 if [[ -n "$SIMULATOR_DEVICE" ]]; then
   xcrun simctl install "$SIMULATOR_DEVICE" "$SMOKE_APP_PATH"
@@ -346,11 +344,12 @@ fi
 : > "$CONSOLE_LOG"
 if [[ "$SMOKE_SCOPE" == community-writes ]]; then community_started=true; fi
 if [[ -n "$SIMULATOR_DEVICE" ]]; then
-  SIMCTL_CHILD_NSUnbufferedIO=YES xcrun simctl launch --terminate-running-process --console \
-    "$SIMULATOR_DEVICE" "$APP_BUNDLE_ID" > "$CONSOLE_LOG" 2>&1 &
+  SIMCTL_CHILD_BIT101_NETWORK_SMOKE_HOST=1 SIMCTL_CHILD_NSUnbufferedIO=YES xcrun simctl launch \
+    --terminate-running-process --console "$SIMULATOR_DEVICE" "$APP_BUNDLE_ID" > "$CONSOLE_LOG" \
+    2>&1 &
 else
-  xcrun devicectl device process launch --device "$DEVICETCL_DEVICE_ID" \
-    --console "$APP_BUNDLE_ID" > "$CONSOLE_LOG" 2>&1 &
+  DEVICECTL_CHILD_BIT101_NETWORK_SMOKE_HOST=1 xcrun devicectl device process launch \
+    --device "$DEVICETCL_DEVICE_ID" --console "$APP_BUNDLE_ID" > "$CONSOLE_LOG" 2>&1 &
 fi
 console_process=$!
 

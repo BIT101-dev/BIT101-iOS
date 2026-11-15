@@ -1,4 +1,4 @@
-#if BIT101_UI_TESTING
+#if DEBUG
 import StorageCore
 import TransportCore
 import Foundation

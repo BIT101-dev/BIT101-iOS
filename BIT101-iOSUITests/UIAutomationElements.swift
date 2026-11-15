@@ -499,10 +499,18 @@ final class UIElement: NSObject {
         }
     }
     func pinch(withScale scale: CGFloat, velocity: CGFloat) {
-        performGesture("pinch") { native.pinch(withScale: scale, velocity: velocity) }
+        performGesture("pinch") {
+            #if !targetEnvironment(macCatalyst)
+            native.pinch(withScale: scale, velocity: velocity)
+            #endif
+        }
     }
     func adjust(toPickerWheelValue value: String) {
-        performGesture("selection") { native.adjust(toPickerWheelValue: value) }
+        performGesture("selection") {
+            #if !targetEnvironment(macCatalyst)
+            native.adjust(toPickerWheelValue: value)
+            #endif
+        }
     }
     private func performGesture(_ action: String, _ operation: () -> Void) {
         Self.beforeNativeTap?()
@@ -934,7 +942,9 @@ extension XCUIElementSnapshot {
 extension XCUIDevice {
     @MainActor
     func orient(to target: UIDeviceOrientation) {
+        #if !targetEnvironment(macCatalyst)
         guard orientation != target else { return }
         orientation = target
+        #endif
     }
 }

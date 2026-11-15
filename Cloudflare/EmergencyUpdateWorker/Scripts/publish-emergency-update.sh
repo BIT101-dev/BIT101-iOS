@@ -55,14 +55,9 @@ payload = {
     "message": message,
     "update_url": "https://apps.apple.com/cn/app/bit101/id6761147125",
 }
-payload["notice_id"] = (
-    "notice-"
-    + urlsafe_b64encode(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    )
-    .decode()
-    .rstrip("=")
-)
+payload["notice_id"] = "notice-" + urlsafe_b64encode(
+    json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+).decode().rstrip("=")
 with open(path, "w", encoding="utf-8") as stream:
     json.dump(payload, stream, ensure_ascii=False, indent=2)
     stream.write("\n")

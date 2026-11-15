@@ -107,6 +107,7 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
             assertUI(
                 like.frame.width.rounded() >= 44 && like.frame.height.rounded() >= 44,
                 "评论点赞应提供完整触控区域：\(like.frame)。")
+            assertUI(like.native.waitForExistence(timeout: 5), "评论点赞控件应在原生树就绪。")
             like.native.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
             assertUI(app.buttons["取消评论点赞"].appears(timeout: 5), "触控区域边缘应执行评论点赞。")
             let image = app.buttons["查看第1张图片"]
@@ -316,6 +317,8 @@ nonisolated final class CommunityEditingRecoveryUITests: UIAutomationTestCase {
         if kind == "course" { tapHeader(app.sectionTab("课程")) }
         if kind == "paper" { tapHeader(app.sectionTab("文章")) }
         tap(kind == "poster" ? "自动化测试话题" : kind == "course" ? "自动化测试课程" : "自动化测试文章")
+        let detailTitle = kind == "poster" ? "帖子详情" : kind == "course" ? "课程详情" : "文章详情"
+        assertUI(app.navigationBars[detailTitle].appears(timeout: 5), "详情页应完成展示。")
     }
 
     @MainActor

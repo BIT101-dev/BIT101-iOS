@@ -202,10 +202,14 @@ class SwiftTypeIndex:
         if any(part.strip() in {"View", "SwiftUI.View"} for part in returned.split("&")):
             return True
         terminal = self.terminal_name(path, returned, scope).split("<", 1)[0]
-        if terminal in {
-            "View", "SwiftUI.View", "AnyView", "SwiftUI.AnyView", "EmptyView", "SwiftUI.EmptyView",
-            "TupleView", "SwiftUI.TupleView", "Text", "SwiftUI.Text", "Image", "SwiftUI.Image",
-            "Color", "SwiftUI.Color",
+        if terminal.removeprefix("SwiftUI.") in {
+            "View",
+            "AnyView",
+            "EmptyView",
+            "TupleView",
+            "Text",
+            "Image",
+            "Color",
         }:
             return True
         target = self.resolve(path, returned, scope)
@@ -765,10 +769,9 @@ def receiver_resolver(
                 factory,
                 seen,
             )
-            if not target:
-                target = types.resolve(
-                    factory_path, factory.get("returnType") or "", factory["scope"]
-                )
+            target = target or types.resolve(
+                factory_path, factory.get("returnType") or "", factory["scope"]
+            )
             if target:
                 targets.add(target)
         return next(iter(targets)) if len(targets) == 1 else None
@@ -776,14 +779,13 @@ def receiver_resolver(
     resolved_owners = {}
 
     def owner(call):
-        key = (
-            call["path"], call["start"], call.get("calledExpression", ""), call.get("value", ""),
-            call.get("receiverCall"), tuple(call["scope"]), tuple(call.get("lexicalScope", ())),
-        )
+        expr, rec = call.get("calledExpression", ""), call.get("receiverCall")
+        scopes = tuple(call["scope"]), tuple(call.get("lexicalScope", ()))
+        key = call["path"], call["start"], expr, call.get("value", ""), rec, *scopes
         if key not in resolved_owners:
-            expr = call.get("calledExpression", "")
-            rec = call.get("receiverCall") or (expr.rsplit(".", 1)[0] if "." in expr else "")
-            target = resolve(call["path"], rec, call)
+            target = resolve(
+                call[("path")], rec or (expr.rsplit(("."), 1)[0] if (".") in expr else ("")), call
+            )
             if target is None:
                 targets = {
                     identity
@@ -930,20 +932,16 @@ def visible_callable_ranges(facts: dict, name: str, call: dict) -> list[dict]:
 
 def implicit_callable_index(index: dict[str, dict]) -> dict[str, dict]:
     """把函数式对象的调用连接到其 callAsFunction 方法。"""
-    has_call_as_function = any(
-        fn["name"] == "callAsFunction" and not fn.get("lexicalScope")
-        for facts in index.values()
-        for fn in facts.get("functionRanges", [])
-    )
-    if not has_call_as_function:
-        return index
-    types = SwiftTypeIndex(index)
-    owners = {
-        ".".join(types.function_scope(path, fn["scope"]))
+    callables = [
+        (path, fn)
         for path, facts in index.items()
         for fn in facts.get("functionRanges", [])
         if fn["name"] == "callAsFunction" and not fn.get("lexicalScope")
-    }
+    ]
+    if not callables:
+        return index
+    types = SwiftTypeIndex(index)
+    owners = {".".join(types.function_scope(path, fn["scope"])) for path, fn in callables}
     resolve, result = receiver_resolver(index, types=types), {}
     for path, facts in index.items():
         calls = []

@@ -516,19 +516,12 @@ def download_simulator_shard(run: str, operation: str, index: int) -> None:
     for name in (
         "simulator.log",
         "all.log",
-        "release-runtime.log",
         "ui.log",
-        "build-release.log",
-        "restore.log",
         "test-metrics.txt",
     ):
         (root / name).unlink(missing_ok=True)
     (ROOT / ".build/screenshot.png").unlink(missing_ok=True)
-    artifact = (
-        "validation-ios-app-tests"
-        if operation == "release-runtime"
-        else f"validation-ios-test-shards-{operation}-{index}"
-    )
+    artifact = f"validation-ios-test-shards-{operation}-{index}"
     subprocess.run(
         ["gh", "run", "download", run, "--name", artifact, "--dir", str(ROOT)],
         check=True,

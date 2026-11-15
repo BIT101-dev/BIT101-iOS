@@ -4,7 +4,6 @@ from pathlib import Path
 from functools import cache, lru_cache
 import re
 from validation_policy import (
-    FORMAL_RUNTIME_SUITES,
     NETWORK_CAPABILITIES,
     MANUAL_CAPABILITY_SCENARIOS,
     manual_capabilities,
@@ -113,6 +112,7 @@ TEST_AREA_SUITES = {
         "PreferenceCloudPayloadTests",
         "PreferenceMergeTests",
         "ReleaseNetworkSmokeLifecycleTests",
+        "ReleaseRuntimeContractTests",
         "SchoolCookieIsolationTests",
         "ScoreCacheDiskRepositoryTests",
         "ScorePresentationTests",
@@ -137,64 +137,50 @@ TEST_AREA_SUITES = {
 }
 
 
+SMOKE_ONLY_SUITES = (
+    "ReleaseNetworkSmokeTests",
+    "NetworkSmokeRegressionTests",
+    "ICloudCrossDeviceSmokeTests",
+)
+
+
 def inventory_findings(suites: set[str]) -> list[str]:
     registered = set().union(*TEST_AREA_SUITES.values())
-    errors = [f"行为测试 suite 需要领域归属：{suite}" for suite in sorted(suites - registered)] + [
+    return [f"行为测试 suite 需要领域归属：{suite}" for suite in sorted(suites - registered)] + [
         f"行为测试领域归属需要清理：{suite}" for suite in sorted(registered - suites)
     ]
-    for group in ("release-runtime", "catalyst-release-runtime"):
-        raw = set(raw_test_selectors(group))
-        regular = set(
-            raw_test_selectors("catalyst" if group == "catalyst-release-runtime" else "all")
-        )
-        errors.extend(formal_inventory_findings(raw, regular, group))
-    return errors
 
 
-def formal_inventory_findings(raw: set[str], regular: set[str], group: str) -> list[str]:
-    raw_suites = {test.split("/", 1)[0] for test in raw}
-    missing = {test for test in raw - regular if test.split("/", 1)[0] not in FORMAL_RUNTIME_SUITES}
-    return [f"正式运行时测试需要登记：{group} · {test}" for test in sorted(missing)] + [
-        f"正式运行时 suite 需要清理：{group} · {suite}"
-        for suite in sorted(FORMAL_RUNTIME_SUITES - raw_suites)
-    ]
+def test_inventory_self_test() -> None:
+    from unittest.mock import patch
 
-
-def formal_inventory_self_test() -> None:
-    source = """import Testing
-struct ExistingRegularTests { @Test func existing() {} }
-#if !DEBUG && !BIT101_AUTOMATED_TESTING
-struct NewProductionTests { @Test func newProductionContract() {} }
-extension ExistingRegularTests { @Test func productionOnly() {} }
-#endif
-"""
+    source = "import Testing\nstruct ExistingRegularTests { @Test func existing() {} }\n"
     path = str(ROOT / "BIT101-iOSTests/ReleaseRuntimeContractTests.swift")
-
-    def tests(group):
-        facts = swift_syntax_index_sources({path: active_swift_source(source, group, path=path)})
-        return {test["value"] for test in facts[path]["tests"]}
-
-    raw, regular = tests("release-runtime"), tests("all")
-    assert "NewProductionTests/newProductionContract" in raw - regular
-    assert any(
-        "NewProductionTests" in row
-        for row in formal_inventory_findings(raw, regular, "release-runtime")
-    )
-    assert any(
-        "ExistingRegularTests/productionOnly" in row
-        for row in formal_inventory_findings(raw, regular, "release-runtime")
-    )
-    assert not any(
-        "ExistingRegularTests/existing" in row
-        for row in formal_inventory_findings(raw, regular, "release-runtime")
-    )
     original = ((path, source),)
     facts = indexed_test_sources(original)
     assert indexed_test_sources(original) is facts
-    updated = indexed_test_sources(((path, source + "\n@Test func addedContract() {}"),))
+    updated = indexed_test_sources(((path, source + "\n@Test func addedCase() {}"),))
     assert {test["value"] for test in updated[path]["tests"]} - {
         test["value"] for test in facts[path]["tests"]
-    } == {"addedContract"}
+    } == {"addedCase"}
+    sample = {
+        "ExistingRegularTests/existing": "ExistingRegularTests/existing()",
+        "ReleaseNetworkSmokeTests/testLive": "ReleaseNetworkSmokeTests/testLive",
+        "NetworkSmokeRegressionTests/testReplay": "NetworkSmokeRegressionTests/testReplay",
+        "ICloudCrossDeviceSmokeTests/testSync": "ICloudCrossDeviceSmokeTests/testSync",
+    }
+    test_selectors.cache_clear()
+    try:
+        with patch(f"{__name__}.raw_test_selectors", return_value=sample):
+            assert set(test_selectors("all")) == {"ExistingRegularTests/existing"}
+            assert set(test_selectors("catalyst")) == {"ExistingRegularTests/existing"}
+            assert set(test_selectors("network-smoke")) == {
+                "ReleaseNetworkSmokeTests/testLive",
+                "NetworkSmokeRegressionTests/testReplay",
+            }
+            assert set(test_selectors("icloud")) == {"ICloudCrossDeviceSmokeTests/testSync"}
+    finally:
+        test_selectors.cache_clear()
 
 
 def network_capability_findings(
@@ -704,15 +690,25 @@ def raw_test_selectors(group: str) -> dict[str, str]:
 @cache
 def test_selectors(group: str) -> dict[str, str]:
     selectors = raw_test_selectors(group)
-    return (
-        {
+    if group in {"all", "catalyst"}:
+        return {
             test: selector
             for test, selector in selectors.items()
-            if test.split("/", 1)[0] in FORMAL_RUNTIME_SUITES
+            if test.split("/", 1)[0] not in SMOKE_ONLY_SUITES
         }
-        if group in {"release-runtime", "catalyst-release-runtime"}
-        else selectors
-    )
+    if group == "network-smoke":
+        return {
+            test: selector
+            for test, selector in selectors.items()
+            if test.split("/", 1)[0] in {"ReleaseNetworkSmokeTests", "NetworkSmokeRegressionTests"}
+        }
+    if group in {"icloud", "icloud-smoke"}:
+        return {
+            test: selector
+            for test, selector in selectors.items()
+            if test.split("/", 1)[0] == "ICloudCrossDeviceSmokeTests"
+        }
+    return selectors
 
 
 @cache

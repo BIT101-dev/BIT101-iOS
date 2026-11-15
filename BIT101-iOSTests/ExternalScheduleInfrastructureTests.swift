@@ -90,6 +90,9 @@ struct ExternalScheduleInfrastructureTests {
                 includeDisplayUntilDates: false, includeNextMidnight: false)
                 == now.addingTimeInterval(1_800))
         #expect(ScheduleDisplayNormalizer.courseCardClassroomText("文萃楼I101") == "文萃I\n101")
+        #expect(ScheduleDisplayNormalizer.courseCardClassroomText("工业生态楼204") == "工业楼\n204")
+        #expect(ScheduleDisplayNormalizer.courseCardClassroomText("工生204") == "工生\n204")
+        #expect(ScheduleDisplayNormalizer.courseCardClassroomText("1号教学楼130") == "1号楼\n130")
         #expect(ScheduleDisplayNormalizer.courseCardClassroomText("") == "")
     }
 

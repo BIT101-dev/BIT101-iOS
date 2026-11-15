@@ -143,9 +143,9 @@ if [[ "$ACTION" == mac ]]; then
     -configuration Release \
     -destination "platform=macOS,variant=Mac Catalyst" \
     -derivedDataPath "$DERIVED_DATA" \
-    BIT101_WORKFLOW_CONDITIONS= SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
     "BIT101_RESTORE_INPUT_DIGEST=$MAC_INPUT_DIGEST" \
-    -allowProvisioningUpdates
+    -allowProvisioningUpdates -allowProvisioningDeviceRegistration
 
   APP_PATH="$DERIVED_DATA/Build/Products/Release-maccatalyst/BIT101-iOS.app"
   python3 "$ROOT_DIR/Scripts/validation_artifacts.py" --app-size "$APP_PATH"
@@ -211,7 +211,7 @@ bit101_run_logged "$DERIVED_DATA/build.log" "iOS Release 编译" xcodebuild "$BU
   -configuration Release \
   -destination "$BUILD_DESTINATION" \
   -derivedDataPath "$DERIVED_DATA" \
-  BIT101_WORKFLOW_CONDITIONS= SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
+  SWIFT_ACTIVE_COMPILATION_CONDITIONS= \
   "${BUILD_OVERRIDES[@]}" \
     -allowProvisioningUpdates
 

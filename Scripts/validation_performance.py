@@ -14,7 +14,7 @@ from copy import deepcopy
 from validation_environment import complete_environment, environment_context, exchange_identity
 from validation_provenance import utc_now, complete_group_row, sampling_evidence_current
 from validation_policy import workflow_conditions
-from validation_inputs import performance_workloads, performance_group
+from validation_inputs import PERFORMANCE_GROUPS, performance_workloads, performance_group
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE = ROOT / ".build/extended-automation/test-results.xcresult"
@@ -124,8 +124,7 @@ def recover_result_bundle() -> None:
 def native_performance_phase(*, merge: bool) -> None:
     retained = BUNDLE.with_suffix(".performance.xcresult")
     if merge:
-        merge_result_bundles(
-            retained, BUNDLE.with_suffix(".incoming.xcresult"), bind_pending=False)
+        merge_result_bundles(retained, BUNDLE.with_suffix(".incoming.xcresult"), bind_pending=False)
     else:
         bundle_identity(BUNDLE)
         shutil.rmtree(retained, ignore_errors=True)
@@ -298,7 +297,10 @@ def reset_result_bundle() -> None:
 
 
 def result_bundle_findings(
-    report: dict, *, recorded_environment: bool = False, groups: tuple[str, ...] = ("all", "ui")
+    report: dict,
+    *,
+    recorded_environment: bool = False,
+    groups: tuple[str, ...] = PERFORMANCE_GROUPS,
 ) -> list[str]:
     try:
         rows = report.get("groups", {})
@@ -358,7 +360,11 @@ def rebind_result_records(report: dict, groups: list[str]) -> dict:
                     text=True,
                 )
             )
-            device = record["execution"]["environment"]["device"]["identifier"]
+            device = (
+                record["environment"]["deviceIdentifier"]
+                if record["execution"].get("group") == "catalyst"
+                else record["execution"]["environment"]["device"]["identifier"]
+            )
             expected = normalize_metrics(
                 record["xcresultMetrics"], record["testIdentifier"], device
             )
@@ -448,18 +454,47 @@ def normalize_metrics(raw: list, test: str, device: str) -> dict:
     return result
 
 
-def measurement_environment(context: dict, group: str = "all") -> dict:
-    from validation_policy import workflow_conditions
+def record_device_id(context: dict, group: str, raw: list) -> str:
+    if group != "catalyst":
+        return context["device"]["identifier"]
+    if not isinstance(raw, list) or len(raw) != 1:
+        raise ValueError("性能指标需要对应的唯一 XCTest 用例。")
+    ids = {
+        run["device"]["deviceId"]
+        for run in raw[0].get("testRuns", [])
+        if isinstance(run.get("device", {}).get("deviceId"), str)
+        and run["device"]["deviceId"].strip()
+        and run["device"].get("platform", "macOS") in {"macOS", "Mac Catalyst"}
+    }
+    if len(ids) != 1:
+        raise ValueError("性能指标需要来自所属实体设备。")
+    return next(iter(ids))
 
-    device = context["device"]
+
+def measurement_environment(
+    context: dict, group: str = "all", *, device_id: str | None = None
+) -> dict:
+    if group == "catalyst":
+        host = context["host"]
+        target = {
+            "deviceIdentifier": device_id or "",
+            "deviceModel": f"{host['system']}-{host['architecture']}",
+            "systemVersion": host["ProductVersion"],
+            "systemBuild": host["ProductBuildVersion"],
+        }
+    else:
+        device = context["device"]
+        target = {
+            "deviceIdentifier": device_id or device["identifier"],
+            "deviceModel": device["model"],
+            "systemVersion": device["systemVersion"],
+            "systemBuild": device["systemBuild"],
+        }
     return {
-        "deviceIdentifier": device["identifier"],
-        "deviceModel": device["model"],
-        "systemVersion": device["systemVersion"],
-        "systemBuild": device["systemBuild"],
+        **target,
         "xcodeBuild": context["xcode"]["DTXcodeBuild"],
         "compilerVersion": context["compiler"]["version"],
-        "configuration": "Release",
+        "configuration": "Debug",
         "compilationConditions": sorted(workflow_conditions(group)),
     }
 
@@ -474,16 +509,15 @@ def record_complete(record: dict, *, current: bool) -> bool:
     try:
         execution = record["execution"]
         context = execution["environment"]
-        from validation_inputs import performance_workloads, performance_group
-
         test = record["testIdentifier"]
         if test not in {row[0] for row in performance_workloads().values()}:
             return False
         group = performance_group(test)
+        target_id = record_device_id(context, group, record["xcresultMetrics"])
         if (
             execution.get("group") != group
             or not complete_environment(group, context)
-            or record["environment"] != measurement_environment(context, group)
+            or record["environment"] != measurement_environment(context, group, device_id=target_id)
             or execution["sourceCommit"] != record["sourceCommit"]
             or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", record["sourceCommit"])
             or not execution.get("runID")
@@ -493,7 +527,7 @@ def record_complete(record: dict, *, current: bool) -> bool:
         ):
             return False
         normalized = normalize_metrics(
-            record["xcresultMetrics"], record["testIdentifier"], context["device"]["identifier"]
+            record[("xcresultMetrics")], record[("testIdentifier")], target_id
         )
         if any(
             {key: metric[key] for key in ("samples", "mean")} != normalized[name]
@@ -555,8 +589,6 @@ def approved_baseline_complete(proof: dict) -> bool:
 
 
 def extract_measurements(row: dict, group: str = "all") -> dict:
-    from validation_inputs import performance_workloads, performance_group
-
     context = row["environment"]
     summary = json.loads(
         subprocess.check_output(
@@ -597,16 +629,17 @@ def extract_measurements(row: dict, group: str = "all") -> dict:
                 text=True,
             )
         )
+        target_id = record_device_id(context, group, raw)
         records[name] = {
             "testIdentifier": test,
             "sourceCommit": execution["sourceCommit"],
             "input": workload,
             "capturedAt": row["recordedAt"],
-            "environment": measurement_environment(context, group),
+            "environment": measurement_environment(context, group, device_id=target_id),
             "execution": execution,
             "resultBundle": {"path": str(BUNDLE.relative_to(ROOT)), "identity": identity},
             "xcresultMetrics": raw,
-            "metrics": normalize_metrics(raw, test, context["device"]["identifier"]),
+            "metrics": normalize_metrics(raw, test, target_id),
         }
     if bundle_identity(BUNDLE) != identity:
         raise ValueError("性能结果包需要保持完整采样期间的内容身份。")
@@ -623,7 +656,7 @@ def uncommitted_inputs() -> list[str]:
     return [
         name
         for name in (tracked + untracked).decode().split("\0")
-        if name and any(includes_input(name, group) for group in ("all", "ui"))
+        if name and any(includes_input(name, group) for group in PERFORMANCE_GROUPS)
     ]
 
 
@@ -634,10 +667,8 @@ def capture_current() -> dict:
         raise ValueError("性能采样需要已提交的构建输入。")
     groups = json.loads(REPORT.read_text())["groups"]
     retained_sha = bundle_identity(BUNDLE)
-    from validation_inputs import performance_workloads, performance_group
-
     records = {}
-    for group in ("all", "ui"):
+    for group in PERFORMANCE_GROUPS:
         row = complete_group_row(groups[group])
         context = environment_context(group)
         if (
@@ -648,7 +679,7 @@ def capture_current() -> dict:
             or row.get("inputDigest") != input_identity(group)
             or not complete_environment(group, context)
         ):
-            raise ValueError("性能采样需要当前源码、工具链及实体设备上成功执行的完整行为与 UI 组。")
+            raise ValueError("性能采样需要当前源码、工具链及目标平台上成功执行的完整性能分组。")
         proof = row["performance"]
         expected = {
             name
@@ -704,8 +735,6 @@ def execution_fields_match(current: dict, row: dict) -> bool:
 
 
 def merge_findings(report: dict) -> list[str]:
-    from validation_inputs import performance_workloads, performance_group
-
     try:
         approved = report["performanceBaseline"]
         if approved.get("schemaVersion") != 1 or set(approved["records"]) != set(
@@ -713,7 +742,7 @@ def merge_findings(report: dict) -> list[str]:
         ):
             raise ValueError()
         errors = []
-        for group in ("all", "ui"):
+        for group in PERFORMANCE_GROUPS:
             row = complete_group_row(report["groups"][group])
             proof = row["performance"]
             expected = {
@@ -869,7 +898,7 @@ def performance_comparison_complete(name: str, measurement: dict) -> bool:
                         "compilerVersion",
                     )
                 )
-                or environment["configuration"] != "Release"
+                or environment["configuration"] != "Debug"
                 or not isinstance(environment.get("compilationConditions"), list)
                 or not all(
                     isinstance(condition, str)

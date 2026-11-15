@@ -19,8 +19,10 @@ UI_AUTHORIZATION_TIMEOUT_SECONDS = 10
 
 
 def ui_authorization_failure(line):
-    if ("Timed out while enabling automation mode" in line
-            or "Not authorized for performing UI testing" in line):
+    if (
+        "Timed out while enabling automation mode" in line
+        or "Not authorized for performing UI testing" in line
+    ):
         return "[测试未开始] 手机尚未完成 XCTest 自动化授权；请在手机上完成密码验证后重试。\n"
     if "failed to initialize for ui testing" in line.lower() and (
         "Canceled by user" in line or "认证已取消" in line
@@ -52,7 +54,8 @@ class UIAuthorizationWait:
         self.completed = self.expired = True
         self.notify(
             "[授权启动超时] UI 测试程序启动后 10 秒仍未开始用例，已结束本次测试。"
-            "请在手机上完成 XCTest 密码验证，保持解锁后重试。\n")
+            "请在手机上完成 XCTest 密码验证，保持解锁后重试。\n"
+        )
         stop_process_tree(self.process.pid)
 
     def cancel(self):
@@ -357,8 +360,10 @@ def run_command(arguments: list[str]) -> int:
     failures = FailureSummary(display_limit)
     collector = CommandStreamCollector(display_limit, diagnostics, failures)
     startup = UIAuthorizationWait(
-        process, build_command and "test-without-building" in arguments
-        and any("BIT101_UI_TESTING" in value for value in arguments),
+        process,
+        build_command
+        and "test-without-building" in arguments
+        and any("BIT101-iOSUITests" in value for value in arguments),
         collector.handle_diagnostic,
     )
     try:

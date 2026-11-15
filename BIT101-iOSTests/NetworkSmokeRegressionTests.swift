@@ -1,19 +1,19 @@
+#if DEBUG
 import ClientCore
 import Combine
 import CommunityCore
 import CommunityTransport
 import Foundation
 import ScorePorts
+import Testing
 import TransportCore
 import UIKit
 import WebKit
+import XCTest
 
 @testable import BIT101_iOS
 @testable import GalleryFeature
 @testable import PaperFeature
-
-#if RELEASE_NETWORK_SMOKE
-import XCTest
 
 nonisolated final class NetworkSmokeRegressionTests: XCTestCase {
     @MainActor
@@ -153,10 +153,6 @@ nonisolated final class NetworkSmokeRegressionTests: XCTestCase {
         }
     }
 }
-#endif
-
-#if DEBUG
-import Testing
 
 @Suite("Network smoke regression contracts")
 @MainActor
@@ -418,11 +414,13 @@ struct NetworkSmokeRegressionContractTests {
             openExternal: { _ in })
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let webView = BootstrapWebView(frame: .zero, configuration: configuration)
+        let webBounds = CGRect(x: 0, y: 0, width: 320, height: 480)
+        let webView = BootstrapWebView(frame: webBounds, configuration: configuration)
         let scene = try #require(
             UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previousWindow = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
+        window.frame = webBounds
         let presenter = UIViewController()
         presenter.view = webView
         window.rootViewController = presenter

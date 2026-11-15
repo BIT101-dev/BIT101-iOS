@@ -33,6 +33,7 @@ public struct CommunityPaginationFooter: View {
                 }
                 Button(errorMessage == nil ? "继续加载" : "重试加载") { retryRequested = true }
                     .buttonStyle(.bordered)
+                    .tint(AppDesignSystem.Foreground.primaryColor)
                     .appInteractiveListRow()
                     .disabled(retryRequested)
                     .accessibilityIdentifier("community.pagination.retry")

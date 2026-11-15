@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -582,7 +583,6 @@ enum ReleaseNetworkSmokeReportStore {
 
 }
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 protocol NetworkSmokeGalleryServicing: GalleryFeedServicing, GalleryMessageServicing,
     GallerySubscriptionServicing
@@ -713,7 +713,6 @@ struct ReleaseNetworkSmokeDependencies {
         return try outcome.get()
     }
 }
-#endif
 
 /// NetworkSmokeFixtures 指定由验收账号维护的社区详情对象。
 nonisolated struct NetworkSmokeFixtures: Codable, Sendable {
@@ -779,6 +778,14 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         communityRecoveryConfirmation = try values.decodeIfPresent(
             CommunityWriteRecoveryConfirmation.self, forKey: .communityRecoveryConfirmation)
         fixtures = try values.decodeIfPresent(NetworkSmokeFixtures.self, forKey: .fixtures)
+    }
+
+    nonisolated static var hasPendingFile: Bool {
+        guard let directory = AppFileSystem.files.directoryURL(.documentDirectory) else {
+            return false
+        }
+        return AppFileSystem.files.fileExists(
+            at: directory.appending(path: "network-smoke-request.json"))
     }
 
     private static var pendingFileURL: URL? {
@@ -882,8 +889,6 @@ struct ReleaseNetworkSmokeLaunchRequest: Codable, Sendable {
         }
     }
 }
-
-#if DEBUG || RELEASE_NETWORK_SMOKE
 
 @MainActor
 @Observable final class ReleaseNetworkSmokeSMSPrompt {

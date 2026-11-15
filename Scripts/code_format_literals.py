@@ -1,4 +1,5 @@
 """Reflow literal spellings while preserving their Python values."""
+
 from __future__ import annotations
 
 import ast
@@ -10,7 +11,7 @@ def value_chunks(value, width):
     start = 0
     while start < len(value):
         end = start + 1
-        while end < len(value) and len(repr(value[start:end + 1])) <= width:
+        while end < len(value) and len(repr(value[start : end + 1])) <= width:
             end += 1
         yield value[start:end]
         start = end
@@ -52,24 +53,26 @@ def wrap_literals(source: str) -> str:
     for line in lines:
         offsets.append(offsets[-1] + len(line.encode()))
     comments = [
-        token for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        token
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
         if token.type == tokenize.COMMENT
     ]
     changes = []
     for node in visitor.nodes:
-        widths = [len(text.rstrip('\n')) for text in lines[node.lineno - 1:node.end_lineno]]
-        prefix = lines[node.lineno - 1].encode()[:node.col_offset].decode()
+        widths = [len(text.rstrip("\n")) for text in lines[node.lineno - 1 : node.end_lineno]]
+        prefix = lines[node.lineno - 1].encode()[: node.col_offset].decode()
         if max(widths) <= 100:
             continue
-        indent = ' ' * (len(prefix) - len(prefix.lstrip()))
+        indent = " " * (len(prefix) - len(prefix.lstrip()))
         parts = literal_parts(node, 85 - len(indent))
         leading = [
-            comment.string for comment in comments
+            comment.string
+            for comment in comments
             if (node.lineno, node.col_offset) <= comment.start
             and comment.end <= (node.end_lineno, node.end_col_offset)
         ]
-        body = '\n'.join(indent + '    ' + part for part in leading + parts)
-        replacement = '(\n' + body + '\n' + indent + ')'
+        body = "\n".join(indent + "    " + part for part in leading + parts)
+        replacement = "(\n" + body + "\n" + indent + ")"
         start = offsets[node.lineno - 1] + node.col_offset
         end = offsets[node.end_lineno - 1] + node.end_col_offset
         changes.append((start, end, replacement.encode()))
@@ -78,5 +81,5 @@ def wrap_literals(source: str) -> str:
         data = data[:start] + replacement + data[end:]
     result = data.decode()
     if ast.dump(ast.parse(source)) != ast.dump(ast.parse(result)):
-        raise ValueError('字符串排版改变了 Python 语法树')
+        raise ValueError("字符串排版改变了 Python 语法树")
     return result

@@ -45,13 +45,19 @@ private struct AppHTTPClientObserver: HTTPClientObserving, Sendable {
 }
 
 extension HTTPClient {
-    #if BIT101_UI_TESTING
+    static func makeDefaultNetworkWarningCenter(isolated: Bool) -> NetworkMagicWarningCenter? {
+        isolated ? nil : .shared
+    }
+
+    #if DEBUG
     static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? =
-        AppUITestBootstrap.usesProductionComposition ? .shared : nil
-    #elseif BIT101_AUTOMATED_TESTING
-    static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = nil
+        makeDefaultNetworkWarningCenter(
+            isolated: AppFileDirectories.isRunningIsolatedUnitTest
+                || (AppFileDirectories.isRunningUITest
+                    && !AppUITestBootstrap.usesProductionComposition))
     #else
-    static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? = .shared
+    static let defaultNetworkWarningCenter: NetworkMagicWarningCenter? =
+        makeDefaultNetworkWarningCenter(isolated: false)
     #endif
 
     static var appObserver: any HTTPClientObserving & Sendable {
@@ -79,7 +85,7 @@ extension HTTPClient {
     }
 
     private static func appTransport(_ production: any HTTPTransport) -> any HTTPTransport {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         if AppFileDirectories.isRunningUITest { return UITestHTTPTransport() }
         #endif
         return production
@@ -125,8 +131,8 @@ enum NetworkSessionPool {
         productionPolicy: Bool = false
     ) -> any HTTPTransport {
         configuration.timeoutIntervalForResource = min(configuration.timeoutIntervalForResource, 90)
-        #if RELEASE_NETWORK_SMOKE
-        if !productionPolicy {
+        #if DEBUG
+        if AppFileDirectories.isRunningNetworkSmoke, !productionPolicy {
             configuration.urlCache = nil
             configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             return UncachedHTTPTransport(
@@ -138,11 +144,12 @@ enum NetworkSessionPool {
         let transport = URLSessionTransport.make(
             configuration: configuration, followsRedirects: followsRedirects,
             storesResponsesOnDisk: false)
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return AutomatedTestHTTPTransport(base: transport)
-        #else
-        return transport
+        #if DEBUG
+        if AppFileDirectories.isRunningIsolatedUnitTest {
+            return AutomatedTestHTTPTransport(base: transport)
+        }
         #endif
+        return transport
     }
 
     static let productionCommunity = communityTransport(productionPolicy: true)
@@ -235,7 +242,7 @@ enum NetworkSessionPool {
     }
 }
 
-#if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+#if DEBUG
 private struct AutomatedTestHTTPTransport: HTTPTransport {
     let base: any HTTPTransport
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -253,13 +260,19 @@ private struct AutomatedTestHTTPTransport: HTTPTransport {
 #endif
 
 enum AppNetworkPath {
-    static let state: NetworkPathState = {
-        #if BIT101_AUTOMATED_TESTING || BIT101_UI_TESTING
-        return NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected))
-        #else
-        return NetworkPathState()
-        #endif
-    }()
+    static func makeState(isolated: Bool) -> NetworkPathState {
+        isolated
+            ? NetworkPathState(snapshot: NetworkPathSnapshot(status: .connected))
+            : NetworkPathState()
+    }
+
+    #if DEBUG
+    static let state: NetworkPathState = makeState(
+        isolated: AppFileDirectories.isRunningIsolatedUnitTest
+            || AppFileDirectories.isRunningUITest)
+    #else
+    static let state: NetworkPathState = makeState(isolated: false)
+    #endif
 }
 
 nonisolated struct PickedImageData: Transferable {
@@ -299,8 +312,10 @@ enum AppMedia {
         previewStorage: MediaPreviewStorage,
         defaults: UserDefaults = AppFileDirectories.defaults,
         loadPickedImage: @escaping @Sendable (PhotosPickerItem) async throws -> Data? = {
-            #if BIT101_UI_TESTING
-            if AppUITestBootstrap.environment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] == "1" {
+            #if DEBUG
+            if AppFileDirectories.isRunningUITest,
+                AppUITestBootstrap.environment["BIT101_UI_TEST_IMAGE_IMPORT_HOLD"] == "1"
+            {
                 await AppUITestBootstrap.holdRequest("image-import")
             }
             #endif

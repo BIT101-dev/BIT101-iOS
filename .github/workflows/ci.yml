@@ -162,7 +162,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Release app and extension builds
     runs-on: xcode-27
-    timeout-minutes: 285
+    timeout-minutes: 60
     env:
       BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
       BIT101_CI_GROUP: release
@@ -184,12 +184,6 @@ jobs:
       - name: Archive app and extensions with release compiler settings
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
         run: Scripts/build-install-device.sh archive
-      - name: Build network smoke host and tests
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh build network-smoke
-      - name: Build iCloud smoke host and tests
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh build icloud-smoke
 
       - name: Publish validation evidence
         if: ${{ !cancelled() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
@@ -235,8 +229,6 @@ jobs:
         env:
           BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
-            .build/extended-automation/build-network-smoke.log
-            .build/extended-automation/build-icloud-smoke.log
             .build/extended-automation/diagnostics/test-results.xcresult
             build/DeviceInstall/build.log
         run: python3 Scripts/ci_diagnostics.py
@@ -254,7 +246,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
     name: Mac Catalyst behavior tests
     runs-on: xcode-27
-    timeout-minutes: 105
+    timeout-minutes: 60
     env:
       BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
       BIT101_CI_GROUP: catalyst
@@ -290,9 +282,9 @@ jobs:
         run: |
           python3 Scripts/ci_evidence.py baseline "$BIT101_BASE_COMMIT"
           python3 Scripts/validation_evidence.py baseline "$BIT101_BASE_COMMIT"
-      - name: Run behavior and production composition contracts on Mac Catalyst
+      - name: Run Mac Catalyst behavior tests
         if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh verify catalyst catalyst-release-runtime
+        run: Scripts/run-extended-tests.sh verify catalyst
 
       - name: Publish validation evidence
         if: ${{ !cancelled() && fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
@@ -339,7 +331,6 @@ jobs:
           BIT101_CI_CANCELLED: ${{ job.status == 'cancelled' }}
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/catalyst.log
-            .build/extended-automation/catalyst-release-runtime.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-failures.txt
             .build/extended-automation/test-results.xcresult
@@ -357,9 +348,9 @@ jobs:
   ios-app-tests:
     needs: [validation-plan]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' && (inputs.full_check || inputs.release_check)
-    name: iOS Simulator app and formal runtime
+    name: iOS Simulator app tests
     runs-on: xcode-27
-    timeout-minutes: 105
+    timeout-minutes: 60
     env:
       BIT101_CI_PLAN: ${{ needs.validation-plan.outputs.plan }}
       BIT101_CI_GROUP: app
@@ -412,9 +403,6 @@ jobs:
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
-            .build/extended-automation/release-runtime.log
-            build/DeviceInstall/build.log
-            .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
             .build/extended-automation/diagnostics/test-results.xcresult
@@ -429,9 +417,6 @@ jobs:
           compression-level: 0
           include-hidden-files: true
           path: ${{ steps.app-diagnostics.outputs.paths }}
-      - name: Run complete formal runtime inventory
-        if: ${{ fromJSON(env.BIT101_CI_PLAN).jobs[env.BIT101_CI_GROUP].execute }}
-        run: Scripts/run-extended-tests.sh simulator release-runtime
       - name: Prepare native compilation cache
         id: native-cache
         continue-on-error: true
@@ -460,9 +445,6 @@ jobs:
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
-            .build/extended-automation/release-runtime.log
-            build/DeviceInstall/build.log
-            .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
             .build/extended-automation/diagnostics/test-results.xcresult
@@ -535,9 +517,6 @@ jobs:
           BIT101_DIAGNOSTIC_PATHS: |
             .build/extended-automation/simulator.log
             .build/extended-automation/all.log
-            .build/extended-automation/release-runtime.log
-            build/DeviceInstall/build.log
-            .build/extended-automation/restore.log
             .build/extended-automation/test-metrics.txt
             .build/extended-automation/test-results.xcresult
             .build/extended-automation/diagnostics/test-results.xcresult

@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 nonisolated final class CommunityRecoveryUITests: UIAutomationTestCase {

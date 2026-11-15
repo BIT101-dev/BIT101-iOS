@@ -373,42 +373,12 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		0EF4EDC316C0A2A17A0BF63F /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ( C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */, 85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */, );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		111111111111111111111114 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ( B10100000000000000000013 /* ModuleTests/Support/FileServiceContract.swift in Sources */, B10100000000000000000012 /* WatchScheduleStatusModel.swift in Sources */, );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		2322558692781FE16FC88427 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ( 0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */, 8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */, );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B10100000000000000000008 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ( B10100000000000000000017 /* BIT101-iOSTests/PerformanceWorkload.swift in Sources */, );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B7329DD3099B96EF917410BF /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = ( 86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */, 32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */, F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */, 31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */, );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		D2FF4C922F729DB4000FA1C1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (  );
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+		0EF4EDC316C0A2A17A0BF63F /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( C8618324F1CB0A8EB9CB55F9 /* BIT101ScheduleWidgetsBundle.swift in Sources */, 85798F727C7A8202CDFECFA1 /* BIT101ScheduleWidgets.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		111111111111111111111114 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10100000000000000000013 /* ModuleTests/Support/FileServiceContract.swift in Sources */, B10100000000000000000012 /* WatchScheduleStatusModel.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		2322558692781FE16FC88427 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 0D6CC15DA5636384C904E0AD /* BIT101WatchWidgetsBundle.swift in Sources */, 8FD3C2B3B8C6D5E68B474DD7 /* BIT101WatchScheduleWidget.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		B10100000000000000000008 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10100000000000000000017 /* BIT101-iOSTests/PerformanceWorkload.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		B7329DD3099B96EF917410BF /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( 86E934E59E093F63ED817276 /* BIT101WatchApp.swift in Sources */, 32D8F834E87443B18CE8F6B1 /* WatchScheduleStatusModel.swift in Sources */, F52E9C051CAF65D91825FB7A /* WatchScheduleRootView.swift in Sources */, 31C4ED6573B18E57E68C9998 /* WatchScheduleSyncManager.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		D2FF4C922F729DB4000FA1C1 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (  ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -457,9 +427,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator maccatalyst";
 				SUPPORTS_MACCATALYST = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = singlefile;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -571,15 +539,16 @@
 				DEVELOPMENT_TEAM = Y2T72736G3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.8.9;
 				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOSUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator maccatalyst";
+				SUPPORTS_MACCATALYST = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_COMPILATION_MODE = singlefile;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -614,10 +583,29 @@
 		D2A208FE3083836D000B0C05 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 47;
+				DEVELOPMENT_TEAM = Y2T72736G3;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_OPTIMIZATION_LEVEL = 0;
-				PRODUCT_NAME = "BIT101-iOSUITests";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.8.9;
+				PRODUCT_BUNDLE_IDENTIFIER = "BIT101-dev.BIT101-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator maccatalyst";
+				SUPPORTS_MACCATALYST = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "BIT101-iOS";
 			};
 			name = Debug;
 		};
@@ -681,7 +669,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited) $(BIT101_WORKFLOW_CONDITIONS)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -740,7 +728,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) $(BIT101_WORKFLOW_CONDITIONS)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited)";
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};

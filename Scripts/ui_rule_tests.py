@@ -129,8 +129,7 @@ def verify_school_lifecycle_index():
         ):
             findings.append("学校生命周期自测：生产文件名与实际测试目录归属")
     for condition, expected in (
-        ("RELEASE_NETWORK_SMOKE", False),
-        ("BIT101_UI_TESTING", False),
+        ("DEBUG", False),
         ("os(iOS)", True),
         ("targetEnvironment(macCatalyst)", True),
     ):

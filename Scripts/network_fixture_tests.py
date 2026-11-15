@@ -142,9 +142,7 @@ def _build_fixture_request(name, contract, index, expected, visible_params, sele
     elif contract.paging == "last_id":
         query["last_id"] = str(sys.maxsize) if index == 0 else "9"
     body_variants = (
-        contract.body_parameter_variants[0]
-        if contract.body_parameter_variants
-        else frozenset()
+        contract.body_parameter_variants[0] if contract.body_parameter_variants else frozenset()
     )
     body_params = sorted(contract.required_body_parameters | body_variants)
     host = _pattern_example(contract.host)

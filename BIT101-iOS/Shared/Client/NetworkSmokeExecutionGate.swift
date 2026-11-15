@@ -1,6 +1,5 @@
+#if DEBUG
 import Foundation
-
-#if DEBUG || RELEASE_NETWORK_SMOKE
 
 /// 网络验收共用执行队列，各等待者独立取消。
 @MainActor

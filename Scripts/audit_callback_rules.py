@@ -75,12 +75,13 @@ def audit_callback_findings(source: str, *, support_source: str | None = None) -
                 "find|/audit/Modules|/audit/BIT101-iOS|/audit/BIT101ScheduleWidgets|/audit/BIT101W"
                 "atch|/audit/BIT101WatchWidgets|-type|f|-name|*.swift|-print0"
             ),
-            "frontend|-frontend|-parse|-D|DEBUG|fixture.swift",
+            "frontend|-frontend|-parse|fixture.swift",
             (
-                "find|/audit/BIT101-iOSTests|/audit/BIT101-iOSUITests|/audit/ModuleTests|-type|f|-"
-                "name|*.swift|-print0"
+                "find|/audit/Modules|/audit/BIT101-iOS|/audit/BIT101ScheduleWidgets|/audit/BIT101W"
+                "atch|/audit/BIT101WatchWidgets|/audit/BIT101-iOSTests|/audit/BIT101-iOSUITests|/a"
+                "udit/ModuleTests|-type|f|-name|*.swift|-print0"
             ),
-            "frontend|-frontend|-parse|-D|DEBUG|-D|EXTENDED_AUTOMATION|fixture.swift",
+            "frontend|-frontend|-parse|-D|DEBUG|fixture.swift",
         ],
         "shell_parse": ["python3|/audit/Scripts/check-shell-syntax.py"],
         "python_parse": ["python3|/audit/Scripts/check-python-syntax.py|/audit|--self-test"],
@@ -256,8 +257,8 @@ def self_test() -> None:
         source, support_source=support.replace("|| checker_status=1", "|| return 1")
     )
     reordered = source.replace(
-        "-frontend -parse -D DEBUG -D EXTENDED_AUTOMATION",
-        "-D EXTENDED_AUTOMATION -parse -D DEBUG -frontend",
+        "-frontend -parse -D DEBUG",
+        "-D DEBUG -parse -frontend",
     ).replace("diff --cached --check", "diff --check --cached")
     assert not audit_callback_findings(reordered)
     for declaration in (

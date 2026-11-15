@@ -21,10 +21,16 @@ def unstarted_test_self_test():
     ):
         with patch.object(subprocess, "run", return_value=response):
             try:
-                record_native_metrics([
-                    "/fixture/test-results.xcresult", "/fixture/metrics.txt", mode,
-                    "0", "device", str(root),
-                ])
+                record_native_metrics(
+                    [
+                        "/fixture/test-results.xcresult",
+                        "/fixture/metrics.txt",
+                        mode,
+                        "0",
+                        "device",
+                        str(root),
+                    ]
+                )
             except SystemExit as error:
                 assert expected in str(error)
                 if mode == "ui":

@@ -65,7 +65,7 @@ struct ScheduleDayAdjustmentContext: Identifiable {
 }
 
 /// 单日课表调整模式。
-enum ScheduleDayAdjustmentMode: String, CaseIterable, Identifiable, Hashable {
+nonisolated enum ScheduleDayAdjustmentMode: String, CaseIterable, Identifiable, Hashable, Sendable {
     case holiday
     case transfer
 

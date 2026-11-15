@@ -20,12 +20,12 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/script-support.sh"
 PROJECT="$ROOT_DIR/BIT101-iOS.xcodeproj"
 DERIVED_ROOT="$ROOT_DIR/.build/icloud-cross-device-smoke"
-CONDITIONS="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions icloud)"
 TEST_CLASS="BIT101-iOSTests/ICloudCrossDeviceSmokeTests"
 RESULT_BUNDLE="$DERIVED_ROOT/test-results.xcresult"
 SUMMARY_PATH="$DERIVED_ROOT/report.json"
 RUN_ID="$(uuidgen)"
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
+export BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
 
 
 
@@ -158,6 +158,7 @@ PY
   CLEANUP_DEVICE_ID="${cleanup_identifiers[2]}"
 fi
 export TEST_RUNNER_BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
+export BIT101_ICLOUD_SMOKE_RUN_ID="$RUN_ID"
 PHONE_AVAILABLE=true
 if ! bit101_require_device "${CLEANUP_DEVICE_ID:-}"; then
   if $CLEANUP_ONLY; then PHONE_AVAILABLE=false; else exit 1; fi
@@ -214,8 +215,8 @@ PY
 
 
 common_args=(
-  -quiet -project "$PROJECT" -scheme BIT101-iOS -configuration Release
-  "BIT101_WORKFLOW_CONDITIONS=$CONDITIONS" ENABLE_TESTABILITY=YES
+  -quiet -project "$PROJECT" -scheme BIT101-iOS -configuration Debug
+  ENABLE_TESTABILITY=YES
   "BIT101_APP_ENTITLEMENTS=$DERIVED_ROOT/signing.entitlements"
   -collect-test-diagnostics never
 )
@@ -317,7 +318,7 @@ import sys
 
 root = Path(sys.argv[1])
 for host, platform in (("Phone", "iphoneos"), ("Mac", "maccatalyst")):
-    app = root / host / "Build/Products" / f"Release-{platform}/BIT101-iOS.app"
+    app = root / host / "Build/Products" / f"Debug-{platform}/BIT101-iOS.app"
     result = subprocess.run(
         ["codesign", "-d", "--entitlements", "-", "--xml", str(app)],
         capture_output=True,

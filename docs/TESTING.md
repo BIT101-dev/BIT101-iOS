@@ -12,8 +12,7 @@
 | App 组合与平台适配 | `Scripts/run-extended-tests.sh 测试类` |
 | 日程、基础设施、登录、扩展行为 | `Scripts/run-extended-tests.sh schedule`、`infrastructure`、`login`、`extensions` |
 | 页面交互 | `Scripts/run-extended-tests.sh ui 用例关键词...` |
-| 正式编译条件下的 App 组合 | `Scripts/run-extended-tests.sh release-runtime` |
-| Catalyst 行为与正式组合 | `Scripts/run-extended-tests.sh catalyst`、`catalyst-release-runtime` |
+| Catalyst 桌面端行为 | `Scripts/run-extended-tests.sh catalyst` |
 | 语法、架构、设计系统、脚本、文档 | `Scripts/run-static-audit.sh` |
 | 线上接口与跨端同步 | 本文的网络和 iCloud 专项入口 |
 
@@ -40,7 +39,7 @@ Scripts/build-install-device.sh screenshot
 Scripts/build-install-device.sh mac
 ```
 
-默认命令完成真机 Release 构建、安装与启动；`build` 编译 App、Widget、Watch App 和 Watch Widget；`archive` 使用工程正式归档配置，保存 dSYM。常规 App 使用正式业务组合与空工作流条件。Catalyst 安装到 `~/Applications/BIT101-iOS.app`，复制和原子交换在固定事务路径完成。
+默认命令完成真机 Release 构建、安装与启动；`build` 编译 App、Widget、Watch App 和 Watch Widget；`archive` 使用工程正式归档配置，保存 dSYM。常规 App 与发布归档使用纯净 Release 编译配置。Catalyst 安装到 `~/Applications/BIT101-iOS.app`，复制和原子交换在固定事务路径完成。
 
 装机就绪采样覆盖写入 `.build/extended-automation/restore.log`，包含设备复制、App 身份、初始化、会话恢复与进程状态。超时展示最后一次采样的原因和日志路径。
 
@@ -59,32 +58,29 @@ Scripts/run-extended-tests.sh modules SchedulePersistenceTests ScoreFeatureTests
 Scripts/run-extended-tests.sh modules
 Scripts/run-extended-tests.sh
 Scripts/run-extended-tests.sh LoginStorageTests NetworkClientTests
-Scripts/run-extended-tests.sh release-runtime
 Scripts/run-extended-tests.sh catalyst
-Scripts/run-extended-tests.sh catalyst-release-runtime
 ```
 
 `modules` 对应 `Package.swift` 中 Transport、Community、Schedule、Contracts、Score、Map、Sync 七个测试 target；名称筛选按测试类或完整方法选择。App 行为入口同样支持多个类与方法，Swift Testing 方法名保留 `()`。快捷领域分组的归属集中在 [测试库存](../Scripts/validation_test_areas.py)。
 
 完整运行对照源码库存核对逐例执行、参数实例、通过、失败和跳过状态。定向运行保存请求清单及实际执行集合，并标注定向范围。测试结果与覆盖率分别按 macOS、iOS 和 Catalyst 的实际可执行源码统计。
 
-包含性能用例时，先关闭覆盖率执行性能测量，再执行采集覆盖率的功能用例并合并结果。聚合流程等待后台审计结束后开始性能测量，让耗时与内存指标对应独立运行的 App。
+性能用例在对应实体平台独立执行：`all` 与 `ui` 在 iOS 真机测量手机端五页切换、紧凑话廊首屏、小组件时间线、手表快照、分页与媒体解码以及 UI 启动耗时；`catalyst` 在本机测量桌面端八页展开切换与展开话廊首屏。包含性能用例时，先关闭覆盖率执行性能测量，再执行采集覆盖率的功能用例并合并结果。聚合流程等待后台审计结束后开始性能测量，让耗时与内存指标对应独立运行的 App。
 
-完整页面切换测量覆盖五页手机布局与八页展开布局，使用 200 门课。首次进入页面包含原生组件初始化，上限为 500 毫秒；重复切换上限为 100 毫秒。启动页绘制、首次进入与重复切换分别保存逐页数据，计时等待原生页面实际显示。
+页面切换测量在对应平台使用 200 门课，首次进入页面包含原生组件初始化，上限为 500 毫秒；重复切换上限为 100 毫秒。启动页绘制、首次进入与重复切换分别保存逐页数据，计时等待原生页面实际显示。
 
-原生话廊首次内容测量使用 30 条完整结构的数据，分别从手机布局和展开布局进入话题、文章。文章在首批数据返回后立即启动首条作者请求，行视图共享同一请求；测量等待首条作者信息和显示帧，500 毫秒内完成。逐页附件记录入口到显示、内容构建耗时与条目数。每次测量创建全新页面，采集完整首次访问过程的时钟、内存与 CPU 指标。正式 App 的 `BIT101 / PagePerformance` 日志记录原生首次内容，以及网页创建、文档显示和首条内容显示的耗时，便于核对实际网络体验。网页在首次进入时创建，同一账号共享 WebKit 持久缓存，跨启动复用静态资源；账号及会话代际变化、退出登录或清除本机数据时清理对应存储。自动化环境使用临时存储。
+原生话廊首次内容测量使用 30 条完整结构的数据，在对应平台进入话题与文章。文章在首批数据返回后立即启动首条作者请求，行视图共享同一请求；测量等待首条作者信息和显示帧，500 毫秒内完成。逐页附件记录入口到显示、内容构建耗时与条目数。每次测量创建全新页面，采集完整首次访问过程的时钟、内存与 CPU 指标。正式 App 的 `BIT101 / PagePerformance` 日志记录原生首次内容，以及网页创建、文档显示和首条内容显示的耗时，便于核对实际网络体验。网页在首次进入时创建，同一账号共享 WebKit 持久缓存，跨启动复用静态资源；账号及会话代际变化、退出登录或清除本机数据时清理对应存储。自动化环境使用临时存储。
 
 异步复验使用共享 `waitForTestEvent` 等待实际状态，并处理取消、超时及 continuation 释放。Swift Testing 套件或方法设置执行期限，XCTest 入口启用系统超时管理。账号、文件和偏好测试数据按固定用途隔离；真实系统共享资源由所属测试组串行验收。
 
-正式组合规范使用生产编译条件，覆盖登录恢复、凭据保存、退出清理、账号代际、页面依赖、生命周期同步、提醒上下文和网络环境。`NativeLoginTests` 核对 CAS 账号锁定响应、认证次数、密码提示和会话保存；`NetworkBusinessDiagnosticsTests` 核对学校错误来源、官方入口、锁定信号范围及上报限制；系统日历地点规范通过 `EKEvent` 核对完整教室标题和校区坐标。生产专用 suite 的库存在 [验证策略](../Scripts/validation_policy.py)登记。发布归档验证正式优化与符号配置。
+组合规范覆盖登录恢复、凭据保存、退出清理、账号代际、页面依赖、生命周期同步、提醒上下文和网络环境。`NativeLoginTests` 核对 CAS 账号锁定响应、认证次数、密码提示和会话保存；`NetworkBusinessDiagnosticsTests` 核对学校错误来源、官方入口、锁定信号范围及上报限制；系统日历地点规范通过 `EKEvent` 核对完整教室标题和校区坐标。发布归档验证正式优化与符号配置。
 
 编译宿主时可使用：
 
 ```sh
-Scripts/run-extended-tests.sh build release
-Scripts/run-extended-tests.sh build ui
-Scripts/run-extended-tests.sh build network-smoke
-Scripts/run-extended-tests.sh build icloud-smoke
+Scripts/run-extended-tests.sh build
+Scripts/run-extended-tests.sh build catalyst
+Scripts/run-extended-tests.sh build modules
 ```
 
 ## UI 自动化
@@ -95,7 +91,7 @@ Scripts/run-extended-tests.sh ui About
 Scripts/run-extended-tests.sh ui
 ```
 
-关键词按测试类与方法匹配，多个关键词合并为一批。UI 宿主使用 Release 配置、隔离存储与合成会话，测试 App 和 Runner 经固定回环通道配置场景。生产组合启动性能场景使用同一隔离资源和受控 HTTP 响应。
+关键词按测试类与方法匹配，多个关键词合并为一批。UI 宿主共用统一 Debug 编译配置、隔离存储与合成会话，测试 App 和 Runner 经固定回环通道配置场景。启动性能场景使用同一隔离资源和受控 HTTP 响应。
 
 每项 UI 用例从竖屏开始，横屏专项自行旋转并恢复姿态。注册与密码登录的独立认证场景分别启动测试宿主；持续故障通过共享请求测试桩维持，跨启动场景通过启动配置保留故障。页面流程验证入口、绑定、业务结果与持久化重载，默认通过 XCTest 原生触摸与滚动执行；原生快照与 App 渲染查询共同核对身份、文案、状态和几何。
 
@@ -117,7 +113,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator ui 用例�
 BIT101_SIMULATOR_AUTHORIZED=1 Scripts/run-extended-tests.sh simulator verify
 ```
 
-入口按所选类型复用项目设备、公共缓存和固定结果目录，准备所选 Xcode 所需的官方运行时。`app`、`release-runtime`、`ui` 省略筛选时执行各自完整库存；`verify` 聚合模块、iOS 行为、正式组合、UI、静态审计、结果合并、覆盖率及常规 App 恢复。Catalyst、归档、线上服务与实体设备验收分别由对应流程验收。
+入口按所选类型复用项目设备、公共缓存和固定结果目录，准备所选 Xcode 所需的官方运行时。模拟器仅执行功能与交互用例，性能测试固定在对应实体平台运行；`app` 与 `ui` 省略筛选时执行各自完整功能库存并复用同一套 Debug 编译产物，`verify` 聚合模块、iOS 行为、UI、静态审计、结果合并与覆盖率。Catalyst、归档、线上服务与实体设备验收分别由对应流程验收。
 
 适配特定设备时，通过 `BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/run-extended-tests.sh simulator prepare` 选择设备类型；该配置接受 Xcode 库存中的名称或标识，准备对应的官方运行时，并通过固定设备记录复用测试与恢复。Duo 布局按 [Apple 适配指南](https://developer.apple.com/iphone-duo/prepare/)核对内外屏、旋转、折叠切换和非对称安全区；Device Hub 负责切换姿态，课表旋转规范验收选中周次、主导航和内容操作区。
 
@@ -199,7 +195,7 @@ BIT101_SIMULATOR_AUTHORIZED=1 BIT101_SIMULATOR_DEVICE_TYPE='iPhone Duo' Scripts/
 
 读取范围为 `all`、`bit101`、`school`、`transcript`、`schedule`、`ddl`。宿主使用授权账号的正式会话与业务服务，并按采样项强制远端读取。学校范围执行对应认证；短信模式在设备面板完成服务端提出的 challenge，随后验证原业务继续。指定学期的 `BIT101_NETWORK_SMOKE_TERM` 形成定向结果。
 
-指定 `BIT101_SIMULATOR_DEVICE_TYPE` 时，网络入口复用已授权类型的开发设备、登录与存储，通过同一业务采样项采集真实服务响应；结果覆盖同一固定网络报告，并包含脱敏响应和实际运行环境。开发设备结果用于定向诊断；发布验收采用真机证据。采样完成后通过 `simulator restore` 恢复常规 App。
+指定 `BIT101_SIMULATOR_DEVICE_TYPE` 时，网络入口复用已授权类型的开发设备、登录与存储，通过同一业务采样项采集真实服务响应；结果覆盖同一固定网络报告，并包含脱敏响应和实际运行环境。开发设备结果用于定向诊断；发布验收采用真机证据。
 
 `prepare` 从当前会话及列表采集专用账号、维护对象和已关注目标，保存到 `.build/release-network-smoke/community-configuration.json`。后续 `all`、`bit101`、`community-writes` 自动读取这份配置，宿主在执行社区操作前核对当前账号。环境变量可显式指定账号、维护对象和关注目标。配置与采样报告分别维护，连续采样沿用已准备对象。
 

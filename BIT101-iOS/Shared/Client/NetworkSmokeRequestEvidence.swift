@@ -1,3 +1,4 @@
+#if DEBUG
 import CoreFoundation
 import Foundation
 import GalleryFeature
@@ -403,3 +404,4 @@ nonisolated enum NetworkSmokeRequestError: LocalizedError {
         }
     }
 }
+#endif

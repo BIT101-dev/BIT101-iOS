@@ -81,9 +81,9 @@ public nonisolated enum SmallTermWeekNormalizer {
 
     private static let weeksDescribedExpression: NSRegularExpression? = try? NSRegularExpression(
         pattern: #"""
-        (-?\d{1,2})\s*(?:[-－—~～至]\s*(-?\d{1,2}))?\s*(?:周\s*(?:[（(]\s*([单双])(?:周)?\s*[）)]|(\#
-        [单双])周?)?|[（(]\s*([单双])(?:周)?\s*[）)]\s*周?)
-        """#
+            (-?\d{1,2})\s*(?:[-－—~～至]\s*(-?\d{1,2}))?\s*(?:周\s*(?:[（(]\s*([单双])(?:周)?\s*[）)]|(\#
+            [单双])周?)?|[（(]\s*([单双])(?:周)?\s*[）)]\s*周?)
+            """#
     )
 
     public static func weeksDescribed(in text: String) -> Set<Int> {

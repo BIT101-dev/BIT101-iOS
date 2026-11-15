@@ -51,19 +51,19 @@ def declared_condition_findings(package: dict, project: dict) -> list[str]:
             ):
                 errors.append(f"{target['name']}：Swift 条件定义归工作流策略统一登记。")
     for row in project.get("objects", {}).values():
-        if row.get("isa") != "XCBuildConfiguration" or row.get("name") != "Release":
+        if row.get("isa") != "XCBuildConfiguration" or row.get("name") not in {"Debug", "Release"}:
             continue
+        configuration_name = row["name"]
+        allowed = {"$(inherited)"} | ({"DEBUG"} if configuration_name == "Debug" else set())
         for name, value in row.get("buildSettings", {}).items():
             text = " ".join(value) if isinstance(value, list) else str(value)
             if (
                 name.startswith("SWIFT_ACTIVE_COMPILATION_CONDITIONS")
-                and text.replace("$(inherited)", "")
-                .replace("$(BIT101_WORKFLOW_CONDITIONS)", "")
-                .strip()
+                and (set(text.split()) - allowed)
                 or name.startswith("OTHER_SWIFT_FLAGS")
                 and re.search(r"(?<!\S)-D", text)
             ):
-                errors.append(f"{name}：Release 条件定义归工作流策略统一登记。")
+                errors.append(f"{name}：{configuration_name} 条件定义需保持固定配置范围。")
     return errors
 
 
@@ -198,7 +198,7 @@ def prepare_cache(recorded: dict, group: str, environment: str, conditions: set[
         {
             key: {"environment": value["environment"], "results": dict(value["results"])}
             for key, value in recorded.items()
-            if key in {"modules", "build-ui"}
+            if key in {"modules", "build-all"}
             and isinstance(value, dict)
             and isinstance(value.get("environment"), str)
             and isinstance(value.get("results"), dict)
@@ -253,7 +253,7 @@ def compilation_condition(
     group = {"network-smoke": "network", "icloud-smoke": "icloud"}.get(group, group)
     if any(character in condition for character in "\n\r#;{}"):
         raise ValueError(f"编译条件需要单行 Swift 表达式：{condition}")
-    catalyst = platform == "macCatalyst" or group in {"catalyst", "catalyst-release-runtime"}
+    catalyst = platform == "macCatalyst" or group == "catalyst"
     native = platform == "macOS" or group == "modules" and platform is None
     architecture = architecture or (os.uname().machine if native or catalyst else "arm64")
     watch = platform == "watchOS"
@@ -275,7 +275,7 @@ def compilation_condition(
     )
     # 本地包模块由项目依赖图提供；系统框架由所选 SDK 与编译器求值。
     condition = local_import_conditions(condition, path)
-    environment_group = "modules" if native else "build-ui"
+    environment_group = "modules" if native else "build-all"
     environment = environment_context(environment_group)
     context_signature = json.dumps([environment, Path(__file__).read_text()], sort_keys=True)
     signature = json.dumps([condition, target, sorted(enabled), language_mode])
@@ -399,7 +399,7 @@ def active_network_source(source: str, path: str) -> str:
         active_swift_source(
             source, group, platform=platform, architecture=architecture, path=path
         ).encode()
-        for group in ("restore", "network")
+        for group in ("restore",)
         for platform in source_platforms(path)
         for architecture in source_architectures(platform, source)
     ]
@@ -415,15 +415,18 @@ def self_test() -> None:
         {},
         {
             "objects": {
+                "debug": {
+                    "isa": "XCBuildConfiguration",
+                    "name": "Debug",
+                    "buildSettings": {
+                        "SWIFT_ACTIVE_COMPILATION_CONDITIONS": "DEBUG $(inherited)"
+                    },
+                },
                 "release": {
                     "isa": "XCBuildConfiguration",
                     "name": "Release",
-                    "buildSettings": {
-                        "SWIFT_ACTIVE_COMPILATION_CONDITIONS": (
-                            "$(inherited) $(BIT101_WORKFLOW_CONDITIONS)"
-                        )
-                    },
-                }
+                    "buildSettings": {"SWIFT_ACTIVE_COMPILATION_CONDITIONS": "$(inherited)"},
+                },
             }
         },
     )
@@ -435,18 +438,35 @@ def self_test() -> None:
         assert declared_condition_findings(
             {"targets": [{"name": "Feature", "settings": [{"tool": "swift", "kind": kind}]}]}, {}
         )
-    for name, value in (
-        ("SWIFT_ACTIVE_COMPILATION_CONDITIONS", "CUSTOM"),
-        ("SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*]", ["$(inherited)", "CUSTOM"]),
-        ("OTHER_SWIFT_FLAGS", "-D CUSTOM"),
+    for configuration_name, name, value in (
+        ("Release", "SWIFT_ACTIVE_COMPILATION_CONDITIONS", "CUSTOM"),
+        ("Release", "SWIFT_ACTIVE_COMPILATION_CONDITIONS", "DEBUG $(inherited)"),
+        (
+            "Release",
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+            "$(inherited) $(BIT101_WORKFLOW_CONDITIONS)",
+        ),
+        (
+            "Debug",
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+            "DEBUG $(inherited) $(BIT101_WORKFLOW_CONDITIONS)",
+        ),
+        ("Debug", "SWIFT_ACTIVE_COMPILATION_CONDITIONS", "DEBUG CUSTOM"),
+        (
+            "Release",
+            "SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphoneos*]",
+            ["$(inherited)", "CUSTOM"],
+        ),
+        ("Release", "OTHER_SWIFT_FLAGS", "-D CUSTOM"),
+        ("Debug", "OTHER_SWIFT_FLAGS", "-D CUSTOM"),
     ):
         assert declared_condition_findings(
             {},
             {
                 "objects": {
-                    "release": {
+                    "cfg": {
                         "isa": "XCBuildConfiguration",
-                        "name": "Release",
+                        "name": configuration_name,
                         "buildSettings": {name: value},
                     }
                 }
@@ -462,11 +482,11 @@ def self_test() -> None:
             },
         },
     }
-    kept = prepare_cache(recorded, "build-ui", "sdk", {"DEBUG"})
-    assert set(kept) == {"modules", "build-ui"} and set(kept["modules"]["results"]) == {"live"}
-    assert kept["build-ui"] == {"environment": "sdk", "results": {}}
+    kept = prepare_cache(recorded, "build-all", "sdk", {"DEBUG"})
+    assert set(kept) == {"modules", "build-all"} and set(kept["modules"]["results"]) == {"live"}
+    assert kept["build-all"] == {"environment": "sdk", "results": {}}
     changed = prepare_cache(kept, "modules", "new-compiler", {"DEBUG"})
-    assert changed["modules"]["results"] == {} and changed["build-ui"]["environment"] == "sdk"
+    assert changed["modules"]["results"] == {} and changed["build-all"]["environment"] == "sdk"
     for invalid in (
         None,
         [],
@@ -579,12 +599,12 @@ def cache_transaction_self_test() -> None:
         for fault in ("write", "replace", "interrupt", None):
             files[path] = b'{"modules":{}}'
             try:
-                write_cache(path, {"build-ui": {}})
+                write_cache(path, {"build-all": {}})
             except (OSError, KeyboardInterrupt):
                 assert fault is not None
             else:
                 assert fault is None
-            assert json.loads(files[path]) == ({"modules": {}} if fault else {"build-ui": {}})
+            assert json.loads(files[path]) == ({"modules": {}} if fault else {"build-all": {}})
             assert incoming not in files
         files[path] = b"{"
         with (

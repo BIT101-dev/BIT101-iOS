@@ -282,12 +282,12 @@ def _evidence_worker_context(with_fixture_patches: bool = False):
 
 def _shard_formal_inventory() -> None:
     from validation_policy import workflow_budget_self_test
-    from validation_test_areas import formal_inventory_self_test
+    from validation_test_areas import test_inventory_self_test
 
     with _evidence_worker_context():
         package_condition_self_test()
         workflow_budget_self_test()
-        formal_inventory_self_test()
+        test_inventory_self_test()
 
 
 def _shard_provenance_manual_perf() -> None:

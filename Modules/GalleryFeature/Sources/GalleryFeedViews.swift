@@ -309,7 +309,8 @@ struct GalleryFeedView: View {
         .background(AppDesignSystem.Palette.Background.grouped)
         .appFirstContent(
             "gallery.native.\(feedIdentity)",
-            count: feedState.status == .loaded ? visiblePosters.count : nil)
+            count: feedState.status == .loaded ? visiblePosters.count : nil
+        )
         .id(feedIdentity)
         .refreshable {
             interactionEvidence?("interaction.GalleryFeedView.refreshable", "refresh")

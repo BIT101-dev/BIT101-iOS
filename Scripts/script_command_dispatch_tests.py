@@ -319,10 +319,14 @@ def check_device_lock_state(findings, frame, support):
     result = subprocess.run(
         ["zsh", "-c", source, str(path), "info"],
         env=dict(os.environ, BIT101_TEST_LOCK_FAILURE="1"),
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
-    if (result.returncode != 69 or "真机连接：" in result.stdout
-            or "开发连接建立失败；请解锁设备后重试" not in result.stderr):
+    if (
+        result.returncode != 69
+        or "真机连接：" in result.stdout
+        or "开发连接建立失败；请解锁设备后重试" not in result.stderr
+    ):
         findings.append("设备状态自测：连接失败保留退出码并停止显示连接成功")
 
 
@@ -339,18 +343,8 @@ def command_dispatch_inputs(valid_fixture):
         ("build-install-device.sh", ["info"], 0, "phone", "DEVICE"),
         ("build-install-device.sh", ["screenshot"], 0, "截图已保存", "DEVICE"),
         ("run-extended-tests.sh", ["build"], 0, "build-for-testing", ""),
-        ("run-extended-tests.sh", ["build", "ui"], 0, "BIT101-iOS-UIAutomation", ""),
-        ("run-extended-tests.sh", ["build", "network-smoke"], 0, "RELEASE_NETWORK_SMOKE", ""),
-        ("run-extended-tests.sh", ["build", "icloud-smoke"], 0, "ICLOUD_CROSS_DEVICE_SMOKE", ""),
         ("run-extended-tests.sh", ["build", "modules"], 0, "swift test --quiet --skip .*", ""),
         ("run-extended-tests.sh", ["build", "catalyst"], 0, "variant=Mac Catalyst", ""),
-        (
-            "run-extended-tests.sh",
-            ["build", "catalyst-release-runtime"],
-            0,
-            "BIT101_WORKFLOW_CONDITIONS=",
-            "",
-        ),
         ("run-extended-tests.sh", ["catalyst"], 86, "-only-testing:BIT101-iOSTests", ""),
         (
             "run-extended-tests.sh",
@@ -361,17 +355,9 @@ def command_dispatch_inputs(valid_fixture):
         ),
         (
             "run-extended-tests.sh",
-            ["catalyst-release-runtime"],
-            86,
-            "ReleaseRuntimeContractTests",
-            "",
-        ),
-        ("run-extended-tests.sh", ["release-runtime"], 86, "ReleaseRuntimeContractTests", "DEVICE"),
-        (
-            "run-extended-tests.sh",
             ["network-smoke", "NetworkSmokeRegressionTests"],
             86,
-            "RELEASE_NETWORK_SMOKE",
+            "-only-testing:BIT101-iOSTests/NetworkSmokeRegressionTests",
             "DEVICE",
         ),
         (
@@ -421,15 +407,14 @@ def command_dispatch_inputs(valid_fixture):
             "DEVICE",
         ),
         ("run-extended-tests.sh", ["cache"], 0, "CACHE", ""),
-        ("release-network-smoke.sh", ["ddl"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
-        ("release-network-smoke.sh", ["all", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
-        ("release-network-smoke.sh", ["school", "sms"], 86, "RELEASE_NETWORK_SMOKE", "DEVICE"),
-        ("run_icloud_cross_device_smoke.sh", [], 86, "ICLOUD_CROSS_DEVICE_SMOKE", "DEVICE"),
+        ("release-network-smoke.sh", ["ddl"], 86, "-configuration Debug", "DEVICE"),
+        ("release-network-smoke.sh", ["all", "sms"], 86, "-configuration Debug", "DEVICE"),
+        ("release-network-smoke.sh", ["school", "sms"], 86, "-configuration Debug", "DEVICE"),
+        ("run_icloud_cross_device_smoke.sh", [], 86, "-configuration Debug", "DEVICE"),
         ("run_icloud_cross_device_smoke.sh", ["report"], 0, "REPORT", ""),
     )
     environment = dict(
         os.environ,
-        BIT101_WORKFLOW_CONDITIONS="DEBUG RELEASE_NETWORK_SMOKE",
         BIT101_EXTENDED_TESTS_LOCK_HELD="1",
         BIT101_NETWORK_SMOKE_FIXTURES=json.dumps(valid_fixture),
         BIT101_COMMUNITY_SMOKE_ACCOUNT="1",
@@ -533,10 +518,11 @@ def check_command_dispatch(cases, environment, findings, frame, support):
                 'eturn 0; fi; if [[ "$*" == *"validation_restore.py"* ]]; then print -ru2 RESTORE_'
                 'PROBE; return 0; fi; if [[ "$*" == *"/signing.entitlements"* || "$*" == *"/icloud'
                 '-cross-device-smoke/report.json"* ]]; then return 0; fi; if [[ "$*" == *"validati'
-                'on_evidence.py digest"* ]]; then case "$3" in all|release-runtime|ui|schedule|inf'
-                "rastructure|login|extensions|network|ddl|school-sms|community-writes|community-cl"
-                'eanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}" == udid ]] '
-                '|| return 78 ;; esac; print self-test-inputs; return 0; fi; command python3 "$@";'
+                'on_evidence.py digest"* ]]; then case "$3" in all|ui|schedule|infrastructure|'
+                "login|extensions|network-smoke|network|ddl|school-sms|community-writes|"
+                'community-cleanup|icloud|icloud-cleanup|restore) [[ "${BIT101_XCODE_DEVICE_ID:-}"'
+                ' == udid ]] || return 78 ;; esac; print self-test-inputs; return 0; fi;'
+                ' command python3 "$@";'
                 " }\n"
             ),
         )
@@ -567,9 +553,9 @@ def check_command_dispatch(cases, environment, findings, frame, support):
             or ("DEVICE\n" in result.stdout) != bool(device)
             or filename == "build-install-device.sh"
             and command_output
-            and any(
-                not re.search(r"\b" + name + r"=(?:\s|$)", command_output)
-                for name in ("BIT101_WORKFLOW_CONDITIONS", "SWIFT_ACTIVE_COMPILATION_CONDITIONS")
+            and (
+                "BIT101_WORKFLOW_CONDITIONS" in command_output
+                or not re.search(r"\bSWIFT_ACTIVE_COMPILATION_CONDITIONS=(?:\s|$)", command_output)
             )
         ):
             findings.append(
@@ -607,13 +593,11 @@ def check_command_dispatch(cases, environment, findings, frame, support):
         ):
             findings.append("装机恢复自测：就绪信号与当前进程共同参与验收")
         if filename == "run-extended-tests.sh" and (
-            not arguments
-            or arguments[0]
-            in {"catalyst", "catalyst-release-runtime", "release-runtime", "modules", "build"}
+            not arguments or arguments[0] in {"catalyst", "modules", "build"}
         ):
             group = arguments[0] if arguments else "all"
             if group == "build":
-                group = "build-" + (arguments[1] if len(arguments) > 1 else "release")
+                group = "build-" + (arguments[1] if len(arguments) > 1 else "all")
             if f"/extended-automation/{group}.log" not in result.stdout:
                 findings.append(f"命令自测：{group} 保存独立验证组日志")
         needs_lock = arguments != ["info"] and (
@@ -629,7 +613,7 @@ def check_command_dispatch(cases, environment, findings, frame, support):
                 bool(device)
                 or arguments == ["mac"]
                 or filename == "run-extended-tests.sh"
-                and arguments[0] in {"modules", "catalyst", "catalyst-release-runtime"}
+                and arguments[0] in {"modules", "catalyst"}
             )
         ):
             findings.append(f"命令自测：{filename} {' '.join(arguments)} 按共享资源选择锁范围")
@@ -644,8 +628,11 @@ def check_command_dispatch(cases, environment, findings, frame, support):
         if arguments == ["ui", "test"]:
             from validation_test_areas import test_inventory
 
-            expected = {item for item in test_inventory("ui")
-                        if item.startswith("MaintenancePerformanceUITests/")}
+            expected = {
+                item
+                for item in test_inventory("ui")
+                if item.startswith("MaintenancePerformanceUITests/")
+            }
             selected = set(re.findall(r"-only-testing:BIT101-iOSUITests/([^\s]+)", command_output))
             if selected != expected:
                 findings.append("命令自测：完整 UI 选择先执行全部性能用例")

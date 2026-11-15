@@ -466,8 +466,7 @@ function reportEmailBody(id, receivedAt, report) {
         record.statusCode == null ? "无状态码" : `HTTP ${emailLine(record.statusCode)}`;
       const elapsed =
         record.elapsedMilliseconds == null ? "" : ` ${emailLine(record.elapsedMilliseconds)}ms`;
-      const bytes =
-        record.responseBytes == null ? "" : ` ${emailLine(record.responseBytes)}B`;
+      const bytes = record.responseBytes == null ? "" : ` ${emailLine(record.responseBytes)}B`;
       const upstream = record.upstreamCode ? ` [${emailLine(record.upstreamCode)}]` : "";
       const error = record.error ? ` · ${emailLine(record.error)}` : "";
       const redirect =
@@ -831,8 +830,7 @@ export default {
           receivedAt,
           report,
           emailDelivery: {
-            status:
-              env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled",
+            status: env.REPORT_EMAIL && report.mode !== "network-smoke" ? "pending" : "disabled",
             attempts: 0,
           },
         });

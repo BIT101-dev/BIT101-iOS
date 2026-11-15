@@ -3,7 +3,7 @@
 from pathlib import Path
 from validation_policy import SIMULATOR_SHARDS, SIMULATOR_WORKERS
 
-COVERAGE_GROUPS = frozenset({"modules", "all", "ui", "catalyst", "catalyst-release-runtime"})
+COVERAGE_GROUPS = frozenset({"modules", "all", "ui", "catalyst"})
 SIMULATOR_KEYBOARD_TESTS = frozenset(
     {
         "ServiceInteractionUITests/testManualUpdatePromptAllActions",
@@ -54,19 +54,21 @@ def prepare_simulator_system(device: str, root: Path, *, ui: bool) -> None:
     import subprocess
     import time
 
-    developer = Path(
-        os.getenv("DEVELOPER_DIR")
-        or subprocess.check_output(["xcode-select", "-p"], text=True).strip()
-    )
-    subprocess.run(
-        ["open", "-g", "-a", str(developer.parent / "Applications/DeviceHub.app")], check=True
-    )
     container = Path.home() / "Library/Containers/com.apple.dt.Devices"
-    deadline = time.monotonic() + 10
-    while not container.is_dir():
-        if time.monotonic() >= deadline:
-            raise ValueError("Device Hub 首次启动需要建立应用容器。")
-        time.sleep(0.1)
+    if not container.is_dir():
+        developer = Path(
+            os.getenv("DEVELOPER_DIR")
+            or subprocess.check_output(["xcode-select", "-p"], text=True).strip()
+        )
+        subprocess.run(
+            ["open", "-g", "-j", "-a", str(developer.parent / "Applications/DeviceHub.app")],
+            check=True,
+        )
+        deadline = time.monotonic() + 10
+        while not container.is_dir():
+            if time.monotonic() >= deadline:
+                raise ValueError("Device Hub 首次启动需要建立应用容器。")
+            time.sleep(0.1)
     subprocess.run(
         [
             "defaults",
@@ -92,7 +94,7 @@ def prepare_simulator_ui(device: str, products: Path) -> None:
     import subprocess
     import time
 
-    app = products / "Release-iphonesimulator/BIT101-iOS.app"
+    app = products / "Debug-iphonesimulator/BIT101-iOS.app"
     subprocess.run(["xcrun", "simctl", "install", device, str(app)], check=True)
     port = 20000 + int(device[-4:], 16) % 40000
     environment = dict(
@@ -255,25 +257,15 @@ def run_simulator_ui(
 
 
 def shard_inventory(group: str, index: int, count: int) -> list[str]:
+    from validation_inputs import PERFORMANCE_SUITES
     from validation_test_areas import test_inventory
 
     if group not in SIMULATOR_SHARDS or count != SIMULATOR_SHARDS[group] or not 0 <= index < count:
         raise ValueError("模拟器分片需要匹配登记的完整库存分配。")
-    inventory = sorted(test_inventory(group))
-    if group != "ui":
-        return inventory[index::count]
-    from validation_inputs import performance_workloads
-
-    weights = {
-        test: workload.get("weekSwitchPairs", 1)
-        for test, workload in performance_workloads().values()
-    }
-    parts, costs = [[] for _ in range(count)], [0] * count
-    for test in sorted(inventory, key=lambda test: (-weights.get(test, 1), test)):
-        destination = min(range(count), key=costs.__getitem__)
-        parts[destination].append(test)
-        costs[destination] += weights.get(test, 1)
-    return sorted(parts[index])
+    inventory = sorted(
+        test for test in test_inventory(group) if test.split("/", 1)[0] not in PERFORMANCE_SUITES
+    )
+    return inventory[index::count]
 
 
 def coverage_source_path(filename: str, root: Path) -> Path:
@@ -340,8 +332,6 @@ def policy_floors(group: str, policy: dict) -> dict[str, int]:
         current = {
             name: value for name, value in current.items() if name != "ScheduleActivityContracts"
         }
-    if group == "catalyst-release-runtime":
-        return {}
     prefix = "" if group == "modules" else "Catalyst/" if group == "catalyst" else "iOS/"
     baseline_group = "all" if group in {"ui", "catalyst"} else group
     floors = {
@@ -476,18 +466,16 @@ def self_test(evidence) -> None:
                 pass
             else:
                 raise AssertionError("分片界限及登记数量需要严格匹配。")
-    inventory = {"Layout/testWeeks", *(f"Suite/test{index:02}" for index in range(30))}
-    with (
-        patch("validation_test_areas.test_inventory", return_value=inventory),
-        patch(
-            "validation_inputs.performance_workloads",
-            return_value={"layout": ("Layout/testWeeks", {"weekSwitchPairs": 10})},
-        ),
-    ):
+    functional = {f"Suite/test{index:02}" for index in range(30)}
+    inventory = functional | {
+        "MaintenancePerformanceUITests/testTabSwitchingPerformance",
+        "MaintenancePerformanceTests/testStillImageDecodingPerformance",
+    }
+    with patch("validation_test_areas.test_inventory", return_value=inventory):
         parts = [shard_inventory("ui", index, 3) for index in range(3)]
-        costs = [sum(10 if test == "Layout/testWeeks" else 1 for test in part) for part in parts]
-        assert max(costs) - min(costs) <= 1 and "Layout/testWeeks" in parts[0]
-        assert sorted(test for part in parts for test in part) == sorted(inventory)
+        assert [len(part) for part in parts] == [10, 10, 10]
+        assert sorted(test for part in parts for test in part) == sorted(functional)
+        assert shard_inventory("all", 0, 1) == sorted(functional)
     first = lcov_lines(
         "SF:/repo/Modules/Feature/Sources/A.swift\nDA:1,1\nDA:2,0\nDA:3,0\nend_of_record",
         Path("/repo"),
@@ -604,7 +592,6 @@ def simulator_ui_preparation_self_test() -> None:
     )
     for hosted, operation, prepared, reused in (
         ("true", "app", True, True),
-        ("true", "release-runtime", True, True),
         ("true", "ui", True, True),
         ("false", "app", True, False),
         ("true", "prepare", True, False),
@@ -634,13 +621,13 @@ def simulator_ui_preparation_self_test() -> None:
             Path,
             "iterdir",
             return_value=iter(
-                [Path("/products/Release-iphonesimulator"), Path("/products/Release-maccatalyst")]
+                [Path("/products/Debug-iphonesimulator"), Path("/products/Debug-maccatalyst")]
             ),
         ),
         patch.object(
             Path,
             "rglob",
-            return_value=[Path("/products/Release-iphonesimulator/Host.app/Info.plist")],
+            return_value=[Path("/products/Debug-iphonesimulator/Host.app/Info.plist")],
         ) as bundles,
         patch.object(
             Path, "read_bytes", return_value=plistlib.dumps({"CFBundleExecutable": "Host"})
@@ -661,17 +648,11 @@ def simulator_ui_preparation_self_test() -> None:
         ):
             prepare_simulator_system("device", Path("/repo"), ui=ui)
             commands = [call.args[0] for call in run.call_args_list]
-            assert commands[0] == [
-                "open",
-                "-g",
-                "-a",
-                "/Applications/Xcode.app/Contents/Applications/DeviceHub.app",
-            ]
-            assert commands[1][-3:] == ["alwaysSimulateHardwareKeyboard", "-bool", "true"]
-            assert commands[2] == ["xcrun", "simctl", "bootstatus", "device", "-b"]
-            assert len(commands) == (6 if ui else 3)
+            assert commands[0][-3:] == ["alwaysSimulateHardwareKeyboard", "-bool", "true"]
+            assert commands[1] == ["xcrun", "simctl", "bootstatus", "device", "-b"]
+            assert len(commands) == (5 if ui else 2)
             if ui:
-                assert commands[3] == [
+                assert commands[2] == [
                     "xcrun",
                     "simctl",
                     "spawn",
@@ -681,14 +662,14 @@ def simulator_ui_preparation_self_test() -> None:
                     "BIT101-dev.BIT101-ui-fixtures",
                     "photosReady",
                 ]
-                assert commands[4] == [
+                assert commands[3] == [
                     "xcrun",
                     "simctl",
                     "addmedia",
                     "device",
                     "/repo/BIT101-iOS/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
                 ]
-                assert commands[5][-5:] == [
+                assert commands[4][-5:] == [
                     "write",
                     "BIT101-dev.BIT101-ui-fixtures",
                     "photosReady",
@@ -757,7 +738,7 @@ def simulator_ui_preparation_self_test() -> None:
             assert passed == expected
             commands = [call.args[0] for call in run.call_args_list]
             assert [command[2] for command in commands] == ["install", "launch", "terminate"]
-            assert commands[0][-1] == "/products/Release-iphonesimulator/BIT101-iOS.app"
+            assert commands[0][-1] == "/products/Debug-iphonesimulator/BIT101-iOS.app"
             assert commands[1][-1] == "--ui-testing" and commands[-1][-1] == "BIT101-dev.BIT101-iOS"
             environment = run.call_args_list[1].kwargs["env"]
             assert environment["SIMCTL_CHILD_BIT101_UI_TEST_RESET_STORAGE"] == "1"

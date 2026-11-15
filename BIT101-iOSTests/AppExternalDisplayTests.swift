@@ -8,7 +8,7 @@ import Testing
 
 @MainActor
 struct AppExternalDisplayTests {
-    #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
+    #if DEBUG
     @Test(arguments: [false, true])
     func localSchoolSessionsRecovery(communityExpired: Bool) throws {
         let storage = AppAccountSession.storage

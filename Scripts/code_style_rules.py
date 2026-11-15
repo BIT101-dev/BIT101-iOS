@@ -53,9 +53,14 @@ def issue(name: str, line: int, message: str) -> str:
 def check_name(name: str, line: int, value: str) -> list[str]:
     if len(value) <= NAME_LIMIT:
         return []
-    return [issue(name, line,
-                  f"函数名 {value} 为 {len(value)} 字符，上限为 {NAME_LIMIT}，"
-                  f"请缩短至 {size_repair_target(NAME_LIMIT)} 字符以内")]
+    return [
+        issue(
+            name,
+            line,
+            f"函数名 {value} 为 {len(value)} 字符，上限为 {NAME_LIMIT}，"
+            f"请缩短至 {size_repair_target(NAME_LIMIT)} 字符以内",
+        )
+    ]
 
 
 def check_depth(name: str, line: int, depth: int) -> list[str]:
@@ -71,9 +76,14 @@ def size_repair_target(limit: int) -> int:
 def check_function_lines(name: str, line: int, count: int) -> list[str]:
     if count <= FUNCTION_LINE_LIMIT:
         return []
-    return [issue(name, line,
-                  f"函数体共 {count} 行，上限为 {FUNCTION_LINE_LIMIT}，"
-                  f"请拆分或缩减至 {size_repair_target(FUNCTION_LINE_LIMIT)} 行以内")]
+    return [
+        issue(
+            name,
+            line,
+            f"函数体共 {count} 行，上限为 {FUNCTION_LINE_LIMIT}，"
+            f"请拆分或缩减至 {size_repair_target(FUNCTION_LINE_LIMIT)} 行以内",
+        )
+    ]
 
 
 def swift_function_lines(name: str, source: str, facts: dict) -> list[str]:
@@ -106,8 +116,12 @@ def swift_function_lines(name: str, source: str, facts: dict) -> list[str]:
 
 def line_findings(name: str, source: str) -> list[str]:
     return [
-        issue(name, line, f"行长 {len(text)} 字符，上限为 {LINE_LIMIT}，"
-              f"请换行或缩减至 {size_repair_target(LINE_LIMIT)} 字符以内")
+        issue(
+            name,
+            line,
+            f"行长 {len(text)} 字符，上限为 {LINE_LIMIT}，"
+            f"请换行或缩减至 {size_repair_target(LINE_LIMIT)} 字符以内",
+        )
         for line, text in enumerate(source.splitlines(), 1)
         if len(text) > LINE_LIMIT
     ]

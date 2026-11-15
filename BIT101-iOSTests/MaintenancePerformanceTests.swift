@@ -19,6 +19,7 @@ import ScheduleDomain
 import TransportCore
 import StorageCore
 
+#if !targetEnvironment(macCatalyst)
 nonisolated final class PerformanceResponseProtocol: URLProtocol {
     static let bytes = Data(repeating: 1, count: 32 * 1_024 * 1_024)
     static let chunkBytes = 64 * 1_024
@@ -57,6 +58,7 @@ struct PerformancePaperService: PaperListServicing {
         throw URLError(.unsupportedURL)
     }
 }
+#endif
 
 @MainActor
 final class RecoveryScanResponse: HTTPTransport {
@@ -222,6 +224,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         }
     }
 
+    #if !targetEnvironment(macCatalyst)
     func testWatchSnapshotKeepsMainActorResponsive() async throws {
         let files = PreferenceMemoryFiles()
         let store = ScheduleExternalSnapshotStore(
@@ -265,6 +268,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         ).get()
         XCTAssertTrue(accepted)
     }
+    #endif
 
     func testConcurrentSnapshotWritesKeepRevision() async throws {
         let files = PreferenceMemoryFiles()
@@ -332,6 +336,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         await export.value
     }
 
+    #if !targetEnvironment(macCatalyst)
     func testMessageReadQueriesAcrossRenderedPages() async throws {
         let workload = try PerformanceWorkload(
             "message-read-queries", bundle: Bundle(for: Self.self))
@@ -416,6 +421,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         }
         return unread
     }
+    #endif
 
     func testImageQuotaEnumerationKeepsResponsive() async throws {
         let files = PreferenceMemoryFiles()
@@ -540,6 +546,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
         XCTAssertEqual(try files.readData(at: file), replacement)
     }
 
+    #if !targetEnvironment(macCatalyst)
     func testImageQuotaScanAcrossDirectorySizes() async throws {
         let workload = try PerformanceWorkload(
             "image-quota-scan", bundle: Bundle(for: Self.self))
@@ -896,6 +903,7 @@ nonisolated final class MaintenancePerformanceTests: XCTestCase {
             XCTAssertEqual(decoded?.size, image.size)
         }
     }
+    #endif
 
 }
 #endif

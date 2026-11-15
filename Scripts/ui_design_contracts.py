@@ -186,10 +186,12 @@ TOUCH_INPUT_CONTRACTS = (
 
 VISUAL_CONTRACT_OWNERS = {
     "Modules/ScheduleFeature/Sources/ScheduleWeekSliderView.swift": (
-        ("ScheduleInlineWeekSlider",), None,
+        ("ScheduleInlineWeekSlider",),
+        None,
     ),
     "Modules/ScheduleFeature/Sources/ScheduleCourseCardViews.swift": (
-        ("ScheduleCalendarCardsControl",), "hitTest",
+        ("ScheduleCalendarCardsControl",),
+        "hitTest",
     ),
     "Modules/GalleryFeature/Sources/GalleryComposerView.swift": (("GalleryComposerScene",), None),
     "Modules/CourseFeature/Sources/CourseHistoryGradesViews.swift": (

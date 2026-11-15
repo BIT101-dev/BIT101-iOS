@@ -38,9 +38,11 @@ nonisolated enum GalleryWebRequestFactory {
             if (location.origin !== '\(AppEndpoints.bit101Web.absoluteString)') return;
             if (!['/gallery', '/gallery/', '/paper', '/paper/'].includes(location.pathname)) return;
             const started = Math.max(0, \(startedAt * 1000) - performance.timeOrigin);
-            let sent = false;
+            let sent = false, reported = false;
             const observer = new MutationObserver(check);
             function report() {
+                if (reported) return;
+                reported = true;
                 const now = performance.now();
                 const entries = [...performance.getEntriesByType('navigation'),
                     ...performance.getEntriesByType('resource').filter(entry => {
@@ -72,7 +74,10 @@ nonisolated enum GalleryWebRequestFactory {
                 sent = true;
                 observer.disconnect();
                 if (\(preparing)) report();
-                else requestAnimationFrame(() => requestAnimationFrame(report));
+                else {
+                    requestAnimationFrame(() => requestAnimationFrame(report));
+                    setTimeout(report, 34);
+                }
             }
             observer.observe(document.documentElement, {childList: true, subtree: true});
             addEventListener('pagehide', () => observer.disconnect(), {once: true});

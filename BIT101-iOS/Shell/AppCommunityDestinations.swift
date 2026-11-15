@@ -6,6 +6,7 @@ import CourseFeature
 import GalleryFeature
 import MediaKit
 import MineFeature
+import OSLog
 import Observation
 import PaperFeature
 import ScheduleDomain
@@ -15,7 +16,6 @@ import StorageCore
 import SwiftUI
 import TransportCore
 import WebKit
-import OSLog
 
 /// App-owned cross-feature composition; each module receives its consumed capabilities.
 @MainActor
@@ -381,14 +381,26 @@ final class AppCommunityWebStorage {
     private func removeRetiredStores() async {
         for raw in defaults.stringArray(forKey: Self.retiredKey) ?? [] {
             guard let identifier = UUID(uuidString: raw) else { continue }
-            await clearRetiredData(for: identifier)
-            do {
-                try await WKWebsiteDataStore.remove(forIdentifier: identifier)
-                let remaining = (defaults.stringArray(forKey: Self.retiredKey) ?? [])
-                    .filter { $0 != raw }
-                defaults.set(remaining, forKey: Self.retiredKey)
-            } catch {
-                Self.logger.debug("Web storage cleanup pending: \(error.localizedDescription)")
+            var removed = false
+            for attempt in 0..<5 {
+                if attempt > 0 { try? await Task.sleep(for: .milliseconds(50)) }
+                await Task.yield()
+                do {
+                    try await WKWebsiteDataStore.remove(forIdentifier: identifier)
+                    let remaining = (defaults.stringArray(forKey: Self.retiredKey) ?? [])
+                        .filter { $0 != raw }
+                    defaults.set(remaining, forKey: Self.retiredKey)
+                    removed = true
+                    break
+                } catch {
+                    if attempt == 4 {
+                        Self.logger.debug(
+                            "Web storage cleanup pending: \(error.localizedDescription)")
+                    }
+                }
+            }
+            if !removed {
+                await clearRetiredData(for: identifier)
             }
         }
     }
@@ -402,8 +414,17 @@ final class AppCommunityWebStorage {
 
 @MainActor
 enum AppLocalDataComposition {
-    #if BIT101_AUTOMATED_TESTING
-    static let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+    #if DEBUG
+    static let websiteDataStore: WKWebsiteDataStore =
+        (AppFileDirectories.isRunningIsolatedUnitTest || AppFileDirectories.isRunningUITest)
+        ? .nonPersistent() : .default()
+    private static let communityWebStorage: AppCommunityWebStorage? =
+        (AppFileDirectories.isRunningIsolatedUnitTest || AppFileDirectories.isRunningUITest)
+        ? nil
+        : AppCommunityWebStorage(
+            defaults: AppFileDirectories.defaults,
+            credentials: { AppAccountSession.storage.communityCredentials },
+            changes: AppAccountSession.storage.credentialsChanges)
     #else
     static let websiteDataStore = WKWebsiteDataStore.default()
     private static let communityWebStorage = AppCommunityWebStorage(
@@ -413,8 +434,9 @@ enum AppLocalDataComposition {
     #endif
 
     static var galleryWebDataStore: (CommunitySessionIdentity) -> WKWebsiteDataStore {
-        #if BIT101_AUTOMATED_TESTING
-        return { _ in websiteDataStore }
+        #if DEBUG
+        guard let storage = communityWebStorage else { return { _ in websiteDataStore } }
+        return { storage.dataStore(for: $0) }
         #else
         let storage = communityWebStorage
         return { storage.dataStore(for: $0) }
@@ -434,13 +456,25 @@ enum AppLocalDataComposition {
         return AppLocalDataService(
             files: AppFileDirectories.files,
             actions: AppLocalDataActions(
-                hasPendingRecovery: { ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites() },
+                hasPendingRecovery: {
+                    #if DEBUG
+                    ReleaseNetworkSmokeReportStore.hasPendingCommunityWrites()
+                    #else
+                    false
+                    #endif
+                },
                 clearLogin: { AppAccountSession.storage.clearAllLocalData() },
                 suspendStorageOperations: AppAccountStores.suspendStorageOperations,
                 resumeStorageOperations: AppAccountStores.resumeStorageOperations,
                 clearSchedule: { await ScheduleCacheStore.clear() },
                 clearSharedSnapshot: { await ScheduleWidgetExporter.clearSharedSnapshot() },
-                clearReports: { ReleaseNetworkSmokeReportStore.clearLocalArtifacts() },
+                clearReports: {
+                    #if DEBUG
+                    ReleaseNetworkSmokeReportStore.clearLocalArtifacts()
+                    #else
+                    true
+                    #endif
+                },
                 clearDiagnostics: { await NetworkDiagnosticStore.shared.clear() },
                 clearPreferences: {
                     AppAccountSession.storage.preservingLoginMarkers {
@@ -450,7 +484,11 @@ enum AppLocalDataComposition {
                 clearURLCache: { URLSessionTransport.clearSharedCache() },
                 clearWebData: {
                     let webData = webDataStore()
-                    #if !BIT101_AUTOMATED_TESTING
+                    #if DEBUG
+                    if let communityWebStorage {
+                        await communityWebStorage.clear(allStores: true)
+                    }
+                    #else
                     await communityWebStorage.clear(allStores: true)
                     #endif
                     await withCheckedContinuation { continuation in

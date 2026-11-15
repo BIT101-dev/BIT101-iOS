@@ -56,20 +56,21 @@ final class StyleVisitor: SyntaxAnyVisitor {
 
     override func visitAny(_ node: Syntax) -> SyntaxVisitorContinueKind {
         if let literal = node.as(StringLiteralExprSyntax.self) {
-            literals.append(LiteralFact(
-                start: literal.positionAfterSkippingLeadingTrivia.utf8Offset,
-                end: literal.endPositionBeforeTrailingTrivia.utf8Offset,
-                pounds: literal.openingPounds?.text ?? "",
-                quote: literal.openingQuote.text,
-                value: literal.representedLiteralValue,
-                parts: literal.segments.map { part in
-                    LiteralPartFact(
-                        start: part.position.utf8Offset,
-                        end: part.endPosition.utf8Offset,
-                        isExpression: part.is(ExpressionSegmentSyntax.self)
-                    )
-                }
-            ))
+            literals.append(
+                LiteralFact(
+                    start: literal.positionAfterSkippingLeadingTrivia.utf8Offset,
+                    end: literal.endPositionBeforeTrailingTrivia.utf8Offset,
+                    pounds: literal.openingPounds?.text ?? "",
+                    quote: literal.openingQuote.text,
+                    value: literal.representedLiteralValue,
+                    parts: literal.segments.map { part in
+                        LiteralPartFact(
+                            start: part.position.utf8Offset,
+                            end: part.endPosition.utf8Offset,
+                            isExpression: part.is(ExpressionSegmentSyntax.self)
+                        )
+                    }
+                ))
         }
         if isRoot(node) {
             levels.append(0)

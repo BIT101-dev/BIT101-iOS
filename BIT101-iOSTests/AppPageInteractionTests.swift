@@ -4,6 +4,7 @@ import UIKit
 import XCTest
 
 @testable import DesignSystemKit
+
 #if DEBUG
 @testable import BIT101_iOS
 import ScheduleFeature
@@ -98,7 +99,8 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
                 \.appWindowLayout,
                 AppWindowLayout(
                     size: size, isRegularWidth: expanded,
-                    interfaceIdiom: expanded ? .pad : .phone))
+                    interfaceIdiom: expanded ? .pad : .phone)
+            )
             .frame(width: size.width, height: size.height)
             var root: UIViewController?
             try await FeatureCompositionTests().host(
@@ -107,15 +109,14 @@ nonisolated final class AppPageInteractionTests: XCTestCase {
                 let root = try XCTUnwrap(root)
                 try await waitForTestEvent { findTabs(in: root) != nil }
                 let tabs = try XCTUnwrap(findTabs(in: root))
-                let index = expanded ? 2 : 1
                 if #available(iOS 18.0, *), !tabs.tabs.isEmpty {
                     let previous = tabs.selectedTab
-                    let selected = tabs.tabs[index]
+                    let selected = tabs.tabs[tabs.tabs.count - 1]
                     tabs.selectedTab = selected
                     tabs.delegate?.tabBarController?(
                         tabs, didSelectTab: selected, previousTab: previous)
                 } else {
-                    let selected = try XCTUnwrap(tabs.viewControllers?[index])
+                    let selected = try XCTUnwrap(tabs.viewControllers?.last)
                     tabs.selectedViewController = selected
                     tabs.delegate?.tabBarController?(tabs, didSelect: selected)
                 }

@@ -14,7 +14,8 @@ def device_discovery_boundary_findings() -> list[str]:
         return dict(
             identifier=name,
             hardwareProperties=dict(
-                udid=name, deviceType="iPhone", reality=reality, marketingName="iPhone 17"),
+                udid=name, deviceType="iPhone", reality=reality, marketingName="iPhone 17"
+            ),
             connectionProperties=dict(
                 transportType=transport, tunnelState=tunnel, pairingState=pairing
             ),
@@ -36,7 +37,7 @@ def device_discovery_boundary_findings() -> list[str]:
             f"{shlex.quote(requested)}"
             f" || exit 1\n"
         )
-        suffix = ':$BIT101_DEVICE_NAME' if include_name else ''
+        suffix = ":$BIT101_DEVICE_NAME" if include_name else ""
         code += f'print -r -- "$BIT101_XCODE_DEVICE_ID:$BIT101_DEVICETCL_DEVICE_ID{suffix}"\n'
         return subprocess.run(["zsh", "-c", code], capture_output=True, text=True)
 

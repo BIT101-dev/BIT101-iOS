@@ -508,7 +508,7 @@ def verify_batch_result_retention(
         assert (bundle / "Info.plist").is_file() and (bundle / "database.sqlite3").is_file()
         writer.reset_mock()
         assert subject.main(["begin-batch", "append"]) == 0
-        assert subject.main(["retain-batch", "all", "ui", "release-runtime"]) == 0
+        assert subject.main(["retain-batch", "all", "ui"]) == 0
         assert (
             bundle / "database.sqlite3"
         ).read_bytes() == b"firstsecond" and not retained.exists()

@@ -42,10 +42,11 @@ extension FeatureCompositionTests {
             let revision = changes.revision
             PaperRootView(
                 dependencies: dependencies, media: media,
-                onShowFeed: { changes.handledRevision = revision })
-                .onChange(of: revision, initial: true) { _, revision in
-                    changes.renderedRevision = revision
-                }
+                onShowFeed: { changes.handledRevision = revision }
+            )
+            .onChange(of: revision, initial: true) { _, revision in
+                changes.renderedRevision = revision
+            }
         }
     }
 
@@ -106,9 +107,11 @@ extension FeatureCompositionTests {
                 throw error
             }
         }
-        try await host(PaperWithChangingCallback(
-            changes: changes, dependencies: paperDependencies, media: selectedMedia),
-            prepare: { renderedController = $0 }) {
+        try await host(
+            PaperWithChangingCallback(
+                changes: changes, dependencies: paperDependencies, media: selectedMedia),
+            prepare: { renderedController = $0 }
+        ) {
             try await waitForRevision(0)
             #expect(paperService.resourcePublisherRequests == PaperSortOrder.allCases.count)
             for revision in 1...10 {

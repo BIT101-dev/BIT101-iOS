@@ -305,7 +305,9 @@ private struct PaperFeedPage: View {
         guard viewModel.state.status == .loaded else { return nil }
         if let first = viewModel.state.items.first,
             viewModel.previewMetadata(for: first.id) == nil
-        { return nil }
+        {
+            return nil
+        }
         return viewModel.state.items.count
     }
 
@@ -330,7 +332,8 @@ private struct PaperFeedPage: View {
         .appPageSwitch(onStep: onStep)
         .appFirstContent(
             "paper.native.\(viewModel.selectedOrder.requestValue ?? "newest")",
-            count: firstContentCount)
+            count: firstContentCount
+        )
         .accessibilityIdentifier("paper.sort-surface")
 
     }

@@ -51,6 +51,15 @@ def xcode_test_selections(group: str, selections: list[str]) -> list[str]:
     )
 
 
+from validation_inputs import PERFORMANCE_SUITES
+
+
+def simulator_test_inventory(group: str) -> set[str]:
+    return {
+        test for test in test_inventory(group) if test.split("/", 1)[0] not in PERFORMANCE_SUITES
+    }
+
+
 def simulator_test_selection(
     mode: str, scope: str, selections: list[str], shard: str | None
 ) -> tuple[list[str], list[str]]:
@@ -60,12 +69,13 @@ def simulator_test_selection(
         tests = (
             shard_inventory(mode, *map(int, shard.split("/")))
             if scope == "shard" and shard
-            else sorted(test_inventory(mode))
+            else sorted(simulator_test_inventory(mode))
         )
         selections = [normalized_test_id(test) for test in tests]
-    return sorted(selected_test_inventory(mode, selections)), xcode_test_selections(
-        mode, selections
-    )
+    resolved = sorted(selected_test_inventory(mode, selections))
+    if any(test.split("/", 1)[0] in PERFORMANCE_SUITES for test in resolved):
+        raise ValueError("模拟器入口排除性能测试，请在对应实体平台执行。")
+    return resolved, xcode_test_selections(mode, selections)
 
 
 def selected_test_summary_complete(
@@ -429,16 +439,6 @@ def coverage_complete(group: str, summary: dict) -> bool:
     } != set(IOS_MODULE_COVERAGE_FLOORS):
         return False
     coverage = summary.get("coverage", {})
-    if group == "catalyst-release-runtime":
-        for name in ("BIT101-iOS.app", "Catalyst/TransportCore", "Catalyst/StorageCore"):
-            row = coverage.get(name, {})
-            covered, executable = row.get("coveredLines"), row.get("executableLines")
-            if (
-                type(covered) is not int
-                or type(executable) is not int
-                or not 0 < covered <= executable
-            ):
-                return False
     for name, floor in floors.items():
         row = coverage.get(name, {})
         covered, executable = row.get("coveredLines"), row.get("executableLines")
@@ -515,7 +515,7 @@ def append_catalyst_coverage_lines(lines: list[str], report_path: str) -> None:
     if len(profiles) != 1:
         raise SystemExit("Catalyst 覆盖率需要本次运行的唯一采样。")
     modules = native_source_coverage(
-        build / "Products/Release-maccatalyst", profiles[0], catalyst=True
+        build / "Products/Debug-maccatalyst", profiles[0], catalyst=True
     )
     for name, (covered, executable) in sorted(modules.items()):
         if executable:

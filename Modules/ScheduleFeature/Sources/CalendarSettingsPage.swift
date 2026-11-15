@@ -613,7 +613,7 @@ public struct CalendarSettingsPage<PreferenceSyncControls: View>: View {
                 let code = try await viewModel.exportScheduleCode()
                 guard !Task.isCancelled, viewModel.accountGeneration == account else { return }
                 exportedScheduleCode = ExportedScheduleCode(code: code)
-            } catch where TaskCancellation.matches(error) {
+            } catch  where TaskCancellation.matches(error) {
                 return
             } catch {
                 guard !Task.isCancelled, viewModel.accountGeneration == account else { return }

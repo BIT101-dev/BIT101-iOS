@@ -5,54 +5,57 @@ import StorageCore
 /// App 选择凭据后端、学校会话清理和账号存储分区。
 enum AppAccountSession {
     static let storage: LoginStorage = {
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return LoginStorage(
-            defaults: AppFileDirectories.defaults,
-            credentials: AutomatedTestPreferenceCloudStore.shared, clearSchoolCookies: { _ in })
-        #else
-        let service: String
-        let clearSchoolCookies: (SchoolCookieResetReason) -> Void
-        #if BIT101_UI_TESTING
-        if AppFileDirectories.isRunningUITest {
-            service = uiTestKeychainService
-            clearSchoolCookies = { _ in }
-        } else {
-            service = "harrybit.BIT101-iOS.login"
-            clearSchoolCookies = { AppSchoolSession.clearSchoolCookies($0) }
+        #if DEBUG
+        if AppFileDirectories.isRunningIsolatedUnitTest
+            || AppFileDirectories.isRunningIsolatedNetworkSmoke
+        {
+            return LoginStorage(
+                defaults: AppFileDirectories.defaults,
+                credentials: AutomatedTestPreferenceCloudStore.shared,
+                clearSchoolCookies: { _ in })
         }
-        #else
-        service = "harrybit.BIT101-iOS.login"
-        clearSchoolCookies = { AppSchoolSession.clearSchoolCookies($0) }
+        if AppFileDirectories.isRunningUITest {
+            return LoginStorage(
+                defaults: AppFileDirectories.defaults,
+                credentials: KeychainLoginCredentials(service: uiTestKeychainService),
+                clearSchoolCookies: { _ in },
+                requestSchoolPassword: {
+                    try await SchoolPasswordPrompt.shared.requestPassword(studentID: $0)
+                })
+        }
         #endif
         return LoginStorage(
             defaults: AppFileDirectories.defaults,
-            credentials: KeychainLoginCredentials(service: service),
-            clearSchoolCookies: clearSchoolCookies,
+            credentials: KeychainLoginCredentials(service: "harrybit.BIT101-iOS.login"),
+            clearSchoolCookies: { AppSchoolSession.clearSchoolCookies($0) },
             requestSchoolPassword: {
                 try await SchoolPasswordPrompt.shared.requestPassword(studentID: $0)
             })
-        #endif
     }()
 
     static var currentSession: AppStorageSession {
         let studentID = storage.currentStudentID
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return AppStorageSession(
-            accountIdentifier: "__automated_tests__.\(studentID.isEmpty ? "guest" : studentID)")
-        #else
-        #if BIT101_UI_TESTING
+        #if DEBUG
+        if AppFileDirectories.isRunningIsolatedUnitTest {
+            return AppStorageSession(
+                accountIdentifier:
+                    "__automated_tests__.\(studentID.isEmpty ? "guest" : studentID)")
+        }
         if AppFileDirectories.isRunningUITest {
             let account = studentID.isEmpty ? "guest" : studentID
             return AppStorageSession(
                 accountIdentifier:
                     "__ui_tests__.\(AppFileDirectories.uiTestRunIdentifier).\(account)")
         }
+        if AppFileDirectories.isRunningIsolatedNetworkSmoke {
+            let account = studentID.isEmpty ? "guest" : studentID
+            return AppStorageSession(accountIdentifier: "__network_smoke__.\(account)")
+        }
         #endif
         return AppStorageSession(accountIdentifier: studentID)
-        #endif
     }
 
-    #if BIT101_UI_TESTING
+    #if DEBUG
     private static var uiTestKeychainService: String {
         "harrybit.BIT101-iOS.ui-tests.\(AppFileDirectories.uiTestRunIdentifier)"
     }
@@ -64,7 +67,7 @@ enum AppAccountSession {
     #endif
 }
 
-#if BIT101_AUTOMATED_TESTING
+#if DEBUG
 @MainActor
 final class AutomatedTestPreferenceCloudStore: PreferenceCloudStoring, LoginCredentialsStoring {
     static let shared = AutomatedTestPreferenceCloudStore()

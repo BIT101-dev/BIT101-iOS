@@ -161,13 +161,13 @@ def callable_network_api_self_test(rules: dict) -> None:
                 "TTPResponse { try await http.send(request) } }"
             )
         )
-        for selected_path, guarded, exempt in (
-            (harness_path, True, True),
-            (harness_path, False, False),
-            ("BIT101-iOS/Shared/Client/OtherService.swift", True, False),
-            (path, True, False),
+        for selected_path, guard, exempt in (
+            (harness_path, "#if DEBUG", True),
+            (harness_path, None, False),
+            ("BIT101-iOS/Shared/Client/OtherService.swift", "#if !DEBUG", False),
+            (path, "#if os(iOS)", False),
         ):
-            source = "#if DEBUG || RELEASE_NETWORK_SMOKE\n" + body + "\n#endif" if guarded else body
+            source = f"{guard}\n{body}\n#endif" if guard else body
             index = rules["swift_syntax_index_sources"](
                 {
                     selected_path: source,
@@ -177,7 +177,7 @@ def callable_network_api_self_test(rules: dict) -> None:
             assert bool(business_methods(index)) != exempt, (
                 owner,
                 selected_path,
-                guarded,
+                guard,
                 business_methods(index),
             )
 

@@ -72,15 +72,16 @@ def format_swift(paths: list[str]) -> None:
     sources = {name: (ROOT / name).read_text() for name in paths}
     facts = swift_syntax_index_sources(sources)
     changed = {
-        name: wrapped for name, source in sources.items()
+        name: wrapped
+        for name, source in sources.items()
         if (wrapped := wrap_swift_literals(source, facts[name])) != source
     }
     verified = swift_syntax_index_sources(changed) if changed else {}
     for name, source in changed.items():
-        before = [literal.get('value') for literal in facts[name]['styleLiterals']]
-        after = [literal.get('value') for literal in verified[name]['styleLiterals']]
-        if before != after or verified[name]['hasParseErrors']:
-            raise ValueError(f'{name}: 字符串排版改变了字面值或语法')
+        before = [literal.get("value") for literal in facts[name]["styleLiterals"]]
+        after = [literal.get("value") for literal in verified[name]["styleLiterals"]]
+        if before != after or verified[name]["hasParseErrors"]:
+            raise ValueError(f"{name}: 字符串排版改变了字面值或语法")
         (ROOT / name).write_text(source)
 
 

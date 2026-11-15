@@ -107,9 +107,8 @@ def privacy_manifest(bundle: Path) -> dict:
 
 
 def production_build_metadata(application: Path, info: dict) -> dict:
-    conditions = info.get("BIT101WorkflowConditions")
-    if not isinstance(conditions, str) or conditions.split():
-        raise ValueError("正式产物需要空工作流编译条件")
+    if "BIT101WorkflowConditions" in info:
+        raise ValueError("正式产物不包含工作流编译条件字段")
     binary = (application / info["CFBundleExecutable"]).read_bytes()
     markers = [
         marker
@@ -117,6 +116,8 @@ def production_build_metadata(application: Path, info: dict) -> dict:
             "behavior-test-host",
             "release-network-smoke-host",
             "icloud-cross-device-smoke-host",
+            "UITestControlServer",
+            "BIT101_UI_TEST_CONTROL_PORT",
             "The UI automation App requires its isolated launch configuration",
         )
         if marker.encode() in binary

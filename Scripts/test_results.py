@@ -5,7 +5,10 @@ import sys
 from pathlib import Path
 from validation_artifacts import clear_diagnostic_exports
 from test_module_metrics import (
-    export_module_metrics, module_result, native_test_timings, report_ui_timings,
+    export_module_metrics,
+    module_result,
+    native_test_timings,
+    report_ui_timings,
 )
 from validation_result_readers import (
     append_catalyst_coverage_lines,
@@ -81,9 +84,10 @@ def report_test_results(arguments: list[str]) -> None:
         sys.path.insert(0, cli_arguments[4])
         from validation_provenance import complete_group_row
         from validation_evidence import REPORT
+        from validation_inputs import PERFORMANCE_GROUPS
 
         report = json.loads(REPORT.read_text())
-        for group in ("all", "ui"):
+        for group in PERFORMANCE_GROUPS:
             row = complete_group_row(report.get("groups", {}).get(group, {}))
             for name, record in row.get("performance", {}).get("records", {}).items():
                 print(
@@ -232,7 +236,7 @@ def simulator_plan(products: Path, scheme: str) -> Path:
 def ui_host_product_paths(products: Path) -> list[Path]:
     import plistlib
 
-    plan = simulator_plan(products, "BIT101-iOS-UIAutomation")
+    plan = simulator_plan(products, "BIT101-iOS")
     paths = {plan}
 
     def visit(value, key=""):
@@ -287,7 +291,7 @@ def ui_test_plan(arguments: list[str]) -> None:
     from pathlib import Path
 
     products = Path(cli_arguments[1])
-    plans = list(products.glob("BIT101-iOS-UIAutomation_*_iphoneos*.xctestrun"))
+    plans = list(products.glob("BIT101-iOS_*iphoneos*.xctestrun"))
     if not plans:
         raise SystemExit("UI 宿主编译产物需要包含 .xctestrun 运行配置。")
     plan = max(plans, key=lambda path: path.stat().st_mtime)
@@ -494,7 +498,7 @@ def record_native_metrics(arguments: list[str]) -> None:
 
     result_bundle, report_path, mode, elapsed_seconds, device_id, root = cli_arguments[1:]
     performance_only = os.environ.get("BIT101_TEST_PERFORMANCE_ONLY") == "1"
-    if mode in {"catalyst", "catalyst-release-runtime"}:
+    if mode == "catalyst":
         device_id = ""
     sys.path.insert(0, str(Path(root) / "Scripts"))
     from validation_evidence import validate_community_write_test_output
@@ -524,7 +528,7 @@ def record_native_metrics(arguments: list[str]) -> None:
 
     coverage = None
     coverage_error = None
-    if not performance_only and mode not in {"catalyst", "catalyst-release-runtime"}:
+    if not performance_only and mode != "catalyst":
         coverage_result = subprocess.run(
             [
                 "xcrun",
@@ -573,7 +577,7 @@ def record_native_metrics(arguments: list[str]) -> None:
     elif coverage is None or mode == "ui":
         if mode == "ui":
             append_ui_interaction_report_lines(lines, result_bundle, summary, report_path)
-        elif mode in {"catalyst", "catalyst-release-runtime"}:
+        elif mode == "catalyst":
             append_catalyst_coverage_lines(lines, report_path)
         else:
             lines.append("设备测试汇总已采集；Xcode 覆盖率归档诊断如下。")
@@ -583,10 +587,17 @@ def record_native_metrics(arguments: list[str]) -> None:
 
     test_tree = read_test_tree(result_bundle)
     durations, executed = native_test_timings(test_tree)
-    if performance_only and summary.get("result") == "Passed" and (
-        not executed or any(
-            not name.startswith(("MaintenancePerformanceTests/", "MaintenancePerformanceUITests/"))
-            for name in executed
+    if (
+        performance_only
+        and summary.get("result") == "Passed"
+        and (
+            not executed
+            or any(
+                not name.startswith(
+                    ("MaintenancePerformanceTests/", "MaintenancePerformanceUITests/")
+                )
+                for name in executed
+            )
         )
     ):
         raise SystemExit("性能专项只接受性能测试用例。")
@@ -605,8 +616,6 @@ def record_native_metrics(arguments: list[str]) -> None:
                 in {
                     "ui",
                     "catalyst",
-                    "catalyst-release-runtime",
-                    "release-runtime",
                     "network-smoke",
                 }
                 else "all",
@@ -633,10 +642,7 @@ def record_native_metrics(arguments: list[str]) -> None:
     report = "\n".join(lines) + "\n"
     Path(report_path).write_text(report, encoding="utf-8")
     print(lines[4])
-    if (
-        not performance_only and mode not in {"catalyst", "catalyst-release-runtime"}
-        and coverage is None
-    ):
+    if not performance_only and mode != "catalyst" and coverage is None:
         if coverage_error:
             print(coverage_error)
         raise SystemExit("覆盖率采集失败。")
@@ -693,7 +699,7 @@ def append_native_coverage_lines(coverage, device_id, lines, report_path, root):
 
         build = Path(report_path).parent / "Build"
         ios_modules = native_source_coverage(
-            build / "Products/Release-iphoneos",
+            build / "Products/Debug-iphoneos",
             build / "ProfileData" / device_id / "Coverage.profdata",
             include_app=True,
         )

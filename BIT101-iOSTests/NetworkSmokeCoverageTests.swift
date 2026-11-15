@@ -475,7 +475,10 @@ struct NetworkSmokeCoverageTests {
             let root = try #require(controller?.view)
             #expect(galleryWebView(in: root) == nil)
             request.id = 1
-            try await waitForTestEvent { galleryWebView(in: root) != nil }
+            try await waitForTestEvent {
+                root.layoutIfNeeded()
+                return galleryWebView(in: root) != nil
+            }
             let webView = try #require(galleryWebView(in: root))
             webView.stopLoading()
             request.id = nil

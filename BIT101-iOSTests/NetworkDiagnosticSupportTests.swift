@@ -20,7 +20,7 @@ import os
 @testable import ScheduleInfrastructure
 @testable import ScoreInfrastructure
 
-#if EXTENDED_AUTOMATION
+#if DEBUG
 
 @Suite("Network diagnostic utility contracts")
 struct NetworkDiagnosticSupportTests {

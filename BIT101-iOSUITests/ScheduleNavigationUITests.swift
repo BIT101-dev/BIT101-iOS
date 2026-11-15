@@ -113,11 +113,14 @@ nonisolated final class ScheduleNavigationUITests: UIAutomationTestCase {
         revealBrowserAction("导航到下一节课").tapBriefly()
         let maps = XCUIApplication(bundleIdentifier: "com.apple.Maps")
         assertUI(maps.wait(for: .runningForeground, timeout: 10), "下一节导航应交给系统地图。")
+        #if !targetEnvironment(macCatalyst)
         XCUIDevice.shared.press(.home)
+        #endif
         assertUI(
-            waitUntil(NSPredicate { _, _ in
-                [.runningBackground, .runningBackgroundSuspended].contains(maps.state)
-            }, on: app), "返回 App 前系统地图应完成后台切换。")
+            waitUntil(
+                NSPredicate { _, _ in
+                    [.runningBackground, .runningBackgroundSuspended].contains(maps.state)
+                }, on: app), "返回 App 前系统地图应完成后台切换。")
         app.activate()
         assertUI(location.appears(timeout: 5), "从系统地图返回应恢复地图控件。")
     }
@@ -453,13 +456,19 @@ extension UIAutomationTestCase {
         dismissNotificationBanner()
         let sheet = app.navigationBars["UIActivityContentView"]
         assertUI(sheet.appears(timeout: 30), "分享入口应打开系统分享面板。")
+        let close = app.buttons.matching(
+            NSPredicate(
+                format: "identifier == 'header.closeButton' OR label IN %@", ["关闭", "Close"])
+        ).firstMatch
         let dismissRegion = app.otherElements.matching(identifier: "PopoverDismissRegion")
             .firstMatch
-        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["关闭", "Close"]))
-            .firstMatch
-        let popover = app.popovers.firstMatch
-        if dismissRegion.exists, popover.exists {
-            dismissSystemPopover(popover)
+        let sheetPopover = app.popovers.containing(
+            .navigationBar, identifier: "UIActivityContentView"
+        ).firstMatch
+        if close.appears(timeout: 3) {
+            close.tapBriefly()
+        } else if dismissRegion.exists, sheetPopover.exists {
+            dismissSystemPopover(sheetPopover)
         } else {
             assertUI(close.appears(timeout: 5), "分享面板应提供关闭控件。")
             close.tapBriefly()

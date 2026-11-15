@@ -14,8 +14,8 @@ SWIFT_SYNTAX_SOURCE_NAMES = (
     "SwiftSyntaxFacts.swift",
     "SwiftStyleFacts.swift",
 )
-SIMULATOR_SHARDS = {"all": 1, "ui": 3, "release-runtime": 1}
-SIMULATOR_WORKERS = {"app": 1, "ui": 1, "release-runtime": 1}
+SIMULATOR_SHARDS = {"all": 1, "ui": 3}
+SIMULATOR_WORKERS = {"app": 1, "ui": 1}
 UI_WORKFLOW_TIMEOUT_SECONDS = 60 * 60
 
 MAXIMUM_ATTACHMENT_BYTES = 32 * 1024 * 1024
@@ -28,17 +28,15 @@ MEDIA_PROBE_TIMEOUT_SECONDS = 30
 
 APP_TEST_GROUPS = {
     "all",
-    "release-runtime",
     "network-smoke",
     "catalyst",
-    "catalyst-release-runtime",
     "schedule",
     "infrastructure",
     "login",
     "extensions",
 }
 TEST_GROUPS = APP_TEST_GROUPS | {"modules", "ui"}
-CORE_GROUPS = {"all", "release-runtime", "ui", "restore"}
+CORE_GROUPS = {"all", "ui", "restore"}
 NETWORK_GROUPS = {"network", "ddl", "school-sms", "community-writes", "community-cleanup"}
 SCHOOL_SMS_PROBES = {
     "webvpn": {
@@ -62,9 +60,7 @@ SCHOOL_SMS_PROBES = {
 RELEASE_GROUPS = {
     "modules",
     "all",
-    "release-runtime",
     "catalyst",
-    "catalyst-release-runtime",
     "ui",
     "network",
     "school-sms",
@@ -76,21 +72,14 @@ RELEASE_GROUPS = {
     "community-writes",
 }
 BUILD_HOSTS = {
-    "release",
-    "release-runtime",
-    "ui",
-    "network-smoke",
-    "icloud-smoke",
+    "all",
     "modules",
     "catalyst",
-    "catalyst-release-runtime",
 }
 VERIFY_GROUPS = (
     "modules",
     "all",
-    "release-runtime",
     "catalyst",
-    "catalyst-release-runtime",
     "ui",
     "network",
     "community-writes",
@@ -129,7 +118,7 @@ def workflow_budget_self_test() -> None:
     for groups, expected in (
         (("ui",), 60 * 60),
         (("ui", "ui"), 60 * 60),
-        (("all", "release-runtime", "ui"), 155 * 60),
+        (("all", "ui"), 110 * 60),
     ):
         environment = dict(os.environ)
         environment.pop("BIT101_WORKFLOW_TIMEOUT_SECONDS", None)
@@ -162,34 +151,22 @@ def workflow_budget_self_test() -> None:
 
 def workflow_conditions(group: str) -> tuple[str, ...]:
     group = group.removeprefix("build-")
-    group = {"network-smoke": "network", "icloud-smoke": "icloud", "icloud-cleanup": "icloud"}.get(
-        group, group
-    )
-    if group in {"all", "catalyst", "schedule", "infrastructure", "login", "extensions"}:
-        return ("DEBUG", "EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING")
-    if group == "ui":
-        return ("EXTENDED_AUTOMATION", "BIT101_AUTOMATED_TESTING", "BIT101_UI_TESTING")
-    if group in NETWORK_GROUPS:
-        return ("RELEASE_NETWORK_SMOKE",)
-    if group == "icloud":
-        return ("DEBUG", "ICLOUD_CROSS_DEVICE_SMOKE")
+    if group in {
+        "all",
+        "catalyst",
+        "schedule",
+        "infrastructure",
+        "login",
+        "extensions",
+        "ui",
+        "icloud",
+        "icloud-smoke",
+        "icloud-cleanup",
+        "network-smoke",
+        *NETWORK_GROUPS,
+    }:
+        return ("DEBUG",)
     return ()
-
-
-FORMAL_RUNTIME_SUITES = {
-    "ReleaseRuntimeContractTests",
-    "CommunitySessionRecoveryTests",
-    "ExtendedLoginTests",
-    "LoginStorageTests",
-    "LoginBootstrapTests",
-    "NetworkClientTests",
-    "FeatureCompositionTests",
-    "CommunityRecoveryCompositionTests",
-    "ExperimentalPreferenceCloudSyncTests",
-    "AppExternalDisplayTests",
-    "ReminderContextTests",
-    "ScheduleModuleBoundaryTests",
-}
 APP_COVERAGE_FLOOR = 35
 MODULE_COVERAGE_FLOORS = {
     "ClientCore": 63,
@@ -353,7 +330,6 @@ CAPABILITY_CONTRACTS = {
     },
     "BIT101-iOS.FeedbackSubmissionClient": {
         "static submit(:Payload)": ("feedback-delivery", "delivery"),
-        "static submitNetworkSmoke(runID:String)": "network",
     },
     "BIT101-iOS.NetworkDiagnosisRunner": {"run()": ("web-interactions", "network-diagnosis")},
     "BIT101-iOS.AppUpdatePromptCoordinator": {
@@ -426,8 +402,7 @@ CAPABILITY_CONTRACTS = {
         "updateUIView(:UIView,context:Context)": ("web-interactions", "gallery-account-switch"),
     },
     "GalleryFeature@Modules/GalleryFeature/Sources/GalleryRootView.swift.GalleryWebView": {
-        "updateUIView(:GalleryWebContainer,context:Context)": (
-            "web-interactions", "gallery-login"),
+        "updateUIView(:GalleryWebContainer,context:Context)": ("web-interactions", "gallery-login"),
     },
     "CourseFeature.CourseService": {
         "fetchCourses(search:String,page:Int)": "network",

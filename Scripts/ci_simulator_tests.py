@@ -15,8 +15,6 @@ from unittest.mock import patch
 
 
 def simulator_shard_artifact(group: str, index: int) -> str:
-    if group == "release-runtime":
-        return "validation-ios-app-tests"
     shard_group = "app" if group == "all" else group
     return f"validation-ios-test-shards-{shard_group}-{index}"
 
@@ -61,7 +59,6 @@ class SimulatorAcceptanceState:
         self.result_file = work / "ci-validation-result.json"
         self.inventory = {
             "all": ["AppFixture/testBehavior"],
-            "release-runtime": ["RuntimeFixture/testComposition"],
         }
         self.cases = {name: 1 for names in self.inventory.values() for name in names}
         self.lines = {
@@ -230,12 +227,11 @@ class SimulatorAcceptanceState:
             for replacement in self.patches(context, environment_fixture):
                 stack.enter_context(replacement)
             self.check_shard_production()
-            self.check_full_runtime_selection()
             merged = self.check_merge_and_export()
             self.check_rejected_results(merged)
 
     def check_shard_production(self):
-        for group, count in (("all", 1), ("release-runtime", 1)):
+        for group, count in (("all", 1),):
             for index in range(count):
                 output = StringIO()
                 with (
@@ -248,7 +244,7 @@ class SimulatorAcceptanceState:
                     exec(compile(self.selector, "<simulator-selector>", "exec"), {})
                 scope, encoded, *selectors = output.getvalue().splitlines()
                 expected = json.loads(encoded)
-                assert scope == ("full" if group == "release-runtime" else "shard")
+                assert scope == "shard"
                 assert expected == self.selected(group, index, count) and selectors == [
                     name + "()" for name in expected
                 ]
@@ -274,25 +270,6 @@ class SimulatorAcceptanceState:
                 assert self.METADATA_PREFIX in self.files[self.metrics]
                 artifact = simulator_shard_artifact(group, index)
                 self.artifacts[artifact] = self.files[self.metrics], self.current_tree
-
-    def check_full_runtime_selection(self):
-        with patch(
-            "validation_coverage.shard_inventory",
-            side_effect=AssertionError("完整范围沿全部库存选择。"),
-        ):
-            output = StringIO()
-            with (
-                patch.object(
-                    sys,
-                    "argv",
-                    ["selector", str(Path(self.ci.__file__).parent), "release-runtime", "full"],
-                ),
-                patch.dict(os.environ, BIT101_CI_SHARD="1/2"),
-                redirect_stdout(output),
-            ):
-                exec(compile(self.selector, "<simulator-runtime-selector>", "exec"), {})
-            scope, encoded, *_ = output.getvalue().splitlines()
-            assert scope == "full" and json.loads(encoded) == self.inventory["release-runtime"]
 
     def check_merge_and_export(self):
         for suffix in (".retained.xcresult", ".incoming.xcresult"):
@@ -331,7 +308,7 @@ class SimulatorAcceptanceState:
 
     def check_rejected_results(self, merged):
         for scope, field, value in (
-            ("release-runtime", "identity", {}),
+            ("all", "identity", {}),
             ("all", "environment", {}),
             ("all", "summary", {}),
         ):
@@ -343,7 +320,7 @@ class SimulatorAcceptanceState:
             except ValueError:
                 pass
             else:
-                raise AssertionError("完整模拟器结果需要正式组合、库存、来源与生产环境。")
+                raise AssertionError("完整模拟器结果需要库存、来源与生产环境。")
         invalid = deepcopy(merged)
         invalid["simulatorResults"]["all"]["summary"]["coverage"]["BIT101-iOS.app"][
             "coveredLines"
@@ -364,16 +341,6 @@ class SimulatorAcceptanceState:
         else:
             raise AssertionError("完整通过的当前分组生成成功记录。")
         self.plan["jobs"]["app"]["execute"] = True
-        self.artifacts["validation-ios-app-tests"] = (
-            self.files[self.metrics],
-            self.tree("release-runtime", self.inventory["release-runtime"]),
-        )
-        try:
-            self.ci.merge_simulator_ci()
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("正式组合产物需要自己的生产记录。")
 
 
 def runtime_maintenance_self_test() -> None:

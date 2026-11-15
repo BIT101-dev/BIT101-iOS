@@ -159,14 +159,13 @@ def verify_simulator() -> int:
 
     environment = dict(
         os.environ,
-        BIT101_DEFER_APP_RESTORE="1",
         BIT101_VALIDATION_RESULT_BATCH_HELD="1",
-        BIT101_SIMULATOR_PREPARE_RESTORE="1",
     )
     started = float(environment.get("BIT101_WORKFLOW_STARTED_AT", time.monotonic()))
 
-    def run(*arguments):
-        return subprocess.run(arguments, cwd=ROOT, env=environment).returncode
+    def run(*arguments, extra_env=None):
+        run_env = dict(environment, **(extra_env or {}))
+        return subprocess.run(arguments, cwd=ROOT, env=run_env).returncode
 
     status = run("Scripts/run-static-audit.sh", "prepare")
     audit = None
@@ -185,7 +184,6 @@ def verify_simulator() -> int:
             status = run("Scripts/run-extended-tests.sh", "modules")
         for operation, group in [
             ("app", "all"),
-            ("release-runtime", "release-runtime"),
             ("ui", "ui"),
         ]:
             if status:
@@ -199,20 +197,21 @@ def verify_simulator() -> int:
             )
             if status:
                 break
-            status = run("Scripts/run-extended-tests.sh", "simulator", operation)
+            extra_env = {"BIT101_REUSE_UI_HOST": "1"} if operation == "ui" and completed else None
+            status = run(
+                "Scripts/run-extended-tests.sh", "simulator", operation, extra_env=extra_env
+            )
             completed.append(group)
             retained = run(
                 "python3", "-B", "Scripts/validation_performance.py", "retain-batch", *completed
             )
             status = status or retained
     finally:
-        restored = run("Scripts/run-extended-tests.sh", "simulator", "restore")
-        status = status or restored
         if audit is not None:
             audited = audit.wait()
             status = status or audited
         print(
-            f"[完整验证总耗时] {time.monotonic() - started:.1f} 秒（含等待、编译、测试、汇总及常规 App 恢复）",
+            f"[完整验证总耗时] {time.monotonic() - started:.1f} 秒（含等待、编译、测试及汇总）",
             flush=True,
         )
     return status
@@ -232,7 +231,7 @@ def simulator_verification_self_test() -> None:
         ("Scripts/run-extended-tests.sh", "modules"),
         *[
             ("Scripts/run-extended-tests.sh", "simulator", mode)
-            for mode in ("app", "release-runtime", "ui", "restore")
+            for mode in ("app", "ui")
         ],
         ("python3", "-B", "Scripts/validation_performance.py", "begin-batch", "append"),
         ("python3", "-B", "Scripts/validation_performance.py", "retain-batch", "all"),
@@ -243,9 +242,9 @@ def simulator_verification_self_test() -> None:
 
         def run(arguments, **kwargs):
             events.append(tuple(arguments))
-            assert kwargs["env"]["BIT101_DEFER_APP_RESTORE"] == "1"
             assert kwargs["env"]["BIT101_VALIDATION_RESULT_BATCH_HELD"] == "1"
-            assert kwargs["env"]["BIT101_SIMULATOR_PREPARE_RESTORE"] == "1"
+            if tuple(arguments) == ("Scripts/run-extended-tests.sh", "simulator", "ui"):
+                assert kwargs["env"]["BIT101_REUSE_UI_HOST"] == "1"
             return SimpleNamespace(returncode=7 if tuple(arguments) == failure else 0)
 
         def launch(arguments, **kwargs):
@@ -268,10 +267,7 @@ def simulator_verification_self_test() -> None:
             redirect_stdout(output := StringIO()),
         ):
             assert verify_simulator() == (7 if failure else 0), failure
-        restore = ("Scripts/run-extended-tests.sh", "simulator", "restore")
-        assert events.count(restore) == 1 and "17.0 秒" in output.getvalue()
-        if "audit" in events:
-            assert events.index(restore) < events.index(("wait", "audit"))
+        assert "17.0 秒" in output.getvalue()
         if failure is None:
             native = [
                 row[-1]
@@ -279,179 +275,28 @@ def simulator_verification_self_test() -> None:
                 if isinstance(row, tuple)
                 and row[:2] == ("Scripts/run-extended-tests.sh", "simulator")
             ]
-            assert native == ["prepare", "app", "release-runtime", "ui", "restore"]
+            assert native == ["prepare", "app", "ui"]
 
 
 def simulator_restore_findings(simulator_source: str) -> list[str]:
-    import os
-    import sys
-    from unittest.mock import patch
-    from contextlib import redirect_stderr
-    from io import StringIO
-    from script_test_support import heredoc_body
-
-    SCRIPT_ROOT = ROOT / "Scripts"
     findings = simulator_startup_findings(simulator_source)
     simulator_verification_self_test()
-    restoration = (
-        "restore_application() {"
-        + simulator_source.split("restore_application() {", 1)[1].split(
-            'if [[ "$operation" == restore ||', 1
-        )[0]
+    exit_hook = (
+        "restore_on_exit() {"
+        + simulator_source.split("restore_on_exit() {", 1)[1].split("\nmode=all", 1)[0]
     )
-    simulator_restore_preparation_findings(findings, restoration, simulator_source)
-    stub = (
-        "ROOT_DIR=/fixture\npython3() { print digest; }\nbit101_run_logged() { print RESTORE; if ["
-        '[ "$2" == "常规模拟器包编译" && ( " $* " != *" ENABLE_TESTABILITY=YES "* || " $* " != *" ONLY_ACT'
-        'IVE_ARCH=YES "* || " $* " != *" -derivedDataPath /fixture/build/DeviceInstall "* ) ]]; th'
-        "en return 64; fi; return $probe_restore_status; }\n"
-    )
-    for original, restore_result in ((0, 0), (7, 0), (0, 9), (7, 9)):
+    for original, retain_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
+        harness = (
+            "ROOT_DIR=/fixture\nretained_result_groups=(all)\n"
+            f'python3() {{ print -r -- "RETAIN $*"; return {retain_status}; }}\n'
+        )
         result = subprocess.run(
-            [
-                "zsh",
-                "-c",
-                f"probe_restore_status={restore_result}\n"
-                + stub
-                + restoration
-                + '\ntrap restore_on_exit EXIT\nexit "$1"',
-                "simulator-restore-test",
-                str(original),
-            ],
-            env=dict(os.environ, GITHUB_ACTIONS="false", BIT101_DEFER_APP_RESTORE="0"),
+            ["zsh", "-c", harness + exit_hook + f"\ntrap restore_on_exit EXIT\nexit {original}"],
             capture_output=True,
             text=True,
         )
-        if result.returncode != (original or restore_result) or result.stdout.count("RESTORE") != (
-            1 if restore_result else 2
-        ):
-            findings.append("模拟器恢复自测：退出时恢复常规包并保留测试失败状态")
-    result = subprocess.run(
-        [
-            "zsh",
-            "-c",
-            "operation=prepare-restore probe_restore_status=0\n"
-            + stub
-            + restoration
-            + "\nrestore_application",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode or result.stdout.count("RESTORE") != 1:
-        findings.append("模拟器恢复准备自测：生产构建目录完成主机编译后交回设备操作")
-    for hosted, deferred in ((True, False), (False, True)):
-        for original in (0, 7):
-            result = subprocess.run(
-                [
-                    "zsh",
-                    "-c",
-                    "bit101_run_logged() { print UNEXPECTED; return 99; }\n"
-                    + restoration
-                    + '\ntrap restore_on_exit EXIT\nexit "$1"',
-                    "simulator-deferred-test",
-                    str(original),
-                ],
-                env=dict(
-                    os.environ,
-                    GITHUB_ACTIONS=str(hosted).lower(),
-                    RUNNER_ENVIRONMENT="github-hosted",
-                    BIT101_DEFER_APP_RESTORE="1" if deferred else "0",
-                ),
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != original or "UNEXPECTED" in result.stdout:
-                findings.append("聚合与托管模拟器退出自测：外层恢复或运行器回收并保留测试失败状态")
-    restoration_program = heredoc_body(simulator_source, "PYRESTORE")
-    from datetime import datetime, timezone
-    from types import SimpleNamespace
-    import uuid
-
-    restore_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
-    app_info = dict(
-        CFBundleExecutable="App",
-        CFBundleIdentifier="app",
-        CFBundleShortVersionString="1",
-        CFBundleVersion="1",
-        BIT101RestoreInputDigest="a" * 64,
-    )
-    ready = dict(
-        schemaVersion=1,
-        runID=str(restore_id),
-        inputDigest="a" * 64,
-        processIdentifier=123,
-        bundleIdentifier="app",
-        version="1",
-        build="1",
-        initialized=True,
-        sessionRecovered=True,
-        active=True,
-        readyAt=datetime.now(timezone.utc).isoformat(),
-    )
-    for exited, change, expected in (
-        (False, {}, ""),
-        (True, {}, "就绪前退出"),
-        (False, {"processIdentifier": 124}, "就绪验收超时"),
-        (False, {"sessionRecovered": False}, "就绪验收超时"),
-        (False, {"active": False}, "就绪验收超时"),
-        (False, {"inputDigest": "b" * 64}, "就绪验收超时"),
-    ):
-
-        def run_command(command, **kwargs):
-            return SimpleNamespace(
-                returncode=int(exited and command[0] == "/bin/kill"), stdout="app: 123"
-            )
-
-        def command_output(command, **kwargs):
-            if command[1:4] == ["simctl", "list", "devices"]:
-                return json.dumps(
-                    {"devices": {"runtime": [{"udid": "device", "state": "Shutdown"}]}}
-                )
-            return "/fixture/container"
-
-        with (
-            patch.object(
-                sys,
-                "argv",
-                [
-                    "restore",
-                    "device",
-                    "/fixture/App",
-                    str(SCRIPT_ROOT),
-                    "a" * 64,
-                    "/fixture/screenshot.png",
-                ],
-            ),
-            patch.object(subprocess, "run", side_effect=run_command),
-            patch.object(subprocess, "check_output", side_effect=command_output),
-            patch.object(
-                Path,
-                "read_bytes",
-                lambda path: plistlib.dumps(app_info) if path.name == "Info.plist" else b"app",
-            ),
-            patch.object(Path, "read_text", return_value=json.dumps(dict(ready, **change))),
-            patch.object(Path, "is_file", return_value=True),
-            patch.object(Path, "unlink"),
-            patch("validation_restore.simulator_startup_diagnostics") as diagnosed,
-            patch("time.monotonic", side_effect=[0, 0, 61]),
-            patch("time.sleep"),
-            patch("uuid.uuid4", return_value=restore_id),
-            redirect_stderr(diagnostics := StringIO()),
-        ):
-            try:
-                exec(compile(restoration_program, "<simulator-restore>", "exec"), {})
-                outcome = ""
-            except SystemExit as error:
-                outcome = str(error.code)
-            if (
-                expected not in outcome
-                or bool(expected) != bool(outcome)
-                or diagnosed.called != bool(expected)
-                or expected == "就绪验收超时"
-                and json.loads(diagnostics.getvalue())["readiness"] != dict(ready, **change)
-            ):
-                findings.append("模拟器恢复自测：实际进程、会话恢复和编译输入共同参与就绪验收")
+        if result.returncode != (retain_status or original) or "RETAIN" not in result.stdout:
+            findings.append("模拟器退出自测：退出钩子汇总已保留证据并传播失败状态")
     return findings
 
 
@@ -575,7 +420,6 @@ def simulator_startup_findings(source: str) -> list[str]:
             findings.append("模拟器选择自测：已启动库存设备保持运行")
     for hosted, operation in (
         ("true", "app"),
-        ("true", "release-runtime"),
         ("true", "ui"),
         ("false", "ui"),
     ):
@@ -621,14 +465,14 @@ def simulator_startup_findings(source: str) -> list[str]:
     log_root.mkdir(parents=True, exist_ok=True)
     try:
         for hosted in ("true", "false"):
-            for operation in ("app", "release-runtime", "ui"):
+            for operation in ("app", "ui"):
                 for build_status, ready_status in ((0, 0), (7, 0), (0, 9), (7, 9)):
                     harness = (
                         f'set -euo pipefail\n    exec 3>&1\n    ROOT_DIR=/fixture DERIVED_ROOT="'
                         f"{log_root}"
                         f'" SIMULATOR_DEVICE=device mode='
                         f"{operation}"
-                        f" scheme=scheme configuration=Release destination=target conditions= GI"
+                        f" scheme=scheme configuration=Debug destination=target conditions= GI"
                         f"THUB_ACTIONS="
                         f"{hosted}"
                         f" BIT101_REUSE_UI_HOST=0\n    only_testing=()\n    bit101_run_logged() "
@@ -863,7 +707,12 @@ def simulator_operation_startup_findings(device_program, runtime):
     }
     findings = []
     for hosted in ("true", "false"):
-        for operation in ("prepare", "prepare-restore", "build-ui", "app", "release-runtime", "ui"):
+        operations = (
+            ("prepare", "build-ui", "app", "ui")
+            if hosted == "true"
+            else ("prepare", "build-ui", "app", "ui", "preview")
+        )
+        for operation in operations:
             commands = []
             with (
                 patch.dict(
@@ -887,79 +736,19 @@ def simulator_operation_startup_findings(device_program, runtime):
                 redirect_stdout(StringIO()),
             ):
                 run_simulator_device_program(device_program)
-            expected = (
-                [["xcrun", "simctl", "boot", "device"]]
-                if hosted == "true" and operation == "prepare"
-                else []
-            )
-            if hosted == "false" and operation not in {"prepare-restore", "build-ui"}:
+            boot_hosted = hosted == "true" and operation == "prepare"
+            expected = [["xcrun", "simctl", "boot", "device"]] if boot_hosted else []
+            if hosted == "false" and operation != "build-ui":
+                hub = "/fixture/Xcode.app/Contents/Applications/DeviceHub.app"
                 expected = [
                     ["xcrun", "simctl", "boot", "device"],
                     ["xcrun", "simctl", "bootstatus", "device", "-b"],
-                    ["open", "-a", "/fixture/Xcode.app/Contents/Applications/DeviceHub.app"],
-                ]
+                ] + ([["open", "-a", hub]] if operation == "preview" else [])
             if commands != expected:
                 findings.append(
                     "模拟器启动自测：托管准备请求启动，完整系统与本机初始化沿实际执行核对"
                 )
     return findings
-
-
-def simulator_restore_preparation_findings(findings, restoration, simulator_source):
-    import os
-
-    launch = (
-        "simulator_restore_prepare_pid=\n"
-        + simulator_source.split("simulator_restore_prepare_pid=\n", 1)[1].split(
-            '\nif [[ "$mode" == ui', 1
-        )[0]
-    )
-    launch = launch.replace(
-        '"$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore', "preparation_probe"
-    )
-    if simulator_source.index("simulator_restore_prepare_pid=\n") < simulator_source.index(
-        "xcodebuild build-for-testing"
-    ):
-        findings.append("恢复准备自测：测试宿主编译完成后并行准备生产 App")
-    for operation in ("app", "ui"):
-        for original, prepared in ((0, 0), (7, 0), (0, 9), (7, 9)):
-            reader, writer = os.pipe()
-            try:
-                harness = (
-                    f"operation="
-                    f"{operation}"
-                    f" BIT101_SIMULATOR_PREPARE_RESTORE=1 BIT101_DEFER_APP_RESTORE=1\npreparatio"
-                    f"n_probe() {{ read -r message <&"
-                    f"{reader}"
-                    f"; print PREPARED; return "
-                    f"{prepared}"
-                    f"; }}\n"
-                )
-                result = subprocess.run(
-                    [
-                        "zsh",
-                        "-c",
-                        harness
-                        + restoration
-                        + launch
-                        + f"\nprint native >&{writer}\ntrap restore_on_exit EXIT\nexit {original}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    pass_fds=(reader, writer),
-                    timeout=5,
-                )
-                expected_prepared = prepared if operation == "app" else 0
-                expected_code = original or expected_prepared
-                if result.returncode != expected_code or ("PREPARED" in result.stdout) != (
-                    operation == "app"
-                ):
-                    findings.append(
-                        "恢复准备自测：原生测试与主机编译重叠，设备操作完成后汇总子进程及失败状态"
-                    )
-            finally:
-                os.close(reader)
-                os.close(writer)
 
 
 if __name__ == "__main__":

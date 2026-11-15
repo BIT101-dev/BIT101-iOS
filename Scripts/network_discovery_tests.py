@@ -298,8 +298,7 @@ def verify_platform_ownership():
         active = active_network_source(desktop_source, desktop_path)
         assert "fetchSmall" in active and "fetchLarge" in active
     for condition, expected in [
-        ("!RELEASE_NETWORK_SMOKE", True),
-        ("RELEASE_NETWORK_SMOKE", True),
+        ("!DEBUG", True),
         ("DEBUG", False),
     ]:
         source = watch_only.replace("os(watchOS)", condition)

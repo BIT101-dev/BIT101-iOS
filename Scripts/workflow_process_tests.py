@@ -402,7 +402,7 @@ def verify_lock_queue_and_inheritance(environment, fixture, processes, release, 
             '_ONLY=false; GENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_t'
             'est_lock; if [[ "${BIT101_DEVICE_WORKFLOW_LOCK_HELD:-0}" != 1 ]]; then print arti'
             'facts-held; read -r reply < "$ROOT_DIR/release"; MODE=modules; acquire_test_lock;'
-            ' fi ;;\nmodules|catalyst|catalyst-release-runtime) MODE="$1"; BUILD_ONLY=false; G'
+            ' fi ;;\nmodules|catalyst) MODE="$1"; BUILD_ONLY=false; G'
             'ENERIC_BUILD=false; SCRIPT_PATH="$0"; SCRIPT_ARGS=("$@"); acquire_test_lock ;; *)'
             '\nACTION=install; case "${1:-}" in artifact) ACTION=build ;; mac) ACTION=mac ;; e'
             "sac\n"
@@ -521,7 +521,7 @@ def verify_lock_recovery_and_cancellation(
             text=True,
             env=other_checkout,
         )
-        for mode in ("mac", "modules", "catalyst", "catalyst-release-runtime")
+        for mode in ("mac", "modules", "catalyst")
     ]
     processes.extend(seconds)
     if any(not line(second).startswith("[等待]") for second in seconds):

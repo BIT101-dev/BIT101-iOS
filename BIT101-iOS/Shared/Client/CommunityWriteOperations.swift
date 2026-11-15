@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -9,8 +10,6 @@ import PaperFeature
 import StorageCore
 import TransportCore
 import UIKit
-
-#if DEBUG || RELEASE_NETWORK_SMOKE
 
 extension CommunityWriteSmoke {
     struct Operations {

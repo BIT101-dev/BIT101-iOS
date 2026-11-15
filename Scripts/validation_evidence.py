@@ -17,17 +17,17 @@ from collections import Counter
 
 sys.dont_write_bytecode = True
 from swift_source_index import swift_syntax_index_sources
-from validation_inputs import includes_input, repository_input_names
+from validation_inputs import PERFORMANCE_GROUPS, includes_input, repository_input_names
 from validation_policy import (
     TEST_GROUPS,
     RELEASE_GROUPS,
     DEFAULT_VERIFY_GROUPS,
-    FORMAL_RUNTIME_SUITES,
     MODULE_COVERAGE_FLOORS,
     IOS_MODULE_COVERAGE_FLOORS,
     SCHOOL_SMS_PROBES,
 )
 from validation_test_areas import (
+    SMOKE_ONLY_SUITES,
     TEST_AREA_SUITES,
     test_selectors,
     test_inventory,
@@ -61,8 +61,10 @@ from validation_provenance import (
 )
 from validation_performance import result_bundle_findings
 from validation_result_readers import (
+    PERFORMANCE_SUITES as PERFORMANCE_SUITES,
     selected_test_inventory as selected_test_inventory,
     xcode_test_selections as xcode_test_selections,
+    simulator_test_inventory as simulator_test_inventory,
     simulator_test_selection as simulator_test_selection,
     selected_test_summary_complete as selected_test_summary_complete,
     native_case_summary as native_case_summary,
@@ -221,7 +223,7 @@ def group_complete(report: dict, group: str, *, recorded_environment: bool = Fal
         and complete_summary(group, row.get("summary", {}))
         and not policy_findings(report, group)
         and (
-            group not in {"all", "ui"}
+            group not in PERFORMANCE_GROUPS
             or not result_bundle_findings(
                 report, groups=(group,), recorded_environment=recorded_environment
             )
@@ -282,9 +284,9 @@ def release_findings(report: dict, digest: str, *, recorded_environment: bool = 
     if not baseline_matches_distribution(checks.get("minimum-platforms", {}), observation):
         errors.append("最低系统安装验收需要对应最终分发包的版本、build、摘要与可执行文件 UUID。")
     if not catalyst_matches_runtime(
-        checks.get("catalyst-desktop", {}), groups.get("catalyst-release-runtime", {})
+        checks.get("catalyst-desktop", {}), groups.get("catalyst", {})
     ):
-        errors.append("Catalyst 桌面专项需要对应正式运行测试通过的应用摘要与可执行文件 UUID。")
+        errors.append("Catalyst 桌面专项需要对应 Catalyst 行为测试通过的应用摘要与可执行文件 UUID。")
     return errors
 
 
@@ -298,7 +300,7 @@ def record_test_summary(group, status, row, started_digest, run_id):
             print("测试指标需要来自本次验证运行。", file=sys.stderr)
         try:
             row["summary"] = test_summary(text)
-            if group in {"all", "ui"} and status == 0:
+            if group in PERFORMANCE_GROUPS and status == 0:
                 from validation_performance import bundle_identity, BUNDLE, current_commit
 
                 row["resultBundleIdentity"] = bundle_identity(BUNDLE)
@@ -306,13 +308,13 @@ def record_test_summary(group, status, row, started_digest, run_id):
         except ValueError:
             if status == 0:
                 raise
-    if group == "catalyst-release-runtime" and status == 0:
+    if group == "catalyst" and status == 0:
         from validate_distribution import catalyst_application_identity
 
         try:
             row["application"] = catalyst_application_identity(
                 ROOT
-                / ".build/extended-automation/Build/Products/Release-maccatalyst/BIT101-iOS.app"
+                / ".build/extended-automation/Build/Products/Debug-maccatalyst/BIT101-iOS.app"
             )
         except (OSError, ValueError, KeyError, subprocess.CalledProcessError):
             row["summary"]["passed"] = False
@@ -472,7 +474,7 @@ def record(group: str, status: int, scope: str, started_digest: str) -> int:
                 row["summary"]["coverageRegressions"] = problems
                 print("覆盖率低于门槛：" + "；".join(problems), file=sys.stderr)
         report["groups"][group] = row
-        if group in {"all", "ui"} and status == 0 and scope == "full":
+        if group in PERFORMANCE_GROUPS and status == 0 and scope == "full":
             from validation_performance import extract_measurements
 
             try:
@@ -592,7 +594,7 @@ def main() -> int:
             "manual",
             "manual-schema",
             "verify-defaults",
-            "runtime-suites",
+            "smoke-suites",
             "conditions",
             "bind-merge",
             "check-merge",
@@ -646,8 +648,8 @@ def main() -> int:
 
         print(" ".join(workflow_conditions(args.group)))
         return 0
-    if args.action == "runtime-suites":
-        print("\n".join(sorted(FORMAL_RUNTIME_SUITES)))
+    if args.action == "smoke-suites":
+        print("\n".join(SMOKE_ONLY_SUITES))
         return 0
     if args.action == "verify-defaults":
         print("\n".join(DEFAULT_VERIFY_GROUPS))

@@ -5,7 +5,7 @@ import TransportCore
 
 @testable import BIT101_iOS
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
+#if DEBUG
 @MainActor
 struct NetworkSmokeSMSPromptTests {
     @Test(.timeLimit(.minutes(1))) func submissionResumesWaitingKeepsIsolated() async throws {

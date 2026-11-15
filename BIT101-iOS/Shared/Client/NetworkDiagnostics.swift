@@ -83,11 +83,14 @@ final class NetworkMagicWarningCenter {
                 AppPromptAction(id: "dismiss", title: "知道了", isDefault: true) {}
             ]
         )
-        #if RELEASE_NETWORK_SMOKE
-        lastPathSummaryByScope[scope] = snapshot.summary
-        lastShownAtByScope[scope] = currentDate
-        promptCoordinator?.enqueue(prompt)
-        #else
+        #if DEBUG
+        if AppFileDirectories.isRunningNetworkSmoke {
+            lastPathSummaryByScope[scope] = snapshot.summary
+            lastShownAtByScope[scope] = currentDate
+            promptCoordinator?.enqueue(prompt)
+            return true
+        }
+        #endif
         if let promptCoordinator {
             guard promptCoordinator.isHostReady else { return false }
         } else if errorPresenter == nil {
@@ -110,7 +113,6 @@ final class NetworkMagicWarningCenter {
             guard let self else { return }
             self.activeWarningTask = nil
         }
-        #endif
         return true
     }
 

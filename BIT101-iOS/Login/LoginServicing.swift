@@ -25,7 +25,7 @@ protocol AccountRegistrationServicing {
 
 extension LoginService: AccountRegistrationServicing {
     static func registrationService() -> any AccountRegistrationServicing {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
             return UITestLoginService()
         }
@@ -36,7 +36,7 @@ extension LoginService: AccountRegistrationServicing {
 
 extension LoginService {
     static func appRuntimeService() -> any LoginServicing {
-        #if BIT101_UI_TESTING
+        #if DEBUG
         if AppFileDirectories.isRunningUITest && !AppUITestBootstrap.usesProductionComposition {
             return UITestLoginService()
         }
@@ -45,7 +45,7 @@ extension LoginService {
     }
 }
 
-#if BIT101_UI_TESTING
+#if DEBUG
 struct UITestLoginService: LoginServicing, AccountRegistrationServicing {
     private enum Key {
         static let studentID = "ui-test.session.student-id"

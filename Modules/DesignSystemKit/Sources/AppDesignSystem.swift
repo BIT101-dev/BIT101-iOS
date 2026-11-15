@@ -92,6 +92,7 @@ extension AppDesignSystem {
             public static let secondary = Color(uiColor: .secondarySystemBackground)
             public static let secondaryGrouped = Color(
                 uiColor: .secondarySystemGroupedBackground)
+            public static let controlFill = Color(uiColor: .secondarySystemFill)
             public static let inputPlaceholder = Color(uiColor: .placeholderText)
         }
         public enum Border {

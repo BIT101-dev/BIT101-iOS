@@ -13,9 +13,7 @@ def extract_candidate_expressions(call: dict, facts: dict, name: str, label: str
     all_labels = labels + call.get("trailingClosureLabels", [])
     ranges = [call["argumentRanges"][i] for i, item in enumerate(labels) if item == label]
     ranges.extend(
-        [start, end]
-        for i, start, end in call.get("closureArguments", [])
-        if all_labels[i] == label
+        [start, end] for i, start, end in call.get("closureArguments", []) if all_labels[i] == label
     )
     return [
         text["arguments"][0]

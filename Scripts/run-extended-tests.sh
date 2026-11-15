@@ -8,7 +8,7 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
   echo "Scripts/run-extended-tests.sh modules            本机模块测试"
   echo \
     "Scripts/run-extended-tests.sh simulator 操作 [用例]  授权后的模拟器验收
-操作：info、prepare、build-ui、preview、restore、inspect、app、release-runtime、ui、merge"
+操作：info、prepare、build-ui、preview、inspect、app、ui、merge"
   echo "Scripts/run-extended-tests.sh simulator runtime 平台 版本或构建号  下载并安装 Apple silicon 运行时"
   echo \
     "Scripts/run-extended-tests.sh simulator runtime info
@@ -16,19 +16,13 @@ if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
 运行时回收：simulator runtime prune [平台] 版本；平台默认 iOS"
   echo "Scripts/run-extended-tests.sh simulator devices remove 目标设备UDID...  移除已授权的指定设备"
   echo "Scripts/run-extended-tests.sh simulator devices clean 设备UDID...  保留登录与设置，清理缓存和临时文件"
-  echo "Scripts/run-extended-tests.sh release-runtime    正式编译条件下的真机组合约定"
-  echo "Scripts/run-extended-tests.sh catalyst-release-runtime  正式编译条件下的 Catalyst 组合约定"
   echo "Scripts/run-extended-tests.sh ui [用例关键词]...  真机 UI 测试，多个筛选合并执行"
-  echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 release"
+  echo "Scripts/run-extended-tests.sh build [宿主]        编译测试宿主，默认 all"
   echo "Scripts/run-extended-tests.sh report [json|coverage] 读取测试结果、用例树或覆盖率"
   echo "Scripts/run-extended-tests.sh cache [info]        缓存维护与分项占用查询"
   echo "性能：performance baseline 批准人；performance current；report performance-schema。"
-  echo \
-    "分组：release-runtime、catalyst-release-runtime、schedule、infrastructure、login
-分组：extensions、catalyst；组后可填写测试类/方法。"
-  echo \
-    "宿主：release、release-runtime、ui、network-smoke、icloud-smoke
-宿主：modules、catalyst、catalyst-release-runtime。"
+  echo "分组：schedule、infrastructure、login、extensions、catalyst；组后可填写测试类/方法。"
+  echo "宿主：all、modules、catalyst。"
   echo "专项：verify [--sms] [--self-test] [分组]... 聚合已授权专项；默认含真机、线上社区写入、iCloud 往返和归档。"
   echo "日常定向复测示例：verify audit modules；专项可单独执行 verify network、verify community-writes、verify icloud。"
   echo "诊断：diagnostics；report|screenshot|activities 测试类/方法。"
@@ -88,8 +82,8 @@ fi
 SCRIPT_PATH="$0"
 SCRIPT_ARGS=("$@")
 acquire_test_lock() {
-  if $GENERIC_BUILD || [[ "$BUILD_ONLY" == true && ( "$MODE" == modules || "$MODE" == catalyst || \
-    "$MODE" == catalyst-release-runtime ) ]] \
+  if $GENERIC_BUILD || [[ "$BUILD_ONLY" == true && ( "$MODE" == modules || \
+    "$MODE" == catalyst ) ]] \
       || [[ "$MODE" == verify && "$verification_needs_device" == false ]]; then
     bit101_acquire_artifact_lock "$SCRIPT_PATH" "${SCRIPT_ARGS[@]}"
   else
@@ -109,24 +103,25 @@ MODE="all"
 if [[ "${1:-}" == build ]]; then
   BUILD_ONLY=true
   shift
-  MODE="${1:-release}"
+  MODE="${1:-all}"
   if (( $# > 0 )); then shift; fi
   case "$MODE" in
-    release|release-runtime|ui|network-smoke|icloud-smoke) GENERIC_BUILD=true ;;
-    modules|catalyst|catalyst-release-runtime) ;;
-    *) echo \
-      "编译宿主：release、release-runtime、ui、network-smoke、icloud-smoke
-宿主：modules、catalyst、catalyst-release-runtime。" >&2; exit 64 ;;
+    all) GENERIC_BUILD=true ;;
+    modules|catalyst) ;;
+    *) echo "编译宿主：all、modules、catalyst。" >&2; exit 64 ;;
   esac
 fi
 if ! $BUILD_ONLY && [[ $# -gt 0 ]]; then
   case "$1" in
-      all|release-runtime|network-smoke|icloud-smoke|schedule|infrastructure|login|extensions|ui|\
-      catalyst|catalyst-release-runtime|modules|verify)
+      all|network-smoke|schedule|infrastructure|login|extensions|ui|catalyst|modules|verify)
       MODE="$1"
       shift
       ;;
   esac
+fi
+if [[ "$MODE" == network-smoke ]]; then
+  export TEST_RUNNER_BIT101_NETWORK_SMOKE_ISOLATED=1
+  export BIT101_NETWORK_SMOKE_ISOLATED=1
 fi
 
 if [[ "$MODE" == ui ]]; then
@@ -154,11 +149,11 @@ if [[ "$MODE" == "verify" ]]; then
   verification_needs_device=false
   for group in "${verification_groups[@]}"; do
     case "$group" in
-      all|release-runtime|ui|network|community-writes|ddl|icloud) verification_needs_device=true ;;
-      modules|catalyst|catalyst-release-runtime|build-archive|audit) ;;
+      all|ui|network|community-writes|ddl|icloud) verification_needs_device=true ;;
+      modules|catalyst|build-archive|audit) ;;
       *) echo \
-        "验证组：modules all release-runtime catalyst catalyst-release-runtime ui network
-验证组：community-writes ddl icloud build-archive audit" >&2; exit 64 ;;
+        "验证组：modules all catalyst ui network community-writes ddl icloud build-archive audit" \
+        >&2; exit 64 ;;
     esac
   done
   for group in "${verification_groups[@]}"; do
@@ -185,8 +180,8 @@ if [[ "$MODE" == "verify" ]]; then
 
   for group in "${verification_groups[@]}"; do
     case "$group" in
-      modules|catalyst|catalyst-release-runtime) bit101_verify_step "$group" "$0" "$group" ;;
-      all|release-runtime|ui) bit101_verify_step "$group" "$0" "$group" ;;
+      modules|catalyst) bit101_verify_step "$group" "$0" "$group" ;;
+      all|ui) bit101_verify_step "$group" "$0" "$group" ;;
       network) bit101_verify_step network "$ROOT_DIR/Scripts/release-network-smoke.sh" \
         "${verification_network_args[@]}" ;;
       community-writes) bit101_verify_step community-writes \
@@ -204,7 +199,6 @@ fi
 
 if [[ "$MODE" == "ui" ]]; then
   TEST_BUNDLE="BIT101-iOSUITests"
-  TEST_SCHEME="BIT101-iOS-UIAutomation"
 fi
 
 for selection in "$@"; do
@@ -250,7 +244,7 @@ elif $GENERIC_BUILD; then
   acquire_test_lock
   TEST_DESTINATION="generic/platform=iOS"
   SIGNING_ARGS=(CODE_SIGNING_ALLOWED=NO)
-elif [[ "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ]]; then
+elif [[ "$MODE" == catalyst ]]; then
   acquire_test_lock
   TEST_DESTINATION="platform=macOS,variant=Mac Catalyst"
   result_lines="$(bit101_catalyst_signing_arguments)"
@@ -300,8 +294,7 @@ trap finish_validation EXIT ZERR
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [[ ( "$MODE" == catalyst || "$MODE" == catalyst-release-runtime ) && "$BUILD_ONLY" == false ]]; \
-  then
+if [[ "$MODE" == catalyst && "$BUILD_ONLY" == false ]]; then
   MAC_APP_RESTORE="$(python3 "$ROOT_DIR/Scripts/validation_restore.py" mac-pause \
     "$HOME/Applications/BIT101-iOS.app")"
   MAC_TEST_SESSION=1
@@ -395,25 +388,28 @@ run_native_test_batch() {
     execution_args+=(-resultBundlePath "$RESULT_BUNDLE" -parallel-testing-enabled NO)
     rm -f "$DERIVED_ROOT/Build/ProfileData/"*/*.profdata(N) || return $?
   fi
-  local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Release \
+  local project_args=(-project "$PROJECT" -scheme "$TEST_SCHEME" -configuration Debug \
     -derivedDataPath "$DERIVED_ROOT")
+  local target_testing=("${only_testing[@]}")
+  if $BUILD_ONLY; then target_testing=(); fi
   if [[ "$BUILD_ONLY" == false ]]; then project_args+=(ONLY_ACTIVE_ARCH=YES); fi
   if [[ "$MODE" == ui && "$BUILD_ONLY" == false ]]; then
-    if ! bit101_run_logged "$DERIVED_ROOT/ui-tests-build.log" "UI 宿主编译" xcodebuild \
-      build-for-testing -quiet \
-      "${project_args[@]}" -destination "$TEST_DESTINATION" \
-      "BIT101_WORKFLOW_CONDITIONS=$conditions" "${coverage_args[@]}" \
-      ENABLE_TESTABILITY=YES SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
-      "${only_testing[@]}" "${SIGNING_ARGS[@]}"; then
-      return 1
+    if [[ "$performance_only" != 0 || "${BIT101_REUSE_UI_HOST:-0}" != 1 ]]; then
+      if ! bit101_run_logged "$DERIVED_ROOT/ui-tests-build.log" "UI 宿主编译" xcodebuild \
+        build-for-testing -quiet \
+        "${project_args[@]}" -destination "$TEST_DESTINATION" \
+        "${coverage_args[@]}" \
+        ENABLE_TESTABILITY=YES SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
+        "${target_testing[@]}" "${SIGNING_ARGS[@]}"; then
+        return 1
+      fi
     fi
     local ui_plan_path
     ui_plan_path="$(ui_test_plan)" || return 1
     project_args=(-xctestrun "$ui_plan_path" -derivedDataPath "$DERIVED_ROOT")
     test_action=test-without-building
   fi
-  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst && "$MODE" != catalyst-release-runtime ]]; \
-    then
+  if [[ "$BUILD_ONLY" == false && "$MODE" != catalyst ]]; then
     bit101_invalidate_restore || return $?
   fi
   if [[ "$BUILD_ONLY" == false ]]; then execution_args+=(-test-timeouts-enabled YES); fi
@@ -432,12 +428,11 @@ run_native_test_batch() {
     "${project_args[@]}" \
     -destination "$TEST_DESTINATION" \
     -collect-test-diagnostics "$diagnostics" \
-    "BIT101_WORKFLOW_CONDITIONS=$conditions" \
     "${coverage_args[@]}" \
     ENABLE_TESTABILITY=YES \
     SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES \
     "${execution_args[@]}" \
-    "${only_testing[@]}" \
+    "${target_testing[@]}" \
     "${SIGNING_ARGS[@]}"; then
     exit_code=0
   else
@@ -460,16 +455,7 @@ run_tests() {
       only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
     done
   elif [[ "$group" != "all-tests" && "$group" != "ui-tests" ]]; then
-    if [[ "$MODE" == release-runtime || "$MODE" == catalyst-release-runtime ]]; then
-      only_testing=()
-      local runtime_suites
-      runtime_suites="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" runtime-suites)"
-      for selection in "${(@f)runtime_suites}"; do
-        only_testing+=("-only-testing:$TEST_BUNDLE/$selection")
-      done
-    else
-      only_testing=("-only-testing:$TEST_BUNDLE/$group")
-    fi
+    only_testing=("-only-testing:$TEST_BUNDLE/$group")
   fi
 
   local performance_testing=() functional_testing=()
@@ -477,8 +463,18 @@ run_tests() {
   if [[ "$MODE" == ui ]]; then performance_suite="$TEST_BUNDLE/MaintenancePerformanceUITests"; fi
   if ! $BUILD_ONLY && (( ${#only_testing[@]} == 1 )) \
     && [[ "${only_testing[1]}" == "-only-testing:$TEST_BUNDLE" ]]; then
+    local smoke_skips=()
+    if [[ "$TEST_BUNDLE" == "BIT101-iOSTests" ]]; then
+      local smoke_suites smoke_suite
+      smoke_suites="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" smoke-suites)"
+      for smoke_suite in "${(@f)smoke_suites}"; do
+        if [[ -n "$smoke_suite" ]]; then
+          smoke_skips+=("-skip-testing:$TEST_BUNDLE/$smoke_suite")
+        fi
+      done
+    fi
     performance_testing=("-only-testing:$performance_suite")
-    functional_testing=("${only_testing[@]}" "-skip-testing:$performance_suite")
+    functional_testing=("${only_testing[@]}" "-skip-testing:$performance_suite" "${smoke_skips[@]}")
   else
     for selected_test in "${only_testing[@]}"; do
       case "$selected_test" in
@@ -533,17 +529,10 @@ record_metrics() {
 CONDITIONS="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$MODE")"
 
 case "$MODE" in
-  release)
-    run_tests all-tests "$CONDITIONS"
-    ;;
-  release-runtime|catalyst-release-runtime)
-    run_tests ReleaseRuntimeContractTests "$CONDITIONS"
-    ;;
   network-smoke)
-    run_tests ReleaseNetworkSmokeTests "$CONDITIONS"
-    ;;
-  icloud-smoke)
-    run_tests ICloudCrossDeviceSmokeTests "$CONDITIONS"
+    export BIT101_NETWORK_SMOKE_ISOLATED=1
+    export TEST_RUNNER_BIT101_NETWORK_SMOKE_ISOLATED=1
+    run_tests NetworkSmokeRegressionTests "$CONDITIONS"
     ;;
   all)
     run_tests all-tests "$CONDITIONS"
@@ -569,7 +558,7 @@ case "$MODE" in
 esac
 
 if $BUILD_ONLY; then
-  if [[ "$MODE" == ui ]]; then ui_test_plan >/dev/null; fi
+  if [[ "$MODE" == all ]]; then ui_test_plan >/dev/null; fi
   echo "测试宿主编译完成，可通过同一入口批量执行用例。"
 else
   record_metrics

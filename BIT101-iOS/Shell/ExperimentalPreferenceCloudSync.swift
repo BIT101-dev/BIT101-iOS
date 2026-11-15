@@ -91,11 +91,12 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
     static let shared = ExperimentalPreferenceCloudSync(settings: .shared, stores: .shared)
 
     private static var defaultCloudStore: any PreferenceCloudStoring {
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return AutomatedTestPreferenceCloudStore.shared
-        #else
-        return NSUbiquitousKeyValueStore.default
+        #if DEBUG
+        if AppFileDirectories.isRunningIsolatedUnitTest {
+            return AutomatedTestPreferenceCloudStore.shared
+        }
         #endif
+        return NSUbiquitousKeyValueStore.default
     }
 
     private static let logger = Logger(subsystem: "BIT101", category: "PreferenceCloudSync")
@@ -304,7 +305,7 @@ extension NSUbiquitousKeyValueStore: PreferenceCloudStoring {}
         return reconciliationTask
     }
 
-    #if DEBUG || ICLOUD_CROSS_DEVICE_SMOKE
+    #if DEBUG
     @discardableResult
     func reconcileCloudSnapshot() -> Task<Void, Never>? {
         guard isEnabled else { return nil }

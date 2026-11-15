@@ -160,24 +160,40 @@ def navigation_layer_self_test() -> None:
     cases = [
         (tabs.replace("SUFFIX", tint), compact_tab_tint_findings, False),
         (tabs.replace("SUFFIX", ""), compact_tab_tint_findings, True),
-        (tabs.replace("content()", "content()" + tint).replace("SUFFIX", ""),
-         compact_tab_tint_findings, True),
-        (tabs.replace("SUFFIX", tint.replace("selection().tintColor", ".blue")),
-         compact_tab_tint_findings, True),
+        (
+            tabs.replace("content()", "content()" + tint).replace("SUFFIX", ""),
+            compact_tab_tint_findings,
+            True,
+        ),
+        (
+            tabs.replace("SUFFIX", tint.replace("selection().tintColor", ".blue")),
+            compact_tab_tint_findings,
+            True,
+        ),
         (tabs.replace("SUFFIX", "/* " + tint + " */"), compact_tab_tint_findings, True),
         (calendar.replace("LINE", line), schedule_time_layer_findings, False),
-        (calendar.replace("LINE", "if isToday { " + line + " }"),
-         schedule_time_layer_findings, False),
-        (calendar.replace("LINE", "ZStack { " + line + " }"),
-         schedule_time_layer_findings, True),
-        (calendar.replace("LINE", line.replace(".allowsHitTesting(false)", "")),
-         schedule_time_layer_findings, True),
-        (calendar.replace("LINE", line.replace("currentTimeLineZIndex", "otherZIndex")),
-         schedule_time_layer_findings, True),
+        (
+            calendar.replace("LINE", "if isToday { " + line + " }"),
+            schedule_time_layer_findings,
+            False,
+        ),
+        (calendar.replace("LINE", "ZStack { " + line + " }"), schedule_time_layer_findings, True),
+        (
+            calendar.replace("LINE", line.replace(".allowsHitTesting(false)", "")),
+            schedule_time_layer_findings,
+            True,
+        ),
+        (
+            calendar.replace("LINE", line.replace("currentTimeLineZIndex", "otherZIndex")),
+            schedule_time_layer_findings,
+            True,
+        ),
         (calendar.replace("LINE", "/* " + line + " */"), schedule_time_layer_findings, True),
     ]
-    sources = {str(ROOT / f"visual-check-{index}.swift"): source
-               for index, (source, _, _) in enumerate(cases)}
+    sources = {
+        str(ROOT / f"visual-check-{index}.swift"): source
+        for index, (source, _, _) in enumerate(cases)
+    }
     facts = swift_syntax_index_sources(sources)
     for path, (_, check, expected) in zip(sources, cases):
         assert bool(check(facts[path])) == expected, sources[path]
@@ -189,13 +205,27 @@ def touch_input_self_test() -> None:
 
     week, cards, direct = TOUCH_INPUT_CONTRACTS
     samples = [
-        (week, "struct ScheduleInlineWeekSlider: View { var body: some View { "
-         "Color.clear.gesture(DragGesture(inputKinds: .pointer)) } }", ".pointer", ".all"),
-        (cards, "class ScheduleCalendarCardsControl { func hitTest() { "
-         "card(at: point, expandForTouch: event != nil && usesDirectTouch) } }",
-         "event != nil && usesDirectTouch", "true"),
-        (direct, "class ScheduleCalendarCardsControl { func hitTest() { "
-         "event.allTouches?.contains { $0.type == .direct } } }", ".direct", ".indirectPointer"),
+        (
+            week,
+            "struct ScheduleInlineWeekSlider: View { var body: some View { "
+            "Color.clear.gesture(DragGesture(inputKinds: .pointer)) } }",
+            ".pointer",
+            ".all",
+        ),
+        (
+            cards,
+            "class ScheduleCalendarCardsControl { func hitTest() { "
+            "card(at: point, expandForTouch: event != nil && usesDirectTouch) } }",
+            "event != nil && usesDirectTouch",
+            "true",
+        ),
+        (
+            direct,
+            "class ScheduleCalendarCardsControl { func hitTest() { "
+            "event.allTouches?.contains { $0.type == .direct } } }",
+            ".direct",
+            ".indirectPointer",
+        ),
     ]
     for (relative, marker), source, old, new in samples:
         path = ROOT / relative
@@ -225,21 +255,30 @@ def list_row_size_self_test() -> None:
         ("List { HStack { " + row + padding + " } }", 0),
         ("List { " + row + padding + ".appListRowInsets() }", 0),
         ("List { " + row + height + ".appListRowInsets() }", 1),
-        ('List { TextEditor(text: $text)' + height + " }", 0),
-        ('List { TextEditor(text: $text)' + padding + " }", 1),
+        ("List { TextEditor(text: $text)" + height + " }", 0),
+        ("List { TextEditor(text: $text)" + padding + " }", 1),
         ('List { TextField("", text: $text, axis: .vertical)' + height + " }", 0),
         ('List { TextField("", text: $text)' + height + " }", 1),
         ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) } }', 1),
-        ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
-         '.appListRowInsets() }', 0),
-        ('List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
-         '.pickerStyle(.inline) }', 0),
+        (
+            'List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
+            ".appListRowInsets() }",
+            0,
+        ),
+        (
+            'List { Picker("校区", selection: $campus) { Text("良乡").tag(0) }'
+            ".pickerStyle(.inline) }",
+            0,
+        ),
         ('ScrollView { Picker("校区", selection: $campus) { Text("良乡").tag(0) } }', 0),
         ("ScrollView { " + row + padding + " }", 0),
         ("List { " + row + " } // " + row + padding + "\n", 0),
         ("List { " + row + " }.environment(\\.defaultMinListRowHeight, 52)", 1),
-        ("List { " + row + " }.environment(\\.defaultMinListRowHeight, "
-         "AppDesignSystem.Size.Control.refreshStatusRowHeight)", 1),
+        (
+            "List { " + row + " }.environment(\\.defaultMinListRowHeight, "
+            "AppDesignSystem.Size.Control.refreshStatusRowHeight)",
+            1,
+        ),
     ]
     for body, expected in cases:
         source = prefix + body + " } }"

@@ -52,22 +52,22 @@ public struct AppTagChip: View {
     private var foregroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.Accent.primary
+            return AppDesignSystem.Foreground.primaryColor
         case .selection(let isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.Highlight.foreground
-                : AppDesignSystem.Palette.Accent.primary
+                : AppDesignSystem.Foreground.primaryColor
         }
     }
 
     private var backgroundColor: Color {
         switch variant {
         case .display:
-            return AppDesignSystem.Palette.Accent.surface
+            return AppDesignSystem.Palette.Background.controlFill
         case .selection(let isSelected):
             return isSelected
                 ? AppDesignSystem.Palette.Accent.primary
-                : AppDesignSystem.Palette.Accent.surface
+                : AppDesignSystem.Palette.Background.controlFill
         }
     }
 }

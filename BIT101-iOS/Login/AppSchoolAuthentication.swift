@@ -15,7 +15,7 @@ struct SchoolIdentityVerification {
 /// 学校功能共用本机 Cookie 容器、CAS 凭据和短信续接。
 enum AppNativeSchoolAuthentication {
     static let shared = make()
-    #if RELEASE_NETWORK_SMOKE
+    #if DEBUG
     static var smokeSMSCodeHandler: SchoolSMSCodeHandler?
     #endif
 
@@ -109,14 +109,18 @@ enum AppNativeSchoolAuthentication {
             schoolSessionRestorer: restorer, teachingCenterState: state,
             transport: smsTransport, observer: HTTPClient.appObserver)
         let secondFactor: (SchoolSecondFactorContext) async throws -> Void = { context in
-            #if RELEASE_NETWORK_SMOKE
-            guard let handler = Self.smokeSMSCodeHandler else {
-                throw ScheduleServiceError.schoolSecondFactorRequired
+            let handler: SchoolSMSCodeHandler
+            #if DEBUG
+            if AppFileDirectories.isRunningNetworkSmoke || Self.smokeSMSCodeHandler != nil {
+                guard let configured = Self.smokeSMSCodeHandler else {
+                    throw ScheduleServiceError.schoolSecondFactorRequired
+                }
+                handler = configured
+            } else {
+                handler = { try await SchoolSMSPrompt.shared.requestCode($0) }
             }
             #else
-            let handler: SchoolSMSCodeHandler = {
-                try await SchoolSMSPrompt.shared.requestCode($0)
-            }
+            handler = { try await SchoolSMSPrompt.shared.requestCode($0) }
             #endif
             try await smsService.finishSchoolAuth(
                 context, acceptingServiceTicket: acceptingServiceTicket, handler: handler)

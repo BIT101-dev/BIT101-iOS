@@ -1,4 +1,5 @@
 import CoreGraphics
+import UIKit
 import XCTest
 
 nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
@@ -118,6 +119,7 @@ nonisolated final class ScoreInteractionUITests: UIAutomationTestCase {
             waitUntil(
                 NSPredicate(format: "selected == true"), on: app.segmentedControls.buttons["课程"]),
             "成绩详情应进入课程搜索。")
+        assertUI(textElement("自动化测试课程").appears(timeout: 5), "课程搜索结果应完成展示。")
     }
 
     @MainActor

@@ -128,14 +128,20 @@ else
 fi
 
 
+if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then
+  python3 -c 'import os; os.nice(10)' || true
+fi
 swift_parse() {
+  local parse_jobs=6
+  if [[ "${BIT101_AUDIT_BACKGROUND:-0}" == 1 ]]; then parse_jobs=2; fi
   find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
     "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" \
     -type f -name '*.swift' -print0 \
-    | xargs -0 -n 24 -P 6 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG || return 1
-  find "$ROOT_DIR/BIT101-iOSTests" "$ROOT_DIR/BIT101-iOSUITests" "$ROOT_DIR/ModuleTests" -type f \
-    -name '*.swift' -print0 \
-    | xargs -0 -n 24 -P 6 "$SWIFT_FRONTEND" -frontend -parse -D DEBUG -D EXTENDED_AUTOMATION
+    | xargs -0 -n 24 -P "$parse_jobs" "$SWIFT_FRONTEND" -frontend -parse || return 1
+  find "$ROOT_DIR/Modules" "$ROOT_DIR/BIT101-iOS" "$ROOT_DIR/BIT101ScheduleWidgets" \
+    "$ROOT_DIR/BIT101Watch" "$ROOT_DIR/BIT101WatchWidgets" "$ROOT_DIR/BIT101-iOSTests" \
+    "$ROOT_DIR/BIT101-iOSUITests" "$ROOT_DIR/ModuleTests" -type f -name '*.swift' -print0 \
+    | xargs -0 -n 24 -P "$parse_jobs" "$SWIFT_FRONTEND" -frontend -parse -D DEBUG
 }
 
 shell_parse() {

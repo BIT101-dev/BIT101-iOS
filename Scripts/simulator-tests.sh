@@ -5,8 +5,8 @@ fi
 set -euo pipefail
 if [[ "${1:-}" == (--help|-h) ]]; then
   print -r -- '用法：Scripts/run-extended-tests.sh simulator 操作 [参数...]'
-  print -r -- '设备：info、prepare、inspect、restore、preview；沿已有设备选择复用。'
-  print -r -- '测试：build-ui；app|release-runtime|ui [用例...]；verify；merge。'
+  print -r -- '设备：info、prepare、inspect、preview；沿已有设备选择复用。'
+  print -r -- '测试：build-ui；app|ui [用例...]；verify；merge。'
   print -r -- '运行时：runtime info；runtime 平台 版本或构建号；runtime prune [平台] 版本。'
   print -r -- '升级：runtime upgrade [平台] 版本 设备UDID...；省略平台采用 iOS。'
   print -r -- '清理：devices clean 设备UDID...；移除：devices remove 目标设备UDID...。'
@@ -25,7 +25,7 @@ source "$ROOT_DIR/Scripts/script-support.sh"
 operation="${1:-info}"
 shift $(( $# > 0 ? 1 : 0 ))
 case "$operation" in
-  info|prepare|prepare-restore|restore|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || \
+  info|prepare|inspect|merge|verify|build-ui|preview) [[ $# -eq 0 ]] || \
     simulator_usage_error;;
   runtime)
     version_pattern='^[0-9]+(\.[0-9]+){1,2}$'
@@ -40,7 +40,7 @@ case "$operation" in
       || [[ $# -eq 2 && "$1" == (iOS|watchOS|tvOS|visionOS) && "$2" =~ "$runtime_pattern" ]] || \
         simulator_usage_error;;
   devices) [[ $# -ge 2 && "$1" == (remove|clean) ]] || simulator_usage_error;;
-  app|release-runtime|ui) ;;
+  app|ui) ;;
   *) simulator_usage_error;;
 esac
 if [[ "$operation" == preview && "${GITHUB_ACTIONS:-false}" == true ]]; then
@@ -175,7 +175,7 @@ import sys
 path, operation = Path(sys.argv[1]), sys.argv[2]
 if (
     os.getenv("GITHUB_ACTIONS") == "true"
-    and operation in {"app", "release-runtime", "ui"}
+    and operation in {"app", "ui"}
     and path.is_file()
 ):
     print(json.loads(path.read_text())["identifier"])
@@ -325,17 +325,13 @@ else:
         ).strip()
         device = {"state": "Shutdown"}
     path.write_text(json.dumps({"identifier": identifier, "runtime": runtime["identifier"]}) + "\n")
-developer = Path(
-    os.getenv("DEVELOPER_DIR") or subprocess.check_output(["xcode-select", "-p"], text=True).strip()
-)
-device_hub = str(developer.parent / "Applications/DeviceHub.app")
 if os.getenv("GITHUB_ACTIONS") == "true" and operation == "prepare" and device["state"] != "Booted":
     subprocess.run(
         ["xcrun", "simctl", "boot", identifier], check=True, stdout=sys.stderr, stderr=sys.stderr
     )
-if operation not in {"prepare-restore", "build-ui"} and (
+if operation != "build-ui" and (
     os.getenv("GITHUB_ACTIONS") != "true"
-    or operation not in {"prepare", "app", "release-runtime", "ui"}
+    or operation not in {"prepare", "app", "ui"}
 ):
     if device["state"] != "Booted":
         subprocess.run(
@@ -350,7 +346,14 @@ if operation not in {"prepare-restore", "build-ui"} and (
         stdout=sys.stderr,
         stderr=sys.stderr,
     )
-    subprocess.run(["open", "-a", device_hub], check=True)
+    if operation == "preview":
+        developer = Path(
+            os.getenv("DEVELOPER_DIR")
+            or subprocess.check_output(["xcode-select", "-p"], text=True).strip()
+        )
+        subprocess.run(
+            ["open", "-a", str(developer.parent / "Applications/DeviceHub.app")], check=True
+        )
 print(identifier)
 PYDEVICE
 )"; then
@@ -370,18 +373,17 @@ from validation_test_areas import test_inventory
 
 print(f"UI 测试宿主库存：{len(test_inventory('ui'))} 项。")
 PYINVENTORY
-  conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions ui)"
   bit101_run_logged "$DERIVED_ROOT/ui.log" "共享 UI 测试宿主编译" xcodebuild build-for-testing -quiet \
-    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS-UIAutomation -configuration \
-      Release -derivedDataPath "$DERIVED_ROOT" \
+    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration \
+      Debug -derivedDataPath "$DERIVED_ROOT" \
     -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES \
-    "BIT101_WORKFLOW_CONDITIONS=$conditions" ENABLE_TESTABILITY=YES -enableCodeCoverage YES \
+    ENABLE_TESTABILITY=YES -enableCodeCoverage YES \
       ENABLE_CODE_COVERAGE=YES \
     SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES CODE_SIGN_IDENTITY=-
   if [[ "$operation" == preview ]]; then
     bit101_invalidate_restore
     bit101_run_logged "$DERIVED_ROOT/ui.log" "界面预览安装" xcrun simctl install "$SIMULATOR_DEVICE" \
-      "$DERIVED_ROOT/Build/Products/Release-iphonesimulator/BIT101-iOS.app"
+      "$DERIVED_ROOT/Build/Products/Debug-iphonesimulator/BIT101-iOS.app"
     SIMCTL_CHILD_BIT101_UI_TESTING=1 SIMCTL_CHILD_BIT101_UI_TEST_RUN_ID=ui \
       SIMCTL_CHILD_BIT101_UI_TEST_RESET_STORAGE=1 \
         SIMCTL_CHILD_BIT101_UI_TEST_ACCOUNT=ui-test-student \
@@ -391,7 +393,7 @@ PYINVENTORY
         --terminate-running-process \
       "$SIMULATOR_DEVICE" BIT101-dev.BIT101-iOS --ui-testing -AppleLanguages '(zh-Hans)' \
         -AppleLocale zh_CN
-    echo "样例界面已打开；完成观察后执行 simulator restore。"
+    echo "样例界面已打开；常规启动直接打开标准 BIT101 应用。"
   fi
   exit 0
 fi
@@ -400,10 +402,12 @@ if [[ "$operation" == prepare ]]; then echo "项目模拟器已准备。"; exit 
 if [[ "$operation" == inspect ]]; then
   python3 - "$SIMULATOR_DEVICE" "$ROOT_DIR/.build/screenshot.png" <<'PYINSPECT'
 import json
+import os
 import plistlib
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 app = Path(
     subprocess.check_output(
@@ -412,93 +416,7 @@ app = Path(
     ).strip()
 )
 metadata = plistlib.loads((app / "Info.plist").read_bytes())
-binary = subprocess.check_output(["strings", str(app / metadata["CFBundleExecutable"])], text=True)
-markers = [
-    "behavior-test-host",
-    "release-network-smoke-host",
-    "icloud-cross-device-smoke-host",
-    "The UI automation App requires its isolated launch configuration",
-]
-print(
-    json.dumps(
-        {
-            "device": sys.argv[1],
-            "version": metadata["CFBundleShortVersionString"],
-            "build": metadata["CFBundleVersion"],
-            "testHostMarkers": [marker for marker in markers if marker in binary],
-        },
-        ensure_ascii=False,
-    )
-)
-subprocess.run(
-    ["xcrun", "simctl", "io", sys.argv[1], "screenshot", sys.argv[2]],
-    check=True,
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-)
-print(sys.argv[2])
-PYINSPECT
-  exit 0
-fi
-restore_application() {
-  local restore_digest
-  restore_digest="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" digest restore)" || return $?
-  bit101_run_logged "$ROOT_DIR/build/DeviceInstall/build.log" "常规模拟器包编译" xcodebuild build -quiet \
-    -project "$ROOT_DIR/BIT101-iOS.xcodeproj" -scheme BIT101-iOS -configuration Release \
-      -derivedDataPath "$ROOT_DIR/build/DeviceInstall" \
-    -destination "platform=iOS Simulator,id=$SIMULATOR_DEVICE" ONLY_ACTIVE_ARCH=YES \
-      BIT101_WORKFLOW_CONDITIONS= ENABLE_TESTABILITY=YES \
-    "BIT101_RESTORE_INPUT_DIGEST=$restore_digest" CODE_SIGN_IDENTITY=- || return $?
-  if [[ "$operation" == prepare-restore ]]; then return 0; fi
-  bit101_run_logged "$DERIVED_ROOT/restore.log" "常规模拟器包恢复" python3 - "$SIMULATOR_DEVICE" \
-    "$ROOT_DIR/build/DeviceInstall/Build/Products/Release-iphonesimulator/BIT101-iOS.app" \
-      "$ROOT_DIR/Scripts" "$restore_digest" \
-    "$ROOT_DIR/.build/screenshot.png" <<'PYRESTORE'
-import json
-import subprocess
-import sys
-import time
-import uuid
-
-inventory = json.loads(
-    subprocess.check_output(["xcrun", "simctl", "list", "devices", "--json"], text=True)
-)
-device = next(
-    row for rows in inventory["devices"].values() for row in rows if row["udid"] == sys.argv[1]
-)
-if device["state"] != "Booted":
-    subprocess.run(["xcrun", "simctl", "boot", sys.argv[1]], check=True)
-subprocess.run(
-    ["xcrun", "simctl", "bootstatus", sys.argv[1], "-b"], check=True, stdout=subprocess.DEVNULL
-)
-subprocess.run(["xcrun", "simctl", "install", sys.argv[1], sys.argv[2]], check=True)
-from pathlib import Path
-import plistlib
-
-source = Path(sys.argv[2])
-info = plistlib.loads((source / "Info.plist").read_bytes())
-executable = info["CFBundleExecutable"]
-installed = Path(
-    subprocess.check_output(
-        ["xcrun", "simctl", "get_app_container", sys.argv[1], "BIT101-dev.BIT101-iOS", "app"],
-        text=True,
-    ).strip()
-)
-if (source / executable).read_bytes() != (installed / executable).read_bytes():
-    raise SystemExit("安装后的可执行文件需要匹配常规 Release 产物。")
-sys.path.insert(0, sys.argv[3])
-from validation_restore import complete, matches_app, simulator_startup_diagnostics
-
-container = Path(
-    subprocess.check_output(
-        ["xcrun", "simctl", "get_app_container", sys.argv[1], "BIT101-dev.BIT101-iOS", "data"],
-        text=True,
-    ).strip()
-)
-readiness = container / "Documents/restore-readiness.json"
-readiness.unlink(missing_ok=True)
-run_id = str(uuid.uuid4())
-launched = subprocess.run(
+launched = subprocess.check_output(
     [
         "xcrun",
         "simctl",
@@ -506,112 +424,58 @@ launched = subprocess.run(
         "--terminate-running-process",
         sys.argv[1],
         "BIT101-dev.BIT101-iOS",
-        "--restore-run-id",
-        run_id,
     ],
-    check=True,
-    capture_output=True,
     text=True,
+).strip()
+pid = int(launched.rsplit(":", 1)[1].strip())
+time.sleep(2.0)
+os.kill(pid, 0)
+print(
+    json.dumps(
+        {
+            "device": sys.argv[1],
+            "version": metadata["CFBundleShortVersionString"],
+            "build": metadata["CFBundleVersion"],
+            "pid": pid,
+            "alive": True,
+        },
+        ensure_ascii=False,
+    )
 )
-process_id = int(launched.stdout.rsplit(":", 1)[1].strip())
-deadline = time.monotonic() + 60
-while time.monotonic() < deadline:
-    if subprocess.run(["/bin/kill", "-0", str(process_id)], capture_output=True).returncode:
-        simulator_startup_diagnostics(sys.argv[1], process_id)
-        raise SystemExit("常规模拟器 App 在就绪前退出，请检查启动崩溃。")
-    if readiness.is_file():
-        proof = json.loads(readiness.read_text())
-        proof = dict(
-            proof,
-            kind="restore",
-            processAlive=True,
-            startedAt=proof.get("readyAt"),
-            finishedAt=proof.get("readyAt"),
-        )
-        if (
-            proof.get("processIdentifier") == process_id
-            and complete(proof)
-            and matches_app(proof, info, run_id, sys.argv[4])
-        ):
-            subprocess.run(
-                ["xcrun", "simctl", "io", sys.argv[1], "screenshot", sys.argv[5]],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            break
-    time.sleep(1)
-else:
-    print(
-        json.dumps(
-            {
-                "processIdentifier": process_id,
-                "inputDigest": sys.argv[4],
-                "installedInputDigest": info.get("BIT101RestoreInputDigest"),
-                "readiness": json.loads(readiness.read_text()) if readiness.is_file() else None,
-            },
-            ensure_ascii=False,
-        ),
-        file=sys.stderr,
-    )
-    subprocess.run(
-        ["xcrun", "simctl", "io", sys.argv[1], "screenshot", sys.argv[5]],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    simulator_startup_diagnostics(sys.argv[1], process_id)
-    raise SystemExit("常规模拟器 App 就绪验收超时，请检查登录恢复与场景初始化。")
-PYRESTORE
-}
+Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)
+shot = subprocess.run(
+    ["xcrun", "simctl", "io", sys.argv[1], "screenshot", "--type=png", sys.argv[2]],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
+if shot.returncode == 0:
+    print(sys.argv[2])
+PYINSPECT
+  exit 0
+fi
 typeset -a retained_result_groups=()
 restore_on_exit() {
   local workflow_result=$?
   trap - EXIT INT TERM
-  if [[ -n "${simulator_restore_prepare_pid:-}" ]]; then
-    local prepare_status=0
-    wait "$simulator_restore_prepare_pid" || prepare_status=$?
-    if (( workflow_result == 0 )); then workflow_result=$prepare_status; fi
-  fi
   if (( ${#retained_result_groups[@]} )); then
     python3 "$ROOT_DIR/Scripts/validation_performance.py" retain-evidence \
       "${retained_result_groups[@]}" || workflow_result=$?
   fi
-  if [[ "${BIT101_DEFER_APP_RESTORE:-0}" == 1 ]]; then exit "$workflow_result"; fi
-  if [[ "${GITHUB_ACTIONS:-false}" == true && "${RUNNER_ENVIRONMENT:-}" == github-hosted ]]; then
-    echo "托管模拟器验收结束，运行器由 GitHub 回收。"
-    exit "$workflow_result"
-  fi
-  if restore_application; then
-    echo "常规模拟器包已恢复。"
-  else
-    local restore_result=$?
-    if (( workflow_result == 0 )); then workflow_result=$restore_result; fi
-  fi
   exit "$workflow_result"
 }
-if [[ "$operation" == restore || "$operation" == prepare-restore ]]; then
-  restore_application
-  if [[ "$operation" == restore ]]; then echo "常规模拟器包已恢复。"; fi
-  exit 0
-fi
 mode=all
 scheme=BIT101-iOS
 bundle=BIT101-iOSTests
 configuration=Debug
 selections=("$@")
-if [[ "$operation" == release-runtime ]]; then
-  mode=release-runtime
-  configuration=Release
-fi
 if [[ "$operation" == ui ]]; then
   mode=ui
-  scheme=BIT101-iOS-UIAutomation
   bundle=BIT101-iOSUITests
-  configuration=Release
   if [[ "${BIT101_REUSE_UI_HOST:-0}" == 1 ]]; then chmod +x \
     "$ROOT_DIR/.build/compiler-cache/swift-syntax-indexer"; fi
-  if (( $# )); then selections=("${(@f)$(bit101_ui_test_selections "$@")}"); fi
+  if (( $# )); then
+    selections=("${(@f)$(BIT101_UI_SELECTION_SIMULATOR=1 bit101_ui_test_selections "$@")}")
+  fi
 fi
 selection_started=$SECONDS
 selection_plan="$(python3 - "$ROOT_DIR/Scripts" "$mode" "$TEST_SCOPE" "${selections[@]}" \
@@ -641,7 +505,6 @@ selection_rows=("${(@f)selection_plan}")
 TEST_SCOPE="${selection_rows[1]}"
 EXPECTED_TESTS="${selection_rows[2]}"
 selections=("${selection_rows[@]:2}")
-conditions="$(python3 "$ROOT_DIR/Scripts/validation_evidence.py" conditions "$mode")"
 only_testing=()
 for selection in "${selections[@]}"; do only_testing+=("-only-testing:$bundle/$selection"); done
 destination="platform=iOS Simulator,id=$SIMULATOR_DEVICE"
@@ -684,11 +547,6 @@ test_status=0
 trap restore_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-simulator_restore_prepare_pid=
-if [[ "$operation" == app && "${BIT101_SIMULATOR_PREPARE_RESTORE:-0}" == 1 ]]; then
-  "$ROOT_DIR/Scripts/run-extended-tests.sh" simulator prepare-restore &
-  simulator_restore_prepare_pid=$!
-fi
 if [[ "$mode" == ui && "$SIMULATOR_WORKERS" -gt 1 ]]; then
   bit101_run_logged "$DERIVED_ROOT/$mode.log" "模拟器测试" python3 - "$ROOT_DIR/Scripts" "$plan" \
     "$DERIVED_ROOT" "$SIMULATOR_DEVICE" "$SIMULATOR_WORKERS" "${only_testing[@]}" <<'PYUI' || \

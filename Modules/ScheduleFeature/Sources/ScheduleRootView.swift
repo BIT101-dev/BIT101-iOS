@@ -39,6 +39,7 @@ struct ScheduleCourseSectionTracking: ViewModifier {
 /// 页面正文保持独立布局，底部玻璃效果稳定，轻扫切换继续可用。
 public struct ScheduleRootView: View {
     @Environment(\.appExpandedNavigation) private var expandedNavigation
+    @Environment(\.appPageIsVisible) private var isPageVisible
     @Environment(\.appWindowLayout) private var layout
     /// 壳层深链请求的目标分栏，例如从小组件点进来直接落到课表。
     @Binding var requestedSection: ScheduleSection?
@@ -127,9 +128,10 @@ public struct ScheduleRootView: View {
         }
         .environment(viewModel)
         .environment(viewModel.ddl)
-        .modifier(ScheduleCourseSectionTracking(
-            viewModel: viewModel, showingClassrooms: showingClassrooms,
-            selection: $lastCourseSection))
+        .modifier(
+            ScheduleCourseSectionTracking(
+                viewModel: viewModel, showingClassrooms: showingClassrooms,
+                selection: $lastCourseSection))
     }
 
     private var navigationContentTopPadding: CGFloat {
@@ -141,6 +143,7 @@ public struct ScheduleRootView: View {
             content(showingClassroom: false)
                 .padding(.top, navigationContentTopPadding)
                 .appBrowserNavigationBar(isPresented: layout.usesSideToolbar)
+                .appHostedNavigationVisibility(isPageVisible && displayedSection != .classroom)
                 .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -166,6 +169,8 @@ public struct ScheduleRootView: View {
         .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
             if !expandedNavigation && !showingClassroom {
                 sectionTabs.padding(.top, layout.contentTopInset)
+                    .background(
+                        AppDesignSystem.Palette.Background.grouped, ignoresSafeAreaEdges: .top)
             }
         }
         .allowsHitTesting(!viewModel.isLoadingCache)

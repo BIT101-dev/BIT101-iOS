@@ -6,16 +6,18 @@ import StorageCore
 /// App 持久化路径、当前账号会话和本地文件服务的统一入口。
 enum AppFileDirectories {
     nonisolated static let files: any AppFileService = {
-        #if BIT101_AUTOMATED_TESTING
-        guard let support = AppFileSystem.files.directoryURL(.applicationSupportDirectory)
-        else {
-            preconditionFailure("Automated test Application Support directory is unavailable")
+        #if DEBUG
+        if isRunningUITest || isRunningIsolatedUnitTest || isRunningIsolatedNetworkSmoke {
+            guard let support = AppFileSystem.files.directoryURL(.applicationSupportDirectory)
+            else {
+                preconditionFailure("Automated test Application Support directory is unavailable")
+            }
+            let folder = isRunningIsolatedNetworkSmoke ? "BIT101-NetworkSmoke" : "BIT101-UITests"
+            return ScopedAppFileService(
+                root: support.appending(path: folder, directoryHint: .isDirectory))
         }
-        return ScopedAppFileService(
-            root: support.appending(path: "BIT101-UITests", directoryHint: .isDirectory))
-        #else
-        return AppFileSystem.files
         #endif
+        return AppFileSystem.files
     }()
     private nonisolated static let persistentBackupPreparation = Task {
         await migrateBackupMetadata(files: files)
@@ -59,17 +61,15 @@ enum AppFileDirectories {
     }
 
     nonisolated static var defaultsDomain: String {
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        return "harrybit.BIT101-iOS.tests"
-        #else
-        #if BIT101_UI_TESTING
+        #if DEBUG
+        if isRunningIsolatedUnitTest { return "harrybit.BIT101-iOS.tests" }
         if isRunningUITest { return uiTestDefaultsSuiteName }
+        if isRunningIsolatedNetworkSmoke { return preparedNetworkSmokeDefaultsDomain }
         #endif
         guard let identifier = Bundle.main.bundleIdentifier else {
             preconditionFailure("App preferences domain is unavailable")
         }
         return identifier
-        #endif
     }
 
     nonisolated static func defaults(inDomain domain: String?) -> UserDefaults {
@@ -81,51 +81,102 @@ enum AppFileDirectories {
     }
 
     nonisolated static var defaults: UserDefaults {
-        #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-        guard let suite = UserDefaults(suiteName: preparedAutomatedTestDefaultsDomain) else {
-            preconditionFailure("Automated test defaults suite is unavailable")
+        #if DEBUG
+        if isRunningIsolatedUnitTest {
+            guard let suite = UserDefaults(suiteName: preparedAutomatedTestDefaultsDomain) else {
+                preconditionFailure("Automated test defaults suite is unavailable")
+            }
+            return suite
         }
-        return suite
-        #else
-        #if BIT101_UI_TESTING
         if isRunningUITest {
             guard let suite = UserDefaults(suiteName: uiTestDefaultsSuiteName) else {
                 preconditionFailure("UI test defaults suite is unavailable")
             }
             return suite
         }
+        if isRunningIsolatedNetworkSmoke {
+            guard let suite = UserDefaults(suiteName: preparedNetworkSmokeDefaultsDomain) else {
+                preconditionFailure("Network smoke defaults suite is unavailable")
+            }
+            return suite
+        }
         #endif
         return .standard
-        #endif
     }
 
-    #if BIT101_AUTOMATED_TESTING && !BIT101_UI_TESTING
-    nonisolated private static let preparedAutomatedTestDefaultsDomain: String = {
-        guard let suite = UserDefaults(suiteName: defaultsDomain) else {
-            preconditionFailure("Automated test defaults suite is unavailable")
-        }
-        suite.removePersistentDomain(forName: defaultsDomain)
-        return defaultsDomain
-    }()
-    #endif
+    #if DEBUG
+    nonisolated static var isRunningICloudSmoke: Bool {
+        !(ProcessInfo.processInfo.environment["BIT101_ICLOUD_SMOKE_RUN_ID"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
-    #if BIT101_UI_TESTING
+    nonisolated static var isRunningNetworkSmoke: Bool {
+        guard !isRunningICloudSmoke else { return false }
+        let environment = ProcessInfo.processInfo.environment
+        return environment["BIT101_NETWORK_SMOKE_HOST"] == "1"
+            || !(environment["BIT101_NETWORK_SMOKE_SCOPE"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || ReleaseNetworkSmokeLaunchRequest.hasPendingFile
+    }
+
     nonisolated static var isRunningUITest: Bool {
+        guard !isRunningICloudSmoke, !isRunningNetworkSmoke else { return false }
         let process = ProcessInfo.processInfo
         return process.arguments.contains("--ui-testing")
-            && process.environment["BIT101_UI_TESTING"] == "1"
-            && !(process.environment["BIT101_UI_TEST_RUN_ID"] ?? "").isEmpty
+            && !(process.environment["BIT101_UI_TEST_RUN_ID"] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    nonisolated static var isRunningIsolatedUnitTest: Bool {
+        guard !isRunningICloudSmoke, !isRunningNetworkSmoke, !isRunningUITest else {
+            return false
+        }
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["BIT101_PRODUCTION_RUNTIME_TEST"] != "1" else { return false }
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
+    nonisolated static var isRunningAutomatedHost: Bool {
+        isRunningICloudSmoke || isRunningNetworkSmoke || isRunningUITest
+            || isRunningIsolatedUnitTest
+    }
+
+    nonisolated static var isRunningIsolatedNetworkSmoke: Bool {
+        isRunningNetworkSmoke
+            && ProcessInfo.processInfo.environment["BIT101_NETWORK_SMOKE_ISOLATED"] == "1"
     }
 
     nonisolated static var uiTestRunIdentifier: String {
         let rawValue = ProcessInfo.processInfo.environment["BIT101_UI_TEST_RUN_ID"] ?? ""
-        guard !rawValue.isEmpty else { return "unconfigured" }
-        return rawValue.utf8.map { String(format: "%02X", $0) }.joined()
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "unconfigured" }
+        return trimmed.utf8.map { String(format: "%02X", $0) }.joined()
     }
 
     nonisolated static var uiTestDefaultsSuiteName: String {
         "harrybit.BIT101-iOS.ui-tests.\(uiTestRunIdentifier)"
     }
+
+    nonisolated private static let preparedAutomatedTestDefaultsDomain: String = {
+        let domain = "harrybit.BIT101-iOS.tests"
+        guard let suite = UserDefaults(suiteName: domain) else {
+            preconditionFailure("Automated test defaults suite is unavailable")
+        }
+        suite.removePersistentDomain(forName: domain)
+        return domain
+    }()
+
+    nonisolated private static let preparedNetworkSmokeDefaultsDomain: String = {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let domain = "harrybit.BIT101-iOS.network-smoke.\(pid)"
+        guard let suite = UserDefaults(suiteName: domain) else {
+            preconditionFailure("Network smoke defaults suite is unavailable")
+        }
+        suite.removePersistentDomain(forName: domain)
+        return domain
+    }()
     #else
     nonisolated static let isRunningUITest = false
     #endif
@@ -139,25 +190,7 @@ enum AppFileDirectories {
 
     @MainActor static var currentSession: AppStorageSession { AppAccountSession.currentSession }
 
-    @MainActor static var scoreCacheSession: AppStorageSession {
-        #if BIT101_UI_TESTING
-        if isRunningUITest { return currentSession }
-        #endif
-        #if ICLOUD_CROSS_DEVICE_SMOKE
-        return currentSession
-        #elseif DEBUG
-        let environment = ProcessInfo.processInfo.environment
-        if NSClassFromString("XCTestCase") != nil
-            || environment["XCTestConfigurationFilePath"] != nil
-            || environment["XCTestBundlePath"] != nil
-        {
-            return AppStorageSession(accountIdentifier: "__bit101_tests__")
-        }
-        return currentSession
-        #else
-        return currentSession
-        #endif
-    }
+    @MainActor static var scoreCacheSession: AppStorageSession { currentSession }
 
     nonisolated static func appSupportURL(named directory: String) -> URL {
         applicationSupport.appending(path: directory, directoryHint: .isDirectory)

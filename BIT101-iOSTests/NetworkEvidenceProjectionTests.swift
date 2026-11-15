@@ -22,7 +22,7 @@ import UIKit
 
 @MainActor
 struct NetworkEvidenceProjectionTests {
-    #if DEBUG || RELEASE_NETWORK_SMOKE
+    #if DEBUG
     @Test func feedbackSmokeRequiresEveryCleanup() throws {
         let fields = ["ok", "recordVerified", "temporaryRecordRemoved", "quotaReserved"]
         let valid = Dictionary(uniqueKeysWithValues: fields.map { ($0, true) })

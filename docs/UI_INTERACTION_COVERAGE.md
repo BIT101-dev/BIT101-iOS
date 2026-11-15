@@ -29,7 +29,7 @@ UI 自动化覆盖每一个可点击、可滑动和可交互部位。维护范�
 - `testLandscapeDetailBackUseRightPanePane` 验收右栏返回键的位置、成绩排序返回占位、节次筛选右栏呈现及选择后的结果恢复。
 - 分栏宽度通过同一检查核对真实列表行的左右标准边距和滚动区边缘，左栏及右栏详情共用该规范。
 
-`simulator build-ui` 构建共享 UI 宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 汇总 CI 分片。测试结束后恢复常规 Release；预览结束后执行 `simulator restore`，`simulator inspect` 读取安装身份与实际屏幕。恢复结果核对进程、会话和活跃场景。
+`simulator build-ui` 构建共享测试宿主；类型切换保留已准备设备的应用容器，并关闭上一台活跃项目设备；`BIT101_SIMULATOR_DEVICE_TYPE` 选择目标类型。本地 `simulator preview` 构建并打开隔离样例界面，供 Device Hub 中持续观察姿态与布局；`simulator merge` 汇总 CI 分片，`simulator inspect` 读取安装身份与实际屏幕。
 
 ## 公共组件验收归属
 
@@ -262,7 +262,7 @@ UIKit 控件按构造类型、继承或别名进入源码清单，运行检查�
 ```sh
 Scripts/run-extended-tests.sh ui
 Scripts/run-extended-tests.sh report
-Scripts/run-extended-tests.sh build ui
+Scripts/run-extended-tests.sh build
 Scripts/run-static-audit.sh
 ```
 

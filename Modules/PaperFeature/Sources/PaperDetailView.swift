@@ -322,14 +322,14 @@ private struct PaperDetailViewScene: View {
             .foregroundStyle(
                 isPaperLiked
                     ? AppDesignSystem.Palette.Highlight.foreground
-                    : AppDesignSystem.Palette.Accent.primary
+                    : AppDesignSystem.Foreground.primaryColor
             )
             .padding(.horizontal, AppDesignSystem.Spacing.section)
             .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
             .background(
                 isPaperLiked
                     ? AppDesignSystem.Palette.Accent.primary
-                    : AppDesignSystem.Palette.Accent.surface,
+                    : AppDesignSystem.Palette.Background.controlFill,
                 in: Capsule()
             )
         }

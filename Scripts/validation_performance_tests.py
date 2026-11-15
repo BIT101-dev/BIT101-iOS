@@ -772,7 +772,7 @@ def result_replacement_self_test() -> None:
         with patch.object(Path, "exists", return_value=False):
             subject.reset_result_bundle()
         assert save.call_count == 1
-    rows = {group: {"resultBundleIdentity": sha} for group in ("all", "ui")}
+    rows = {group: {"resultBundleIdentity": sha} for group in subject.PERFORMANCE_GROUPS}
     with patch.object(subject, "bundle_identity", return_value=sha) as digest:
         assert not subject.result_bundle_findings({"groups": rows})
         changed = deepcopy(rows)
@@ -840,6 +840,12 @@ def producing_run_capture_self_test() -> None:
     from validation_manual import PERFORMANCE_WORKLOADS, performance_group
 
     environment = {
+        "host": {
+            "system": "Darwin",
+            "architecture": "arm64",
+            "ProductVersion": "17",
+            "ProductBuildVersion": "build",
+        },
         "device": {
             "identifier": "phone",
             "model": "iPhone",
@@ -849,6 +855,10 @@ def producing_run_capture_self_test() -> None:
         "xcode": {"DTXcodeBuild": "xcode"},
         "compiler": {"version": "a" * 64},
     }
+    contexts = {
+        group: (dict(environment, device=None) if group == "catalyst" else environment)
+        for group in subject.PERFORMANCE_GROUPS
+    }
     rows = {
         group: {
             "exitCode": 0,
@@ -857,10 +867,10 @@ def producing_run_capture_self_test() -> None:
             "runID": group,
             "sourceCommit": "commit",
             "recordedAt": "captured",
-            "environment": environment,
+            "environment": contexts[group],
             "resultBundleIdentity": "b" * 64,
         }
-        for group in ("all", "ui")
+        for group in subject.PERFORMANCE_GROUPS
     }
 
     def exported(command, **kwargs):
@@ -908,7 +918,7 @@ def producing_run_capture_self_test() -> None:
     assert set(combined) == set(PERFORMANCE_WORKLOADS)
     with (
         patch.object(Path, "read_text", return_value=json.dumps({"groups": rows})),
-        patch.object(subject, "environment_context", return_value=environment),
+        patch.object(subject, "environment_context", side_effect=contexts.__getitem__),
         patch.object(subject, "complete_environment", return_value=True),
         patch.object(subject, "uncommitted_inputs", return_value=[]),
         patch.object(subject, "record_complete", return_value=True),
@@ -928,6 +938,7 @@ def producing_run_capture_self_test() -> None:
             assert (
                 subject.capture_current()["records"]
                 == shared["groups"]["all"]["performance"]["records"]
+                | shared["groups"]["catalyst"]["performance"]["records"]
                 | shared["groups"]["ui"]["performance"]["records"]
             )
         for group in rows:

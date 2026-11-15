@@ -223,13 +223,15 @@ final class AppErrorPresenter {
         let controller = UIAlertController(
             title: item.title, message: message, preferredStyle: .alert)
         activeAlertController = controller
-        #if BIT101_UI_TESTING
-        controller.view.accessibilityIdentifier = "ui-test.scene"
-        controller.view.accessibilityValue =
-            """
-            \(ProcessInfo.processInfo.processIdentifier):\
-            \(UITestSceneConfiguration.shared.snapshot.revision)
-            """
+        #if DEBUG
+        if AppFileDirectories.isRunningUITest {
+            controller.view.accessibilityIdentifier = "ui-test.scene"
+            controller.view.accessibilityValue =
+                """
+                \(ProcessInfo.processInfo.processIdentifier):\
+                \(UITestSceneConfiguration.shared.snapshot.revision)
+                """
+        }
         #endif
         var recoveryActionButton: UIAlertAction?
 
@@ -414,21 +416,27 @@ private final class ReportPresentationDelegate: NSObject, UIAdaptivePresentation
 extension View {
     /// 向页面状态组件注入主 App 的诊断恢复操作，保持设计系统与错误基础设施解耦。
     func diagnosticRecoveryActions() -> some View {
-        #if BIT101_UI_TESTING
-        let sceneRevision = UITestSceneConfiguration.shared.snapshot.revision
+        #if DEBUG
+        let sceneRevision: Int? =
+            AppFileDirectories.isRunningUITest
+            ? UITestSceneConfiguration.shared.snapshot.revision : nil
         #endif
         return environment(\.appDiagnosticAlert) { alert in
-            #if BIT101_UI_TESTING
-            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
-                return
+            #if DEBUG
+            if let sceneRevision {
+                guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
+                    return
+                }
             }
             #endif
             AppErrorPresenter.shared.present(alert)
         }
         .environment(\.appDiagnosticModalActivity) { id, isPresented in
-            #if BIT101_UI_TESTING
-            guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
-                return
+            #if DEBUG
+            if let sceneRevision {
+                guard UITestSceneConfiguration.shared.snapshot.revision == sceneRevision else {
+                    return
+                }
             }
             #endif
             AppErrorPresenter.shared.setModalPresented(isPresented, id: id)

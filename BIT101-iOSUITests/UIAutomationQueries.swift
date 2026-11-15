@@ -1,5 +1,6 @@
 import CoreGraphics
 import Network
+import UIKit
 import XCTest
 import os
 
@@ -124,7 +125,7 @@ extension UIAutomationTestCase {
     func checkScheduleGeometry() {
         let schedule = app.mainTab("日程")
         guard schedule.exists, schedule.isSelected, let root = try? app.snapshot() else { return }
-        let window = root.frame
+        let window = root.firstSnapshot { $0.elementType == .window }?.frame ?? root.frame
         let traits = windowTraits()
         if let grid = root.firstSnapshot(where: { $0.identifier == "schedule.calendar" }),
             app.sectionTab("课表").isSelected
@@ -200,11 +201,14 @@ extension UIAutomationTestCase {
 
     func assertRefreshBelowSectionTabs(referenceHeader: CGRect? = nil) {
         let header = app.native.segmentedControls.firstMatch
-        guard
-            let list = app.native.collectionViews.allElementsBoundByIndex.first(where: {
-                $0.isHittable
-            })
-        else {
+        let row: XCUIElement
+        if let list = app.native.collectionViews.allElementsBoundByIndex.first(where: {
+            $0.isHittable
+        }) {
+            row = list.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
+        } else if app.native.scrollViews["interaction.CourseScheduleTabView.list"].isHittable {
+            row = app.native.descendants(matching: .any)["schedule.refresh-status"].firstMatch
+        } else {
             assertUI(false, "当前分区应提供可见的原生列表。")
             return
         }
@@ -214,7 +218,6 @@ extension UIAutomationTestCase {
                     && abs(header.frame.height - referenceHeader.height) <= 1,
                 "课表、DDL 与空教室应共享分区栏安全距离：当前 \(header.frame)，参考 \(referenceHeader)。")
         }
-        let row = list.cells.containing(.button, identifier: "app.refresh-status.action").firstMatch
         let stamp = row.staticTexts["app.refresh-status.timestamp"]
         assertUI(
             header.exists && row.exists && stamp.exists && row.frame.minY >= header.frame.maxY

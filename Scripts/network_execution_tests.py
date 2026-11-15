@@ -356,7 +356,7 @@ def verify_literal_and_write_execution(protocol, reached, sources):
     inactive = dict(sources)
     inactive["ReleaseNetworkSmoke.swift"] = sources["ReleaseNetworkSmoke.swift"].replace(
         "dependencies.productionSessionProbe()",
-        "\n#if DEBUG\ndependencies.productionSessionProbe()\n#endif\n",
+        "\n#if !DEBUG\ndependencies.productionSessionProbe()\n#endif\n",
     )
     assert "mine.fetchMyInfo" not in reached(inactive)
     unused_reference = dict(sources)

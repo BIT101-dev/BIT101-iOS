@@ -275,6 +275,7 @@ public struct AppBrowserLayout<
             defaultDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AppDesignSystem.Palette.Background.grouped)
+                .appHostedNavigationVisibility(isVisible)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar(.hidden, for: .navigationBar)
                 .appNativeNavigationBarBackground(isPresented: layout.usesOpaqueNavigation)
@@ -333,9 +334,12 @@ public struct AppBrowserLayout<
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: AppDesignSystem.Spacing.none) {
                 header?.padding(.top, layout.contentTopInset)
+                    .background(
+                        AppDesignSystem.Palette.Background.grouped, ignoresSafeAreaEdges: .top)
             }
             .appBrowserNavigationBar(isPresented: layout.usesSideToolbar)
             .appAccessibilityContainer("browser.master")
+            .appHostedNavigationVisibility(isVisible)
     }
 
     private func detailContent(_ selected: Selection) -> some View {
@@ -346,6 +350,7 @@ public struct AppBrowserLayout<
             .appPaneBackButton(isPresented: layout.isLandscapeWindow) {
                 selection = nil
             }
+            .appHostedNavigationVisibility(isVisible)
     }
 }
 

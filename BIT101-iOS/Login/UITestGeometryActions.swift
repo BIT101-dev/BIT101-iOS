@@ -1,4 +1,11 @@
-#if BIT101_UI_TESTING || EXTENDED_AUTOMATION
+#if DEBUG
+import Foundation
+import MapKit
+import PhotosUI
+import QuickLook
+import StorageCore
+import UIKit
+
 nonisolated enum UITestControlIdentity {
     static func key(
         scope: String, ancestors: [String], identifier: String, label: String, type: Int
@@ -16,15 +23,6 @@ nonisolated enum UITestScrollGeometry {
         max(0, (points * scale).rounded()) / scale
     }
 }
-#endif
-
-#if BIT101_UI_TESTING
-import StorageCore
-import Foundation
-import UIKit
-import MapKit
-import PhotosUI
-import QuickLook
 
 extension UITestAccessibilityActions {
     static func elementType(
@@ -141,11 +139,16 @@ extension UITestAccessibilityActions {
                     return ["index": index, "readable": false]
                 }
                 let data = try? AppFileDirectories.files.readData(at: url)
+                #if targetEnvironment(macCatalyst)
+                    let canPreview = data != nil
+                #else
+                    let canPreview = QLPreviewController.canPreview(item)
+                #endif
                 return [
                     "index": index, "extension": url.pathExtension,
                     "readable": data != nil,
                     "imageDecodable": data.flatMap { UIImage(data: $0) } != nil,
-                    "canPreview": QLPreviewController.canPreview(item),
+                    "canPreview": canPreview,
                 ]
             }
             func viewTypes(_ view: UIView) -> [String] {
@@ -169,6 +172,9 @@ extension UITestAccessibilityActions {
                 withJSONObject: elements.compactMap { element -> [String: Any]? in
                     guard let scroll = element.object as? UIScrollView, scroll.isScrollEnabled,
                         let window = scroll.window, let scene = window.windowScene,
+                        sequence(first: scroll as UIView, next: \.superview).allSatisfy({
+                            !$0.isHidden && $0.alpha > 0.01 && $0.isUserInteractionEnabled
+                        }),
                         scroll.convert(scroll.bounds, to: window).intersects(window.bounds)
                     else { return nil }
                     var values = element.attributes

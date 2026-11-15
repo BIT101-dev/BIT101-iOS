@@ -516,9 +516,7 @@ def adapter_roles(index: dict[str, dict], path: str | None = None) -> dict[tuple
     return roles
 
 
-def adapter_call_roles(
-    index: dict[str, dict], bindings: SwiftBindingTypes | None = None
-) -> dict:
+def adapter_call_roles(index: dict[str, dict], bindings: SwiftBindingTypes | None = None) -> dict:
     from network_capability_rules import (
         api_invocations,
         call_can_execute,
@@ -759,9 +757,7 @@ def _audit_module_unit(task: tuple) -> tuple[bool, list[str]]:
         if imported not in known_modules:
             errors.append(f"{module} imports unknown module {imported}: {', '.join(sorted(files))}")
         elif imported not in info["dependencies"]:
-            errors.append(
-                f"{module} imports undeclared {imported}: {', '.join(sorted(files))}"
-            )
+            errors.append(f"{module} imports undeclared {imported}: {', '.join(sorted(files))}")
     return has_swiftui, errors
 
 
@@ -924,7 +920,7 @@ def main() -> int:
     ]
     from validation_test_areas import network_capability_findings
 
-    workers = min(8, os.cpu_count() or 4)
+    workers = 2 if os.getenv("BIT101_AUDIT_BACKGROUND") == "1" else min(8, os.cpu_count() or 4)
     with ProcessPoolExecutor(
         max_workers=workers, mp_context=multiprocessing.get_context("spawn")
     ) as pool:

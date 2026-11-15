@@ -63,13 +63,14 @@ public final class CampusMapPreparation {
         }
         guard let mapView else { return }
         if mapView.frame != host.bounds { mapView.frame = host.bounds }
-        if mapView.superview !== host { host.addSubview(mapView) }
+        let reparented = mapView.superview !== host
+        if reparented { host.addSubview(mapView) }
         if coordinator.lastMapConfigurationID != displayMode.rawValue {
             mapView.preferredConfiguration = displayMode.configuration
             coordinator.lastMapConfigurationID = displayMode.rawValue
         }
         coordinator.syncNextCourseAnnotation(target, in: mapView)
-        if coordinator.lastFocusID != focusRequest.id {
+        if reparented || coordinator.lastFocusID != focusRequest.id {
             coordinator.focus(on: preset, in: mapView, animated: false)
             coordinator.lastFocusID = focusRequest.id
         }
@@ -114,6 +115,16 @@ public struct CampusMapPreparationHost: UIViewRepresentable {
 
 private final class CampusMapPreparationView: UIView {
     var prepare: ((UIView) -> Void)?
+    override var accessibilityElements: [Any]? {
+        get { [] }
+        set {}
+    }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+    }
+    required init?(coder: NSCoder) { super.init(coder: coder) }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         prepare?(self)

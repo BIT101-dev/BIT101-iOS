@@ -236,9 +236,7 @@ if args.self_test:
         "python3 /dev/fd/3 <<'DATA' 3<<'CODE'\nif True\nDATA\n{code}\nCODE\n",
         "python3 /dev/fd/3 3<<'CODE' 4<<'DATA'\n{code}\nCODE\nif True\nDATA\n",
     ):
-        compile_embedded_python(
-            source.format(code="pass"), "descriptor-code-self-test", lint=False
-        )
+        compile_embedded_python(source.format(code="pass"), "descriptor-code-self-test", lint=False)
         try:
             compile_embedded_python(
                 source.format(code="if True"), "descriptor-code-self-test", lint=False
@@ -394,9 +392,7 @@ if args.self_test:
         "\\\n    'pass'",
         "p\\ass",
     ):
-        compile_embedded_python(
-            "python3 -Bc " + argument, "inline-argument-self-test", lint=False
-        )
+        compile_embedded_python("python3 -Bc " + argument, "inline-argument-self-test", lint=False)
     for argument in (
         "'if ''True'",
         "$'if True\\n    pass'",

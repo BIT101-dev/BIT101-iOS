@@ -54,6 +54,7 @@ public struct AppRefreshStatusRow: View {
                     Text(actionTitle).font(AppDesignSystem.Typography.body)
                         .frame(minHeight: AppDesignSystem.Size.Control.touchTarget)
                 }
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier(
                     actionAccessibilityIdentifier ?? "app.refresh-status.action"
                 )

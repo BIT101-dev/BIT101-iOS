@@ -42,9 +42,7 @@ def _binding_candidate_type(binding: dict, call_start: int) -> str | None:
 def _init_candidates(facts: dict, call: dict, bindings: dict, path: str) -> list[str]:
     candidates = expected_argument_types(facts, call, context=bindings, path=path)
     returns = [
-        value
-        for value in facts.get("functionReturns", [])
-        if value["start"] == call["start"]
+        value for value in facts.get("functionReturns", []) if value["start"] == call["start"]
     ]
     matching_names = {(v["name"], tuple(v["scope"])) for v in returns}
     candidates += [
@@ -106,10 +104,7 @@ def _is_non_editable_binding(binding: dict, call: dict, expressions: list[dict])
 
 def _is_read_only_text_view(facts: dict, call: dict) -> bool:
     expressions = facts.get("expressions", [])
-    return any(
-        _is_non_editable_binding(b, call, expressions)
-        for b in facts.get("bindings", [])
-    )
+    return any(_is_non_editable_binding(b, call, expressions) for b in facts.get("bindings", []))
 
 
 def native_controls(syntax: dict):

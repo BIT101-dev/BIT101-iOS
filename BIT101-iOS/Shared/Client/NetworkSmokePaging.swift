@@ -1,3 +1,4 @@
+#if DEBUG
 import CommunityCore
 import CommunityTransport
 import CourseFeature
@@ -10,7 +11,6 @@ import ScheduleInfrastructure
 import ScoreDomain
 import TransportCore
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokePaging {
     static let maximumSamplePages = 100

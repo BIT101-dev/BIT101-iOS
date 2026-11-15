@@ -1,5 +1,6 @@
 import CoreGraphics
 import Network
+import UIKit
 import XCTest
 import os
 
@@ -12,7 +13,9 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         bundleIdentifier: "com.apple.springboard")
     @MainActor static func endSharedSession(capturingInventory: Bool = true) {
         if capturingInventory { captureControlInventory() }
-        sessionApplication?.terminate()
+        if let application = sessionApplication, application.state != .notRunning {
+            application.terminate()
+        }
         sessionApplication = nil
         sessionProcess = nil
         sessionScene = nil
@@ -131,14 +134,16 @@ nonisolated class UIAutomationTestCase: XCTestCase {
     func reveal(_ element: UIElement, description: String = "交互控件", searchFromTop: Bool = false) {
         let window = app.native.windows.firstMatch.frame
         func isVisible() -> Bool {
-            guard element.exists, element.isHittable else { return false }
+            guard element.exists else { return false }
             let target = UIElement.usesNativeInteraction ? element.native.frame : element.frame
+            guard !target.isNull, !target.isEmpty else { return false }
             let container = (interactionScrollFrame(for: element) ?? window).intersection(window)
             guard let viewport = app.scrollGestureFrame(in: container) else { return false }
-            if target.width <= viewport.width && target.height <= viewport.height {
-                return viewport.contains(target)
-            }
-            return viewport.contains(CGPoint(x: target.midX, y: target.midY))
+            let inViewport =
+                target.width <= viewport.width && target.height <= viewport.height
+                ? viewport.contains(target)
+                : viewport.contains(CGPoint(x: target.midX, y: target.midY))
+            return inViewport && element.isHittable
         }
         if isVisible() { return }
         if !UIElement.usesNativeInteraction, element.revealInScrollView() == "revealed", isVisible()
@@ -492,7 +497,7 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         defer { checkingRefreshRows = false }
         let largeText =
             Self.sessionApplication?.launchEnvironment["BIT101_UI_TEST_LARGE_TEXT"] == "1"
-        let viewport = app.frame.size
+        let viewport = app.windows.firstMatch.frame.size
         let selectedPage = app.segmentedControls.buttons.matching(
             NSPredicate(format: "selected == true")
         ).firstMatch.label
@@ -500,25 +505,26 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         guard !checkedRefreshRows.contains(key) else { return }
         let actionID =
             app.buttons["score.query"].exists ? "score.query" : "app.refresh-status.action"
-        func refreshCellFrame(in state: (any XCUIElementSnapshot)?) -> CGRect? {
+        func refreshCell(in state: (any XCUIElementSnapshot)?) -> (any XCUIElementSnapshot)? {
             state?.snapshots(matching: .cell).first {
                 $0.firstSnapshot { $0.elementType == .button && $0.identifier == actionID } != nil
-            }?.frame
+            }
         }
         guard let root = try? app.snapshot(),
-            let textSnapshot = root.firstSnapshot(where: {
+            let cell = refreshCell(in: root),
+            let textSnapshot = cell.firstSnapshot(where: {
                 $0.elementType == .staticText && $0.identifier == "app.refresh-status.timestamp"
             }),
-            let action = root.firstSnapshot(where: {
+            let action = cell.firstSnapshot(where: {
                 $0.elementType == .button && $0.identifier == actionID
-            }), action.isEnabled,
-            var cellFrame = refreshCellFrame(in: root)
+            }), action.isEnabled
         else { return }
+        var cellFrame = cell.frame
         let textFrame = textSnapshot.frame
         if !largeText {
             let expected = max(44, textFrame.height) + 8
             let settled = NSPredicate { _, _ in
-                if let updated = refreshCellFrame(in: try? self.app.snapshot()) {
+                if let updated = refreshCell(in: try? self.app.snapshot())?.frame {
                     cellFrame = updated
                 }
                 return abs(cellFrame.height - expected) <= 1
@@ -641,7 +647,11 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                 return app
             }
             Self.captureControlInventory()
-            UITestSnapshotReader.measure("scene.terminate") { previousApplication.terminate() }
+            UITestSnapshotReader.measure("scene.terminate") {
+                if previousApplication.state != .notRunning {
+                    previousApplication.terminate()
+                }
+            }
             assertUI(previousApplication.state == .notRunning, "冷启动前应结束所属 App 进程。")
             Self.sessionApplication = nil
             Self.sessionProcess = nil
@@ -875,12 +885,8 @@ nonisolated class UIAutomationTestCase: XCTestCase {
                         snapshot.firstSnapshot { $0.elementType == .alert && $0.label == "加载话廊失败" }
                         != nil
                 } else {
-                    let labels = UITestMainNavigation.labels(tabTitles[initialTab] ?? "")
-                    ready =
-                        snapshot.firstSnapshot {
-                            $0.identifier == "app.tab.\(initialTab)" && labels.contains($0.label)
-                                && $0.isSelected
-                        } != nil
+                    ready = isTabSnapshotReady(
+                        snapshot, initialTab: initialTab, title: tabTitles[initialTab] ?? "")
                 }
                 if ready {
                     identity = currentIdentity
@@ -931,5 +937,40 @@ nonisolated class UIAutomationTestCase: XCTestCase {
         preparingScene = false
         checkCurrentSurface()
         return app
+    }
+
+    @MainActor
+    private func isTabSnapshotReady(
+        _ snapshot: any XCUIElementSnapshot, initialTab: String, title: String
+    ) -> Bool {
+        let labels = UITestMainNavigation.labels(title)
+        let matchesTab: @MainActor (any XCUIElementSnapshot) -> Bool = { element in
+            element.elementType == .button && labels.contains(element.label) && element.isSelected
+        }
+        if snapshot.firstSnapshot(where: {
+            $0.identifier == "app.tab.\(initialTab)" && matchesTab($0)
+        }) != nil {
+            return true
+        }
+        if snapshot.firstSnapshot(where: { $0.elementType == .tabBar })?.firstSnapshot(
+            where: matchesTab) != nil
+        {
+            return true
+        }
+        guard
+            let map = snapshot.firstSnapshot(where: {
+                $0.elementType == .button && $0.label == "地图"
+            }),
+            let mine = snapshot.firstSnapshot(where: {
+                $0.elementType == .button && $0.label == "我的"
+            })
+        else { return false }
+        let horizontal = abs(map.frame.midY - mine.frame.midY) <= 1
+        return snapshot.firstSnapshot { element in
+            let delta =
+                horizontal
+                ? element.frame.midY - map.frame.midY : element.frame.midX - map.frame.midX
+            return matchesTab(element) && abs(delta) <= 1
+        } != nil
     }
 }

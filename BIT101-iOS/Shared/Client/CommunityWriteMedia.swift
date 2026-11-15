@@ -1,6 +1,6 @@
+#if DEBUG
 import Foundation
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum CommunityWriteMedia {
     static func jpeg() throws -> Data {

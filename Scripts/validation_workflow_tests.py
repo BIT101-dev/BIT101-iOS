@@ -73,7 +73,7 @@ def verify_build_workflow_inputs(fixture_environment, subject, run_subsuites: bo
                 "environment": fixture_environment,
                 "recordedAt": utc_now().isoformat(),
             }
-            for name in ("all", "release-runtime", "ui", "restore")
+            for name in ("all", "ui", "restore")
         },
     }
     core["groups"]["restore"]["summary"] = {"runID": "run", "inputDigest": "digest"}
@@ -402,17 +402,15 @@ def verify_selected_test_inventory(subject):
     )
     assert not subject.compilation_condition("os(iOS)", "network", platform="watchOS")
     assert not subject.compilation_condition("os(watchOS)", "network", platform="iOS")
-    assert subject.compilation_condition("DEBUG || RELEASE_NETWORK_SMOKE", "all")
+    assert subject.compilation_condition("DEBUG", "all")
     assert not subject.compilation_condition("os(macOS) || targetEnvironment(macCatalyst)", "all")
     assert subject.compilation_condition(
-        "BIT101_UI_TESTING && !targetEnvironment(macCatalyst)", "ui"
+        "DEBUG && !targetEnvironment(macCatalyst)", "ui"
     )
-    assert subject.compilation_condition("DEBUG && ICLOUD_CROSS_DEVICE_SMOKE", "icloud")
-    assert subject.compilation_condition("DEBUG && ICLOUD_CROSS_DEVICE_SMOKE", "build-icloud-smoke")
+    assert subject.compilation_condition("DEBUG", "icloud")
+    assert subject.compilation_condition("DEBUG", "build-all")
     assert not subject.compilation_condition("DEBUG", "release")
-    assert subject.compilation_condition(
-        "EXTENDED_AUTOMATION && BIT101_AUTOMATED_TESTING && BIT101_UI_TESTING && !DEBUG", "ui"
-    )
+    assert not subject.compilation_condition("DEBUG", "restore")
     from ui_rules import check_ui_test_inventory
 
     original_rglob, original_read = (Path.rglob, Path.read_text)

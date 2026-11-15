@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -9,7 +10,6 @@ import PaperFeature
 import ScheduleInfrastructure
 import TransportCore
 
-#if DEBUG || RELEASE_NETWORK_SMOKE
 @MainActor
 enum NetworkSmokeProductionSession {
     static func prepareReport(runID: String, dependencies: ReleaseNetworkSmokeDependencies)

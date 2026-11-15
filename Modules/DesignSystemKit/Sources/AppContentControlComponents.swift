@@ -403,8 +403,9 @@ extension View {
         excluding controlFrames: [CGRect]? = nil,
         onStep: @escaping (Int) -> Bool
     ) -> some View {
-        modifier(AppPageSwitchControls(
-            axis: axis, isEnabled: isEnabled, controlFrames: controlFrames, onStep: onStep))
+        modifier(
+            AppPageSwitchControls(
+                axis: axis, isEnabled: isEnabled, controlFrames: controlFrames, onStep: onStep))
     }
 }
 
@@ -419,8 +420,9 @@ private struct AppPageSwitchControls: ViewModifier {
         content.background {
             AppPageSwitchInput(
                 axis: axis, isEnabled: isEnabled,
-                controlFrames: controlFrames ?? measuredFrames, onStep: onStep)
-                .allowsHitTesting(false)
+                controlFrames: controlFrames ?? measuredFrames, onStep: onStep
+            )
+            .allowsHitTesting(false)
         }
         .onPreferenceChange(AppHorizontalControlFramesKey.self) { frames in
             if axis == .horizontal, controlFrames == nil, measuredFrames != frames {
@@ -461,6 +463,7 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         var axis = Axis.horizontal
         var animation: Animation?
         var onStep: (Int) -> Bool = { _ in false }
+        private var touchOrigin: CGPoint?
         lazy var pan: UIPanGestureRecognizer = {
             let recognizer = UIPanGestureRecognizer(target: self, action: #selector(didPan))
             recognizer.name = "app.page-switch"
@@ -493,8 +496,11 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         {
             let local = touch.location(in: self)
             let global = convert(local, to: nil)
-            return bounds.contains(local)
+            let accepted =
+                bounds.contains(local)
                 && !controlFrames.contains { $0.contains(global) }
+            if accepted, pan.state == .possible { touchOrigin = local }
+            return accepted
         }
 
         override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool
@@ -513,15 +519,35 @@ private struct AppPageSwitchInput: UIViewRepresentable {
         }
 
         @objc private func didPan() {
-            guard pan.state == .ended else { return }
+            guard pan.state == .ended else {
+                if pan.state == .cancelled || pan.state == .failed { touchOrigin = nil }
+                return
+            }
             let translation = pan.translation(in: self)
-            let distance = axis == .horizontal ? translation.x : translation.y
+            let stepDistance = axis == .horizontal ? translation.x : translation.y
+            let totalDistance =
+                touchOrigin.map {
+                    let end = pan.location(in: self)
+                    return axis == .horizontal ? end.x - $0.x : end.y - $0.y
+                } ?? stepDistance
+            touchOrigin = nil
+            let distance =
+                stepDistance * totalDistance > 0 && abs(totalDistance) > abs(stepDistance)
+                ? totalDistance : stepDistance
             guard abs(distance) >= 56 else { return }
             interactionEvidence?("interaction.AppPageSwitchInput.pan", "pan")
             AppHapticFeedback.selection {
                 withAnimation(animation) { onStep(distance < 0 ? 1 : -1) }
             }
         }
+    }
+}
+
+extension View {
+    public func appHostedNavigationVisibility(_ isVisible: Bool) -> some View {
+        opacity(isVisible ? 1 : 0)
+            .allowsHitTesting(isVisible)
+            .accessibilityHidden(!isVisible)
     }
 }
 

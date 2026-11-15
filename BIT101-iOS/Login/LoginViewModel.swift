@@ -69,8 +69,10 @@ enum LoginScreenState: Equatable {
         guard !hasBootstrapped else { return }
         hasBootstrapped = true
 
-        #if BIT101_UI_TESTING
-        await AppUITestBootstrap.prepareSessionIfNeeded()
+        #if DEBUG
+        if AppFileDirectories.isRunningUITest {
+            await AppUITestBootstrap.prepareSessionIfNeeded()
+        }
         #endif
         guard service.hasCachedSession else {
             screenState = .signedOut
@@ -166,7 +168,7 @@ enum LoginScreenState: Equatable {
     }
 }
 
-enum RegistrationVerificationMethod: String, CaseIterable {
+nonisolated enum RegistrationVerificationMethod: String, CaseIterable, Hashable, Sendable {
     case school = "统一身份认证"
     case email = "校园邮箱"
 }

@@ -145,8 +145,7 @@ def rendered_component_counts(facts: dict, syntax: dict[str, dict]) -> Counter:
 def refresh_status_surface_findings(path: str, rendered: dict) -> list[str]:
     invocations = rendered.get("invocations", [])
     starts = {
-        node["start"] for node in invocations
-        if call_name(node["calledExpression"]) == "HStack"
+        node["start"] for node in invocations if call_name(node["calledExpression"]) == "HStack"
     }
     calls = [node for node in invocations if node["start"] in starts]
     actual = {}
@@ -181,17 +180,31 @@ def list_row_layout_findings(syntax: dict[str, dict]) -> list[str]:
             Path(path).relative_to(ROOT).as_posix() if Path(path).is_relative_to(ROOT) else path
         )
         refresh_starts = {
-            node["start"] for node in facts.get("invocations", [])
-            if call_name(node["calledExpression"]) in {
-                "AppRefreshStatusRow", "CourseScheduleRefreshStatusRow", "DDLRefreshStatusRow",
-                "ClassroomRefreshStatusRow", "ScoreRefreshStatusRow",
+            node["start"]
+            for node in facts.get("invocations", [])
+            if call_name(node["calledExpression"])
+            in {
+                "AppRefreshStatusRow",
+                "CourseScheduleRefreshStatusRow",
+                "DDLRefreshStatusRow",
+                "ClassroomRefreshStatusRow",
+                "ScoreRefreshStatusRow",
             }
         }
         for node in facts.get("invocations", []):
             name = call_name(node["calledExpression"])
-            changes_surface = name in {
-                "clipShape", "cornerRadius", "mask", "containerShape", "listRowBackground",
-            } or name == "background" and bool(node.get("arguments"))
+            changes_surface = (
+                name
+                in {
+                    "clipShape",
+                    "cornerRadius",
+                    "mask",
+                    "containerShape",
+                    "listRowBackground",
+                }
+                or name == "background"
+                and bool(node.get("arguments"))
+            )
             if node["start"] in refresh_starts and changes_surface:
                 findings.append(f"{path}: 更新时间行的背景和圆角由共享组件持有")
         owners = {owner for source, owner in GROUPED_BROWSER_MASTER_ROLES if source == relative}
@@ -757,7 +770,8 @@ def visual_contract_present(
 
 def compact_tab_tint_findings(facts: dict) -> list[str]:
     tabs = [
-        node for node in facts.get("invocations", [])
+        node
+        for node in facts.get("invocations", [])
         if node["scope"] == ["AppCompactTabs"] and call_name(node["calledExpression"]) == "TabView"
     ]
     return [

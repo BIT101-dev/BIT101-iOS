@@ -1,3 +1,4 @@
+#if DEBUG
 import ClientCore
 import CommunityCore
 import CommunityTransport
@@ -18,8 +19,6 @@ import ScorePorts
 import TransportCore
 
 // MARK: - Release network smoke
-
-#if DEBUG || RELEASE_NETWORK_SMOKE
 
 @MainActor
 final class ReleaseNetworkSmokeRunner {
@@ -109,11 +108,13 @@ final class ReleaseNetworkSmokeRunner {
         } else {
             schoolSMSHandler = nil
         }
-        #if RELEASE_NETWORK_SMOKE
-        AppNativeSchoolAuthentication.smokeSMSCodeHandler = schoolSMSHandler
-        defer { AppNativeSchoolAuthentication.smokeSMSCodeHandler = nil }
-        #endif
+        if AppFileDirectories.isRunningNetworkSmoke {
+            AppNativeSchoolAuthentication.smokeSMSCodeHandler = schoolSMSHandler
+        }
         defer {
+            if AppFileDirectories.isRunningNetworkSmoke {
+                AppNativeSchoolAuthentication.smokeSMSCodeHandler = nil
+            }
             schoolSMSHandler = nil
             schoolSMSSchedule = nil
         }
